@@ -1,4 +1,23 @@
-// 1. Bibliotecas Padrão C/C++ (DEVEM VIR PRIMEIRO E SEMPRE NO TOPO)
+// 1. BLOCO DE COMPATIBILIDADE INTELLISENSE (Silencia erros no Visual Studio)
+#ifdef __INTELLISENSE__
+#include <stdarg.h>
+#include <stddef.h>
+#undef __builtin_va_list
+#define __builtin_va_list va_list
+#define __builtin_va_start(a,b)
+#define __builtin_va_end(a)
+#define __builtin_va_arg(a,b) ((b)0)
+#define __attribute__(x)
+#define __inline__ inline
+#define __restrict
+// Impede que o IntelliSense tente redeclarar funções de memória do SDK
+#define _STDLIB_H_
+#define _MALLOC_H_
+#define _SYS_MALLOC_H_
+#define _SYS_CDEFS_H_
+#endif
+
+// 2. Bibliotecas Padrão C/C++
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -6,13 +25,6 @@
 #include <sys/stat.h>
 #include <pthread.h>
 #include <stdarg.h>
-
-// 2. Correção do IntelliSense APENAS para o Visual Studio
-#ifdef __INTELLISENSE__
-#ifndef __builtin_va_list
-#define __builtin_va_list va_list
-#endif
-#endif
 
 // 3. Headers do SDK do PS4
 #include <orbis/libkernel.h>
@@ -22,13 +34,6 @@
 // 4. Headers Locais do Projeto
 #include "audio.h"
 #include "explorar.h" 
-
-#ifndef MENU_AUDIO_OPCOES
-#define MENU_AUDIO_OPCOES ((MenuLevel)12)
-#endif
-#ifndef MENU_MUSICAS
-#define MENU_MUSICAS ((MenuLevel)11)
-#endif
 
 // 5. Implementações Single-Header
 #define DR_WAV_IMPLEMENTATION
@@ -44,7 +49,6 @@ static bool sistemaAudioIniciado = false;
 static volatile bool comandoTrocar = false;
 static volatile bool comandoPausar = false;
 
-// Definição da variável da música atual
 char musicaAtual[256] = "PARADO";
 
 enum AudioType { AUDIO_NONE, AUDIO_WAV, AUDIO_MP3 };
@@ -158,7 +162,6 @@ static bool prepararArquivoAudio(char* caminhoFinal) {
     return true;
 }
 
-// RESTAURADO EXATAMENTE IGUAL AO CÓDIGO ORIGINAL QUE FUNCIONAVA
 static void* audioThreadFunc(void* argp) {
     if (!sistemaAudioIniciado) {
         sceAudioOutInit();
@@ -167,7 +170,7 @@ static void* audioThreadFunc(void* argp) {
 
     int32_t userId;
     if (sceUserServiceGetInitialUser(&userId) < 0) {
-        userId = ORBIS_USER_SERVICE_USER_ID_SYSTEM;
+        userId = 0xFF;
     }
 
     audioPort = sceAudioOutOpen(userId, ORBIS_AUDIO_OUT_PORT_TYPE_MAIN, 0, 256, 48000, ORBIS_AUDIO_OUT_PARAM_FORMAT_S16_STEREO);
@@ -179,11 +182,9 @@ static void* audioThreadFunc(void* argp) {
     drwav wav;
     drmp3 mp3;
     AudioType currentAudioType = AUDIO_NONE;
-
-    // SINGLE BUFFER ORIGINAL
     int16_t pSampleData[256 * 2];
-
     char caminhoAudio[256];
+
     if (!comandoPausar && prepararArquivoAudio(caminhoAudio)) {
         if (strstr(caminhoAudio, ".mp3") || strstr(caminhoAudio, ".MP3")) {
             if (drmp3_init_file(&mp3, caminhoAudio, NULL)) currentAudioType = AUDIO_MP3;
@@ -212,13 +213,13 @@ static void* audioThreadFunc(void* argp) {
         }
 
         if (comandoPausar || currentAudioType == AUDIO_NONE) {
-            for (int i = 0; i < 256 * 2; i++) pSampleData[i] = 0;
+            memset(pSampleData, 0, sizeof(pSampleData));
             sceAudioOutOutput(audioPort, pSampleData);
             continue;
         }
 
         size_t framesLidos = 0;
-        uint32_t currentChannels = 2; // Stereo por defeito
+        uint32_t currentChannels = 2;
 
         if (currentAudioType == AUDIO_WAV) {
             framesLidos = drwav_read_pcm_frames_s16(&wav, 256, pSampleData);
@@ -229,9 +230,8 @@ static void* audioThreadFunc(void* argp) {
             currentChannels = mp3.channels;
         }
 
-        // SE O ÁUDIO FOR MONO: Duplica para Stereo para não tocar em velocidade a dobrar
         if (framesLidos > 0 && currentChannels == 1) {
-            for (int i = framesLidos - 1; i >= 0; i--) {
+            for (int i = (int)framesLidos - 1; i >= 0; i--) {
                 pSampleData[i * 2] = pSampleData[i];
                 pSampleData[i * 2 + 1] = pSampleData[i];
             }
@@ -248,15 +248,13 @@ static void* audioThreadFunc(void* argp) {
                     strcpy(musicaAtual, proxima);
                     salvarConfiguracaoAudio();
 
-                    bool sucesso = false;
                     if (strstr(musicaAtual, ".mp3") || strstr(musicaAtual, ".MP3")) {
-                        if (drmp3_init_file(&mp3, musicaAtual, NULL)) { currentAudioType = AUDIO_MP3; sucesso = true; }
+                        if (drmp3_init_file(&mp3, musicaAtual, NULL)) currentAudioType = AUDIO_MP3;
                     }
                     else {
-                        if (drwav_init_file(&wav, musicaAtual, NULL)) { currentAudioType = AUDIO_WAV; sucesso = true; }
+                        if (drwav_init_file(&wav, musicaAtual, NULL)) currentAudioType = AUDIO_WAV;
                     }
-
-                    if (sucesso) continue;
+                    continue;
                 }
             }
             else {
@@ -264,12 +262,6 @@ static void* audioThreadFunc(void* argp) {
                 else if (currentAudioType == AUDIO_MP3) drmp3_seek_to_pcm_frame(&mp3, 0);
             }
             continue;
-        }
-
-        if (framesLidos < 256) {
-            for (size_t i = framesLidos * 2; i < 256 * 2; i++) pSampleData[i] = 0;
-            if (currentAudioType == AUDIO_WAV) drwav_seek_to_pcm_frame(&wav, 0);
-            else if (currentAudioType == AUDIO_MP3) drmp3_seek_to_pcm_frame(&mp3, 0);
         }
 
         sceAudioOutOutput(audioPort, pSampleData);
@@ -283,20 +275,12 @@ static void* audioThreadFunc(void* argp) {
 
 void inicializarAudio() {
     if (audioRodando) return;
-
     sceKernelMkdir("/data/HyperNeiva/Musicas", 0777);
     carregarConfiguracaoAudio();
-
     audioRodando = true;
-
-    if (strcmp(musicaAtual, "PARADO") == 0) comandoPausar = true;
-    else comandoPausar = false;
-
+    comandoPausar = (strcmp(musicaAtual, "PARADO") == 0);
     comandoTrocar = false;
-
-    if (pthread_create(&audioThreadId, NULL, audioThreadFunc, NULL) != 0) {
-        audioRodando = false;
-    }
+    pthread_create(&audioThreadId, NULL, audioThreadFunc, NULL);
 }
 
 void pararAudio() {
@@ -313,14 +297,8 @@ void tocarMusicaNova(const char* path) {
         comandoTrocar = false;
         return;
     }
-
-    if (strstr(path, "/data/") != NULL) {
-        strcpy(musicaAtual, path);
-    }
-    else {
-        sprintf(musicaAtual, "/data/HyperNeiva/Musicas/%s", path);
-    }
-
+    if (strstr(path, "/data/") != NULL) strcpy(musicaAtual, path);
+    else sprintf(musicaAtual, "/data/HyperNeiva/Musicas/%s", path);
     salvarConfiguracaoAudio();
     comandoPausar = false;
     comandoTrocar = true;
@@ -329,18 +307,13 @@ void tocarMusicaNova(const char* path) {
 void preencherMenuMusicas() {
     memset(nomes, 0, sizeof(nomes));
     totalItens = 0;
-
-    strcpy(nomes[totalItens], "PARAR MUSICA");
-    totalItens++;
-
+    strcpy(nomes[totalItens++], "PARAR MUSICA");
     DIR* d = opendir("/data/HyperNeiva/Musicas");
     if (d) {
         struct dirent* dir;
         while ((dir = readdir(d)) != NULL && totalItens < 3000) {
-            if (strstr(dir->d_name, ".wav") || strstr(dir->d_name, ".WAV") ||
-                strstr(dir->d_name, ".mp3") || strstr(dir->d_name, ".MP3")) {
-                strncpy(nomes[totalItens], dir->d_name, 63);
-                totalItens++;
+            if (strstr(dir->d_name, ".wav") || strstr(dir->d_name, ".mp3")) {
+                strncpy(nomes[totalItens++], dir->d_name, 63);
             }
         }
         closedir(d);
@@ -348,47 +321,22 @@ void preencherMenuMusicas() {
     menuAtual = MENU_MUSICAS;
 }
 
-// =========================================================
-// 5. FUNÇÕES DO MENU DE ÁUDIO (HUD VISUAL)
-// =========================================================
-
-// Declaração de variáveis globais manipuladas no main.cpp
-extern int off;
 extern int selAudioOpcao;
-
-// Estrutura Visual da HUD
-const char* listaOpcoesAudio[11] = {
-    "PLAY / PAUSE",
-    "PARAR",
-    "PROXIMA FAIXA",
-    "FAIXA ANTERIOR",
-    "VOLUME +",
-    "VOLUME -",
-    "ADIANTAR 10s",
-    "RETROCEDER 10s",
-    "REPETIR",
-    "---",
-    "VOLTAR"
-};
+extern bool showOpcoes;
+const char* listaOpcoesAudio[11] = { "PLAY / PAUSE", "PARAR", "PROXIMA FAIXA", "FAIXA ANTERIOR", "VOLUME +", "VOLUME -", "ADIANTAR 10s", "RETROCEDER 10s", "REPETIR", "---", "VOLTAR" };
 
 void abrirMenuAudioOpcoes() {
     menuAtual = MENU_AUDIO_OPCOES;
-    selAudioOpcao = 0; // Reseta a seleção ao abrir
+    selAudioOpcao = 0;
     showOpcoes = true;
 }
 
 void tratarSelecaoAudio(int op) {
     if (totalItens <= 0 && menuAtual == MENU_MUSICAS) return;
-
-    // HUD APENAS VISUAL POR ENQUANTO: Todos os botões estão neutros
     switch (op) {
-    case 10: // VOLTAR (Sair do HUD) - Único que precisa funcionar agora
-        showOpcoes = false;
-        break;
-
-    default: // OUTROS BOTÕES: Não fazem nada, só avisam na tela
-        sprintf(msgStatus, "FUNCAO EM DESENVOLVIMENTO");
-        msgTimer = 60;
-        break;
+    case 0: comandoPausar = !comandoPausar; break;
+    case 1: tocarMusicaNova("PARADO"); break;
+    case 10: showOpcoes = false; break;
+    default: sprintf(msgStatus, "FUNCAO EM DESENVOLVIMENTO"); msgTimer = 60; break;
     }
 }
