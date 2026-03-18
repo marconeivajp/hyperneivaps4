@@ -13,9 +13,14 @@
 #endif
 
 // 2. Definição ÚNICA do Tipo de Menu
+// 2. Definição ÚNICA do Tipo de Menu
 enum MenuLevel {
     ROOT,
-    MENU_BAIXAR,
+    MENU_BAIXAR,               // Tela inicial do Baixar (Repositórios)
+    MENU_BAIXAR_REPOS,         // Tela Repositórios (Games)
+    MENU_BAIXAR_GAMES_XMLS,    // Lista os arquivos .xml da pasta
+    MENU_BAIXAR_GAMES_LIST,    // Lista os jogos lidos de dentro do XML
+    MENU_BAIXAR_LINKS,         // Mostra Opção 1, Opção 2, etc.
     MENU_CAPAS,
     MENU_RETROARCH,
     MENU_CONSOLES,
