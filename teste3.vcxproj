@@ -68,7 +68,6 @@
     <ClCompile Include="main.cpp" />
     <ClCompile Include="build.bat" />
     <ClCompile Include="manager.cpp" />
-    <ClCompile Include="menu.cpp" />
     <ClCompile Include="menu_audio.cpp" />
     <ClCompile Include="menu_explorar.cpp" />
     <ClCompile Include="menu_imagens.cpp.cpp" />
@@ -93,13 +92,11 @@
   <ItemGroup>
     <ClInclude Include="audio.h" />
     <ClInclude Include="baixar.h" />
-    <ClInclude Include="controle.h" />
     <ClInclude Include="editar.h" />
     <ClInclude Include="explorar.h" />
     <ClInclude Include="globals.h" />
     <ClInclude Include="graphics.h" />
     <ClInclude Include="jogar.h" />
-    <ClInclude Include="menu.h" />
     <ClInclude Include="network.h" />
     <ClInclude Include="pastas.h" />
     <ClInclude Include="stb_image.h" />

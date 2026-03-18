@@ -100,9 +100,6 @@
     <ClCompile Include="jogar.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="menu.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <Image Include="sce_sys\icon0.png">
@@ -164,12 +161,6 @@
       <Filter>Source Files</Filter>
     </ClInclude>
     <ClInclude Include="audio.h">
-      <Filter>Source Files</Filter>
-    </ClInclude>
-    <ClInclude Include="menu.h">
-      <Filter>Source Files</Filter>
-    </ClInclude>
-    <ClInclude Include="controle.h">
       <Filter>Source Files</Filter>
     </ClInclude>
   </ItemGroup>
