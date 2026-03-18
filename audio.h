@@ -3,12 +3,9 @@
 
 #include "explorar.h" // Necessário para acessar o enum MenuLevel
 
-// Definição do nível de menu para músicas
+// Truque para manter o explorar.h intacto: definimos o MENU_MUSICAS aqui
 #ifndef MENU_MUSICAS
 #define MENU_MUSICAS ((MenuLevel)11)
-#endif
-#ifndef MENU_AUDIO_OPCOES
-#define MENU_AUDIO_OPCOES ((MenuLevel)12)
 #endif
 
 // Tornamos a musicaAtual acessível (global) para todo o sistema ler
@@ -21,7 +18,5 @@ void tocarMusicaNova(const char* path);
 void preencherMenuMusicas();
 void salvarConfiguracaoAudio();
 void carregarConfiguracaoAudio();
-void abrirMenuAudioOpcoes();
-void tratarSelecaoAudio(int op);
 
 #endif
