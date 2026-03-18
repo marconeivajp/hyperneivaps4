@@ -2,16 +2,18 @@
 #define CONTROLE_H
 
 #include <stdint.h>
+#include <orbis/Pad.h>
+#include <orbis/ImeDialog.h>
 
-// --- PROTÓTIPOS DAS FUNÇÕES ---
+// Variáveis globais de controle para que outros arquivos achem
+extern int cd;
+extern bool pCross;
+extern bool pCircle;
+extern bool pTri;
 
-/**
- * @brief Processa todas as entradas do comando DualShock 4.
- * * Esta função centraliza a lógica de navegação, confirmação e cancelamento,
- * agindo de forma diferente dependendo do menu atual definido no sistema.
- * * @param buttons Máscara de bits contendo os botões pressionados (pData.buttons).
- * @param userId ID do utilizador ativo para operações de sistema como o teclado.
- */
-void processarComando(uint32_t buttons, int32_t userId);
+// Declarações das funções chamadas por outros arquivos e pelo main
+void executarAcaoX();
+void executarAcaoBolinha();
+void processarControles(uint32_t botoes, int32_t uId, OrbisImeDialogSetting* imeSetting, uint16_t* imeTitle);
 
 #endif

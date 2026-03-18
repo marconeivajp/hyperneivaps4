@@ -31,6 +31,7 @@
 #include "jogar.h"
 #include "audio.h"
 #include "graphics.h"
+#include "controle.h" // <-- NOSSO NOVO SISTEMA DE CONTROLES AQUI
 
 // 5. Definições de fallback para Menus
 #ifndef MENU_MUSICAS
@@ -84,7 +85,7 @@ void preencherRoot() {
     memset(nomes, 0, sizeof(nomes));
     strcpy(nomes[0], "JOGAR"); strcpy(nomes[1], "BAIXAR");
     strcpy(nomes[2], "EDITAR"); strcpy(nomes[3], "EXPLORAR");
-    strcpy(nomes[4], "MUSICAS"); strcpy(nomes[5], "CRIAR"); // Adicionado a opção CRIAR (Notepad)
+    strcpy(nomes[4], "MUSICAS"); strcpy(nomes[5], "CRIAR"); 
     totalItens = 6; menuAtual = ROOT;
 }
 
@@ -157,7 +158,6 @@ int main(void) {
     }
 
     preencherRoot();
-    int cd = 0; bool pCross = false, pCircle = false, pTri = false;
 
     // Loop de Frame
     for (;;) {
@@ -197,170 +197,11 @@ int main(void) {
             goto FIM_CONTROLES;
         }
 
-        // 1. Processamento de Controles (Modo Edição)
-        if (editMode) {
-            processarControlesEdicao(pData.buttons);
-        }
-        // 2. Processamento de Controles (Navegação Padrão)
-        else {
-            // D-PAD Cima/Baixo
-            if (pData.buttons & (ORBIS_PAD_BUTTON_DOWN | ORBIS_PAD_BUTTON_UP)) {
-                if (cd <= 0) {
-                    if (showOpcoes) {
-                        if (menuAtual == MENU_AUDIO_OPCOES) {
-                            if (pData.buttons & ORBIS_PAD_BUTTON_DOWN && selAudioOpcao < 10) selAudioOpcao++;
-                            else if (pData.buttons & ORBIS_PAD_BUTTON_UP && selAudioOpcao > 0) selAudioOpcao--;
-                        }
-                        else {
-                            if (pData.buttons & ORBIS_PAD_BUTTON_DOWN && selOpcao < 9) selOpcao++;
-                            else if (pData.buttons & ORBIS_PAD_BUTTON_UP && selOpcao > 0) selOpcao--;
-                        }
-                    }
-                    else {
-                        if (pData.buttons & ORBIS_PAD_BUTTON_DOWN && sel < (totalItens - 1)) { sel++; if (sel >= (off + 6)) off++; }
-                        else if (pData.buttons & ORBIS_PAD_BUTTON_UP && sel > 0) { sel--; if (sel < off) off--; }
-                    }
-                    cd = 10;
-                }
-            }
-            else cd = 0;
-            if (cd > 0) cd--;
+        // ==========================================
+        // CHAMADA DO NOVO SISTEMA DE CONTROLES
+        // ==========================================
+        processarControles(pData.buttons, uId, imeSetting, imeTitle);
 
-            // Lógica de Scraper (Carregar imagem preview em background)
-            if (menuAtual == SCRAPER_LIST && strcmp(nomes[sel], ultimoJogoCarregado) != 0) {
-                char cp[256]; sprintf(cp, "/data/HyperNeiva/baixado/%s/Named_Boxarts/%s.png", listaConsoles[consoleAtual].nome, nomes[sel]);
-                FILE* fEx = fopen(cp, "rb");
-                if (fEx) { fclose(fEx); if (imgPreview) stbi_image_free(imgPreview); imgPreview = stbi_load(cp, &wP, &hP, &cP, 4); strcpy(ultimoJogoCarregado, nomes[sel]); }
-                else { if (imgPreview) { stbi_image_free(imgPreview); imgPreview = NULL; } strcpy(ultimoJogoCarregado, ""); }
-            }
-
-            // CROSS (Confirmar)
-            if (pData.buttons & ORBIS_PAD_BUTTON_CROSS) {
-                if (!pCross) {
-                    if (showOpcoes) {
-                        if (menuAtual == MENU_AUDIO_OPCOES) tratarSelecaoAudio(selAudioOpcao);
-                        else acaoArquivo(selOpcao);
-                    }
-                    else if (menuAtual == ROOT) {
-                        if (sel == 0) carregarXML("/app0/assets/lista.xml");
-                        else if (sel == 1) { memset(nomes, 0, sizeof(nomes)); strcpy(nomes[0], "CAPAS"); totalItens = 1; menuAtual = MENU_BAIXAR; }
-                        else if (sel == 2) preencherMenuEditar();
-                        else if (sel == 3) preencherExplorerHome();
-                        else if (sel == 4) preencherMenuMusicas();
-                        else if (sel == 5) {
-                            // Abre o Menu "Bloco de Notas"
-                            menuAtual = MENU_NOTEPAD;
-                            memset(bufferTecladoC, 0, sizeof(bufferTecladoC)); // Inicia folha limpa
-                        }
-                    }
-                    // NOVA LÓGICA DO BLOCO DE NOTAS (NOTEPAD) - Abrir Teclado
-                    else if (menuAtual == MENU_NOTEPAD) {
-                        memset(imeSetting, 0, sizeof(OrbisImeDialogSetting));
-
-                        imeSetting->userId = uId;
-                        imeSetting->type = (OrbisImeType)0; // ORBIS_TYPE_DEFAULT equivalente
-                        imeSetting->maxTextLength = 127;
-
-                        // Sincroniza o texto atual do bloco de notas de volta para o teclado para edição contínua
-                        memset(bufferTecladoW, 0, 1024);
-                        for (int i = 0; i < 127; i++) {
-                            bufferTecladoW[i] = (uint16_t)bufferTecladoC[i];
-                            if (bufferTecladoC[i] == '\0') break;
-                        }
-
-                        imeSetting->inputTextBuffer = (wchar_t*)bufferTecladoW;
-                        imeSetting->title = (wchar_t*)imeTitle;
-
-                        if (sceImeDialogInit(imeSetting, NULL) >= 0) {
-                            tecladoAtivo = true;
-                        }
-                        else {
-                            sprintf(msgStatus, "ERRO AO ABRIR TECLADO");
-                            msgTimer = 90;
-                        }
-                    }
-                    else if (menuAtual == JOGAR_XML && strcasecmp(nomes[sel], "sp") == 0) carregarXML("/app0/assets/sp.xml");
-                    else if (menuAtual == MENU_BAIXAR) { memset(nomes, 0, sizeof(nomes)); strcpy(nomes[0], "RETROARCH"); totalItens = 1; menuAtual = MENU_CAPAS; }
-                    else if (menuAtual == MENU_CAPAS) { memset(nomes, 0, sizeof(nomes)); for (int i = 0;i < 5;i++) strcpy(nomes[i], listaConsoles[i].nome); totalItens = 5; menuAtual = MENU_CONSOLES; }
-                    else if (menuAtual == MENU_CONSOLES) { consoleAtual = sel; acaoRede(NULL, true, false); }
-                    else if (menuAtual == MENU_EDITAR) {
-                        if (sel == 3) { listX = dLX; listY = dLY; listW = dLW; listH = dLH; capaX = dCX; capaY = dCY; capaW = dCW; capaH = dCH; discoX = dDX; discoY = dDY; discoW = dDW; discoH = dDH; salvarConfiguracao(); }
-                        else { editType = sel; preencherMenuEditTarget(); }
-                    }
-                    else if (menuAtual == MENU_EDIT_TARGET) {
-                        if (sel == 4) { if (editType == 0) { listX = dLX;listY = dLY; } else if (editType == 1) { listW = dLW;listH = dLH; } salvarConfiguracao(); preencherMenuEditar(); }
-                        else { editTarget = sel; editMode = true; }
-                    }
-                    else if (menuAtual == SCRAPER_LIST) { acaoRede(nomes[sel], false, true); }
-                    else if (menuAtual == MENU_EXPLORAR_HOME) {
-                        if (sel == 0) { strcpy(baseRaiz, "/data/HyperNeiva"); listarDiretorio(baseRaiz); }
-                        else if (sel == 1) { strcpy(baseRaiz, "/"); listarDiretorio(baseRaiz); }
-                        else if (sel == 2) { strcpy(baseRaiz, "/mnt/usb0"); listarDiretorio(baseRaiz); }
-                        else if (sel == 3) { strcpy(baseRaiz, "/mnt/usb1"); listarDiretorio(baseRaiz); }
-                    }
-                    else if (menuAtual == MENU_EXPLORAR) {
-                        if (nomes[sel][0] == '[') {
-                            char pL[128]; strncpy(pL, &nomes[sel][1], strlen(nomes[sel]) - 2); pL[strlen(nomes[sel]) - 2] = '\0';
-                            char nP[256]; sprintf(nP, "%s/%s", pathExplorar, pL); listarDiretorio(nP);
-                        }
-                    }
-                    else if (menuAtual == MENU_MUSICAS) {
-                        if (sel == 0) { tocarMusicaNova("PARADO"); }
-                        else {
-                            char mPath[256];
-                            sprintf(mPath, "/data/HyperNeiva/Musicas/%s", nomes[sel]);
-                            tocarMusicaNova(mPath);
-                        }
-                    }
-                    if (!editMode && !showOpcoes && menuAtual != SCRAPER_LIST && menuAtual != JOGAR_XML && menuAtual != MENU_NOTEPAD) { sel = 0; off = 0; }
-                    pCross = true;
-                }
-            }
-            else pCross = false;
-
-            // CIRCLE (Voltar)
-            if (pData.buttons & ORBIS_PAD_BUTTON_CIRCLE) {
-                if (!pCircle) {
-                    if (showOpcoes) {
-                        showOpcoes = false;
-                        if (menuAtual == MENU_AUDIO_OPCOES) menuAtual = MENU_MUSICAS;
-                    }
-                    else if (menuAtual == MENU_NOTEPAD) {
-                        // Sair do bloco de notas para o menu principal
-                        preencherRoot();
-                    }
-                    else if (menuAtual == JOGAR_XML) { if (strstr(xmlCaminhoAtual, "sp.xml")) carregarXML("/app0/assets/lista.xml"); else preencherRoot(); }
-                    else if (menuAtual == MENU_BAIXAR || menuAtual == MENU_EDITAR || menuAtual == MENU_EXPLORAR_HOME || menuAtual == MENU_MUSICAS) preencherRoot();
-                    else if (menuAtual == MENU_CAPAS) { memset(nomes, 0, sizeof(nomes)); strcpy(nomes[0], "CAPAS"); totalItens = 1; menuAtual = MENU_BAIXAR; }
-                    else if (menuAtual == MENU_CONSOLES) { memset(nomes, 0, sizeof(nomes)); strcpy(nomes[0], "RETROARCH"); totalItens = 1; menuAtual = MENU_CAPAS; }
-                    else if (menuAtual == SCRAPER_LIST) { memset(nomes, 0, sizeof(nomes)); for (int i = 0;i < 5;i++) strcpy(nomes[i], listaConsoles[i].nome); totalItens = 5; menuAtual = MENU_CONSOLES; }
-                    else if (menuAtual == MENU_EDIT_TARGET) preencherMenuEditar();
-                    else if (menuAtual == MENU_EXPLORAR) {
-                        if (strcmp(pathExplorar, baseRaiz) == 0) { preencherExplorerHome(); }
-                        else { char* last = strrchr(pathExplorar, '/'); if (last) { if (last == pathExplorar) strcpy(pathExplorar, "/"); else *last = '\0'; listarDiretorio(pathExplorar); } }
-                    }
-                    if (!showOpcoes) { sel = 0; off = 0; }
-                    pCircle = true;
-                }
-            }
-            else pCircle = false;
-
-            // TRIANGLE E R1 (Menus de Opções Contextuais)
-            if (menuAtual == MENU_EXPLORAR) {
-                if (pData.buttons & ORBIS_PAD_BUTTON_R1) { if (cd <= 0) { marcados[sel] = !marcados[sel]; cd = 12; } }
-                if (pData.buttons & ORBIS_PAD_BUTTON_TRIANGLE) { if (!pTri) { showOpcoes = !showOpcoes; selOpcao = 0; pTri = true; } }
-                else pTri = false;
-            }
-            else if (menuAtual == MENU_MUSICAS) { // Abrir Menu de Áudio com Triângulo
-                if (pData.buttons & ORBIS_PAD_BUTTON_TRIANGLE) {
-                    if (!pTri) { abrirMenuAudioOpcoes(); pTri = true; }
-                }
-                else pTri = false;
-            }
-            else if (menuAtual != MENU_AUDIO_OPCOES) {
-                showOpcoes = false;
-            }
-        }
 
     FIM_CONTROLES:
         // 3. Renderização da Lista e Elementos Visuais (Apenas fora do Notepad)

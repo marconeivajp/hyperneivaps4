@@ -10,6 +10,7 @@ if exist baixar.o del baixar.o
 if exist graphics.o del graphics.o
 if exist jogar.o del jogar.o
 if exist audio.o del audio.o
+if exist controle.o del controle.o
 if exist teste3.elf del teste3.elf
 if exist teste3.oelf del teste3.oelf
 if exist eboot.bin del eboot.bin
@@ -23,9 +24,10 @@ if exist eboot.bin del eboot.bin
 "C:\Program Files\LLVM\bin\clang++.exe" --target=x86_64-pc-freebsd12-elf -fPIC -funwind-tables -I"C:\OpenOrbis\include" -I"C:\OpenOrbis\include\c++\v1" -I"C:\OpenOrbis\include\orbis" -c graphics.cpp -o graphics.o
 "C:\Program Files\LLVM\bin\clang++.exe" --target=x86_64-pc-freebsd12-elf -fPIC -funwind-tables -I"C:\OpenOrbis\include" -I"C:\OpenOrbis\include\c++\v1" -I"C:\OpenOrbis\include\orbis" -c jogar.cpp -o jogar.o
 "C:\Program Files\LLVM\bin\clang++.exe" --target=x86_64-pc-freebsd12-elf -fPIC -funwind-tables -I"C:\OpenOrbis\include" -I"C:\OpenOrbis\include\c++\v1" -I"C:\OpenOrbis\include\orbis" -c audio.cpp -o audio.o
+"C:\Program Files\LLVM\bin\clang++.exe" --target=x86_64-pc-freebsd12-elf -fPIC -funwind-tables -I"C:\OpenOrbis\include" -I"C:\OpenOrbis\include\c++\v1" -I"C:\OpenOrbis\include\orbis" -c controle.cpp -o controle.o
 
 :: 2. LINKAGEM
-"C:\Program Files\LLVM\bin\ld.lld.exe" -m elf_x86_64 -pie --script "C:\OpenOrbis\link.x" --eh-frame-hdr -o teste3.elf "-LC:\OpenOrbis\lib" -lc -lm -lkernel -lc++ -lSceVideoOut -lSceAudioOut -lSceUserService -lSceSysmodule -lSceSysUtil -lScePad -lSceNet -lSceHttp -lSceSsl -lSceImeDialog -lSceCommonDialog "C:\OpenOrbis\lib\crt1.o" main.o explorar.o editar.o network.o baixar.o graphics.o jogar.o audio.o
+"C:\Program Files\LLVM\bin\ld.lld.exe" -m elf_x86_64 -pie --script "C:\OpenOrbis\link.x" --eh-frame-hdr -o teste3.elf "-LC:\OpenOrbis\lib" -lc -lm -lkernel -lc++ -lSceVideoOut -lSceAudioOut -lSceUserService -lSceSysmodule -lSceSysUtil -lScePad -lSceNet -lSceHttp -lSceSsl -lSceImeDialog -lSceCommonDialog "C:\OpenOrbis\lib\crt1.o" main.o explorar.o editar.o network.o baixar.o graphics.o jogar.o audio.o controle.o
 
 :: 3. CRIACAO DO BINARIO PS4
 "C:\OpenOrbis\bin\windows\create-fself.exe" -in=teste3.elf -out=teste3.oelf --eboot=eboot.bin --paid 0x3800000000000011
