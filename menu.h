@@ -2,34 +2,46 @@
 #define MENU_H
 
 #include <stdint.h>
-#include "explorar.h" // Necessário para o tipo MenuLevel
+#include <stdbool.h>
 
-// --- DEFINIÇÕES DE FALLBACK PARA MENUS ---
-// Garante que estas IDs de menu sejam visíveis em todo o projeto
-#ifndef MENU_MUSICAS
-#define MENU_MUSICAS ((MenuLevel)11)
+// 1. Correção para o IntelliSense do Visual Studio
+#ifdef __INTELLISENSE__
+#ifndef __builtin_va_list
+typedef void* __builtin_va_list;
 #endif
-#ifndef MENU_AUDIO_OPCOES
-#define MENU_AUDIO_OPCOES ((MenuLevel)12)
-#endif
-#ifndef MENU_NOTEPAD
-#define MENU_NOTEPAD ((MenuLevel)13)
 #endif
 
-// --- VARIÁVEIS GLOBAIS (EXTERN) ---
-// Estas variáveis são definidas no menu.cpp e acessadas pelo main e controle
+// 2. Definição ÚNICA do Tipo de Menu (Base do projeto)
+// Esta enumeração deve existir APENAS aqui para evitar "redefinition of MenuLevel"
+enum MenuLevel {
+    ROOT,
+    MENU_BAIXAR,
+    MENU_CAPAS,
+    MENU_RETROARCH,
+    MENU_CONSOLES,
+    MENU_EDITAR,
+    MENU_EDIT_TARGET,
+    SCRAPER_LIST,
+    JOGAR_XML,
+    MENU_EXPLORAR_HOME,
+    MENU_EXPLORAR,
+    MENU_MUSICAS,
+    MENU_AUDIO_OPCOES,
+    MENU_NOTEPAD
+};
+
+// 3. Declaração das Variáveis Globais (EXTERN)
+// O 'extern' avisa ao compilador que a variável existe, mas o espaço real é reservado no menu.cpp
 extern MenuLevel menuAtual;
 extern char nomes[3000][64];
 extern int totalItens;
 extern int sel;
 extern int off;
 
-// Mensagens de Status do Sistema
 extern char msgStatus[128];
 extern int msgTimer;
 
-// --- PROTÓTIPOS DAS FUNÇÕES ---
-// Funções responsáveis por alterar o estado dos itens exibidos na tela
+// 4. Protótipos das Funções do Menu
 void preencherRoot();
 void preencherExplorerHome();
 

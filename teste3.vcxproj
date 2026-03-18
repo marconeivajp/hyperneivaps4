@@ -72,9 +72,9 @@
     <ClCompile Include="menu_explorar.cpp" />
     <ClCompile Include="menu_imagens.cpp.cpp" />
     <ClCompile Include="menu_video.cpp" />
-    <ClCompile Include="pastas.cpp" />
     <ClCompile Include="network.cpp" />
     <ClCompile Include="pesquisar.cpp" />
+    <ClCompile Include="stb_implementations.cpp" />
   </ItemGroup>
   <ItemGroup>
     <Image Include="sce_sys\icon0.png" />
@@ -92,13 +92,13 @@
   <ItemGroup>
     <ClInclude Include="audio.h" />
     <ClInclude Include="baixar.h" />
+    <ClInclude Include="controle.h" />
     <ClInclude Include="editar.h" />
     <ClInclude Include="explorar.h" />
     <ClInclude Include="globals.h" />
     <ClInclude Include="graphics.h" />
     <ClInclude Include="jogar.h" />
     <ClInclude Include="network.h" />
-    <ClInclude Include="pastas.h" />
     <ClInclude Include="stb_image.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
