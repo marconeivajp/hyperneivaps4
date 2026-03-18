@@ -60,6 +60,7 @@
     <ClCompile Include="bloco_de_notas.cpp" />
     <ClCompile Include="controle.cpp" />
     <ClCompile Include="controle_virtual.cpp" />
+    <ClCompile Include="criar_pastas.cpp" />
     <ClCompile Include="editar.cpp" />
     <ClCompile Include="explorar.cpp" />
     <ClCompile Include="gestor_de_saves.cpp" />
@@ -69,6 +70,7 @@
     <ClCompile Include="build.bat" />
     <ClCompile Include="menu_audio.cpp" />
     <ClCompile Include="menu_explorar.cpp" />
+    <ClCompile Include="menu_grafico.cpp" />
     <ClCompile Include="menu_video.cpp" />
     <ClCompile Include="network.cpp" />
     <ClCompile Include="pesquisar.cpp" />
@@ -93,11 +95,13 @@
     <ClInclude Include="audio.h" />
     <ClInclude Include="baixar.h" />
     <ClInclude Include="controle.h" />
+    <ClInclude Include="criar_pastas.h" />
     <ClInclude Include="editar.h" />
     <ClInclude Include="explorar.h" />
     <ClInclude Include="graphics.h" />
     <ClInclude Include="jogar.h" />
     <ClInclude Include="menu.h" />
+    <ClInclude Include="menu_grafico.h" />
     <ClInclude Include="network.h" />
     <ClInclude Include="stb_image.h" />
   </ItemGroup>

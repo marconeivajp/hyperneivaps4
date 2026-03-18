@@ -1,9 +1,74 @@
 #include "graphics.h"
 #include <stdlib.h>
+#include <string.h>
+
+// Headers do SDK do PS4 (OpenOrbis) necessários para o vídeo
+#include <orbis/libkernel.h>
+#include <orbis/VideoOut.h>
 
 // Instanciação das variáveis da fonte
 stbtt_fontinfo font;
 int temF = 0;
+
+// --- VARIÁVEIS INTERNAS DE VÍDEO ---
+// Ficam "escondidas" aqui, o main.cpp já não precisa de saber delas
+int video = 0;
+int bA = 0; // Buffer Ativo (0 ou 1 para o Double Buffering)
+void* buffers[2];
+
+// =========================================================================
+// SISTEMA DE VÍDEO DO PS4
+// =========================================================================
+
+/**
+ * Inicializa a saída de vídeo nativa do PS4.
+ * Aloca memória direta ("Direct Memory") para a resolução 1920x1080 com Double Buffering.
+ */
+void inicializarVideo() {
+    // Abre a porta de vídeo principal da consola
+    video = sceVideoOutOpen(255, 0, 0, NULL);
+
+    // Calcula o tamanho da memória para a resolução Full HD (1920x1080) a 32 bits (4 bytes por pixel)
+    // A máscara com 0x1FFFFF garante o alinhamento de memória exigido pela placa gráfica do PS4
+    size_t bSz = ((1920 * 1080 * 4) + 0x1FFFFF) & ~0x1FFFFF;
+    off_t ph;
+
+    // Aloca e mapeia a "Direct Memory" (Memória RAM partilhada com o GPU) para os dois buffers
+    sceKernelAllocateDirectMemory(0, sceKernelGetDirectMemorySize(), bSz * 2, 2097152, 2, &ph);
+    void* vM = NULL;
+    sceKernelMapDirectMemory(&vM, bSz * 2, 0x33, 0, ph, 2097152);
+
+    // Atribui os dois buffers aos ponteiros (o segundo começa logo onde o primeiro acaba)
+    buffers[0] = vM;
+    buffers[1] = (void*)((uint8_t*)vM + bSz);
+
+    // Regista a resolução e as características na saída de vídeo do Orbis OS
+    OrbisVideoOutBufferAttribute attr;
+    memset(&attr, 0, sizeof(attr));
+    sceVideoOutSetBufferAttribute(&attr, 0x80000000, 1, 0, 1920, 1080, 1920);
+    sceVideoOutRegisterBuffers(video, 0, buffers, 2, &attr);
+}
+
+/**
+ * Retorna o ponteiro de memória onde a interface vai pintar os píxeis neste exato frame.
+ */
+uint32_t* obterBufferVideo() {
+    return (uint32_t*)buffers[bA];
+}
+
+/**
+ * Envia o frame que acabou de ser desenhado para a TV (Flip)
+ * e troca os buffers (Double Buffering) para pintar o próximo ecrã no fundo.
+ */
+void submeterTela() {
+    sceVideoOutSubmitFlip(video, bA, 1, 0);
+    bA = (bA + 1) % 2; // Alterna entre buffer 0 e 1 (Matemática circular)
+    sceKernelUsleep(16000); // Pausa de 16ms (~60 FPS) para não fritar o processador do PS4
+}
+
+// =========================================================================
+// FUNÇÕES DE DESENHO ORIGINAIS
+// =========================================================================
 
 void desenharRedimensionado(uint32_t* pixels, unsigned char* img, int imgW, int imgH, int dW, int dH, int posX, int posY) {
     if (!img || !pixels || dW <= 0 || dH <= 0) return;

@@ -8,6 +8,11 @@
 extern stbtt_fontinfo font;
 extern int temF;
 
+// --- FUNÇÕES DE VÍDEO DO PS4 (NOVO) ---
+void inicializarVideo();
+uint32_t* obterBufferVideo();
+void submeterTela();
+
 // Funções de desenho
 void desenharRedimensionado(uint32_t* pixels, unsigned char* img, int imgW, int imgH, int dW, int dH, int posX, int posY);
 void desenharDiscoRedondo(uint32_t* pixels, unsigned char* img, int imgW, int imgH, int dW, int dH, int posX, int posY);
