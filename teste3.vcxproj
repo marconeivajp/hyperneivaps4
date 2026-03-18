@@ -1,0 +1,110 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" ToolsVersion="15.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Debug|x64">
+      <Configuration>Debug</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release|x64">
+      <Configuration>Release</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+  </ItemGroup>
+  <PropertyGroup Label="Globals">
+    <VCProjectVersion>15.0</VCProjectVersion>
+    <ProjectGuid>{d871c40b-567a-4bb5-8666-79b09460738e}</ProjectGuid>
+    <Keyword>Win32Proj</Keyword>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'" Label="Configuration">
+    <ConfigurationType>Makefile</ConfigurationType>
+    <UseDebugLibraries>true</UseDebugLibraries>
+    <PlatformToolset>v141</PlatformToolset>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'" Label="Configuration">
+    <ConfigurationType>Makefile</ConfigurationType>
+    <UseDebugLibraries>false</UseDebugLibraries>
+    <PlatformToolset>v141</PlatformToolset>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <ImportGroup Label="ExtensionSettings">
+  </ImportGroup>
+  <ImportGroup Label="Shared">
+  </ImportGroup>
+  <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <PropertyGroup Label="UserMacros" />
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+    <NMakeOutput>eboot.bin</NMakeOutput>
+    <NMakePreprocessorDefinitions>_DEBUG;$(NMakePreprocessorDefinitions)</NMakePreprocessorDefinitions>
+    <NMakeBuildCommandLine>call build.bat</NMakeBuildCommandLine>
+    <NMakeReBuildCommandLine>call build.bat</NMakeReBuildCommandLine>
+    <NMakeCleanCommandLine>
+    </NMakeCleanCommandLine>
+    <OutDir>$(SolutionDir)</OutDir>
+    <NMakeIncludeSearchPath>$(OO_PS4_TOOLCHAIN)\include;$(NMakeIncludeSearchPath);C:\OpenOrbis\include;C:\OpenOrbis\include\orbis</NMakeIncludeSearchPath>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <NMakeOutput>eboot.bin</NMakeOutput>
+    <NMakePreprocessorDefinitions>NDEBUG;$(NMakePreprocessorDefinitions)</NMakePreprocessorDefinitions>
+  </PropertyGroup>
+  <ItemDefinitionGroup>
+  </ItemDefinitionGroup>
+  <ItemGroup>
+    <ClCompile Include="audio.cpp" />
+    <ClCompile Include="baixar.cpp" />
+    <ClCompile Include="controle.cpp" />
+    <ClCompile Include="editar.cpp" />
+    <ClCompile Include="explorar.cpp" />
+    <ClCompile Include="explorar_logica.cpp" />
+    <ClCompile Include="gestor_de_saves.cpp" />
+    <ClCompile Include="graphics.cpp" />
+    <ClCompile Include="jogar.cpp" />
+    <ClCompile Include="logica_jogar.cpp" />
+    <ClCompile Include="main.cpp" />
+    <ClCompile Include="build.bat" />
+    <ClCompile Include="manager.cpp" />
+    <ClCompile Include="menu.cpp" />
+    <ClCompile Include="menu_audio.cpp" />
+    <ClCompile Include="menu_explorar.cpp" />
+    <ClCompile Include="menu_imagens.cpp.cpp" />
+    <ClCompile Include="menu_video.cpp" />
+    <ClCompile Include="pastas.cpp" />
+    <ClCompile Include="network.cpp" />
+    <ClCompile Include="pesquisar.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <Image Include="sce_sys\icon0.png" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="assets\audio\.gitkeep" />
+    <None Include="assets\fonts\.gitkeep" />
+    <None Include="assets\images\.gitkeep" />
+    <None Include="assets\misc\.gitkeep" />
+    <None Include="assets\videos\.gitkeep" />
+    <None Include="sce_module\libc.prx" />
+    <None Include="sce_module\libSceFios2.prx" />
+    <None Include="sce_sys\about\right.sprx" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="audio.h" />
+    <ClInclude Include="baixar.h" />
+    <ClInclude Include="controle.h" />
+    <ClInclude Include="editar.h" />
+    <ClInclude Include="explorar.h" />
+    <ClInclude Include="globals.h" />
+    <ClInclude Include="graphics.h" />
+    <ClInclude Include="jogar.h" />
+    <ClInclude Include="menu.h" />
+    <ClInclude Include="network.h" />
+    <ClInclude Include="pastas.h" />
+    <ClInclude Include="stb_image.h" />
+  </ItemGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+  <ImportGroup Label="ExtensionTargets">
+  </ImportGroup>
+</Project>
