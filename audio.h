@@ -2,6 +2,7 @@
 #define AUDIO_H
 
 #include "explorar.h" // Necessário para acessar o enum MenuLevel
+#include "menu.h"
 
 // Truque para manter o explorar.h intacto: definimos o MENU_MUSICAS aqui
 #ifndef MENU_MUSICAS

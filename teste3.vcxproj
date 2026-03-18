@@ -62,17 +62,13 @@
     <ClCompile Include="controle_virtual.cpp" />
     <ClCompile Include="editar.cpp" />
     <ClCompile Include="explorar.cpp" />
-    <ClCompile Include="explorar_logica.cpp" />
     <ClCompile Include="gestor_de_saves.cpp" />
     <ClCompile Include="graphics.cpp" />
     <ClCompile Include="jogar.cpp" />
-    <ClCompile Include="logica_jogar.cpp" />
     <ClCompile Include="main.cpp" />
     <ClCompile Include="build.bat" />
-    <ClCompile Include="manager.cpp" />
     <ClCompile Include="menu_audio.cpp" />
     <ClCompile Include="menu_explorar.cpp" />
-    <ClCompile Include="menu_imagens.cpp.cpp" />
     <ClCompile Include="menu_video.cpp" />
     <ClCompile Include="network.cpp" />
     <ClCompile Include="pesquisar.cpp" />
@@ -99,7 +95,6 @@
     <ClInclude Include="controle.h" />
     <ClInclude Include="editar.h" />
     <ClInclude Include="explorar.h" />
-    <ClInclude Include="globals.h" />
     <ClInclude Include="graphics.h" />
     <ClInclude Include="jogar.h" />
     <ClInclude Include="menu.h" />
