@@ -3,7 +3,9 @@
 
 #include <stdbool.h>
 
-// Estrutura de Consoles suportados
+// ==========================================================
+// ESTRUTURAS E VARIÁVEIS DE SCRAPING (EXISTENTES)
+// ==========================================================
 struct Console {
     const char* nome;
     const char* pathServidor;
@@ -20,5 +22,21 @@ extern char ultimoJogoCarregado[64];
 
 // Funções de Scraping
 void acaoRede(const char* jogo, bool buscarLista, bool salvarNoHD);
+
+// ==========================================================
+// SISTEMA DE REPOSITÓRIO DE JOGOS XML (NOVOS)
+// ==========================================================
+void preencherMenuBaixar();
+void preencherMenuRepositorios();
+void listarXMLsRepositorio();
+void abrirXMLRepositorio(const char* xmlFile);
+void mostrarLinksJogo(int gameIndex);
+
+// Variáveis para o controle.cpp saber qual link/XML processar
+extern char linksAtuais[10][512];
+extern char caminhoXMLAtual[256];
+
+// Funções de Download
+void iniciarDownload(const char* url);
 
 #endif
