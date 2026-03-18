@@ -14,6 +14,8 @@
 
 // Aqui nós NÃO incluímos globals.h nem menu.h diretamente para evitar o erro de redefinição,
 // pois eles já vêm "de carona" com os includes abaixo:
+
+#include "menu.h"
 #include "explorar.h"
 #include "editar.h"
 #include "network.h"
@@ -22,16 +24,7 @@
 #include "audio.h"
 #include "graphics.h"
 
-// 1. Definições de fallback para os Menus com a conversão (cast) correta restaurada
-#ifndef MENU_MUSICAS
-#define MENU_MUSICAS ((MenuLevel)11)
-#endif
-#ifndef MENU_AUDIO_OPCOES
-#define MENU_AUDIO_OPCOES ((MenuLevel)12)
-#endif
-#ifndef MENU_NOTEPAD
-#define MENU_NOTEPAD ((MenuLevel)13)
-#endif
+
 
 // Globais definidas aqui para o linker achar
 int cd = 0;

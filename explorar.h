@@ -2,13 +2,7 @@
 #define EXPLORAR_H
 
 #include <stdbool.h>
-
-// Enumeração compartilhada do Nível do Menu
-enum MenuLevel {
-    ROOT, MENU_BAIXAR, MENU_CAPAS, MENU_RETROARCH, MENU_CONSOLES,
-    MENU_EDITAR, MENU_EDIT_TARGET, SCRAPER_LIST, JOGAR_XML,
-    MENU_EXPLORAR_HOME, MENU_EXPLORAR
-};
+#include "menu.h"
 
 // Estruturas
 struct ItemLista { char nome[64]; bool ehPasta; };
