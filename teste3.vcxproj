@@ -63,6 +63,7 @@
     <ClCompile Include="controle_editar.cpp" />
     <ClCompile Include="controle_explorar.cpp" />
     <ClCompile Include="controle_musicas.cpp" />
+    <ClCompile Include="controle_root.cpp" />
     <ClCompile Include="controle_virtual.cpp" />
     <ClCompile Include="criar_pastas.cpp" />
     <ClCompile Include="editar.cpp" />
@@ -103,6 +104,7 @@
     <ClInclude Include="controle_editar.h" />
     <ClInclude Include="controle_explorar.h" />
     <ClInclude Include="controle_musicas.h" />
+    <ClInclude Include="controle_root.h" />
     <ClInclude Include="controle_virtual.h" />
     <ClInclude Include="criar_pastas.h" />
     <ClInclude Include="editar.h" />
