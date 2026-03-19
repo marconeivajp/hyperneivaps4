@@ -1,3 +1,4 @@
+// --- INÍCIO DO ARQUIVO main.cpp ---
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -8,7 +9,7 @@
 #include <stdint.h>
 
 #ifdef __INTELLISENSE__
-#define __builtin_va_list va_list
+#define __builtin_va_list void*
 #endif
 
 #include <orbis/libkernel.h>
@@ -29,7 +30,7 @@
 #include "audio.h"
 #include "graphics.h"
 #include "controle.h"
-#include "criar_pastas.h" // <-- LIGA O NOSSO NOVO MÓDULO AQUI
+#include "criar_pastas.h"
 
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h" 
@@ -59,7 +60,6 @@ int main(void) {
     sceUserServiceInitialize(NULL); int32_t uId; sceUserServiceGetInitialUser(&uId);
     scePadInit(); int pad = scePadOpen(uId, 0, 0, NULL);
 
-    // Inicia a parte de vídeo através do graphics.cpp
     inicializarVideo();
 
     off_t imePh;
@@ -70,12 +70,9 @@ int main(void) {
     OrbisImeDialogSetting* imeSetting = (OrbisImeDialogSetting*)imeVm;
     bufferTecladoW = (uint16_t*)((uint8_t*)imeVm + 1024);
     uint16_t* imeTitle = (uint16_t*)((uint8_t*)bufferTecladoW + 1024);
-    uint16_t t[] = { 'E','s','c','r','e','v','a',' ','n','a',' ','F','o','l','h','a','\0' };
+    uint16_t t[] = { 'E','s','c','r','e','v','a',' ','a','q','u','i','\0' };
     memcpy(imeTitle, t, sizeof(t));
 
-    // ==========================================
-    // CHAMADA DO CRIAR_PASTAS AQUI
-    // ==========================================
     inicializarPastas();
     carregarConfiguracao();
 
@@ -99,36 +96,44 @@ int main(void) {
 
     for (;;) {
         OrbisPadData pData; scePadReadState(pad, &pData);
-
         uint32_t* p = obterBufferVideo();
-
         for (int i = 0; i < 1920 * 1080; i++) p[i] = 0xFF121212;
         if (backImg) desenharRedimensionado(p, backImg, wB, hB, backW, backH, backX, backY);
 
+        // --- LÓGICA DO TECLADO (VERSÃO SEM TRAVAMENTO) ---
         if (tecladoAtivo) {
             int stat = (int)sceImeDialogGetStatus();
-            if (stat == ORBIS_COMMON_DIALOG_STATUS_FINISHED) {
-                if (bufferTecladoW[0] != 0) {
+
+            // Se o status mudar de "RODANDO", a gente assume que acabou
+            if (stat != 1) { // 1 costuma ser o status de "Aberto/Ativo"
+                OrbisDialogResult res;
+                memset(&res, 0, sizeof(res));
+                sceImeDialogGetResult(&res);
+
+                if (res.endstatus == 0) { // Confirmou no R2
+                    memset(bufferTecladoC, 0, sizeof(bufferTecladoC));
                     for (int i = 0; i < 127; i++) {
-                        bufferTecladoC[i] = (char)bufferTecladoW[i];
                         if (bufferTecladoW[i] == 0) break;
+                        bufferTecladoC[i] = (char)(bufferTecladoW[i] & 0xFF);
                     }
-                    bufferTecladoC[127] = '\0';
-                    sprintf(msgStatus, "TEXTO ATUALIZADO!"); msgTimer = 120;
+                    strcpy(msgStatus, "TEXTO SALVO!");
                 }
                 else {
-                    memset(bufferTecladoC, 0, sizeof(bufferTecladoC));
-                    sprintf(msgStatus, "CANCELADO / VAZIO"); msgTimer = 90;
+                    strcpy(msgStatus, "CANCELADO!");
                 }
+
+                msgTimer = 120;
                 sceImeDialogTerm();
-                tecladoAtivo = false;
+                tecladoAtivo = false; // LIBERA O APP
             }
-            goto FIM_CONTROLES;
+            // Não damos "goto" aqui! Deixamos o app desenhar a interface por trás
+        }
+        else {
+            // Só processa botões se o teclado não estiver na tela
+            processarControles(pData.buttons, uId, imeSetting, imeTitle);
         }
 
-        processarControles(pData.buttons, uId, imeSetting, imeTitle);
-
-    FIM_CONTROLES:
+        // --- SEMPRE DESENHA A INTERFACE (Para a notificação aparecer!) ---
         desenharInterface(p);
         submeterTela();
     }
