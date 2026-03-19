@@ -1,8 +1,9 @@
 // --- INÍCIO DO ARQUIVO controle_root.cpp ---
 #include <stdio.h>
+#include <stdlib.h> // Para o malloc e free (memória)
 #include <stdarg.h>
 #include <string.h>
-#include <dirent.h> // ADICIONADO PARA VERIFICAR DIRETÓRIOS
+#include <dirent.h>
 
 #ifdef __INTELLISENSE__
 #define __builtin_va_list void*
@@ -11,12 +12,21 @@
 #include "controle_root.h"
 #include "menu.h"
 #include "stb_image.h"
-#include "audio.h" // IMPORTADO PARA TOCAR A MÚSICA
+#include "audio.h"
 
-// --- NOVAS VARIÁVEIS GLOBAIS PARA O VISUALIZADOR DE IMAGENS ---
+// VARIÁVEIS GLOBAIS DA IMAGEM
 bool visualizandoMidiaImagem = false;
 unsigned char* imgMidia = NULL;
 int wM = 0, hM = 0, cM = 0;
+float zoomMidia = 1.0f;
+bool fullscreenMidia = false;
+
+// VARIÁVEIS GLOBAIS PARA O LEITOR DE TEXTO
+bool visualizandoMidiaTexto = false;
+char* textoMidiaBuffer = NULL;
+char* linhasTexto[5000]; // Suporta até 5000 linhas de código/texto
+int totalLinhasTexto = 0;
+int textoMidiaScroll = 0;
 
 extern MenuLevel menuAtual;
 extern int sel;
@@ -26,7 +36,6 @@ extern char ultimoJogoCarregado[64];
 extern unsigned char* imgPreview;
 extern char bufferTecladoC[128];
 
-// Variáveis de estado e notificação
 extern char caminhoXMLAtual[256];
 extern char caminhoMidiaAtual[512];
 extern char msgStatus[128];
@@ -42,8 +51,13 @@ extern void preencherMenuMidia();
 extern void abrirPastaMidia(const char* caminho);
 
 void acaoCross_Root() {
-    // Se estiver visualizando uma imagem em tela cheia, ignora o botão X
-    if (visualizandoMidiaImagem) return;
+    if (visualizandoMidiaImagem) {
+        fullscreenMidia = !fullscreenMidia;
+        if (!fullscreenMidia) zoomMidia = 1.0f;
+        return;
+    }
+    // Impede o botão X de mexer no fundo enquanto estiver lendo
+    if (visualizandoMidiaTexto) return;
 
     if (menuAtual == ROOT) {
         if (sel == 0) carregarXML("/app0/assets/lista.xml");
@@ -63,7 +77,7 @@ void acaoCross_Root() {
     else if (menuAtual == JOGAR_XML && strcasecmp(nomes[sel], "sp") == 0) {
         carregarXML("/app0/assets/sp.xml");
     }
-    else if (menuAtual == MENU_MIDIA) { // <-- DENTRO DA ABA MÍDIA
+    else if (menuAtual == MENU_MIDIA) {
         if (strcmp(nomes[sel], "Pasta vazia") == 0) return;
 
         char novoCaminho[512];
@@ -71,38 +85,100 @@ void acaoCross_Root() {
 
         DIR* chk = opendir(novoCaminho);
         if (chk) {
-            // É UMA PASTA: Entra nela
             closedir(chk);
             abrirPastaMidia(novoCaminho);
         }
         else {
-            // É UM ARQUIVO: Verifica o formato
             int len = strlen(nomes[sel]);
 
-            // 1. VERIFICA SE É ÁUDIO (MP3 ou WAV)
+            // 1. VERIFICA ÁUDIO
             if (len > 4 && (strcasecmp(&nomes[sel][len - 4], ".mp3") == 0 || strcasecmp(&nomes[sel][len - 4], ".wav") == 0)) {
                 tocarMusicaNova(novoCaminho);
                 sprintf(msgStatus, "TOCANDO: %s", nomes[sel]);
                 msgTimer = 180;
             }
-            // 2. VERIFICA SE É IMAGEM (PNG, JPG, JPEG)
+            // 2. VERIFICA IMAGEM
             else if ((len > 4 && (strcasecmp(&nomes[sel][len - 4], ".png") == 0 || strcasecmp(&nomes[sel][len - 4], ".jpg") == 0)) ||
                 (len > 5 && strcasecmp(&nomes[sel][len - 5], ".jpeg") == 0)) {
 
-                // Limpa imagem anterior, caso exista na memória
                 if (imgMidia) { stbi_image_free(imgMidia); imgMidia = NULL; }
-
-                // Carrega a nova imagem
                 imgMidia = stbi_load(novoCaminho, &wM, &hM, &cM, 4);
                 if (imgMidia) {
-                    visualizandoMidiaImagem = true; // Ativa o modo tela cheia
+                    visualizandoMidiaImagem = true;
+                    zoomMidia = 1.0f;
+                    fullscreenMidia = false;
                 }
                 else {
                     strcpy(msgStatus, "ERRO AO CARREGAR IMAGEM");
                     msgTimer = 120;
                 }
             }
-            // 3. OUTROS ARQUIVOS NÃO SUPORTADOS
+            // 3. VERIFICA ARQUIVOS DE TEXTO, CÓDIGO E BINÁRIOS LIBERADOS
+            else if ((len > 4 && (strcasecmp(&nomes[sel][len - 4], ".txt") == 0 ||
+                strcasecmp(&nomes[sel][len - 4], ".xml") == 0 ||
+                strcasecmp(&nomes[sel][len - 4], ".ini") == 0 ||
+                strcasecmp(&nomes[sel][len - 4], ".cpp") == 0 ||
+                strcasecmp(&nomes[sel][len - 4], ".doc") == 0 ||
+                strcasecmp(&nomes[sel][len - 4], ".bin") == 0 ||
+                strcasecmp(&nomes[sel][len - 4], ".log") == 0 ||
+                strcasecmp(&nomes[sel][len - 4], ".csv") == 0 ||
+                strcasecmp(&nomes[sel][len - 4], ".bat") == 0 ||
+                strcasecmp(&nomes[sel][len - 4], ".css") == 0 ||
+                strcasecmp(&nomes[sel][len - 4], ".php") == 0)) ||
+                (len > 5 && (strcasecmp(&nomes[sel][len - 5], ".json") == 0 ||
+                    strcasecmp(&nomes[sel][len - 5], ".docx") == 0 ||
+                    strcasecmp(&nomes[sel][len - 5], ".html") == 0 ||
+                    strcasecmp(&nomes[sel][len - 5], ".yaml") == 0)) ||
+                (len > 3 && (strcasecmp(&nomes[sel][len - 3], ".md") == 0 ||
+                    strcasecmp(&nomes[sel][len - 3], ".js") == 0 ||
+                    strcasecmp(&nomes[sel][len - 3], ".py") == 0 ||
+                    strcasecmp(&nomes[sel][len - 3], ".sh") == 0)) ||
+                (len > 2 && (strcasecmp(&nomes[sel][len - 2], ".h") == 0 ||
+                    strcasecmp(&nomes[sel][len - 2], ".c") == 0))) {
+
+                FILE* f = fopen(novoCaminho, "rb");
+                if (f) {
+                    fseek(f, 0, SEEK_END);
+                    long fsize = ftell(f);
+                    fseek(f, 0, SEEK_SET);
+
+                    if (textoMidiaBuffer) free(textoMidiaBuffer);
+                    textoMidiaBuffer = (char*)malloc(fsize + 1);
+
+                    if (textoMidiaBuffer) {
+                        fread(textoMidiaBuffer, 1, fsize, f);
+                        textoMidiaBuffer[fsize] = '\0';
+                        fclose(f);
+
+                        totalLinhasTexto = 0;
+                        textoMidiaScroll = 0;
+                        linhasTexto[0] = textoMidiaBuffer;
+                        totalLinhasTexto++;
+
+                        for (long i = 0; i < fsize; i++) {
+                            // Substitui quebras de linha e caracteres nulos (comuns em .bin e .doc) por espaços ou pulos
+                            if (textoMidiaBuffer[i] == '\r' || textoMidiaBuffer[i] == '\0') textoMidiaBuffer[i] = ' ';
+                            if (textoMidiaBuffer[i] == '\n') {
+                                textoMidiaBuffer[i] = '\0';
+                                if (totalLinhasTexto < 5000) {
+                                    linhasTexto[totalLinhasTexto] = &textoMidiaBuffer[i + 1];
+                                    totalLinhasTexto++;
+                                }
+                            }
+                        }
+                        visualizandoMidiaTexto = true;
+                    }
+                    else {
+                        fclose(f);
+                        strcpy(msgStatus, "ARQUIVO GIGANTE DEMAIS!");
+                        msgTimer = 120;
+                    }
+                }
+                else {
+                    strcpy(msgStatus, "ERRO AO LER ARQUIVO");
+                    msgTimer = 120;
+                }
+            }
             else {
                 strcpy(msgStatus, "ARQUIVO NAO SUPORTADO");
                 msgTimer = 120;
@@ -112,10 +188,18 @@ void acaoCross_Root() {
 }
 
 void acaoCircle_Root() {
-    // Se a imagem estiver aberta, o Bolinha apenas fecha a imagem e não sai da pasta
     if (visualizandoMidiaImagem) {
         visualizandoMidiaImagem = false;
+        fullscreenMidia = false;
+        zoomMidia = 1.0f;
         if (imgMidia) { stbi_image_free(imgMidia); imgMidia = NULL; }
+        return;
+    }
+
+    // QUANDO APERTAR BOLINHA, FECHA O TEXTO E LIMPA A RAM
+    if (visualizandoMidiaTexto) {
+        visualizandoMidiaTexto = false;
+        if (textoMidiaBuffer) { free(textoMidiaBuffer); textoMidiaBuffer = NULL; }
         return;
     }
 
