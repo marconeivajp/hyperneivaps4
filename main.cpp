@@ -8,8 +8,11 @@
 #include <wchar.h>
 #include <stdint.h>
 
+
 #ifdef __INTELLISENSE__
+#ifndef __builtin_va_list
 #define __builtin_va_list void*
+#endif
 #endif
 
 #include <orbis/libkernel.h>

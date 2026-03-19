@@ -4,6 +4,13 @@
 #include <string.h>
 #include <stdlib.h>
 
+#include <stdarg.h>
+#ifdef __INTELLISENSE__
+#ifndef __builtin_va_list
+#define __builtin_va_list void*
+#endif
+#endif
+
 char xmlCaminhoAtual[256] = "";
 
 void carregarXML(const char* path) {

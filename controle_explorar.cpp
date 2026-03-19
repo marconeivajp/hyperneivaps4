@@ -3,8 +3,12 @@
 #include <stdarg.h>
 #include <string.h>
 
+
+
 #ifdef __INTELLISENSE__
+#ifndef __builtin_va_list
 #define __builtin_va_list void*
+#endif
 #endif
 
 #include "controle_explorar.h"

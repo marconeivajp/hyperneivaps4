@@ -3,8 +3,11 @@
 #include <stdarg.h>
 #include <string.h>
 
+
 #ifdef __INTELLISENSE__
+#ifndef __builtin_va_list
 #define __builtin_va_list void*
+#endif
 #endif
 
 #include "controle.h"
@@ -30,6 +33,8 @@ bool pCross = false;
 bool pCircle = false;
 bool pTri = false;
 
+extern void acaoCircle_Notepad();
+extern void acaoCross_Notepad(int32_t uId, OrbisImeDialogSetting* imeSetting, uint16_t* imeTitle);
 extern MenuLevel menuAtual;
 extern bool editMode;
 extern bool showOpcoes;
