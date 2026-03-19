@@ -4,6 +4,13 @@
 #include <string.h>
 #include <orbis/Pad.h>
 
+#include <stdarg.h>
+#ifdef __INTELLISENSE__
+#ifndef __builtin_va_list
+#define __builtin_va_list void*
+#endif
+#endif
+
 struct LayoutConfig { int lX, lY, lW, lH, cX, cY, cW, cH, dX, dY, dW, dH, bX, bY, bW, bH; };
 
 // Valores padrão

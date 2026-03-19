@@ -9,6 +9,7 @@
 #include <orbis/Ssl.h>
 #include <orbis/libkernel.h>
 #include "stb_image.h"
+#include <stdarg.h> //
 
 // ==========================================================
 // VARIÁVEIS DO SCRAPING E RETROARCH
