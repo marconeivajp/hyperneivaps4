@@ -29,10 +29,18 @@ extern void acaoRede(const char* nome, bool ehConsole, bool ehScraper);
 extern void preencherMenuBaixar();
 extern void preencherRoot();
 
-void acaoCross_Baixar() {
+// Importa a função que abre o Teclado/Notepad
+extern void acaoCross_Notepad(int32_t uId, OrbisImeDialogSetting* imeSetting, uint16_t* imeTitle);
+
+void acaoCross_Baixar(int32_t uId, OrbisImeDialogSetting* imeSetting, uint16_t* imeTitle) {
     if (menuAtual == MENU_BAIXAR) {
         if (sel == 0) preencherMenuRepositorios();
         else if (sel == 1) { memset(nomes, 0, sizeof(nomes)); strcpy(nomes[0], "RETROARCH"); totalItens = 1; menuAtual = MENU_CAPAS; }
+        else if (sel == 2) {
+            // <-- LÓGICA DO LINK DIRETO (Abre o teclado direto) -->
+            menuAtual = MENU_BAIXAR_LINK_DIRETO;
+            acaoCross_Notepad(uId, imeSetting, imeTitle);
+        }
     }
     else if (menuAtual == MENU_BAIXAR_REPOS) { if (sel == 0) listarXMLsRepositorio(); }
     else if (menuAtual == MENU_BAIXAR_GAMES_XMLS) { if (strstr(nomes[sel], ".xml")) abrirXMLRepositorio(nomes[sel]); }
@@ -49,6 +57,7 @@ void acaoCross_Baixar() {
 
 void acaoCircle_Baixar() {
     if (menuAtual == MENU_BAIXAR) preencherRoot();
+    else if (menuAtual == MENU_BAIXAR_LINK_DIRETO) preencherMenuBaixar(); // <-- Retorna caso o cara cancele
     else if (menuAtual == MENU_BAIXAR_REPOS) preencherMenuBaixar();
     else if (menuAtual == MENU_BAIXAR_GAMES_XMLS) preencherMenuRepositorios();
     else if (menuAtual == MENU_BAIXAR_GAMES_LIST) listarXMLsRepositorio();

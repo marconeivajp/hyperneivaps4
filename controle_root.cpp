@@ -1,6 +1,6 @@
 // --- INÍCIO DO ARQUIVO controle_root.cpp ---
 #include <stdio.h>
-#include <stdlib.h> // Para o malloc e free (memória)
+#include <stdlib.h> 
 #include <stdarg.h>
 #include <string.h>
 #include <dirent.h>
@@ -24,7 +24,7 @@ bool fullscreenMidia = false;
 // VARIÁVEIS GLOBAIS PARA O LEITOR DE TEXTO
 bool visualizandoMidiaTexto = false;
 char* textoMidiaBuffer = NULL;
-char* linhasTexto[5000]; // Suporta até 5000 linhas de código/texto
+char* linhasTexto[5000];
 int totalLinhasTexto = 0;
 int textoMidiaScroll = 0;
 
@@ -56,7 +56,7 @@ void acaoCross_Root() {
         if (!fullscreenMidia) zoomMidia = 1.0f;
         return;
     }
-    // Impede o botão X de mexer no fundo enquanto estiver lendo
+
     if (visualizandoMidiaTexto) return;
 
     if (menuAtual == ROOT) {
@@ -113,7 +113,7 @@ void acaoCross_Root() {
                     msgTimer = 120;
                 }
             }
-            // 3. VERIFICA ARQUIVOS DE TEXTO, CÓDIGO E BINÁRIOS LIBERADOS
+            // 3. VERIFICA ARQUIVOS DE TEXTO, BINÁRIOS E PDF
             else if ((len > 4 && (strcasecmp(&nomes[sel][len - 4], ".txt") == 0 ||
                 strcasecmp(&nomes[sel][len - 4], ".xml") == 0 ||
                 strcasecmp(&nomes[sel][len - 4], ".ini") == 0 ||
@@ -124,7 +124,8 @@ void acaoCross_Root() {
                 strcasecmp(&nomes[sel][len - 4], ".csv") == 0 ||
                 strcasecmp(&nomes[sel][len - 4], ".bat") == 0 ||
                 strcasecmp(&nomes[sel][len - 4], ".css") == 0 ||
-                strcasecmp(&nomes[sel][len - 4], ".php") == 0)) ||
+                strcasecmp(&nomes[sel][len - 4], ".php") == 0 ||
+                strcasecmp(&nomes[sel][len - 4], ".pdf") == 0)) || // <-- PDF ADICIONADO AQUI
                 (len > 5 && (strcasecmp(&nomes[sel][len - 5], ".json") == 0 ||
                     strcasecmp(&nomes[sel][len - 5], ".docx") == 0 ||
                     strcasecmp(&nomes[sel][len - 5], ".html") == 0 ||
@@ -155,15 +156,19 @@ void acaoCross_Root() {
                         linhasTexto[0] = textoMidiaBuffer;
                         totalLinhasTexto++;
 
+                        int charCount = 0;
                         for (long i = 0; i < fsize; i++) {
-                            // Substitui quebras de linha e caracteres nulos (comuns em .bin e .doc) por espaços ou pulos
                             if (textoMidiaBuffer[i] == '\r' || textoMidiaBuffer[i] == '\0') textoMidiaBuffer[i] = ' ';
-                            if (textoMidiaBuffer[i] == '\n') {
+                            charCount++;
+
+                            // FORÇA A QUEBRA DE LINHA A CADA 90 LETRAS (Evita o bug de não rolar a página!)
+                            if (textoMidiaBuffer[i] == '\n' || charCount > 90) {
                                 textoMidiaBuffer[i] = '\0';
-                                if (totalLinhasTexto < 5000) {
+                                if (totalLinhasTexto < 4999) {
                                     linhasTexto[totalLinhasTexto] = &textoMidiaBuffer[i + 1];
                                     totalLinhasTexto++;
                                 }
+                                charCount = 0;
                             }
                         }
                         visualizandoMidiaTexto = true;
@@ -196,7 +201,6 @@ void acaoCircle_Root() {
         return;
     }
 
-    // QUANDO APERTAR BOLINHA, FECHA O TEXTO E LIMPA A RAM
     if (visualizandoMidiaTexto) {
         visualizandoMidiaTexto = false;
         if (textoMidiaBuffer) { free(textoMidiaBuffer); textoMidiaBuffer = NULL; }

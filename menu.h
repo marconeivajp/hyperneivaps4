@@ -13,12 +13,13 @@
 
 enum MenuLevel {
     ROOT,
-    MENU_MIDIA,
+    MENU_MIDIA,                // Aba de Mídias
     MENU_BAIXAR,
     MENU_BAIXAR_REPOS,
     MENU_BAIXAR_GAMES_XMLS,
     MENU_BAIXAR_GAMES_LIST,
     MENU_BAIXAR_LINKS,
+    MENU_BAIXAR_LINK_DIRETO,   // <--- NOVO ESTADO AQUI
     MENU_CAPAS,
     MENU_RETROARCH,
     MENU_CONSOLES,
@@ -42,11 +43,11 @@ extern int off;
 extern char msgStatus[128];
 extern int msgTimer;
 
-extern char caminhoMidiaAtual[512]; // NOVA VARIÁVEL AQUI
+extern char caminhoMidiaAtual[512];
 
 void preencherRoot();
 void preencherExplorerHome();
 void preencherMenuMidia();
-void abrirPastaMidia(const char* caminho); // NOVA FUNÇÃO AQUI
+void abrirPastaMidia(const char* caminho);
 
 #endif

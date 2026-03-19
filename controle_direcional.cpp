@@ -55,15 +55,15 @@ void processarNavegacaoDPad(uint32_t botoes) {
         if (botoes & (ORBIS_PAD_BUTTON_DOWN | ORBIS_PAD_BUTTON_UP)) {
             if (cd <= 0) {
                 if (botoes & ORBIS_PAD_BUTTON_UP) {
-                    textoMidiaScroll -= 3; // Rola 3 linhas para cima
+                    textoMidiaScroll -= 2; // Rola rápido pra cima
                     if (textoMidiaScroll < 0) textoMidiaScroll = 0;
                 }
                 else if (botoes & ORBIS_PAD_BUTTON_DOWN) {
-                    textoMidiaScroll += 3; // Rola 3 linhas para baixo
-                    if (textoMidiaScroll > totalLinhasTexto - 20) textoMidiaScroll = totalLinhasTexto - 20;
+                    textoMidiaScroll += 2; // Rola rápido pra baixo
+                    if (textoMidiaScroll > totalLinhasTexto - 15) textoMidiaScroll = totalLinhasTexto - 15;
                     if (textoMidiaScroll < 0) textoMidiaScroll = 0;
                 }
-                cd = 2; // Mantém ágil para leitura fluida
+                cd = 4; // Resfriamento equilibrado para leitura
             }
         }
         else {
