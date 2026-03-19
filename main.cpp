@@ -51,6 +51,8 @@ char bufferTecladoC[128] = "";
 unsigned char* capasAssets[6], * discosAssets[6], * backImg = NULL;
 int wC[6], hC[6], cC[6], wD[6], hD[6], cD[6], wB, hB, cB;
 
+extern void acessarSiteNavegador(const char* url);
+
 int main(void) {
     initNetwork();
     inicializarAudio();
@@ -102,7 +104,6 @@ int main(void) {
         for (int i = 0; i < 1920 * 1080; i++) p[i] = 0xFF121212;
         if (backImg) desenharRedimensionado(p, backImg, wB, hB, backW, backH, backX, backY);
 
-        // --- LÓGICA DO TECLADO (VERSÃO COM INTERCEPTAÇÃO DE DOWNLOAD) ---
         if (tecladoAtivo) {
             int stat = (int)sceImeDialogGetStatus();
 
@@ -111,25 +112,43 @@ int main(void) {
                 memset(&res, 0, sizeof(res));
                 sceImeDialogGetResult(&res);
 
-                if (res.endstatus == 0) { // Confirmou no R2 ou Enter
+                if (res.endstatus == 0) {
                     memset(bufferTecladoC, 0, sizeof(bufferTecladoC));
                     for (int i = 0; i < 127; i++) {
                         if (bufferTecladoW[i] == 0) break;
                         bufferTecladoC[i] = (char)(bufferTecladoW[i] & 0xFF);
                     }
 
-                    // <-- VERIFICA SE O TECLADO FOI ABERTO PELO LINK DIRETO -->
                     if (menuAtual == MENU_BAIXAR_LINK_DIRETO) {
-                        iniciarDownload(bufferTecladoC); // Inicia o download
-                        menuAtual = MENU_BAIXAR;         // Volta pro menu principal de downloads
+                        iniciarDownload(bufferTecladoC);
+                        menuAtual = MENU_BAIXAR;
+                    }
+                    else if (menuAtual == MENU_BAIXAR_NAVEGADOR_URL) {
+                        acessarSiteNavegador(bufferTecladoC);
+                    }
+                    else if (menuAtual == MENU_BAIXAR_NAVEGADOR_GOOGLE) {
+                        // <-- AGORA FORMATADO DE FORMA SEGURA COM LIMITES -->
+                        char urlGoogle[1024];
+                        char formatado[512] = { 0 };
+                        int pos = 0;
+                        for (int k = 0; bufferTecladoC[k] && pos < 500; k++) {
+                            if (bufferTecladoC[k] == ' ') formatado[pos++] = '+';
+                            else formatado[pos++] = bufferTecladoC[k];
+                        }
+                        formatado[pos] = '\0';
+                        snprintf(urlGoogle, 1023, "https://www.google.com/search?q=%s", formatado);
+                        acessarSiteNavegador(urlGoogle);
                     }
                     else {
                         strcpy(msgStatus, "TEXTO SALVO!");
                     }
                 }
-                else { // Fechou sem salvar
+                else {
                     if (menuAtual == MENU_BAIXAR_LINK_DIRETO) {
-                        menuAtual = MENU_BAIXAR; // Devolve o controle pro menu
+                        menuAtual = MENU_BAIXAR;
+                    }
+                    else if (menuAtual == MENU_BAIXAR_NAVEGADOR_URL || menuAtual == MENU_BAIXAR_NAVEGADOR_GOOGLE) {
+                        menuAtual = MENU_BAIXAR_NAVEGADOR_OPCOES;
                     }
                     else {
                         strcpy(msgStatus, "CANCELADO!");

@@ -26,8 +26,10 @@ int wP = 0, hP = 0, cP = 0;
 char ultimoJogoCarregado[64] = "";
 
 char caminhoXMLAtual[256];
-char linksAtuais[10][512];
+char linksAtuais[3000][1024]; // <-- ATUALIZADO PARA 1024
 int totalLinksAtuais = 0;
+
+char linksFavoritos[10][512];
 
 void acaoRede(const char* jogo, bool buscarLista, bool salvarNoHD) {
     char url[512];
@@ -93,9 +95,136 @@ void preencherMenuBaixar() {
     memset(nomes, 0, sizeof(nomes));
     strcpy(nomes[0], "Repositorios");
     strcpy(nomes[1], "CAPAS");
-    strcpy(nomes[2], "LINK DIRETO"); // <-- NOVA OPÇÃO ADICIONADA
-    totalItens = 3;
+    strcpy(nomes[2], "LINK DIRETO");
+    strcpy(nomes[3], "NAVEGADOR");
+    totalItens = 4;
     menuAtual = MENU_BAIXAR;
+    sel = 0; off = 0;
+}
+
+void preencherMenuNavegadorOpcoes() {
+    memset(nomes, 0, sizeof(nomes));
+    strcpy(nomes[0], "1. Pesquisar no Google");
+    strcpy(nomes[1], "2. Digitar Site / URL");
+    strcpy(nomes[2], "3. Links Salvos (Favoritos)");
+    totalItens = 3;
+    menuAtual = MENU_BAIXAR_NAVEGADOR_OPCOES;
+    sel = 0; off = 0;
+}
+
+void preencherMenuNavegadorFavoritos() {
+    memset(nomes, 0, sizeof(nomes));
+
+    strcpy(nomes[0], "Google");
+    strcpy(linksFavoritos[0], "https://www.google.com/");
+
+    strcpy(nomes[1], "RetroArch Thumbnails");
+    strcpy(linksFavoritos[1], "https://thumbnails.libretro.com/");
+
+    totalItens = 2;
+    menuAtual = MENU_BAIXAR_NAVEGADOR_FAVORITOS;
+    sel = 0; off = 0;
+}
+
+void acessarSiteNavegador(const char* url) {
+    if (!url || strlen(url) < 5) return;
+
+    sprintf(msgStatus, "CARREGANDO SITE...");
+    msgTimer = 120;
+
+    int tpl = sceHttpCreateTemplate(httpCtxId, "HyperNeiva/1.0", ORBIS_HTTP_VERSION_1_1, 1);
+    sceHttpsSetSslCallback(tpl, skipSslCallback, NULL);
+    sceHttpSetAutoRedirect();
+
+    int conn = sceHttpCreateConnectionWithURL(tpl, url, 1);
+    int req = sceHttpCreateRequestWithURL(conn, ORBIS_METHOD_GET, url, 0);
+
+    memset(nomes, 0, sizeof(nomes));
+    totalItens = 0;
+
+    if (sceHttpSendRequest(req, NULL, 0) >= 0) {
+        FILE* f = fopen("/data/HyperNeiva/temp_site.html", "wb");
+        if (f) {
+            unsigned char buf[32768]; int n;
+            while ((n = sceHttpReadData(req, buf, sizeof(buf))) > 0) fwrite(buf, 1, n, f);
+            fclose(f);
+
+            FILE* f2 = fopen("/data/HyperNeiva/temp_site.html", "rb");
+            if (f2) {
+                fseek(f2, 0, SEEK_END); long sz = ftell(f2); fseek(f2, 0, SEEK_SET);
+                char* h = (char*)malloc(sz + 1);
+                if (h) {
+                    fread(h, 1, sz, f2); h[sz] = '\0';
+                    char* b = h;
+
+                    while ((b = strstr(b, "href=\"")) && totalItens < 2900) {
+                        b += 6;
+                        char* e = strchr(b, '\"');
+                        if (e) {
+                            int l = (int)(e - b);
+                            if (l > 1 && l < 1000) { // Limitado para segurança
+                                char tempLink[1024]; // Buffer gigante para evitar vazamento
+                                strncpy(tempLink, b, l); tempLink[l] = '\0';
+
+                                // <-- CÓDIGO CORRIGIDO PARA NÃO CRASHAR NO GOOGLE -->
+                                if (strncmp(tempLink, "/url?q=", 7) == 0) {
+                                    char* startUrl = tempLink + 7;
+                                    char* endUrl = strchr(startUrl, '&');
+                                    if (endUrl) *endUrl = '\0';
+                                    memmove(tempLink, startUrl, strlen(startUrl) + 1); // Memmove previne corrupção!
+                                }
+
+                                if (strstr(tempLink, ".css") || strstr(tempLink, ".js") || tempLink[0] == '#' || tempLink[0] == '?' ||
+                                    strcasecmp(tempLink, "../") == 0 || strstr(tempLink, "google.com") || strstr(tempLink, "/search?") || tempLink[0] == '/') {
+                                    b = e + 1; continue;
+                                }
+
+                                // <-- USANDO SNPRINTF PARA NUNCA ESTOURAR A MEMÓRIA -->
+                                if (strncmp(tempLink, "http", 4) != 0) {
+                                    if (url[strlen(url) - 1] == '/') snprintf(linksAtuais[totalItens], 1023, "%s%s", url, tempLink);
+                                    else snprintf(linksAtuais[totalItens], 1023, "%s/%s", url, tempLink);
+                                }
+                                else {
+                                    snprintf(linksAtuais[totalItens], 1023, "%s", tempLink);
+                                }
+
+                                char* nomeVisor = strrchr(tempLink, '/');
+                                if (nomeVisor && strlen(nomeVisor) > 1 && tempLink[strlen(tempLink) - 1] != '/') {
+                                    strncpy(nomes[totalItens], nomeVisor + 1, 63);
+                                }
+                                else {
+                                    strncpy(nomes[totalItens], tempLink, 63);
+                                }
+                                nomes[totalItens][63] = '\0';
+
+                                char* pN = nomes[totalItens], * qN = nomes[totalItens];
+                                while (*pN) { if (*pN == '%' && *(pN + 1) == '2' && *(pN + 2) == '0') { *qN++ = ' '; pN += 3; } else { *qN++ = *pN++; } }
+                                *qN = '\0';
+
+                                totalItens++;
+                            }
+                        }
+                        b = e ? e + 1 : b + 1;
+                    }
+                    free(h);
+                }
+                fclose(f2);
+            }
+        }
+    }
+    else {
+        strcpy(nomes[0], "Erro de Conexao");
+        totalItens = 1;
+    }
+
+    if (totalItens == 0) {
+        strcpy(nomes[0], "Nenhum arquivo encontrado");
+        totalItens = 1;
+    }
+
+    sceHttpDeleteRequest(req); sceHttpDeleteConnection(conn); sceHttpDeleteTemplate(tpl);
+
+    menuAtual = MENU_BAIXAR_NAVEGADOR_LISTA;
     sel = 0; off = 0;
 }
 
@@ -233,17 +362,19 @@ void iniciarDownload(const char* url) {
 
     char nomeRepo[128] = "Geral";
 
-    // <-- VERIFICA SE VEIO DO LINK DIRETO PARA SALVAR NA PASTA CERTA -->
-    if (menuAtual != MENU_BAIXAR_LINK_DIRETO) {
+    if (menuAtual == MENU_BAIXAR_LINK_DIRETO) {
+        strcpy(nomeRepo, "Link_Direto");
+    }
+    else if (menuAtual == MENU_BAIXAR_NAVEGADOR_LISTA) {
+        strcpy(nomeRepo, "Navegador");
+    }
+    else {
         char* ultimaBarra = strrchr(caminhoXMLAtual, '/');
         if (ultimaBarra) {
             strcpy(nomeRepo, ultimaBarra + 1);
             char* ponto = strstr(nomeRepo, ".xml");
             if (ponto) *ponto = '\0';
         }
-    }
-    else {
-        strcpy(nomeRepo, "Link_Direto"); // Salvará em /baixado/Link_Direto/
     }
 
     char pathPasta[256];
