@@ -100,8 +100,7 @@ void processarControles(uint32_t botoes, int32_t uId, OrbisImeDialogSetting* ime
             else if (menuAtual == MENU_NOTEPAD) acaoCross_Notepad(uId, imeSetting, imeTitle);
             else if (menuAtual == MENU_EXPLORAR || menuAtual == MENU_EXPLORAR_HOME) acaoCross_Explorar();
             else if (menuAtual == MENU_EDITAR || menuAtual == MENU_EDIT_TARGET) acaoCross_Editar();
-            // <-- ATUALIZADO AQUI PARA SUPORTAR O MENU NOVO E OS PARÂMETROS DO TECLADO -->
-            else if (menuAtual == MENU_BAIXAR || menuAtual == MENU_BAIXAR_REPOS || menuAtual == MENU_BAIXAR_GAMES_XMLS || menuAtual == MENU_BAIXAR_GAMES_LIST || menuAtual == MENU_BAIXAR_LINKS || menuAtual == MENU_BAIXAR_LINK_DIRETO || menuAtual == MENU_CAPAS || menuAtual == MENU_CONSOLES || menuAtual == SCRAPER_LIST) acaoCross_Baixar(uId, imeSetting, imeTitle);
+            else if (menuAtual == MENU_BAIXAR || menuAtual == MENU_BAIXAR_REPOS || menuAtual == MENU_BAIXAR_GAMES_XMLS || menuAtual == MENU_BAIXAR_GAMES_LIST || menuAtual == MENU_BAIXAR_LINKS || menuAtual == MENU_BAIXAR_LINK_DIRETO || menuAtual == MENU_BAIXAR_NAVEGADOR_OPCOES || menuAtual == MENU_BAIXAR_NAVEGADOR_GOOGLE || menuAtual == MENU_BAIXAR_NAVEGADOR_URL || menuAtual == MENU_BAIXAR_NAVEGADOR_LISTA || menuAtual == MENU_CAPAS || menuAtual == MENU_CONSOLES || menuAtual == SCRAPER_LIST) acaoCross_Baixar(uId, imeSetting, imeTitle);
 
             if (!editMode && !showOpcoes && menuAtual != SCRAPER_LIST && menuAtual != JOGAR_XML && menuAtual != MENU_NOTEPAD && menuAtual != MENU_MUSICAS && menuAtual != MENU_BAIXAR_LINKS) {
                 sel = 0; off = 0;
@@ -121,8 +120,7 @@ void processarControles(uint32_t botoes, int32_t uId, OrbisImeDialogSetting* ime
                 else if (menuAtual == MENU_NOTEPAD) acaoCircle_Notepad();
                 else if (menuAtual == MENU_EXPLORAR || menuAtual == MENU_EXPLORAR_HOME) acaoCircle_Explorar();
                 else if (menuAtual == MENU_EDITAR || menuAtual == MENU_EDIT_TARGET) acaoCircle_Editar();
-                // <-- ATUALIZADO AQUI PARA SUPORTAR O MENU NOVO -->
-                else if (menuAtual == MENU_BAIXAR || menuAtual == MENU_BAIXAR_REPOS || menuAtual == MENU_BAIXAR_GAMES_XMLS || menuAtual == MENU_BAIXAR_GAMES_LIST || menuAtual == MENU_BAIXAR_LINKS || menuAtual == MENU_BAIXAR_LINK_DIRETO || menuAtual == MENU_CAPAS || menuAtual == MENU_CONSOLES || menuAtual == SCRAPER_LIST) acaoCircle_Baixar();
+                else if (menuAtual == MENU_BAIXAR || menuAtual == MENU_BAIXAR_REPOS || menuAtual == MENU_BAIXAR_GAMES_XMLS || menuAtual == MENU_BAIXAR_GAMES_LIST || menuAtual == MENU_BAIXAR_LINKS || menuAtual == MENU_BAIXAR_LINK_DIRETO || menuAtual == MENU_BAIXAR_NAVEGADOR_OPCOES || menuAtual == MENU_BAIXAR_NAVEGADOR_GOOGLE || menuAtual == MENU_BAIXAR_NAVEGADOR_URL || menuAtual == MENU_BAIXAR_NAVEGADOR_LISTA || menuAtual == MENU_CAPAS || menuAtual == MENU_CONSOLES || menuAtual == SCRAPER_LIST) acaoCircle_Baixar();
 
                 if (menuAtual != MENU_AUDIO_OPCOES && menuAtual != MENU_EXPLORAR && menuAtual != MENU_NOTEPAD) { sel = 0; off = 0; }
             }
@@ -136,6 +134,8 @@ void processarControles(uint32_t botoes, int32_t uId, OrbisImeDialogSetting* ime
         if (!pTri) {
             if (menuAtual == MENU_MUSICAS) acaoTriangle_Musicas();
             else if (menuAtual == MENU_EXPLORAR) acaoTriangle_Explorar();
+            // <-- NOVA LÓGICA DO TRIÂNGULO NO NAVEGADOR ADICIONADA AQUI -->
+            else if (menuAtual == MENU_BAIXAR_NAVEGADOR_LISTA) acaoTriangle_Baixar();
             pTri = true;
         }
     }
