@@ -8,7 +8,6 @@
 #include <wchar.h>
 #include <stdint.h>
 
-
 #ifdef __INTELLISENSE__
 #ifndef __builtin_va_list
 #define __builtin_va_list void*
@@ -103,41 +102,51 @@ int main(void) {
         for (int i = 0; i < 1920 * 1080; i++) p[i] = 0xFF121212;
         if (backImg) desenharRedimensionado(p, backImg, wB, hB, backW, backH, backX, backY);
 
-        // --- LÓGICA DO TECLADO (VERSÃO SEM TRAVAMENTO) ---
+        // --- LÓGICA DO TECLADO (VERSÃO COM INTERCEPTAÇÃO DE DOWNLOAD) ---
         if (tecladoAtivo) {
             int stat = (int)sceImeDialogGetStatus();
 
-            // Se o status mudar de "RODANDO", a gente assume que acabou
-            if (stat != 1) { // 1 costuma ser o status de "Aberto/Ativo"
+            if (stat != 1) {
                 OrbisDialogResult res;
                 memset(&res, 0, sizeof(res));
                 sceImeDialogGetResult(&res);
 
-                if (res.endstatus == 0) { // Confirmou no R2
+                if (res.endstatus == 0) { // Confirmou no R2 ou Enter
                     memset(bufferTecladoC, 0, sizeof(bufferTecladoC));
                     for (int i = 0; i < 127; i++) {
                         if (bufferTecladoW[i] == 0) break;
                         bufferTecladoC[i] = (char)(bufferTecladoW[i] & 0xFF);
                     }
-                    strcpy(msgStatus, "TEXTO SALVO!");
+
+                    // <-- VERIFICA SE O TECLADO FOI ABERTO PELO LINK DIRETO -->
+                    if (menuAtual == MENU_BAIXAR_LINK_DIRETO) {
+                        iniciarDownload(bufferTecladoC); // Inicia o download
+                        menuAtual = MENU_BAIXAR;         // Volta pro menu principal de downloads
+                    }
+                    else {
+                        strcpy(msgStatus, "TEXTO SALVO!");
+                    }
                 }
-                else {
-                    strcpy(msgStatus, "CANCELADO!");
+                else { // Fechou sem salvar
+                    if (menuAtual == MENU_BAIXAR_LINK_DIRETO) {
+                        menuAtual = MENU_BAIXAR; // Devolve o controle pro menu
+                    }
+                    else {
+                        strcpy(msgStatus, "CANCELADO!");
+                    }
                 }
 
                 msgTimer = 120;
                 sceImeDialogTerm();
-                tecladoAtivo = false; // LIBERA O APP
+                tecladoAtivo = false;
             }
-            // Não damos "goto" aqui! Deixamos o app desenhar a interface por trás
         }
         else {
-            // Só processa botões se o teclado não estiver na tela
             processarControles(pData.buttons, uId, imeSetting, imeTitle);
         }
 
-        // --- SEMPRE DESENHA A INTERFACE (Para a notificação aparecer!) ---
         desenharInterface(p);
         submeterTela();
     }
 }
+// --- FIM DO ARQUIVO main.cpp ---

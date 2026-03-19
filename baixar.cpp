@@ -1,3 +1,4 @@
+// --- INÍCIO DO ARQUIVO baixar.cpp ---
 #include "baixar.h"
 #include "network.h"
 #include "menu.h"
@@ -9,11 +10,8 @@
 #include <orbis/Ssl.h>
 #include <orbis/libkernel.h>
 #include "stb_image.h"
-#include <stdarg.h> //
+#include <stdarg.h> 
 
-// ==========================================================
-// VARIÁVEIS DO SCRAPING E RETROARCH
-// ==========================================================
 Console listaConsoles[5] = {
     {"Sony - PlayStation", "Sony%20-%20PlayStation"},
     {"Sony - PlayStation Portable", "Sony%20-%20PlayStation%20Portable"},
@@ -27,16 +25,10 @@ unsigned char* imgPreview = NULL;
 int wP = 0, hP = 0, cP = 0;
 char ultimoJogoCarregado[64] = "";
 
-// ==========================================================
-// VARIÁVEIS DOS REPOSITÓRIOS XML
-// ==========================================================
 char caminhoXMLAtual[256];
 char linksAtuais[10][512];
 int totalLinksAtuais = 0;
 
-// ==========================================================
-// LÓGICA DE SCRAPING DE IMAGENS (HTTP)
-// ==========================================================
 void acaoRede(const char* jogo, bool buscarLista, bool salvarNoHD) {
     char url[512];
     if (buscarLista) sprintf(url, "https://thumbnails.libretro.com/%s/Named_Boxarts/", listaConsoles[consoleAtual].pathServidor);
@@ -97,15 +89,12 @@ void acaoRede(const char* jogo, bool buscarLista, bool salvarNoHD) {
     sceHttpDeleteRequest(req); sceHttpDeleteConnection(conn); sceHttpDeleteTemplate(tpl);
 }
 
-// ==========================================================
-// REPOSITÓRIOS - LÓGICA COPIADA DO JOGAR.CPP
-// ==========================================================
-
 void preencherMenuBaixar() {
     memset(nomes, 0, sizeof(nomes));
     strcpy(nomes[0], "Repositorios");
     strcpy(nomes[1], "CAPAS");
-    totalItens = 2;
+    strcpy(nomes[2], "LINK DIRETO"); // <-- NOVA OPÇÃO ADICIONADA
+    totalItens = 3;
     menuAtual = MENU_BAIXAR;
     sel = 0; off = 0;
 }
@@ -136,11 +125,10 @@ void listarXMLsRepositorio() {
     menuAtual = MENU_BAIXAR_GAMES_XMLS; sel = 0; off = 0;
 }
 
-// Cópia 1:1 da lógica do seu carregarXML no jogar.cpp
 void abrirXMLRepositorio(const char* xmlFile) {
     sprintf(caminhoXMLAtual, "/data/HyperNeiva/baixado/repositorio/games/%s", xmlFile);
 
-    FILE* fp = fopen(caminhoXMLAtual, "rb"); // Usando "rb" como no seu código
+    FILE* fp = fopen(caminhoXMLAtual, "rb");
     if (!fp) {
         memset(nomes, 0, sizeof(nomes));
         strcpy(nomes[0], "Erro ao abrir XML");
@@ -157,18 +145,17 @@ void abrirXMLRepositorio(const char* xmlFile) {
     char* p = b;
 
     while (totalItens < 2000) {
-        // Sua busca direta pela string
         p = strstr(p, "<game name=\"");
         if (!p) break;
 
-        p += 12; // Salta <game name="
+        p += 12;
         char* f = strchr(p, '\"');
         if (f) {
             int l = (int)(f - p);
             strncpy(nomes[totalItens], p, l);
             nomes[totalItens][l] = '\0';
             totalItens++;
-            p = f; // Continua a busca a partir da aspa final
+            p = f;
         }
         else break;
     }
@@ -183,7 +170,6 @@ void abrirXMLRepositorio(const char* xmlFile) {
     sel = 0; off = 0;
 }
 
-// Mesma lógica para garantir que encontramos os links do jogo certo
 void mostrarLinksJogo(int gameIndex) {
     memset(nomes, 0, sizeof(nomes));
     totalItens = 0; totalLinksAtuais = 0;
@@ -198,7 +184,6 @@ void mostrarLinksJogo(int gameIndex) {
     int currentIdx = -1;
     char* gameBlockStart = NULL;
 
-    // Localiza o bloco do jogo pelo índice clicado
     while (true) {
         p = strstr(p, "<game name=\"");
         if (!p) break;
@@ -224,7 +209,6 @@ void mostrarLinksJogo(int gameIndex) {
                 int len = (int)(lEnd - lPtr);
                 char temp[512]; strncpy(temp, lPtr, len); temp[len] = '\0';
 
-                // Limpeza manual do &amp; para a URL ficar correta
                 char limpo[512] = { 0 }; int pos = 0;
                 for (int i = 0; temp[i]; i++) {
                     if (strncmp(&temp[i], "&amp;", 5) == 0) { limpo[pos++] = '&'; i += 4; }
@@ -247,26 +231,30 @@ void mostrarLinksJogo(int gameIndex) {
 void iniciarDownload(const char* url) {
     if (!url || strlen(url) < 10) return;
 
-    // 1. Extrair o nome do Repositório do caminho do XML (ex: Sega_Master_System)
     char nomeRepo[128] = "Geral";
-    char* ultimaBarra = strrchr(caminhoXMLAtual, '/');
-    if (ultimaBarra) {
-        strcpy(nomeRepo, ultimaBarra + 1);
-        char* ponto = strstr(nomeRepo, ".xml");
-        if (ponto) *ponto = '\0'; // Remove o .xml para ficar só o nome da pasta
+
+    // <-- VERIFICA SE VEIO DO LINK DIRETO PARA SALVAR NA PASTA CERTA -->
+    if (menuAtual != MENU_BAIXAR_LINK_DIRETO) {
+        char* ultimaBarra = strrchr(caminhoXMLAtual, '/');
+        if (ultimaBarra) {
+            strcpy(nomeRepo, ultimaBarra + 1);
+            char* ponto = strstr(nomeRepo, ".xml");
+            if (ponto) *ponto = '\0';
+        }
+    }
+    else {
+        strcpy(nomeRepo, "Link_Direto"); // Salvará em /baixado/Link_Direto/
     }
 
-    // 2. Criar a pasta do repositório no HDD
     char pathPasta[256];
     sprintf(pathPasta, "/data/HyperNeiva/baixado/%s", nomeRepo);
     sceKernelMkdir(pathPasta, 0777);
 
-    // 3. Extrair o nome original do arquivo da URL (Dropbox)
     char nomeArquivo[128] = "download.zip";
     char* ref = strrchr(url, '/');
     if (ref) {
-        ref++; // Pula a barra
-        char* query = strchr(ref, '?'); // Remove o ?dl=1 e outros parâmetros
+        ref++;
+        char* query = strchr(ref, '?');
         if (query) {
             int len = (int)(query - ref);
             strncpy(nomeArquivo, ref, len);
@@ -280,7 +268,6 @@ void iniciarDownload(const char* url) {
     char pathFinal[512];
     sprintf(pathFinal, "%s/%s", pathPasta, nomeArquivo);
 
-    // 4. Iniciar a requisição HTTP
     sprintf(msgStatus, "BAIXANDO: %s", nomeArquivo);
     msgTimer = 120;
 
@@ -294,7 +281,7 @@ void iniciarDownload(const char* url) {
     if (sceHttpSendRequest(req, NULL, 0) >= 0) {
         FILE* f = fopen(pathFinal, "wb");
         if (f) {
-            unsigned char buf[32768]; // Buffer de 32KB para download rápido
+            unsigned char buf[32768];
             int n;
             while ((n = sceHttpReadData(req, buf, sizeof(buf))) > 0) {
                 fwrite(buf, 1, n, f);
@@ -315,3 +302,4 @@ void iniciarDownload(const char* url) {
     sceHttpDeleteConnection(conn);
     sceHttpDeleteTemplate(tpl);
 }
+// --- FIM DO ARQUIVO baixar.cpp ---
