@@ -5,7 +5,6 @@
 #include <string.h>
 #include <stdio.h>
 
-// --- VARIÁVEIS EXTERNAS (Vindas do main e de outros ficheiros) ---
 extern bool editMode;
 extern bool showOpcoes;
 extern int selOpcao;
@@ -26,55 +25,101 @@ extern int discoX, discoY, discoW, discoH;
 extern int wC[6], hC[6], wD[6], hD[6];
 extern int wP, hP;
 
-// --- VARIÁVEIS PARA O VISUALIZADOR DE IMAGENS ---
+// VARIÁVEIS DA IMAGEM
 extern bool visualizandoMidiaImagem;
 extern unsigned char* imgMidia;
 extern int wM, hM;
+extern float zoomMidia;
+extern bool fullscreenMidia;
 
-// --- FUNÇÃO PRINCIPAL DE RENDERIZAÇÃO DA INTERFACE ---
+// VARIÁVEIS DO TEXTO
+extern bool visualizandoMidiaTexto;
+extern char* textoMidiaBuffer;
+extern char* linhasTexto[5000];
+extern int totalLinhasTexto;
+extern int textoMidiaScroll;
+
 void desenharInterface(uint32_t* p) {
 
-    // 0. DESENHAR IMAGEM CENTRALIZADA E NO TAMANHO ORIGINAL
-    if (visualizandoMidiaImagem && imgMidia) {
+    // 0.1 DESENHAR LEITOR DE TEXTO E CÓDIGO
+    if (visualizandoMidiaTexto && textoMidiaBuffer) {
 
-        // Pinta o fundo de preto para destacar a foto (efeito cinema/lightbox)
-        for (int i = 0; i < 1920 * 1080; i++) p[i] = 0xFF000000;
+        // Fundo escuro
+        for (int i = 0; i < 1920 * 1080; i++) p[i] = 0xFF151515;
 
-        int drawW = wM;
-        int drawH = hM;
+        // Barra no topo decorativa
+        for (int by = 0; by < 80; by++) {
+            for (int bx = 0; bx < 1920; bx++) {
+                p[by * 1920 + bx] = 0xFF303030;
+            }
+        }
+        desenharTexto(p, "LEITOR DE ARQUIVOS (TXT, XML, INI, JSON, CPP...)", 35, 50, 25, 0xFF00AAFF);
 
-        // Proteção: Se a foto for maior que a tela da TV (ex: 4K), 
-        // diminui ela mantendo a proporção correta para não estourar a memória.
-        if (drawW > 1920 || drawH > 1080) {
-            float propW = 1920.0f / drawW;
-            float propH = 1080.0f / drawH;
-            float prop = (propW < propH) ? propW : propH;
-            drawW = (int)(drawW * prop);
-            drawH = (int)(drawH * prop);
+        // Escreve até 23 linhas na tela de cada vez para não borrar fora
+        int maxLinhasVisiveis = 23;
+        for (int i = 0; i < maxLinhasVisiveis; i++) {
+            int indiceDaLinha = textoMidiaScroll + i;
+            if (indiceDaLinha < totalLinhasTexto && linhasTexto[indiceDaLinha] != NULL) {
+                desenharTexto(p, linhasTexto[indiceDaLinha], 30, 50, 120 + (i * 40), 0xFFDDDDDD);
+            }
         }
 
-        // Calcula a posição X e Y para a foto ficar exatamente no meio da tela
+        // Rodapé com Dicas de botões e barra de progresso
+        for (int by = 0; by < 60; by++) {
+            for (int bx = 0; bx < 1920; bx++) {
+                p[(1020 + by) * 1920 + bx] = 0xFF222222;
+            }
+        }
+        char rodape[128];
+        sprintf(rodape, "[Setas] Rolar Texto   |   [O] Voltar   |   Linha: %d / %d", textoMidiaScroll, totalLinhasTexto);
+        desenharTexto(p, rodape, 25, 50, 1035, 0xFF00AAFF);
+
+        return; // Interrompe para não desenhar o menu atrás do texto
+    }
+
+    // 0.2 DESENHAR IMAGEM
+    if (visualizandoMidiaImagem && imgMidia) {
+        for (int i = 0; i < 1920 * 1080; i++) p[i] = 0xFF000000;
+
+        float propW = 1920.0f / wM;
+        float propH = 1080.0f / hM;
+        float propMax = (propW < propH) ? propW : propH;
+
+        int drawW, drawH;
+        if (fullscreenMidia) {
+            drawW = (int)(wM * propMax);
+            drawH = (int)(hM * propMax);
+        }
+        else {
+            drawW = (int)(wM * zoomMidia);
+            drawH = (int)(hM * zoomMidia);
+            if (drawW > 1920 || drawH > 1080) {
+                drawW = (int)(wM * propMax);
+                drawH = (int)(hM * propMax);
+                zoomMidia = propMax;
+            }
+        }
+
         int posX = (1920 - drawW) / 2;
         int posY = (1080 - drawH) / 2;
 
-        // Desenha a imagem na tela usando a nova posição e escala
         desenharRedimensionado(p, imgMidia, wM, hM, drawW, drawH, posX, posY);
 
-        // Fundo semitransparente escuro no cantinho para dar leitura ao botão "Voltar"
-        for (int by = 0; by < 60; by++) {
-            for (int bx = 0; bx < 250; bx++) {
-                int pxX = 1650 + bx; int pyY = 980 + by;
+        for (int by = 0; by < 130; by++) {
+            for (int bx = 0; bx < 400; bx++) {
+                int pxX = 1480 + bx; int pyY = 930 + by;
                 if (pxX >= 0 && pxX < 1920 && pyY >= 0 && pyY < 1080) p[pyY * 1920 + pxX] = 0xAA000000;
             }
         }
-        // Mostra qual botão aperta para fechar a foto
-        desenharTexto(p, "[O] Voltar", 30, 1670, 1020, 0xFFFFFFFF);
 
-        // Retorna aqui para IMPEDIR que o menu clássico seja desenhado por cima da foto
+        desenharTexto(p, "[X] Tela Cheia / Normal", 25, 1500, 960, 0xFFFFFFFF);
+        desenharTexto(p, "[Cima/Baixo] Zoom", 25, 1500, 1000, 0xFFFFFFFF);
+        desenharTexto(p, "[O] Voltar", 25, 1500, 1040, 0xFFFFFFFF);
+
         return;
     }
 
-    // 1. DESENHAR LISTA DE ITENS (Tudo exceto Notepad)
+    // 1. DESENHAR LISTA DE ITENS
     if (menuAtual != MENU_NOTEPAD) {
         for (int i = 0; i < 6; i++) {
             int gIdx = i + off; if (gIdx >= totalItens) break;
@@ -95,14 +140,12 @@ void desenharInterface(uint32_t* p) {
 
     // 2. DESENHAR O BLOCO DE NOTAS (NOTEPAD)
     if (menuAtual == MENU_NOTEPAD) {
-        // Folha branca
         for (int by = 0; by < 700; by++) {
             for (int bx = 0; bx < 1400; bx++) {
                 int pxX = 260 + bx; int pyY = 150 + by;
                 if (pxX >= 0 && pxX < 1920 && pyY >= 0 && pyY < 1080) p[pyY * 1920 + pxX] = 0xFFEEEEEE;
             }
         }
-        // Barra vermelha
         for (int by = 0; by < 60; by++) {
             for (int bx = 0; bx < 1400; bx++) {
                 int pxX = 260 + bx; int pyY = 150 + by;
@@ -153,7 +196,6 @@ void desenharInterface(uint32_t* p) {
         }
     }
 
-    // 6. DESENHAR MENSAGEM DE STATUS
     if (msgTimer > 0) {
         desenharTexto(p, msgStatus, 40, 100, 950, 0xFFFFFFFF);
         msgTimer--;
