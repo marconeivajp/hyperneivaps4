@@ -5,22 +5,20 @@
 #include <stdint.h>
 #include <stdbool.h>
 
-// 1. Correção para o IntelliSense do Visual Studio
 #ifdef __INTELLISENSE__
 #ifndef __builtin_va_list
 #define __builtin_va_list void*
 #endif
 #endif
 
-// 2. Definição ÚNICA do Tipo de Menu
-// 2. Definição ÚNICA do Tipo de Menu
 enum MenuLevel {
     ROOT,
-    MENU_BAIXAR,               // Tela inicial do Baixar (Repositórios)
-    MENU_BAIXAR_REPOS,         // Tela Repositórios (Games)
-    MENU_BAIXAR_GAMES_XMLS,    // Lista os arquivos .xml da pasta
-    MENU_BAIXAR_GAMES_LIST,    // Lista os jogos lidos de dentro do XML
-    MENU_BAIXAR_LINKS,         // Mostra Opção 1, Opção 2, etc.
+    MENU_MIDIA,
+    MENU_BAIXAR,
+    MENU_BAIXAR_REPOS,
+    MENU_BAIXAR_GAMES_XMLS,
+    MENU_BAIXAR_GAMES_LIST,
+    MENU_BAIXAR_LINKS,
     MENU_CAPAS,
     MENU_RETROARCH,
     MENU_CONSOLES,
@@ -35,7 +33,6 @@ enum MenuLevel {
     MENU_NOTEPAD
 };
 
-// 3. Declaração das Variáveis Globais (EXTERN)
 extern MenuLevel menuAtual;
 extern char nomes[3000][64];
 extern int totalItens;
@@ -45,8 +42,11 @@ extern int off;
 extern char msgStatus[128];
 extern int msgTimer;
 
-// 4. Protótipos das Funções do Menu
+extern char caminhoMidiaAtual[512]; // NOVA VARIÁVEL AQUI
+
 void preencherRoot();
 void preencherExplorerHome();
+void preencherMenuMidia();
+void abrirPastaMidia(const char* caminho); // NOVA FUNÇÃO AQUI
 
 #endif

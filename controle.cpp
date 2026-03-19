@@ -3,7 +3,6 @@
 #include <stdarg.h>
 #include <string.h>
 
-
 #ifdef __INTELLISENSE__
 #ifndef __builtin_va_list
 #define __builtin_va_list void*
@@ -96,7 +95,8 @@ void processarControles(uint32_t botoes, int32_t uId, OrbisImeDialogSetting* ime
 
     if (botoes & ORBIS_PAD_BUTTON_CROSS) {
         if (!pCross) {
-            if (menuAtual == ROOT || menuAtual == JOGAR_XML) acaoCross_Root();
+            // <--- ADICIONADO MENU_MIDIA AQUI --->
+            if (menuAtual == ROOT || menuAtual == JOGAR_XML || menuAtual == MENU_MIDIA) acaoCross_Root();
             else if (menuAtual == MENU_MUSICAS || menuAtual == MENU_AUDIO_OPCOES) acaoCross_Musicas();
             else if (menuAtual == MENU_NOTEPAD) acaoCross_Notepad(uId, imeSetting, imeTitle);
             else if (menuAtual == MENU_EXPLORAR || menuAtual == MENU_EXPLORAR_HOME) acaoCross_Explorar();
@@ -116,7 +116,8 @@ void processarControles(uint32_t botoes, int32_t uId, OrbisImeDialogSetting* ime
         if (!pCircle) {
             if (showOpcoes) { showOpcoes = false; }
             else {
-                if (menuAtual == JOGAR_XML) acaoCircle_Root();
+                // <--- ADICIONADO MENU_MIDIA AQUI --->
+                if (menuAtual == JOGAR_XML || menuAtual == MENU_MIDIA) acaoCircle_Root();
                 else if (menuAtual == MENU_MUSICAS || menuAtual == MENU_AUDIO_OPCOES) acaoCircle_Musicas();
                 else if (menuAtual == MENU_NOTEPAD) acaoCircle_Notepad();
                 else if (menuAtual == MENU_EXPLORAR || menuAtual == MENU_EXPLORAR_HOME) acaoCircle_Explorar();
