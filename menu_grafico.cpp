@@ -1,3 +1,4 @@
+// --- INÍCIO DO ARQUIVO menu_grafico.cpp ---
 #include "menu_grafico.h"
 #include "menu.h"
 #include "graphics.h"
@@ -25,8 +26,32 @@ extern int discoX, discoY, discoW, discoH;
 extern int wC[6], hC[6], wD[6], hD[6];
 extern int wP, hP;
 
+// --- VARIÁVEIS PARA O VISUALIZADOR DE IMAGENS ---
+extern bool visualizandoMidiaImagem;
+extern unsigned char* imgMidia;
+extern int wM, hM;
+
 // --- FUNÇÃO PRINCIPAL DE RENDERIZAÇÃO DA INTERFACE ---
 void desenharInterface(uint32_t* p) {
+
+    // 0. DESENHAR IMAGEM EM TELA CHEIA SE ESTIVER VISUALIZANDO
+    if (visualizandoMidiaImagem && imgMidia) {
+        // Estica/desenha a imagem ocupando a tela inteira (1920x1080)
+        desenharRedimensionado(p, imgMidia, wM, hM, 1920, 1080, 0, 0);
+
+        // Fundo semitransparente escuro no cantinho para dar leitura ao botão "Voltar"
+        for (int by = 0; by < 60; by++) {
+            for (int bx = 0; bx < 250; bx++) {
+                int px = 1650 + bx; int py = 980 + by;
+                if (px < 1920 && py < 1080) p[py * 1920 + px] = 0xAA000000;
+            }
+        }
+        // Mostra qual botão aperta para fechar a foto
+        desenharTexto(p, "[O] Voltar", 30, 1670, 1020, 0xFFFFFFFF);
+
+        // Retorna aqui para IMPEDIR que o menu clássico seja desenhado por cima da foto
+        return;
+    }
 
     // 1. DESENHAR LISTA DE ITENS (Tudo exceto Notepad)
     if (menuAtual != MENU_NOTEPAD) {
@@ -113,3 +138,4 @@ void desenharInterface(uint32_t* p) {
         msgTimer--;
     }
 }
+// --- FIM DO ARQUIVO menu_grafico.cpp ---
