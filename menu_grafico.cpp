@@ -34,16 +34,37 @@ extern int wM, hM;
 // --- FUNÇÃO PRINCIPAL DE RENDERIZAÇÃO DA INTERFACE ---
 void desenharInterface(uint32_t* p) {
 
-    // 0. DESENHAR IMAGEM EM TELA CHEIA SE ESTIVER VISUALIZANDO
+    // 0. DESENHAR IMAGEM CENTRALIZADA E NO TAMANHO ORIGINAL
     if (visualizandoMidiaImagem && imgMidia) {
-        // Estica/desenha a imagem ocupando a tela inteira (1920x1080)
-        desenharRedimensionado(p, imgMidia, wM, hM, 1920, 1080, 0, 0);
+
+        // Pinta o fundo de preto para destacar a foto (efeito cinema/lightbox)
+        for (int i = 0; i < 1920 * 1080; i++) p[i] = 0xFF000000;
+
+        int drawW = wM;
+        int drawH = hM;
+
+        // Proteção: Se a foto for maior que a tela da TV (ex: 4K), 
+        // diminui ela mantendo a proporção correta para não estourar a memória.
+        if (drawW > 1920 || drawH > 1080) {
+            float propW = 1920.0f / drawW;
+            float propH = 1080.0f / drawH;
+            float prop = (propW < propH) ? propW : propH;
+            drawW = (int)(drawW * prop);
+            drawH = (int)(drawH * prop);
+        }
+
+        // Calcula a posição X e Y para a foto ficar exatamente no meio da tela
+        int posX = (1920 - drawW) / 2;
+        int posY = (1080 - drawH) / 2;
+
+        // Desenha a imagem na tela usando a nova posição e escala
+        desenharRedimensionado(p, imgMidia, wM, hM, drawW, drawH, posX, posY);
 
         // Fundo semitransparente escuro no cantinho para dar leitura ao botão "Voltar"
         for (int by = 0; by < 60; by++) {
             for (int bx = 0; bx < 250; bx++) {
-                int px = 1650 + bx; int py = 980 + by;
-                if (px < 1920 && py < 1080) p[py * 1920 + px] = 0xAA000000;
+                int pxX = 1650 + bx; int pyY = 980 + by;
+                if (pxX >= 0 && pxX < 1920 && pyY >= 0 && pyY < 1080) p[pyY * 1920 + pxX] = 0xAA000000;
             }
         }
         // Mostra qual botão aperta para fechar a foto
@@ -66,7 +87,7 @@ void desenharInterface(uint32_t* p) {
             if (gIdx == sel) { corFundo = 0xFF00AAFF; corTexto = 0xFF000000; }
 
             for (int by = 0; by < listH; by++) for (int bx = 0; bx < listW; bx++) {
-                int px = listX + bx; int py = yP + by; if (px >= 0 && px < 1920 && py >= 0 && py < 1080) p[py * 1920 + px] = corFundo;
+                int pxX = listX + bx; int pyY = yP + by; if (pxX >= 0 && pxX < 1920 && pyY >= 0 && pyY < 1080) p[pyY * 1920 + pxX] = corFundo;
             }
             desenharTexto(p, nomes[gIdx], 35, listX + 20, yP + 20, corTexto);
         }
@@ -77,15 +98,15 @@ void desenharInterface(uint32_t* p) {
         // Folha branca
         for (int by = 0; by < 700; by++) {
             for (int bx = 0; bx < 1400; bx++) {
-                int px = 260 + bx; int py = 150 + by;
-                if (px >= 0 && px < 1920 && py >= 0 && py < 1080) p[py * 1920 + px] = 0xFFEEEEEE;
+                int pxX = 260 + bx; int pyY = 150 + by;
+                if (pxX >= 0 && pxX < 1920 && pyY >= 0 && pyY < 1080) p[pyY * 1920 + pxX] = 0xFFEEEEEE;
             }
         }
         // Barra vermelha
         for (int by = 0; by < 60; by++) {
             for (int bx = 0; bx < 1400; bx++) {
-                int px = 260 + bx; int py = 150 + by;
-                if (px >= 0 && px < 1920 && py >= 0 && py < 1080) p[py * 1920 + px] = 0xFFD05050;
+                int pxX = 260 + bx; int pyY = 150 + by;
+                if (pxX >= 0 && pxX < 1920 && pyY >= 0 && pyY < 1080) p[pyY * 1920 + pxX] = 0xFFD05050;
             }
         }
         desenharTexto(p, "BLOCO DE NOTAS", 40, 280, 160, 0xFFFFFFFF);
@@ -110,7 +131,7 @@ void desenharInterface(uint32_t* p) {
     // 4. DESENHAR MENU SUSPENSO (OPÇÕES DO EXPLORADOR)
     if (showOpcoes && menuAtual != MENU_AUDIO_OPCOES) {
         for (int my = 0; my < 500; my++) for (int mx = 0; mx < 350; mx++) {
-            int px = discoX + mx; int py = discoY - 100 + my; if (px < 1920 && py < 1080 && py >= 0) p[py * 1920 + px] = 0xEE111111;
+            int pxX = discoX + mx; int pyY = discoY - 100 + my; if (pxX >= 0 && pxX < 1920 && pyY >= 0 && pyY < 1080) p[pyY * 1920 + pxX] = 0xEE111111;
         }
         for (int i = 0; i < 10; i++) {
             uint32_t corOp = (i == selOpcao) ? 0xFFFFFF00 : 0xFFFFFFFF;
@@ -122,8 +143,8 @@ void desenharInterface(uint32_t* p) {
     if (menuAtual == MENU_AUDIO_OPCOES && showOpcoes) {
         for (int my = 0; my < 550; my++) {
             for (int mx = 0; mx < 350; mx++) {
-                int px = listX + 600 + mx; int py = listY + my;
-                if (px < 1920 && py < 1080 && py >= 0) p[py * 1920 + px] = 0xEE111111;
+                int pxX = listX + 600 + mx; int pyY = listY + my;
+                if (pxX >= 0 && pxX < 1920 && pyY >= 0 && pyY < 1080) p[pyY * 1920 + pxX] = 0xEE111111;
             }
         }
         for (int i = 0; i < 11; i++) {
