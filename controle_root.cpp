@@ -11,6 +11,12 @@
 #include "controle_root.h"
 #include "menu.h"
 #include "stb_image.h"
+#include "audio.h" // IMPORTADO PARA TOCAR A MÚSICA
+
+// --- NOVAS VARIÁVEIS GLOBAIS PARA O VISUALIZADOR DE IMAGENS ---
+bool visualizandoMidiaImagem = false;
+unsigned char* imgMidia = NULL;
+int wM = 0, hM = 0, cM = 0;
 
 extern MenuLevel menuAtual;
 extern int sel;
@@ -19,11 +25,12 @@ extern char nomes[3000][64];
 extern char ultimoJogoCarregado[64];
 extern unsigned char* imgPreview;
 extern char bufferTecladoC[128];
-extern char caminhoXMLAtual[256];
 
+// Variáveis de estado e notificação
+extern char caminhoXMLAtual[256];
+extern char caminhoMidiaAtual[512];
 extern char msgStatus[128];
 extern int msgTimer;
-extern char caminhoMidiaAtual[512]; // VARIÁVEL IMPORTADA
 
 extern void carregarXML(const char* path);
 extern void preencherMenuBaixar();
@@ -32,9 +39,12 @@ extern void preencherExplorerHome();
 extern void preencherMenuMusicas();
 extern void preencherRoot();
 extern void preencherMenuMidia();
-extern void abrirPastaMidia(const char* caminho); // FUNÇÃO IMPORTADA
+extern void abrirPastaMidia(const char* caminho);
 
 void acaoCross_Root() {
+    // Se estiver visualizando uma imagem em tela cheia, ignora o botão X
+    if (visualizandoMidiaImagem) return;
+
     if (menuAtual == ROOT) {
         if (sel == 0) carregarXML("/app0/assets/lista.xml");
         else if (sel == 1) { preencherMenuMidia(); sel = 0; off = 0; }
@@ -53,42 +63,76 @@ void acaoCross_Root() {
     else if (menuAtual == JOGAR_XML && strcasecmp(nomes[sel], "sp") == 0) {
         carregarXML("/app0/assets/sp.xml");
     }
-    else if (menuAtual == MENU_MIDIA) { // <-- ENTRAR NAS PASTAS AQUI
+    else if (menuAtual == MENU_MIDIA) { // <-- DENTRO DA ABA MÍDIA
         if (strcmp(nomes[sel], "Pasta vazia") == 0) return;
 
         char novoCaminho[512];
         sprintf(novoCaminho, "%s/%s", caminhoMidiaAtual, nomes[sel]);
 
-        // Tenta abrir o diretório. Se o PS4 conseguir abrir, é uma pasta!
         DIR* chk = opendir(novoCaminho);
         if (chk) {
+            // É UMA PASTA: Entra nela
             closedir(chk);
-            abrirPastaMidia(novoCaminho); // Entra na subpasta
+            abrirPastaMidia(novoCaminho);
         }
         else {
-            // Se falhou ao abrir como diretório, é um arquivo (mp4, txt, etc).
-            strcpy(msgStatus, "ARQUIVO SELECIONADO");
-            msgTimer = 120;
+            // É UM ARQUIVO: Verifica o formato
+            int len = strlen(nomes[sel]);
+
+            // 1. VERIFICA SE É ÁUDIO (MP3 ou WAV)
+            if (len > 4 && (strcasecmp(&nomes[sel][len - 4], ".mp3") == 0 || strcasecmp(&nomes[sel][len - 4], ".wav") == 0)) {
+                tocarMusicaNova(novoCaminho);
+                sprintf(msgStatus, "TOCANDO: %s", nomes[sel]);
+                msgTimer = 180;
+            }
+            // 2. VERIFICA SE É IMAGEM (PNG, JPG, JPEG)
+            else if ((len > 4 && (strcasecmp(&nomes[sel][len - 4], ".png") == 0 || strcasecmp(&nomes[sel][len - 4], ".jpg") == 0)) ||
+                (len > 5 && strcasecmp(&nomes[sel][len - 5], ".jpeg") == 0)) {
+
+                // Limpa imagem anterior, caso exista na memória
+                if (imgMidia) { stbi_image_free(imgMidia); imgMidia = NULL; }
+
+                // Carrega a nova imagem
+                imgMidia = stbi_load(novoCaminho, &wM, &hM, &cM, 4);
+                if (imgMidia) {
+                    visualizandoMidiaImagem = true; // Ativa o modo tela cheia
+                }
+                else {
+                    strcpy(msgStatus, "ERRO AO CARREGAR IMAGEM");
+                    msgTimer = 120;
+                }
+            }
+            // 3. OUTROS ARQUIVOS NÃO SUPORTADOS
+            else {
+                strcpy(msgStatus, "ARQUIVO NAO SUPORTADO");
+                msgTimer = 120;
+            }
         }
     }
 }
 
 void acaoCircle_Root() {
+    // Se a imagem estiver aberta, o Bolinha apenas fecha a imagem e não sai da pasta
+    if (visualizandoMidiaImagem) {
+        visualizandoMidiaImagem = false;
+        if (imgMidia) { stbi_image_free(imgMidia); imgMidia = NULL; }
+        return;
+    }
+
     if (menuAtual == JOGAR_XML) {
         if (strstr(caminhoXMLAtual, "sp.xml")) carregarXML("/app0/assets/lista.xml");
         else preencherRoot();
     }
-    else if (menuAtual == MENU_MIDIA) { // <-- VOLTAR NAS PASTAS AQUI
+    else if (menuAtual == MENU_MIDIA) {
         if (strcmp(caminhoMidiaAtual, "/data/HyperNeiva/midia") == 0) {
-            preencherRoot(); // Se estava na raiz, volta pro menu principal
+            preencherRoot();
         }
         else {
-            // Localiza a última barra e corta a string nela (simula o cd ..)
             char* ultimaBarra = strrchr(caminhoMidiaAtual, '/');
             if (ultimaBarra != NULL) {
                 *ultimaBarra = '\0';
             }
-            abrirPastaMidia(caminhoMidiaAtual); // Lê a pasta de trás
+            abrirPastaMidia(caminhoMidiaAtual);
         }
     }
 }
