@@ -1,8 +1,16 @@
+// --- INÍCIO DO ARQUIVO controle_baixar.cpp ---
+#include <stdio.h>
+#include <stdarg.h>
+#include <string.h>
+
+#ifdef __INTELLISENSE__
+#define __builtin_va_list void*
+#endif
+
 #include "controle_baixar.h"
 #include "menu.h"
 #include "baixar.h"
 #include "network.h"
-#include <string.h>
 
 extern MenuLevel menuAtual;
 extern int sel;
@@ -57,3 +65,4 @@ void acaoCircle_Baixar() {
         totalItens = 5; menuAtual = MENU_CONSOLES;
     }
 }
+// --- FIM DO ARQUIVO controle_baixar.cpp ---

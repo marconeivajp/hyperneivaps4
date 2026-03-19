@@ -1,8 +1,15 @@
+// --- INÍCIO DO ARQUIVO controle_explorar.cpp ---
+#include <stdio.h>
+#include <stdarg.h>
+#include <string.h>
+
+#ifdef __INTELLISENSE__
+#define __builtin_va_list void*
+#endif
+
 #include "controle_explorar.h"
 #include "menu.h"
 #include "explorar.h"
-#include <string.h>
-#include <stdio.h>
 
 extern MenuLevel menuAtual;
 extern int sel;
@@ -66,3 +73,4 @@ void acaoR1_Explorar() {
         if (cd <= 0) { marcados[sel] = !marcados[sel]; cd = 12; }
     }
 }
+// --- FIM DO ARQUIVO controle_explorar.cpp ---
