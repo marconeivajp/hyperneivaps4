@@ -13,6 +13,7 @@
 #include "menu.h"
 #include "stb_image.h"
 #include "audio.h"
+#include "bloco_de_notas.h" // <-- Inclusão do Bloco de Notas
 
 // VARIÁVEIS GLOBAIS DA IMAGEM
 bool visualizandoMidiaImagem = false;
@@ -21,7 +22,7 @@ int wM = 0, hM = 0, cM = 0;
 float zoomMidia = 1.0f;
 bool fullscreenMidia = false;
 
-// VARIÁVEIS GLOBAIS PARA O LEITOR DE TEXTO
+// VARIÁVEIS GLOBAIS PARA O LEITOR DE TEXTO (Mantidas por compatibilidade, mas o uso principal agora é o Bloco de Notas)
 bool visualizandoMidiaTexto = false;
 char* textoMidiaBuffer = NULL;
 char* linhasTexto[5000];
@@ -71,7 +72,7 @@ void acaoCross_Root() {
         }
         else if (sel == 6) {
             menuAtual = MENU_NOTEPAD;
-            memset(bufferTecladoC, 0, sizeof(bufferTecladoC));
+            inicializarNotepad();
         }
     }
     else if (menuAtual == JOGAR_XML && strcasecmp(nomes[sel], "sp") == 0) {
@@ -91,13 +92,11 @@ void acaoCross_Root() {
         else {
             int len = strlen(nomes[sel]);
 
-            // 1. VERIFICA ÁUDIO
             if (len > 4 && (strcasecmp(&nomes[sel][len - 4], ".mp3") == 0 || strcasecmp(&nomes[sel][len - 4], ".wav") == 0)) {
                 tocarMusicaNova(novoCaminho);
                 sprintf(msgStatus, "TOCANDO: %s", nomes[sel]);
                 msgTimer = 180;
             }
-            // 2. VERIFICA IMAGEM
             else if ((len > 4 && (strcasecmp(&nomes[sel][len - 4], ".png") == 0 || strcasecmp(&nomes[sel][len - 4], ".jpg") == 0)) ||
                 (len > 5 && strcasecmp(&nomes[sel][len - 5], ".jpeg") == 0)) {
 
@@ -113,7 +112,6 @@ void acaoCross_Root() {
                     msgTimer = 120;
                 }
             }
-            // 3. VERIFICA ARQUIVOS DE TEXTO, BINÁRIOS E PDF
             else if ((len > 4 && (strcasecmp(&nomes[sel][len - 4], ".txt") == 0 ||
                 strcasecmp(&nomes[sel][len - 4], ".xml") == 0 ||
                 strcasecmp(&nomes[sel][len - 4], ".ini") == 0 ||
@@ -125,7 +123,7 @@ void acaoCross_Root() {
                 strcasecmp(&nomes[sel][len - 4], ".bat") == 0 ||
                 strcasecmp(&nomes[sel][len - 4], ".css") == 0 ||
                 strcasecmp(&nomes[sel][len - 4], ".php") == 0 ||
-                strcasecmp(&nomes[sel][len - 4], ".pdf") == 0)) || // <-- PDF ADICIONADO AQUI
+                strcasecmp(&nomes[sel][len - 4], ".pdf") == 0)) ||
                 (len > 5 && (strcasecmp(&nomes[sel][len - 5], ".json") == 0 ||
                     strcasecmp(&nomes[sel][len - 5], ".docx") == 0 ||
                     strcasecmp(&nomes[sel][len - 5], ".html") == 0 ||
@@ -151,27 +149,12 @@ void acaoCross_Root() {
                         textoMidiaBuffer[fsize] = '\0';
                         fclose(f);
 
-                        totalLinhasTexto = 0;
-                        textoMidiaScroll = 0;
-                        linhasTexto[0] = textoMidiaBuffer;
-                        totalLinhasTexto++;
+                        // AGORA ELE ABRE USANDO A INTERFACE DO BLOCO DE NOTAS EM MODO LEITURA!
+                        abrirTextoNoNotepad(textoMidiaBuffer);
+                        menuAtual = MENU_NOTEPAD;
 
-                        int charCount = 0;
-                        for (long i = 0; i < fsize; i++) {
-                            if (textoMidiaBuffer[i] == '\r' || textoMidiaBuffer[i] == '\0') textoMidiaBuffer[i] = ' ';
-                            charCount++;
-
-                            // FORÇA A QUEBRA DE LINHA A CADA 90 LETRAS (Evita o bug de não rolar a página!)
-                            if (textoMidiaBuffer[i] == '\n' || charCount > 90) {
-                                textoMidiaBuffer[i] = '\0';
-                                if (totalLinhasTexto < 4999) {
-                                    linhasTexto[totalLinhasTexto] = &textoMidiaBuffer[i + 1];
-                                    totalLinhasTexto++;
-                                }
-                                charCount = 0;
-                            }
-                        }
-                        visualizandoMidiaTexto = true;
+                        free(textoMidiaBuffer);
+                        textoMidiaBuffer = NULL;
                     }
                     else {
                         fclose(f);

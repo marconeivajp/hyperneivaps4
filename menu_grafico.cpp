@@ -2,6 +2,7 @@
 #include "menu_grafico.h"
 #include "menu.h"
 #include "graphics.h"
+#include "bloco_de_notas.h" // <-- ADICIONADO AQUI
 #include <string.h>
 #include <stdio.h>
 
@@ -44,10 +45,8 @@ void desenharInterface(uint32_t* p) {
     // 0.1 DESENHAR LEITOR DE TEXTO E CÓDIGO
     if (visualizandoMidiaTexto && textoMidiaBuffer) {
 
-        // Fundo escuro
         for (int i = 0; i < 1920 * 1080; i++) p[i] = 0xFF151515;
 
-        // Barra no topo decorativa
         for (int by = 0; by < 80; by++) {
             for (int bx = 0; bx < 1920; bx++) {
                 p[by * 1920 + bx] = 0xFF303030;
@@ -55,7 +54,6 @@ void desenharInterface(uint32_t* p) {
         }
         desenharTexto(p, "LEITOR DE ARQUIVOS (TXT, XML, INI, JSON, CPP...)", 35, 50, 25, 0xFF00AAFF);
 
-        // Escreve até 23 linhas na tela de cada vez para não borrar fora
         int maxLinhasVisiveis = 23;
         for (int i = 0; i < maxLinhasVisiveis; i++) {
             int indiceDaLinha = textoMidiaScroll + i;
@@ -64,7 +62,6 @@ void desenharInterface(uint32_t* p) {
             }
         }
 
-        // Rodapé com Dicas de botões e barra de progresso
         for (int by = 0; by < 60; by++) {
             for (int bx = 0; bx < 1920; bx++) {
                 p[(1020 + by) * 1920 + bx] = 0xFF222222;
@@ -74,7 +71,7 @@ void desenharInterface(uint32_t* p) {
         sprintf(rodape, "[Setas] Rolar Texto   |   [O] Voltar   |   Linha: %d / %d", textoMidiaScroll, totalLinhasTexto);
         desenharTexto(p, rodape, 25, 50, 1035, 0xFF00AAFF);
 
-        return; // Interrompe para não desenhar o menu atrás do texto
+        return;
     }
 
     // 0.2 DESENHAR IMAGEM
@@ -138,23 +135,9 @@ void desenharInterface(uint32_t* p) {
         }
     }
 
-    // 2. DESENHAR O BLOCO DE NOTAS (NOTEPAD)
+    // 2. DESENHAR O BLOCO DE NOTAS (NOTEPAD) - ATUALIZADO
     if (menuAtual == MENU_NOTEPAD) {
-        for (int by = 0; by < 700; by++) {
-            for (int bx = 0; bx < 1400; bx++) {
-                int pxX = 260 + bx; int pyY = 150 + by;
-                if (pxX >= 0 && pxX < 1920 && pyY >= 0 && pyY < 1080) p[pyY * 1920 + pxX] = 0xFFEEEEEE;
-            }
-        }
-        for (int by = 0; by < 60; by++) {
-            for (int bx = 0; bx < 1400; bx++) {
-                int pxX = 260 + bx; int pyY = 150 + by;
-                if (pxX >= 0 && pxX < 1920 && pyY >= 0 && pyY < 1080) p[pyY * 1920 + pxX] = 0xFFD05050;
-            }
-        }
-        desenharTexto(p, "BLOCO DE NOTAS", 40, 280, 160, 0xFFFFFFFF);
-        desenharTexto(p, "[X] Escrever   [O] Voltar", 30, 1200, 160, 0xFFFFFFFF);
-        desenharTexto(p, bufferTecladoC, 40, 280, 260, 0xFF000000);
+        renderizarNotepad(p); // <-- APENAS CHAMA A NOSSA FUNCAO E PRONTO!
     }
 
     // 3. DESENHAR AS IMAGENS (CAPAS, DISCOS E SCRAPER)

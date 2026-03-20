@@ -32,6 +32,7 @@
 #include "graphics.h"
 #include "controle.h"
 #include "criar_pastas.h"
+#include "bloco_de_notas.h" // <-- ADICIONADO: Inclusão do header do bloco de notas
 
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h" 
@@ -118,6 +119,10 @@ int main(void) {
                     if (menuAtual == MENU_BAIXAR_LINK_DIRETO) {
                         iniciarDownload(bufferTecladoC);
                         menuAtual = MENU_BAIXAR;
+                    }
+                    // <-- ADICIONADO: Lógica do Bloco de Notas capturando o texto do teclado
+                    else if (menuAtual == MENU_NOTEPAD) {
+                        aplicarTextoNotepad(bufferTecladoC);
                     }
                 }
                 else {

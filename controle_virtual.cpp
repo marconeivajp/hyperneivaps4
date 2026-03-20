@@ -1,27 +1,31 @@
-// --- INÍCIO DO ARQUIVO controle_virtual.cpp ---
 #include "controle_virtual.h"
 #include "menu.h"
 #include <string.h>
 
-// Puxamos as variáveis do sistema
 extern MenuLevel menuAtual;
 extern bool tecladoAtivo;
 extern uint16_t* bufferTecladoW;
 extern char bufferTecladoC[128];
 
-// Função externa para voltar ao menu principal
 extern void preencherRoot();
 
-void acaoCross_Notepad(int32_t uId, OrbisImeDialogSetting* imeSetting, uint16_t* imeTitle) {
+void acaoCross_Notepad(int32_t uId, OrbisImeDialogSetting* imeSetting, uint16_t* imeTitle, const char* textoInicial) {
     memset(imeSetting, 0, sizeof(OrbisImeDialogSetting));
     imeSetting->userId = uId;
-    imeSetting->type = (OrbisImeType)0;
+    imeSetting->type = (OrbisImeType)0; // Default
     imeSetting->maxTextLength = 127;
 
+    // LIMPEZA ABSOLUTA DO TECLADO
     memset(bufferTecladoW, 0, 1024);
-    for (int i = 0; i < 127; i++) {
-        bufferTecladoW[i] = (uint16_t)bufferTecladoC[i];
-        if (bufferTecladoC[i] == '\0') break;
+    memset(bufferTecladoC, 0, 128);
+
+    // Se a linha já tinha algo escrito, coloca no teclado. Se não, fica em branco.
+    if (textoInicial != NULL && strlen(textoInicial) > 0) {
+        strncpy(bufferTecladoC, textoInicial, 127);
+        for (int i = 0; i < 127; i++) {
+            if (bufferTecladoC[i] == '\0') break;
+            bufferTecladoW[i] = (uint16_t)bufferTecladoC[i];
+        }
     }
 
     imeSetting->inputTextBuffer = (wchar_t*)bufferTecladoW;
@@ -35,4 +39,3 @@ void acaoCross_Notepad(int32_t uId, OrbisImeDialogSetting* imeSetting, uint16_t*
 void acaoCircle_Notepad() {
     preencherRoot();
 }
-// --- FIM DO ARQUIVO controle_virtual.cpp ---
