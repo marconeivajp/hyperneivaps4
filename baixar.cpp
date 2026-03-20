@@ -30,7 +30,7 @@ char linksAtuais[3000][1024];
 int totalLinksAtuais = 0;
 
 char currentDropboxPath[512] = "";
-char currentUploadPath[512] = ""; // GPS de Upload
+char currentUploadPath[512] = "";
 
 void acaoRede(const char* jogo, bool buscarLista, bool salvarNoHD) {
     char url[512];
@@ -95,10 +95,39 @@ void preencherMenuBaixar() {
     strcpy(nomes[0], "Repositorios");
     strcpy(nomes[1], "CAPAS");
     strcpy(nomes[2], "LINK DIRETO");
-    strcpy(nomes[3], "DROPBOX (TOKEN)");
-    strcpy(nomes[4], "DROPBOX UPLOAD"); // NOVA OPÇÃO
+    strcpy(nomes[3], "DROPBOX (DOWNLOAD)");
+    strcpy(nomes[4], "DROPBOX (MENU BACKUP)"); // Alterado para abrir o seu novo menu!
     totalItens = 5; menuAtual = MENU_BAIXAR; sel = 0; off = 0;
 }
+
+// -----------------------------------------------------
+// NOVO MENU DE BACKUP
+// -----------------------------------------------------
+void preencherMenuBackup() {
+    memset(nomes, 0, sizeof(nomes));
+    strcpy(nomes[0], "Selecionar Manualmente");
+    strcpy(nomes[1], "Backup Todos (App.db e Configs)");
+    strcpy(nomes[2], "Backup de Saves (PS4)");
+    strcpy(nomes[3], "Backup do RetroArch");
+    strcpy(nomes[4], "Backup Hyper Neiva Configuracao");
+    strcpy(nomes[5], "Backup do Banco de Dados (App.db)");
+    strcpy(nomes[6], "Backup de Screenshots");
+    strcpy(nomes[7], "Trofeus (Trophy)");
+    strcpy(nomes[8], "Saves Apollo");
+    totalItens = 9;
+    menuAtual = MENU_BAIXAR_DROPBOX_BACKUP;
+    sel = 0; off = 0;
+}
+
+void executarBackupTodos() {
+    // Faz o envio direto dos arquivos unicos vitais em sequencia
+    fazerUploadDropbox("/system_data/priv/mms/app.db");
+    fazerUploadDropbox("/data/HyperNeiva/configuracao/dropbox_token.txt");
+    fazerUploadDropbox("/data/retroarch/retroarch.cfg");
+    sprintf(msgStatus, "BACKUP ESSENCIAL CONCLUIDO!");
+    msgTimer = 180;
+}
+// -----------------------------------------------------
 
 void acessarDropbox(const char* path) {
     char cleanPath[256];
@@ -249,9 +278,6 @@ void iniciarDownload(const char* url) {
     msgTimer = 180; sceHttpDeleteRequest(req); sceHttpDeleteConnection(conn); sceHttpDeleteTemplate(tpl);
 }
 
-// -----------------------------------------------------
-// LÓGICA DE UPLOAD
-// -----------------------------------------------------
 void listarArquivosUpload(const char* dirPath) {
     memset(nomes, 0, sizeof(nomes));
     memset(linksAtuais, 0, sizeof(linksAtuais));
@@ -268,10 +294,9 @@ void listarArquivosUpload(const char* dirPath) {
             strcpy(nomes[totalItens], dir->d_name);
             sprintf(linksAtuais[totalItens], "%s/%s", dirPath, dir->d_name);
 
-            // Identifica pastas visualmente
             if (dir->d_type == DT_DIR) {
                 strcat(nomes[totalItens], " (Pasta)");
-                strcat(linksAtuais[totalItens], "/"); // Barra no fim para identificar
+                strcat(linksAtuais[totalItens], "/");
             }
 
             totalItens++;
@@ -279,7 +304,7 @@ void listarArquivosUpload(const char* dirPath) {
         }
         closedir(d);
     }
-    if (totalItens == 0) { strcpy(nomes[0], "Pasta Vazia"); totalItens = 1; }
+    if (totalItens == 0) { strcpy(nomes[0], "Pasta Vazia / Acesso Negado"); totalItens = 1; }
     menuAtual = MENU_BAIXAR_DROPBOX_UPLOAD; sel = 0; off = 0;
     sprintf(msgStatus, "SELECIONE UM ARQUIVO PARA ENVIAR");
 }
@@ -310,7 +335,6 @@ void fazerUploadDropbox(const char* localPath) {
     long fileSize = ftell(fLocal);
     fseek(fLocal, 0, SEEK_SET);
 
-    // Proteção de RAM (Evita crachar o app ao ler ficheiros gigantes)
     if (fileSize > 80 * 1024 * 1024) {
         sprintf(msgStatus, "ERRO: ARQUIVO GRANDE DEMAIS (>80MB)"); msgTimer = 180; fclose(fLocal); return;
     }
@@ -326,7 +350,7 @@ void fazerUploadDropbox(const char* localPath) {
     if (ref) strncpy(nomeArquivo, ref + 1, 127);
 
     sprintf(msgStatus, "ENVIANDO %s...", nomeArquivo);
-    msgTimer = 300; // Tempo longo porque upload demora
+    msgTimer = 300;
 
     int tpl = sceHttpCreateTemplate(httpCtxId, "HyperNeiva/1.0", ORBIS_HTTP_VERSION_1_1, 1);
     sceHttpsSetSslCallback(tpl, skipSslCallback, NULL);
@@ -340,7 +364,6 @@ void fazerUploadDropbox(const char* localPath) {
     sceHttpAddRequestHeader(req, "Authorization", authHeader, 1);
     sceHttpAddRequestHeader(req, "Content-Type", "application/octet-stream", 1);
 
-    // Manda para a pasta /HyperNeiva_Uploads/
     char apiArg[1024];
     sprintf(apiArg, "{\"path\": \"/HyperNeiva_Uploads/%s\", \"mode\": \"add\", \"autorename\": true, \"mute\": false}", nomeArquivo);
     sceHttpAddRequestHeader(req, "Dropbox-API-Arg", apiArg, 1);
@@ -358,8 +381,6 @@ void fazerUploadDropbox(const char* localPath) {
     msgTimer = 240;
     sceHttpDeleteRequest(req); sceHttpDeleteConnection(conn); sceHttpDeleteTemplate(tpl);
 }
-
-// -----------------------------------------------------
 
 void preencherMenuRepositorios() {
     memset(nomes, 0, sizeof(nomes));
