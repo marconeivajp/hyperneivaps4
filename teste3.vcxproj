@@ -57,6 +57,8 @@
   <ItemGroup>
     <ClCompile Include="audio.cpp" />
     <ClCompile Include="baixar.cpp" />
+    <ClCompile Include="baixar_dropbox_download.cpp" />
+    <ClCompile Include="baixar_repositorio.cpp" />
     <ClCompile Include="barra_de_load.cpp" />
     <ClCompile Include="bloco_de_notas.cpp" />
     <ClCompile Include="controle.cpp" />
@@ -102,6 +104,8 @@
   <ItemGroup>
     <ClInclude Include="audio.h" />
     <ClInclude Include="baixar.h" />
+    <ClInclude Include="baixar_dropbox_download.h" />
+    <ClInclude Include="baixar_repositorio.h" />
     <ClInclude Include="barra_de_load.h" />
     <ClInclude Include="bloco_de_notas.h" />
     <ClInclude Include="controle.h" />

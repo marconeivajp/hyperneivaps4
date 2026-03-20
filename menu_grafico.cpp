@@ -2,18 +2,17 @@
 #include "menu_grafico.h"
 #include "menu.h"
 #include "graphics.h"
-#include "bloco_de_notas.h" // <-- ADICIONADO AQUI
+#include "bloco_de_notas.h" 
+#include "menu_audio.h" // <-- ADICIONADO AQUI
 #include <string.h>
 #include <stdio.h>
 
 extern bool editMode;
 extern bool showOpcoes;
 extern int selOpcao;
-extern int selAudioOpcao;
 extern char pathExplorar[256];
 extern bool marcados[3000];
 extern const char* listaOpcoes[10];
-extern const char* listaOpcoesAudio[11];
 
 extern char bufferTecladoC[128];
 extern unsigned char* capasAssets[6];
@@ -42,15 +41,11 @@ extern int textoMidiaScroll;
 
 void desenharInterface(uint32_t* p) {
 
-    // 0.1 DESENHAR LEITOR DE TEXTO E CÓDIGO
+    // 0.1 DESENHAR LEITOR DE TEXTO E CÓDIGO (Desativado se usando Bloco de Notas para leitura, mas mantido por segurança)
     if (visualizandoMidiaTexto && textoMidiaBuffer) {
-
         for (int i = 0; i < 1920 * 1080; i++) p[i] = 0xFF151515;
-
         for (int by = 0; by < 80; by++) {
-            for (int bx = 0; bx < 1920; bx++) {
-                p[by * 1920 + bx] = 0xFF303030;
-            }
+            for (int bx = 0; bx < 1920; bx++) p[by * 1920 + bx] = 0xFF303030;
         }
         desenharTexto(p, "LEITOR DE ARQUIVOS (TXT, XML, INI, JSON, CPP...)", 35, 50, 25, 0xFF00AAFF);
 
@@ -63,9 +58,7 @@ void desenharInterface(uint32_t* p) {
         }
 
         for (int by = 0; by < 60; by++) {
-            for (int bx = 0; bx < 1920; bx++) {
-                p[(1020 + by) * 1920 + bx] = 0xFF222222;
-            }
+            for (int bx = 0; bx < 1920; bx++) p[(1020 + by) * 1920 + bx] = 0xFF222222;
         }
         char rodape[128];
         sprintf(rodape, "[Setas] Rolar Texto   |   [O] Voltar   |   Linha: %d / %d", textoMidiaScroll, totalLinhasTexto);
@@ -116,7 +109,7 @@ void desenharInterface(uint32_t* p) {
         return;
     }
 
-    // 1. DESENHAR LISTA DE ITENS
+    // 1. DESENHAR LISTA DE ITENS (Menu Principal, Mídia, etc)
     if (menuAtual != MENU_NOTEPAD) {
         for (int i = 0; i < 6; i++) {
             int gIdx = i + off; if (gIdx >= totalItens) break;
@@ -135,9 +128,9 @@ void desenharInterface(uint32_t* p) {
         }
     }
 
-    // 2. DESENHAR O BLOCO DE NOTAS (NOTEPAD) - ATUALIZADO
+    // 2. DESENHAR O BLOCO DE NOTAS (NOTEPAD)
     if (menuAtual == MENU_NOTEPAD) {
-        renderizarNotepad(p); // <-- APENAS CHAMA A NOSSA FUNCAO E PRONTO!
+        renderizarNotepad(p);
     }
 
     // 3. DESENHAR AS IMAGENS (CAPAS, DISCOS E SCRAPER)
@@ -165,19 +158,8 @@ void desenharInterface(uint32_t* p) {
         }
     }
 
-    // 5. DESENHAR MENU SUSPENSO (OPÇÕES DE ÁUDIO)
-    if (menuAtual == MENU_AUDIO_OPCOES && showOpcoes) {
-        for (int my = 0; my < 550; my++) {
-            for (int mx = 0; mx < 350; mx++) {
-                int pxX = listX + 600 + mx; int pyY = listY + my;
-                if (pxX >= 0 && pxX < 1920 && pyY >= 0 && pyY < 1080) p[pyY * 1920 + pxX] = 0xEE111111;
-            }
-        }
-        for (int i = 0; i < 11; i++) {
-            uint32_t corOp = (i == selAudioOpcao) ? 0xFFFFFF00 : 0xFFFFFFFF;
-            desenharTexto(p, listaOpcoesAudio[i], 30, listX + 620, listY + 50 + (i * 45), corOp);
-        }
-    }
+    // 5. DESENHAR MENU SUSPENSO (OPÇÕES DE ÁUDIO) - AGORA BEM MAIS LIMPO!
+    desenharMenuAudio(p);
 
     if (msgTimer > 0) {
         desenharTexto(p, msgStatus, 40, 100, 950, 0xFFFFFFFF);
