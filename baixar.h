@@ -23,11 +23,13 @@ void listarXMLsRepositorio();
 void abrirXMLRepositorio(const char* xmlFile);
 void mostrarLinksJogo(int gameIndex);
 
-// DROPBOX DIRETO
 void acessarDropbox(const char* url);
 void iniciarDownload(const char* url);
 
 extern char linksAtuais[3000][1024];
 extern char caminhoXMLAtual[256];
+
+// Variável que funciona como "GPS" para saber a pasta atual do Dropbox
+extern char currentDropboxPath[512];
 
 #endif
