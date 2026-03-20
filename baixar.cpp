@@ -11,7 +11,14 @@
 #include "stb_image.h"
 #include <stdarg.h> 
 
+// Funções Nativas da API do PS4
 extern "C" int sceHttpSetRequestContentLength(int reqId, uint64_t contentLength);
+// A função sceHttpGetResponseContentLength já existe no Http.h da OpenOrbis, então removemos daqui!
+
+// Funções do seu motor gráfico (main.cpp) para podermos desenhar fora do loop principal
+extern uint32_t* obterBufferVideo();
+extern void desenharInterface(uint32_t* p);
+extern void submeterTela();
 
 Console listaConsoles[5] = {
     {"Sony - PlayStation", "Sony%20-%20PlayStation"},
@@ -31,6 +38,47 @@ int totalLinksAtuais = 0;
 
 char currentDropboxPath[512] = "";
 char currentUploadPath[512] = "";
+
+// -----------------------------------------------------
+// MOTOR DA BARRA DE PROGRESSO
+// -----------------------------------------------------
+void atualizarBarra(float progresso) {
+    uint32_t* p = obterBufferVideo();
+
+    // Limpa a tela com cinza bem escuro
+    for (int i = 0; i < 1920 * 1080; i++) p[i] = 0xFF121212;
+
+    // Redesenha os menus por cima
+    desenharInterface(p);
+
+    // Configurações da barra
+    int bX = 50;
+    int bY = 940; // Fica logo acima do msgStatus
+    int bW = 400;
+    int bH = 15;
+
+    // Fundo da barra (Cinza escuro)
+    for (int y = bY; y < bY + bH; y++) {
+        for (int x = bX; x < bX + bW; x++) {
+            p[y * 1920 + x] = 0xFF444444;
+        }
+    }
+
+    // Preenchimento da barra (Verde Hyper Neiva)
+    int fill = (int)(bW * progresso);
+    if (fill > bW) fill = bW;
+    if (fill < 0) fill = 0;
+
+    for (int y = bY; y < bY + bH; y++) {
+        for (int x = bX; x < bX + fill; x++) {
+            p[y * 1920 + x] = 0xFF00D83A;
+        }
+    }
+
+    // Força a tela a atualizar no PS4
+    submeterTela();
+}
+// -----------------------------------------------------
 
 void acaoRede(const char* jogo, bool buscarLista, bool salvarNoHD) {
     char url[512];
@@ -60,7 +108,10 @@ void acaoRede(const char* jogo, bool buscarLista, bool salvarNoHD) {
         FILE* f = fopen(path, "wb");
         if (f) {
             unsigned char buf[16384]; int n;
-            while ((n = sceHttpReadData(req, buf, sizeof(buf))) > 0) fwrite(buf, 1, n, f);
+            while ((n = sceHttpReadData(req, buf, sizeof(buf))) > 0) {
+                fwrite(buf, 1, n, f);
+                atualizarBarra(0.5f); // Pequena barra indeterminada para capas
+            }
             fclose(f);
 
             if (buscarLista) {
@@ -96,13 +147,10 @@ void preencherMenuBaixar() {
     strcpy(nomes[1], "CAPAS");
     strcpy(nomes[2], "LINK DIRETO");
     strcpy(nomes[3], "DROPBOX (DOWNLOAD)");
-    strcpy(nomes[4], "DROPBOX (MENU BACKUP)"); // Alterado para abrir o seu novo menu!
+    strcpy(nomes[4], "DROPBOX (MENU BACKUP)");
     totalItens = 5; menuAtual = MENU_BAIXAR; sel = 0; off = 0;
 }
 
-// -----------------------------------------------------
-// NOVO MENU DE BACKUP
-// -----------------------------------------------------
 void preencherMenuBackup() {
     memset(nomes, 0, sizeof(nomes));
     strcpy(nomes[0], "Selecionar Manualmente");
@@ -118,16 +166,6 @@ void preencherMenuBackup() {
     menuAtual = MENU_BAIXAR_DROPBOX_BACKUP;
     sel = 0; off = 0;
 }
-
-void executarBackupTodos() {
-    // Faz o envio direto dos arquivos unicos vitais em sequencia
-    fazerUploadDropbox("/system_data/priv/mms/app.db");
-    fazerUploadDropbox("/data/HyperNeiva/configuracao/dropbox_token.txt");
-    fazerUploadDropbox("/data/retroarch/retroarch.cfg");
-    sprintf(msgStatus, "BACKUP ESSENCIAL CONCLUIDO!");
-    msgTimer = 180;
-}
-// -----------------------------------------------------
 
 void acessarDropbox(const char* path) {
     char cleanPath[256];
@@ -155,6 +193,7 @@ void acessarDropbox(const char* path) {
     }
 
     sprintf(msgStatus, "CONECTANDO A API...");
+    atualizarBarra(0.3f);
     msgTimer = 180;
 
     int tpl = sceHttpCreateTemplate(httpCtxId, "HyperNeiva/1.0", ORBIS_HTTP_VERSION_1_1, 1);
@@ -175,6 +214,8 @@ void acessarDropbox(const char* path) {
     sceHttpSetRequestContentLength(req, strlen(postData));
 
     memset(nomes, 0, sizeof(nomes)); memset(linksAtuais, 0, sizeof(linksAtuais)); totalItens = 0;
+
+    atualizarBarra(0.6f);
 
     if (sceHttpSendRequest(req, postData, strlen(postData)) >= 0) {
         FILE* f = fopen("/data/HyperNeiva/temp_dropbox.json", "wb");
@@ -230,6 +271,7 @@ void acessarDropbox(const char* path) {
     }
     else sprintf(msgStatus, "ERRO: FALHA DE REDE");
 
+    atualizarBarra(1.0f);
     msgTimer = 240; sceHttpDeleteRequest(req); sceHttpDeleteConnection(conn); sceHttpDeleteTemplate(tpl);
     menuAtual = MENU_BAIXAR_DROPBOX_LISTA; sel = 0; off = 0;
 }
@@ -241,7 +283,8 @@ void iniciarDownload(const char* url) {
     char nomeArquivo[128] = "arquivo.bin"; char* ref = strrchr(url, '/');
     if (ref) strncpy(nomeArquivo, ref + 1, 127);
     char pathFinal[512]; sprintf(pathFinal, "%s/%s", pathPasta, nomeArquivo);
-    sprintf(msgStatus, "BAIXANDO: %s", nomeArquivo); msgTimer = 150;
+    sprintf(msgStatus, "CONECTANDO..."); msgTimer = 150;
+    atualizarBarra(0.05f);
 
     int tpl = sceHttpCreateTemplate(httpCtxId, "HyperNeiva/1.0", ORBIS_HTTP_VERSION_1_1, 1);
     sceHttpsSetSslCallback(tpl, skipSslCallback, NULL);
@@ -266,14 +309,40 @@ void iniciarDownload(const char* url) {
     }
 
     if (sceHttpSendRequest(req, NULL, 0) >= 0) {
+
+        // CORREÇÃO AQUI: A função exige 3 argumentos (ID, ponteiro de status, ponteiro do tamanho)
+        size_t tamanhoTotal = 0;
+        int32_t statusRes = 0;
+        sceHttpGetResponseContentLength(req, &statusRes, &tamanhoTotal);
+
         FILE* f = fopen(pathFinal, "wb");
         if (f) {
             unsigned char buf[32768]; int n;
-            while ((n = sceHttpReadData(req, buf, sizeof(buf))) > 0) fwrite(buf, 1, n, f);
-            fclose(f); sprintf(msgStatus, "DOWNLOAD CONCLUIDO!");
+            uint64_t baixado = 0;
+
+            while ((n = sceHttpReadData(req, buf, sizeof(buf))) > 0) {
+                fwrite(buf, 1, n, f);
+                baixado += n;
+
+                if (tamanhoTotal > 0) {
+                    float prog = (float)baixado / (float)tamanhoTotal;
+                    sprintf(msgStatus, "BAIXANDO: %s (%d%%)", nomeArquivo, (int)(prog * 100));
+                    atualizarBarra(prog);
+                }
+                else {
+                    sprintf(msgStatus, "BAIXANDO: %s...", nomeArquivo);
+                    atualizarBarra(0.5f);
+                }
+            }
+            fclose(f);
+            sprintf(msgStatus, "DOWNLOAD CONCLUIDO!");
+            atualizarBarra(1.0f);
         }
     }
-    else sprintf(msgStatus, "ERRO NO DOWNLOAD");
+    else {
+        sprintf(msgStatus, "ERRO NO DOWNLOAD");
+        atualizarBarra(0.0f);
+    }
 
     msgTimer = 180; sceHttpDeleteRequest(req); sceHttpDeleteConnection(conn); sceHttpDeleteTemplate(tpl);
 }
@@ -342,14 +411,26 @@ void fazerUploadDropbox(const char* localPath) {
     unsigned char* fileData = (unsigned char*)malloc(fileSize);
     if (!fileData) { sprintf(msgStatus, "ERRO: MEMORIA INSUFICIENTE"); msgTimer = 180; fclose(fLocal); return; }
 
-    fread(fileData, 1, fileSize, fLocal);
-    fclose(fLocal);
-
     char nomeArquivo[128] = "upload.bin";
     char* ref = strrchr(localPath, '/');
     if (ref) strncpy(nomeArquivo, ref + 1, 127);
 
-    sprintf(msgStatus, "ENVIANDO %s...", nomeArquivo);
+    // Lendo do HD em blocos para animar a barra
+    long lido = 0;
+    long chunk = 1024 * 1024; // 1MB por vez
+    while (lido < fileSize) {
+        long lerAgora = (fileSize - lido > chunk) ? chunk : (fileSize - lido);
+        fread(fileData + lido, 1, lerAgora, fLocal);
+        lido += lerAgora;
+
+        float prog = ((float)lido / (float)fileSize) * 0.5f; // Vai até 50%
+        sprintf(msgStatus, "LENDO ARQUIVO: %s (%d%%)", nomeArquivo, (int)(prog * 200));
+        atualizarBarra(prog);
+    }
+    fclose(fLocal);
+
+    sprintf(msgStatus, "ENVIANDO PARA A NUVEM... AGUARDE");
+    atualizarBarra(0.75f); // Trava no 75% enquanto a API trabalha
     msgTimer = 300;
 
     int tpl = sceHttpCreateTemplate(httpCtxId, "HyperNeiva/1.0", ORBIS_HTTP_VERSION_1_1, 1);
@@ -372,14 +453,24 @@ void fazerUploadDropbox(const char* localPath) {
 
     if (sceHttpSendRequest(req, fileData, fileSize) >= 0) {
         sprintf(msgStatus, "UPLOAD CONCLUIDO COM SUCESSO!");
+        atualizarBarra(1.0f);
     }
     else {
         sprintf(msgStatus, "ERRO NO UPLOAD (FALHA DE REDE)");
+        atualizarBarra(0.0f);
     }
 
     free(fileData);
     msgTimer = 240;
     sceHttpDeleteRequest(req); sceHttpDeleteConnection(conn); sceHttpDeleteTemplate(tpl);
+}
+
+void executarBackupTodos() {
+    fazerUploadDropbox("/system_data/priv/mms/app.db");
+    fazerUploadDropbox("/data/HyperNeiva/configuracao/dropbox_token.txt");
+    fazerUploadDropbox("/data/retroarch/retroarch.cfg");
+    sprintf(msgStatus, "BACKUP ESSENCIAL CONCLUIDO!");
+    msgTimer = 180;
 }
 
 void preencherMenuRepositorios() {
