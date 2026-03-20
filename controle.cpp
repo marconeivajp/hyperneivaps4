@@ -32,24 +32,20 @@ bool pCross = false;
 bool pCircle = false;
 bool pTri = false;
 
-extern void acaoCircle_Notepad();
-extern void acaoCross_Notepad(int32_t uId, OrbisImeDialogSetting* imeSetting, uint16_t* imeTitle);
-extern MenuLevel menuAtual;
-extern bool editMode;
-extern bool showOpcoes;
+// Garantia de Declaração de Variáveis e Funções Externas
 extern int selAudioOpcao;
 extern int selOpcao;
 extern int sel;
 extern int off;
 extern int totalItens;
-extern char nomes[3000][64];
-extern char ultimoJogoCarregado[64];
-extern unsigned char* imgPreview;
-extern int consoleAtual;
-extern int wP, hP, cP;
+extern bool showOpcoes;
+extern bool editMode;
 
-void executarAcaoX() {}
-void executarAcaoBolinha() {}
+extern void acaoCircle_Notepad();
+extern void acaoCross_Notepad(int32_t uId, OrbisImeDialogSetting* imeSetting, uint16_t* imeTitle);
+extern void acaoCross_Baixar(int32_t uId, OrbisImeDialogSetting* imeSetting, uint16_t* imeTitle);
+extern void acaoCircle_Baixar();
+extern void acaoTriangle_Baixar();
 
 void processarNavegacaoDPad(uint32_t botoes) {
     if (botoes & (ORBIS_PAD_BUTTON_DOWN | ORBIS_PAD_BUTTON_UP)) {
@@ -85,10 +81,7 @@ void processarPreviewScraper() {
 }
 
 void processarControles(uint32_t botoes, int32_t uId, OrbisImeDialogSetting* imeSetting, uint16_t* imeTitle) {
-    if (editMode) {
-        processarControlesEdicao(botoes);
-        return;
-    }
+    if (editMode) { processarControlesEdicao(botoes); return; }
 
     processarNavegacaoDPad(botoes);
     processarPreviewScraper();
@@ -100,12 +93,8 @@ void processarControles(uint32_t botoes, int32_t uId, OrbisImeDialogSetting* ime
             else if (menuAtual == MENU_NOTEPAD) acaoCross_Notepad(uId, imeSetting, imeTitle);
             else if (menuAtual == MENU_EXPLORAR || menuAtual == MENU_EXPLORAR_HOME) acaoCross_Explorar();
             else if (menuAtual == MENU_EDITAR || menuAtual == MENU_EDIT_TARGET) acaoCross_Editar();
-            else if (menuAtual == MENU_BAIXAR || menuAtual == MENU_BAIXAR_REPOS || menuAtual == MENU_BAIXAR_GAMES_XMLS || menuAtual == MENU_BAIXAR_GAMES_LIST || menuAtual == MENU_BAIXAR_LINKS || menuAtual == MENU_BAIXAR_LINK_DIRETO || menuAtual == MENU_BAIXAR_NAVEGADOR_OPCOES || menuAtual == MENU_BAIXAR_NAVEGADOR_GOOGLE || menuAtual == MENU_BAIXAR_NAVEGADOR_URL || menuAtual == MENU_BAIXAR_NAVEGADOR_LISTA || menuAtual == MENU_CAPAS || menuAtual == MENU_CONSOLES || menuAtual == SCRAPER_LIST) acaoCross_Baixar(uId, imeSetting, imeTitle);
+            else if (menuAtual == MENU_BAIXAR || menuAtual == MENU_BAIXAR_REPOS || menuAtual == MENU_BAIXAR_GAMES_XMLS || menuAtual == MENU_BAIXAR_GAMES_LIST || menuAtual == MENU_BAIXAR_LINKS || menuAtual == MENU_BAIXAR_LINK_DIRETO || menuAtual == MENU_BAIXAR_DROPBOX_LISTA || menuAtual == MENU_BAIXAR_DROPBOX_URL || menuAtual == MENU_CAPAS || menuAtual == MENU_CONSOLES || menuAtual == SCRAPER_LIST) acaoCross_Baixar(uId, imeSetting, imeTitle);
 
-            if (!editMode && !showOpcoes && menuAtual != SCRAPER_LIST && menuAtual != JOGAR_XML && menuAtual != MENU_NOTEPAD && menuAtual != MENU_MUSICAS && menuAtual != MENU_BAIXAR_LINKS) {
-                sel = 0; off = 0;
-            }
-            executarAcaoX();
             pCross = true;
         }
     }
@@ -113,18 +102,15 @@ void processarControles(uint32_t botoes, int32_t uId, OrbisImeDialogSetting* ime
 
     if (botoes & ORBIS_PAD_BUTTON_CIRCLE) {
         if (!pCircle) {
-            if (showOpcoes) { showOpcoes = false; }
+            if (showOpcoes) showOpcoes = false;
             else {
                 if (menuAtual == JOGAR_XML || menuAtual == MENU_MIDIA) acaoCircle_Root();
                 else if (menuAtual == MENU_MUSICAS || menuAtual == MENU_AUDIO_OPCOES) acaoCircle_Musicas();
                 else if (menuAtual == MENU_NOTEPAD) acaoCircle_Notepad();
                 else if (menuAtual == MENU_EXPLORAR || menuAtual == MENU_EXPLORAR_HOME) acaoCircle_Explorar();
                 else if (menuAtual == MENU_EDITAR || menuAtual == MENU_EDIT_TARGET) acaoCircle_Editar();
-                else if (menuAtual == MENU_BAIXAR || menuAtual == MENU_BAIXAR_REPOS || menuAtual == MENU_BAIXAR_GAMES_XMLS || menuAtual == MENU_BAIXAR_GAMES_LIST || menuAtual == MENU_BAIXAR_LINKS || menuAtual == MENU_BAIXAR_LINK_DIRETO || menuAtual == MENU_BAIXAR_NAVEGADOR_OPCOES || menuAtual == MENU_BAIXAR_NAVEGADOR_GOOGLE || menuAtual == MENU_BAIXAR_NAVEGADOR_URL || menuAtual == MENU_BAIXAR_NAVEGADOR_LISTA || menuAtual == MENU_CAPAS || menuAtual == MENU_CONSOLES || menuAtual == SCRAPER_LIST) acaoCircle_Baixar();
-
-                if (menuAtual != MENU_AUDIO_OPCOES && menuAtual != MENU_EXPLORAR && menuAtual != MENU_NOTEPAD) { sel = 0; off = 0; }
+                else if (menuAtual == MENU_BAIXAR || menuAtual == MENU_BAIXAR_REPOS || menuAtual == MENU_BAIXAR_GAMES_XMLS || menuAtual == MENU_BAIXAR_GAMES_LIST || menuAtual == MENU_BAIXAR_LINKS || menuAtual == MENU_BAIXAR_LINK_DIRETO || menuAtual == MENU_BAIXAR_DROPBOX_LISTA || menuAtual == MENU_BAIXAR_DROPBOX_URL || menuAtual == MENU_CAPAS || menuAtual == MENU_CONSOLES || menuAtual == SCRAPER_LIST) acaoCircle_Baixar();
             }
-            executarAcaoBolinha();
             pCircle = true;
         }
     }
@@ -134,8 +120,8 @@ void processarControles(uint32_t botoes, int32_t uId, OrbisImeDialogSetting* ime
         if (!pTri) {
             if (menuAtual == MENU_MUSICAS) acaoTriangle_Musicas();
             else if (menuAtual == MENU_EXPLORAR) acaoTriangle_Explorar();
-            // <-- NOVA LÓGICA DO TRIÂNGULO NO NAVEGADOR ADICIONADA AQUI -->
-            else if (menuAtual == MENU_BAIXAR_NAVEGADOR_LISTA) acaoTriangle_Baixar();
+            else if (menuAtual == MENU_BAIXAR_DROPBOX_LISTA) acaoTriangle_Baixar();
+
             pTri = true;
         }
     }
@@ -143,10 +129,6 @@ void processarControles(uint32_t botoes, int32_t uId, OrbisImeDialogSetting* ime
 
     if (botoes & ORBIS_PAD_BUTTON_R1) {
         if (menuAtual == MENU_EXPLORAR) acaoR1_Explorar();
-    }
-
-    if (menuAtual != MENU_EXPLORAR && menuAtual != MENU_AUDIO_OPCOES) {
-        showOpcoes = false;
     }
 }
 // --- FIM DO ARQUIVO controle.cpp ---

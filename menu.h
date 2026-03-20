@@ -11,7 +11,6 @@
 #endif
 #endif
 
-// <-- AQUI ESTÃO TODOS OS ESTADOS JUNTOS E CORRIGIDOS -->
 enum MenuLevel {
     ROOT,
     MENU_MIDIA,
@@ -21,12 +20,8 @@ enum MenuLevel {
     MENU_BAIXAR_GAMES_LIST,
     MENU_BAIXAR_LINKS,
     MENU_BAIXAR_LINK_DIRETO,
-    MENU_BAIXAR_NAVEGADOR_OPCOES,
-    MENU_BAIXAR_NAVEGADOR_FAVORITOS,
-    MENU_BAIXAR_NAVEGADOR,
-    MENU_BAIXAR_NAVEGADOR_GOOGLE,
-    MENU_BAIXAR_NAVEGADOR_URL,
-    MENU_BAIXAR_NAVEGADOR_LISTA,
+    MENU_BAIXAR_DROPBOX_LISTA,
+    MENU_BAIXAR_DROPBOX_URL, // <-- NOVO ESTADO
     MENU_CAPAS,
     MENU_RETROARCH,
     MENU_CONSOLES,
@@ -46,6 +41,7 @@ extern char nomes[3000][64];
 extern int totalItens;
 extern int sel;
 extern int off;
+extern int selAudioOpcao;
 
 extern char msgStatus[128];
 extern int msgTimer;

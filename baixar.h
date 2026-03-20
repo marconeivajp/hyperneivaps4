@@ -23,10 +23,11 @@ void listarXMLsRepositorio();
 void abrirXMLRepositorio(const char* xmlFile);
 void mostrarLinksJogo(int gameIndex);
 
-// <-- MEMÓRIA BLINDADA CONTRA CRASHES (Aumentado para 1024) -->
+// DROPBOX DIRETO
+void acessarDropbox(const char* url);
+void iniciarDownload(const char* url);
+
 extern char linksAtuais[3000][1024];
 extern char caminhoXMLAtual[256];
-
-void iniciarDownload(const char* url);
 
 #endif
