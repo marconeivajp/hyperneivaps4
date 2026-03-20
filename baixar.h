@@ -26,14 +26,17 @@ void mostrarLinksJogo(int gameIndex);
 void acessarDropbox(const char* url);
 void iniciarDownload(const char* url);
 
-// NOVAS FUNÇÕES DE UPLOAD
 void listarArquivosUpload(const char* dirPath);
 void fazerUploadDropbox(const char* localPath);
+
+// NOVAS FUNÇÕES DO MENU DE BACKUP
+void preencherMenuBackup();
+void executarBackupTodos();
 
 extern char linksAtuais[3000][1024];
 extern char caminhoXMLAtual[256];
 
 extern char currentDropboxPath[512];
-extern char currentUploadPath[512]; // GPS da navegação de upload
+extern char currentUploadPath[512];
 
 #endif
