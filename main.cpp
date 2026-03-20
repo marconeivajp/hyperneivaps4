@@ -39,11 +39,8 @@
 #define STB_TRUETYPE_IMPLEMENTATION
 #include "stb_truetype.h"
 
+// Declaração de variáveis globais
 int selAudioOpcao = 0;
-extern const char* listaOpcoesAudio[11];
-extern void abrirMenuAudioOpcoes();
-extern void tratarSelecaoAudio(int op);
-
 bool tecladoAtivo = false;
 uint16_t* bufferTecladoW = NULL;
 char bufferTecladoC[128] = "";
@@ -51,7 +48,12 @@ char bufferTecladoC[128] = "";
 unsigned char* capasAssets[6], * discosAssets[6], * backImg = NULL;
 int wC[6], hC[6], cC[6], wD[6], hD[6], cD[6], wB, hB, cB;
 
-extern void acessarSiteNavegador(const char* url);
+// Declarações explícitas de funções externas
+extern const char* listaOpcoesAudio[11];
+extern void abrirMenuAudioOpcoes();
+extern void tratarSelecaoAudio(int op);
+extern void acessarDropbox(const char* url);
+extern void iniciarDownload(const char* url);
 
 int main(void) {
     initNetwork();
@@ -74,7 +76,7 @@ int main(void) {
     OrbisImeDialogSetting* imeSetting = (OrbisImeDialogSetting*)imeVm;
     bufferTecladoW = (uint16_t*)((uint8_t*)imeVm + 1024);
     uint16_t* imeTitle = (uint16_t*)((uint8_t*)bufferTecladoW + 1024);
-    uint16_t t[] = { 'E','s','c','r','e','v','a',' ','a','q','u','i','\0' };
+    uint16_t t[] = { 'D','i','g','i','t','e',' ','o',' ','L','i','n','k','\0' };
     memcpy(imeTitle, t, sizeof(t));
 
     inicializarPastas();
@@ -104,9 +106,9 @@ int main(void) {
         for (int i = 0; i < 1920 * 1080; i++) p[i] = 0xFF121212;
         if (backImg) desenharRedimensionado(p, backImg, wB, hB, backW, backH, backX, backY);
 
+        // Lógica do Teclado do PS4
         if (tecladoAtivo) {
             int stat = (int)sceImeDialogGetStatus();
-
             if (stat != 1) {
                 OrbisDialogResult res;
                 memset(&res, 0, sizeof(res));
@@ -123,35 +125,14 @@ int main(void) {
                         iniciarDownload(bufferTecladoC);
                         menuAtual = MENU_BAIXAR;
                     }
-                    else if (menuAtual == MENU_BAIXAR_NAVEGADOR_URL) {
-                        acessarSiteNavegador(bufferTecladoC);
-                    }
-                    else if (menuAtual == MENU_BAIXAR_NAVEGADOR_GOOGLE) {
-                        // <-- AGORA FORMATADO DE FORMA SEGURA COM LIMITES -->
-                        char urlGoogle[1024];
-                        char formatado[512] = { 0 };
-                        int pos = 0;
-                        for (int k = 0; bufferTecladoC[k] && pos < 500; k++) {
-                            if (bufferTecladoC[k] == ' ') formatado[pos++] = '+';
-                            else formatado[pos++] = bufferTecladoC[k];
-                        }
-                        formatado[pos] = '\0';
-                        snprintf(urlGoogle, 1023, "https://www.google.com/search?q=%s", formatado);
-                        acessarSiteNavegador(urlGoogle);
-                    }
-                    else {
-                        strcpy(msgStatus, "TEXTO SALVO!");
+                    else if (menuAtual == MENU_BAIXAR_DROPBOX_URL) {
+                        acessarDropbox(bufferTecladoC);
                     }
                 }
                 else {
-                    if (menuAtual == MENU_BAIXAR_LINK_DIRETO) {
+                    // Se o usuário cancelar o teclado
+                    if (menuAtual == MENU_BAIXAR_LINK_DIRETO || menuAtual == MENU_BAIXAR_DROPBOX_URL) {
                         menuAtual = MENU_BAIXAR;
-                    }
-                    else if (menuAtual == MENU_BAIXAR_NAVEGADOR_URL || menuAtual == MENU_BAIXAR_NAVEGADOR_GOOGLE) {
-                        menuAtual = MENU_BAIXAR_NAVEGADOR_OPCOES;
-                    }
-                    else {
-                        strcpy(msgStatus, "CANCELADO!");
                     }
                 }
 
