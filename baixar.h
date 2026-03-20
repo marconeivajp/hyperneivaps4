@@ -26,10 +26,14 @@ void mostrarLinksJogo(int gameIndex);
 void acessarDropbox(const char* url);
 void iniciarDownload(const char* url);
 
+// NOVAS FUNÇÕES DE UPLOAD
+void listarArquivosUpload(const char* dirPath);
+void fazerUploadDropbox(const char* localPath);
+
 extern char linksAtuais[3000][1024];
 extern char caminhoXMLAtual[256];
 
-// Variável que funciona como "GPS" para saber a pasta atual do Dropbox
 extern char currentDropboxPath[512];
+extern char currentUploadPath[512]; // GPS da navegação de upload
 
 #endif
