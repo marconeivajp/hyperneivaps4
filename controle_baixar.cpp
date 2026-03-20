@@ -50,28 +50,22 @@ void acaoCircle_Baixar() {
         preencherRoot();
     }
     else if (menuAtual == MENU_BAIXAR_DROPBOX_LISTA) {
-        // Lógica inteligente de Voltar do Dropbox
+        // Logica para voltar as pastas com o Bolinha
         if (strlen(currentDropboxPath) == 0 || strcmp(currentDropboxPath, "/") == 0) {
-            // Se já estiver na raiz, sai do Dropbox
             preencherMenuBaixar();
         }
         else {
-            // Procura a última barra na string (ex: "/Roms/PS1" -> encontra a barra antes de PS1)
             char* ultimaBarra = strrchr(currentDropboxPath, '/');
             if (ultimaBarra != NULL) {
                 if (ultimaBarra == currentDropboxPath) {
-                    // Se a única barra é no começo (ex: "/Roms"), volta para a raiz ""
                     strcpy(currentDropboxPath, "");
                 }
                 else {
-                    // Corta a string apagando a última pasta (ex: vira apenas "/Roms")
                     *ultimaBarra = '\0';
                 }
-                // Carrega a pasta anterior!
                 acessarDropbox(currentDropboxPath);
             }
             else {
-                // Segurança
                 strcpy(currentDropboxPath, "");
                 acessarDropbox(currentDropboxPath);
             }
