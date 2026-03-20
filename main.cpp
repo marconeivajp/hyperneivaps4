@@ -1,4 +1,3 @@
-// --- INÍCIO DO ARQUIVO main.cpp ---
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -39,7 +38,6 @@
 #define STB_TRUETYPE_IMPLEMENTATION
 #include "stb_truetype.h"
 
-// Declaração de variáveis globais
 int selAudioOpcao = 0;
 bool tecladoAtivo = false;
 uint16_t* bufferTecladoW = NULL;
@@ -48,12 +46,9 @@ char bufferTecladoC[128] = "";
 unsigned char* capasAssets[6], * discosAssets[6], * backImg = NULL;
 int wC[6], hC[6], cC[6], wD[6], hD[6], cD[6], wB, hB, cB;
 
-// Declarações explícitas de funções externas
 extern const char* listaOpcoesAudio[11];
 extern void abrirMenuAudioOpcoes();
 extern void tratarSelecaoAudio(int op);
-extern void acessarDropbox(const char* url);
-extern void iniciarDownload(const char* url);
 
 int main(void) {
     initNetwork();
@@ -106,7 +101,6 @@ int main(void) {
         for (int i = 0; i < 1920 * 1080; i++) p[i] = 0xFF121212;
         if (backImg) desenharRedimensionado(p, backImg, wB, hB, backW, backH, backX, backY);
 
-        // Lógica do Teclado do PS4
         if (tecladoAtivo) {
             int stat = (int)sceImeDialogGetStatus();
             if (stat != 1) {
@@ -125,13 +119,9 @@ int main(void) {
                         iniciarDownload(bufferTecladoC);
                         menuAtual = MENU_BAIXAR;
                     }
-                    else if (menuAtual == MENU_BAIXAR_DROPBOX_URL) {
-                        acessarDropbox(bufferTecladoC);
-                    }
                 }
                 else {
-                    // Se o usuário cancelar o teclado
-                    if (menuAtual == MENU_BAIXAR_LINK_DIRETO || menuAtual == MENU_BAIXAR_DROPBOX_URL) {
+                    if (menuAtual == MENU_BAIXAR_LINK_DIRETO) {
                         menuAtual = MENU_BAIXAR;
                     }
                 }
@@ -149,4 +139,3 @@ int main(void) {
         submeterTela();
     }
 }
-// --- FIM DO ARQUIVO main.cpp ---

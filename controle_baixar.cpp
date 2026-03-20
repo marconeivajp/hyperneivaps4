@@ -20,22 +20,27 @@ void acaoCross_Baixar(int32_t uId, OrbisImeDialogSetting* imeSetting, uint16_t* 
         if (sel == 0) preencherMenuRepositorios();
         else if (sel == 1) { memset(nomes, 0, sizeof(nomes)); strcpy(nomes[0], "RETROARCH"); totalItens = 1; menuAtual = MENU_CAPAS; }
         else if (sel == 2) { menuAtual = MENU_BAIXAR_LINK_DIRETO; acaoCross_Notepad(uId, imeSetting, imeTitle); }
-        else if (sel == 3) {
-            acessarDropbox(""); // Acessa a raiz via API
-        }
+        else if (sel == 3) { acessarDropbox(""); }
+        else if (sel == 4) { listarArquivosUpload("/data/HyperNeiva"); } // Inicia a exploração para Upload
     }
     else if (menuAtual == MENU_BAIXAR_DROPBOX_LISTA) {
-        char urlSel[1024];
-        strcpy(urlSel, linksAtuais[sel]);
-        int tam = strlen(urlSel);
-
+        char urlSel[1024]; strcpy(urlSel, linksAtuais[sel]); int tam = strlen(urlSel);
         if (tam > 0 && (urlSel[tam - 1] == '/' || strchr(nomes[sel], '.') == NULL)) {
             if (urlSel[tam - 1] == '/') urlSel[tam - 1] = '\0';
             acessarDropbox(urlSel);
         }
         else {
-            sprintf(msgStatus, "USE [TRIANGULO] PARA BAIXAR %s", nomes[sel]);
-            msgTimer = 120;
+            sprintf(msgStatus, "USE [TRIANGULO] PARA BAIXAR %s", nomes[sel]); msgTimer = 120;
+        }
+    }
+    else if (menuAtual == MENU_BAIXAR_DROPBOX_UPLOAD) {
+        char urlSel[1024]; strcpy(urlSel, linksAtuais[sel]); int tam = strlen(urlSel);
+        if (tam > 0 && urlSel[tam - 1] == '/') {
+            urlSel[tam - 1] = '\0';
+            listarArquivosUpload(urlSel); // Entra na pasta
+        }
+        else {
+            fazerUploadDropbox(urlSel); // Faz o Upload do Arquivo
         }
     }
     else if (menuAtual == MENU_BAIXAR_REPOS) { if (sel == 0) listarXMLsRepositorio(); }
@@ -50,24 +55,33 @@ void acaoCircle_Baixar() {
         preencherRoot();
     }
     else if (menuAtual == MENU_BAIXAR_DROPBOX_LISTA) {
-        // Logica para voltar as pastas com o Bolinha
         if (strlen(currentDropboxPath) == 0 || strcmp(currentDropboxPath, "/") == 0) {
             preencherMenuBaixar();
         }
         else {
             char* ultimaBarra = strrchr(currentDropboxPath, '/');
             if (ultimaBarra != NULL) {
-                if (ultimaBarra == currentDropboxPath) {
-                    strcpy(currentDropboxPath, "");
-                }
-                else {
-                    *ultimaBarra = '\0';
-                }
+                if (ultimaBarra == currentDropboxPath) strcpy(currentDropboxPath, "");
+                else *ultimaBarra = '\0';
                 acessarDropbox(currentDropboxPath);
             }
             else {
-                strcpy(currentDropboxPath, "");
-                acessarDropbox(currentDropboxPath);
+                strcpy(currentDropboxPath, ""); acessarDropbox(currentDropboxPath);
+            }
+        }
+    }
+    else if (menuAtual == MENU_BAIXAR_DROPBOX_UPLOAD) {
+        if (strcmp(currentUploadPath, "/data/HyperNeiva") == 0 || strcmp(currentUploadPath, "/") == 0) {
+            preencherMenuBaixar();
+        }
+        else {
+            char* ultimaBarra = strrchr(currentUploadPath, '/');
+            if (ultimaBarra != NULL && ultimaBarra != currentUploadPath) {
+                *ultimaBarra = '\0';
+                listarArquivosUpload(currentUploadPath);
+            }
+            else {
+                listarArquivosUpload("/data/HyperNeiva");
             }
         }
     }
