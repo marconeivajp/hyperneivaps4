@@ -57,9 +57,11 @@
   <ItemGroup>
     <ClCompile Include="audio.cpp" />
     <ClCompile Include="baixar.cpp" />
+    <ClCompile Include="barra_de_load.cpp" />
     <ClCompile Include="bloco_de_notas.cpp" />
     <ClCompile Include="controle.cpp" />
     <ClCompile Include="controle_baixar.cpp" />
+    <ClCompile Include="controle_direcional.cpp" />
     <ClCompile Include="controle_editar.cpp" />
     <ClCompile Include="controle_explorar.cpp" />
     <ClCompile Include="controle_musicas.cpp" />
@@ -81,6 +83,7 @@
     <ClCompile Include="pesquisar.cpp" />
     <ClCompile Include="stb_implementations.cpp" />
     <ClCompile Include="teclado.cpp" />
+    <ClCompile Include="upload.cpp" />
     <ClCompile Include="video.cpp" />
   </ItemGroup>
   <ItemGroup>
@@ -99,8 +102,11 @@
   <ItemGroup>
     <ClInclude Include="audio.h" />
     <ClInclude Include="baixar.h" />
+    <ClInclude Include="barra_de_load.h" />
+    <ClInclude Include="bloco_de_notas.h" />
     <ClInclude Include="controle.h" />
     <ClInclude Include="controle_baixar.h" />
+    <ClInclude Include="controle_direcional.h" />
     <ClInclude Include="controle_editar.h" />
     <ClInclude Include="controle_explorar.h" />
     <ClInclude Include="controle_musicas.h" />
@@ -112,9 +118,11 @@
     <ClInclude Include="graphics.h" />
     <ClInclude Include="jogar.h" />
     <ClInclude Include="menu.h" />
+    <ClInclude Include="menu_audio.h" />
     <ClInclude Include="menu_grafico.h" />
     <ClInclude Include="network.h" />
     <ClInclude Include="stb_image.h" />
+    <ClInclude Include="upload.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

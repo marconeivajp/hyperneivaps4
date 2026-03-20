@@ -13,15 +13,17 @@
 #include "baixar.h"
 #include "network.h"
 
-extern void acaoCross_Notepad(int32_t uId, OrbisImeDialogSetting* imeSetting, uint16_t* imeTitle);
+// ASSINATURA ATUALIZADA (4 Parâmetros)
+extern void acaoCross_Notepad(int32_t uId, OrbisImeDialogSetting* imeSetting, uint16_t* imeTitle, const char* textoInicial);
 
 void acaoCross_Baixar(int32_t uId, OrbisImeDialogSetting* imeSetting, uint16_t* imeTitle) {
     if (menuAtual == MENU_BAIXAR) {
         if (sel == 0) preencherMenuRepositorios();
         else if (sel == 1) { memset(nomes, 0, sizeof(nomes)); strcpy(nomes[0], "RETROARCH"); totalItens = 1; menuAtual = MENU_CAPAS; }
-        else if (sel == 2) { menuAtual = MENU_BAIXAR_LINK_DIRETO; acaoCross_Notepad(uId, imeSetting, imeTitle); }
+        // ATUALIZADO: Passando string vazia "" no quarto parâmetro
+        else if (sel == 2) { menuAtual = MENU_BAIXAR_LINK_DIRETO; acaoCross_Notepad(uId, imeSetting, imeTitle, ""); }
         else if (sel == 3) { acessarDropbox(""); }
-        else if (sel == 4) { preencherMenuBackup(); } // Abre o NOVO menu de atalhos
+        else if (sel == 4) { preencherMenuBackup(); }
     }
     else if (menuAtual == MENU_BAIXAR_DROPBOX_BACKUP) {
         if (sel == 0) listarArquivosUpload("/");
@@ -29,7 +31,7 @@ void acaoCross_Baixar(int32_t uId, OrbisImeDialogSetting* imeSetting, uint16_t* 
         else if (sel == 2) listarArquivosUpload("/user/home/10000000/savedata");
         else if (sel == 3) listarArquivosUpload("/data/retroarch");
         else if (sel == 4) listarArquivosUpload("/data/HyperNeiva/configuracao");
-        else if (sel == 5) fazerUploadDropbox("/system_data/priv/mms/app.db"); // Envio direto
+        else if (sel == 5) fazerUploadDropbox("/system_data/priv/mms/app.db");
         else if (sel == 6) listarArquivosUpload("/user/av_contents/photo");
         else if (sel == 7) listarArquivosUpload("/user/home/10000000/trophy");
         else if (sel == 8) listarArquivosUpload("/data/apollo");
@@ -48,10 +50,10 @@ void acaoCross_Baixar(int32_t uId, OrbisImeDialogSetting* imeSetting, uint16_t* 
         char urlSel[1024]; strcpy(urlSel, linksAtuais[sel]); int tam = strlen(urlSel);
         if (tam > 0 && urlSel[tam - 1] == '/') {
             urlSel[tam - 1] = '\0';
-            listarArquivosUpload(urlSel); // Entra na subpasta
+            listarArquivosUpload(urlSel);
         }
         else {
-            fazerUploadDropbox(urlSel); // Faz o Upload do Arquivo
+            fazerUploadDropbox(urlSel);
         }
     }
     else if (menuAtual == MENU_BAIXAR_REPOS) { if (sel == 0) listarXMLsRepositorio(); }
