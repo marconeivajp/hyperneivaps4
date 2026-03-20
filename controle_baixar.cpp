@@ -12,15 +12,15 @@
 #include "menu.h"
 #include "baixar.h"
 #include "network.h"
+#include "baixar_repositorio.h"
+#include "baixar_dropbox_download.h" // <-- NOVO HEADER AQUI
 
-// ASSINATURA ATUALIZADA (4 Parâmetros)
 extern void acaoCross_Notepad(int32_t uId, OrbisImeDialogSetting* imeSetting, uint16_t* imeTitle, const char* textoInicial);
 
 void acaoCross_Baixar(int32_t uId, OrbisImeDialogSetting* imeSetting, uint16_t* imeTitle) {
     if (menuAtual == MENU_BAIXAR) {
         if (sel == 0) preencherMenuRepositorios();
         else if (sel == 1) { memset(nomes, 0, sizeof(nomes)); strcpy(nomes[0], "RETROARCH"); totalItens = 1; menuAtual = MENU_CAPAS; }
-        // ATUALIZADO: Passando string vazia "" no quarto parâmetro
         else if (sel == 2) { menuAtual = MENU_BAIXAR_LINK_DIRETO; acaoCross_Notepad(uId, imeSetting, imeTitle, ""); }
         else if (sel == 3) { acessarDropbox(""); }
         else if (sel == 4) { preencherMenuBackup(); }
@@ -60,6 +60,20 @@ void acaoCross_Baixar(int32_t uId, OrbisImeDialogSetting* imeSetting, uint16_t* 
     else if (menuAtual == MENU_BAIXAR_GAMES_XMLS) { if (strstr(nomes[sel], ".xml")) abrirXMLRepositorio(nomes[sel]); }
     else if (menuAtual == MENU_BAIXAR_GAMES_LIST) mostrarLinksJogo(sel);
     else if (menuAtual == MENU_BAIXAR_LINKS) iniciarDownload(linksAtuais[sel]);
+    else if (menuAtual == MENU_CAPAS) {
+        if (sel == 0) {
+            memset(nomes, 0, sizeof(nomes));
+            strcpy(nomes[0], "Sony - PlayStation");
+            strcpy(nomes[1], "Sony - PlayStation Portable");
+            strcpy(nomes[2], "Nintendo - Super Nintendo Entertainment System");
+            strcpy(nomes[3], "Sega - Mega Drive - Genesis");
+            strcpy(nomes[4], "Nintendo - Nintendo Entertainment System");
+            totalItens = 5;
+            menuAtual = MENU_CONSOLES;
+            sel = 0;
+            off = 0;
+        }
+    }
     else if (menuAtual == MENU_CONSOLES) { consoleAtual = sel; acaoRede(NULL, true, false); }
 }
 
@@ -100,6 +114,29 @@ void acaoCircle_Baixar() {
         char nomeXML[256]; char* ultimaBarra = strrchr(caminhoXMLAtual, '/');
         if (ultimaBarra) strcpy(nomeXML, ultimaBarra + 1);
         abrirXMLRepositorio(nomeXML);
+    }
+    else if (menuAtual == MENU_CAPAS) {
+        preencherMenuBaixar();
+    }
+    else if (menuAtual == MENU_CONSOLES) {
+        memset(nomes, 0, sizeof(nomes));
+        strcpy(nomes[0], "RETROARCH");
+        totalItens = 1;
+        menuAtual = MENU_CAPAS;
+        sel = 0;
+        off = 0;
+    }
+    else if (menuAtual == SCRAPER_LIST) {
+        memset(nomes, 0, sizeof(nomes));
+        strcpy(nomes[0], "Sony - PlayStation");
+        strcpy(nomes[1], "Sony - PlayStation Portable");
+        strcpy(nomes[2], "Nintendo - Super Nintendo Entertainment System");
+        strcpy(nomes[3], "Sega - Mega Drive - Genesis");
+        strcpy(nomes[4], "Nintendo - Nintendo Entertainment System");
+        totalItens = 5;
+        menuAtual = MENU_CONSOLES;
+        sel = 0;
+        off = 0;
     }
 }
 
