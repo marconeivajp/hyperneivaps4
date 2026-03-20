@@ -46,8 +46,37 @@ void acaoCross_Baixar(int32_t uId, OrbisImeDialogSetting* imeSetting, uint16_t* 
 }
 
 void acaoCircle_Baixar() {
-    if (menuAtual == MENU_BAIXAR) preencherRoot();
-    else if (menuAtual == MENU_BAIXAR_DROPBOX_LISTA) preencherMenuBaixar();
+    if (menuAtual == MENU_BAIXAR) {
+        preencherRoot();
+    }
+    else if (menuAtual == MENU_BAIXAR_DROPBOX_LISTA) {
+        // Lógica inteligente de Voltar do Dropbox
+        if (strlen(currentDropboxPath) == 0 || strcmp(currentDropboxPath, "/") == 0) {
+            // Se já estiver na raiz, sai do Dropbox
+            preencherMenuBaixar();
+        }
+        else {
+            // Procura a última barra na string (ex: "/Roms/PS1" -> encontra a barra antes de PS1)
+            char* ultimaBarra = strrchr(currentDropboxPath, '/');
+            if (ultimaBarra != NULL) {
+                if (ultimaBarra == currentDropboxPath) {
+                    // Se a única barra é no começo (ex: "/Roms"), volta para a raiz ""
+                    strcpy(currentDropboxPath, "");
+                }
+                else {
+                    // Corta a string apagando a última pasta (ex: vira apenas "/Roms")
+                    *ultimaBarra = '\0';
+                }
+                // Carrega a pasta anterior!
+                acessarDropbox(currentDropboxPath);
+            }
+            else {
+                // Segurança
+                strcpy(currentDropboxPath, "");
+                acessarDropbox(currentDropboxPath);
+            }
+        }
+    }
     else if (menuAtual == MENU_BAIXAR_REPOS) preencherMenuBaixar();
     else if (menuAtual == MENU_BAIXAR_GAMES_XMLS) preencherMenuRepositorios();
     else if (menuAtual == MENU_BAIXAR_GAMES_LIST) listarXMLsRepositorio();

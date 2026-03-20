@@ -11,7 +11,6 @@
 #include "stb_image.h"
 #include <stdarg.h> 
 
-// Declaração da função nativa da PS4 para avisar o tamanho do POST
 extern "C" int sceHttpSetRequestContentLength(int reqId, uint64_t contentLength);
 
 Console listaConsoles[5] = {
@@ -29,6 +28,7 @@ char ultimoJogoCarregado[64] = "";
 char caminhoXMLAtual[256];
 char linksAtuais[3000][1024];
 int totalLinksAtuais = 0;
+char currentDropboxPath[512] = ""; // Iniciando o GPS do Dropbox vazio
 
 const char* TOKEN_DROPBOX = "sl.u.AGWEjkVibWPkb4m1X63L4hjpy4iEaPLXj7PZzUBsiqDLmkbxaLwaf-0aTlv0xOxn3-vFQT54Aujj1mp7DtCVXRuva4O-bPkmR19xMJP1keTENeH371mkb80w7pLKnilKkwKcCqsQBEPv4ZBPgqx_cxAw-Ky0nwmT8I1nqtloKObCzosWX4xXqWgnmdoyXIPVmRlEKFe5H9kTJE-1s4ZQlCpgXvTyI9KUji6DuQtNO45moKnX3a6nsG_qgCTA30gkpoYVjLo3641JjsA7pqhLCMl6Kg3e_IX4H-7ST1QzE50relygyiiOqDm7a_N2lfZclKbhE-4rdYsZS3ocKnvFCuMlxGsHdRREzXIZfRgGgM8hWoDl8T9tkdB7nQWbWV9PODOqpYBNutjpgWk9aaS68VQuAyawlG1WNxrusFYxEwet9GYbTtVx5HaSaBBBelp9YtO_piW92GsKqqfq3jC31hZ1AKHhcXg5WWHE-rkm3-7E2pzQItVZ5XyuQ0oP0noryZ4menTeEwiwqHYyYxuQmv5FD0AYok1pJeizQPuXy9Vtw3PkIvm71RkvxFDfV4arRF4VphVcFo8ug6Aqh2Xinm5t6zNMzVMIwWhzheGierfhBGkR48aXoaqJU2oeiG6gyAgi032qD2C4CGxTCEES5P03iw4LlSVwlsGCpL4WAIf-1ZbwgqWOuStKYJdzxXamaPf7UZUpaYtTcevfIEQ7k1Fcya0LAEo4eScglifn6FeWM5iD7-TP68Yywu3d5sOvKub2_bwAylIFi_FjwdKXg2p9gOVzhAYYxlt7ekScKzuvS8z_OV4YM0Yx7EXpT3Pb8cjFE3YYUvlUXNCOW9VHe9B_wXEeHM3AoN_ACtf_vkSwCRCYYKORg1PUF_jvCPVLxtfHFAdVhc_okFk3fOcIk6ddvHCAg1epUkV-AAQR53Z8_Bp_GSc7Dl6qx_k3J1ZZKVmq7gnTtaRoZEesduUkyY_hTLJt9sPlQa8R_50LVD_Gp5nrMWLirORK7MBDGJgjEaRaVpHdvA8kwWEQDV4mw8xITlDF1d2CY8Z4OSq3lcCDaQnhAOCd45wbe_3eL9bGD0jClmM3jE-zUS2oZyR-80HFbfS3tYdKr9sFP3MyAxa6CNn89DPfWLICXuImhlk5mW5hStMbngQAzDqLVGSyBsAaKWR1fR4h5iecK3ClAI7ovPIuguMmU7jaSOW8kAnuYoAjPLC4cDAlOByaEj6mDQMUJMdPfQKFWco8o0CdRmmfEYwlJ0H_ueebF6-vMWj3qD6duoWcknfBv4wIfHCKCE21Ze9BifdQb1miQwANqrSe7A";
 
@@ -95,7 +95,7 @@ void preencherMenuBaixar() {
     strcpy(nomes[0], "Repositorios");
     strcpy(nomes[1], "CAPAS");
     strcpy(nomes[2], "LINK DIRETO");
-    strcpy(nomes[3], "DROPBOX (USAR TOKEN)");
+    strcpy(nomes[3], "DROPBOX");
     totalItens = 4; menuAtual = MENU_BAIXAR; sel = 0; off = 0;
 }
 
@@ -106,6 +106,9 @@ void acessarDropbox(const char* path) {
     for (int i = 0; i < strlen(cleanPath); i++) {
         if (cleanPath[i] == '\r' || cleanPath[i] == '\n') cleanPath[i] = '\0';
     }
+
+    // Salva o caminho atual na memória para o botão bolinha poder voltar depois
+    strcpy(currentDropboxPath, cleanPath);
 
     sprintf(msgStatus, "CONECTANDO A API...");
     msgTimer = 180;
@@ -118,7 +121,6 @@ void acessarDropbox(const char* path) {
     int conn = sceHttpCreateConnectionWithURL(tpl, apiUrl, 1);
     int req = sceHttpCreateRequestWithURL(conn, ORBIS_METHOD_POST, apiUrl, 0);
 
-    // Corpo JSON 100% limpo
     char postData[512];
     memset(postData, 0, sizeof(postData));
     sprintf(postData, "{\"path\": \"%s\"}", cleanPath);
@@ -128,8 +130,6 @@ void acessarDropbox(const char* path) {
 
     sceHttpAddRequestHeader(req, "Authorization", authHeader, 0);
     sceHttpAddRequestHeader(req, "Content-Type", "application/json; charset=utf-8", 0);
-
-    // O SEGREDO ESTÁ AQUI: Avisamos à PS4 o tamanho exato do JSON que vamos enviar
     sceHttpSetRequestContentLength(req, strlen(postData));
 
     memset(nomes, 0, sizeof(nomes));
