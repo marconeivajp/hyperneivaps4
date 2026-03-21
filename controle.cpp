@@ -45,7 +45,6 @@ extern bool showOpcoes;
 extern bool editMode;
 extern bool marcados[3000];
 
-extern void acaoCircle_Notepad();
 extern void acaoCross_Notepad(int32_t uId, OrbisImeDialogSetting* imeSetting, uint16_t* imeTitle, const char* textoInicial);
 extern void acaoCross_Baixar(int32_t uId, OrbisImeDialogSetting* imeSetting, uint16_t* imeTitle);
 extern void acaoCircle_Baixar();
@@ -66,13 +65,8 @@ void processarNavegacaoDPad(uint32_t botoes) {
                         linhaSelecionada--;
                     }
                 }
-                else if (estadoNotepad == 1) {
-                    if (botoes & ORBIS_PAD_BUTTON_DOWN && pastaSelecionada < totalPastasNotepad - 1) pastaSelecionada++;
-                    else if (botoes & ORBIS_PAD_BUTTON_UP && pastaSelecionada > 0) pastaSelecionada--;
-                }
             }
             else if (showUploadOpcoes && (menuAtual == MENU_BAIXAR_DROPBOX_UPLOAD || menuAtual == MENU_BAIXAR_DROPBOX_LISTA)) {
-                // AQUI FOI CORRIGIDO PARA O LIMITE DE 3 OPÇÕES (0, 1 e 2)
                 if (botoes & ORBIS_PAD_BUTTON_DOWN && selUploadOpcao < 2) selUploadOpcao++;
                 else if (botoes & ORBIS_PAD_BUTTON_UP && selUploadOpcao > 0) selUploadOpcao--;
             }
@@ -102,26 +96,18 @@ void processarControles(uint32_t botoes, int32_t uId, OrbisImeDialogSetting* ime
 
     processarNavegacaoDPad(botoes);
 
-    // SISTEMA DE SELEÇÃO: O L1 Marca/Desmarca
     if (botoes & ORBIS_PAD_BUTTON_L1) {
         if (!pL1) {
-            if (menuAtual == MENU_EXPLORAR || menuAtual == MENU_BAIXAR_DROPBOX_LISTA || menuAtual == MENU_BAIXAR_DROPBOX_UPLOAD) {
-                marcados[sel] = !marcados[sel];
-            }
+            if (menuAtual == MENU_EXPLORAR || menuAtual == MENU_BAIXAR_DROPBOX_LISTA || menuAtual == MENU_BAIXAR_DROPBOX_UPLOAD) marcados[sel] = !marcados[sel];
             pL1 = true;
         }
     }
     else pL1 = false;
 
-    // SISTEMA DE SELEÇÃO: O R1 TAMBÉM Marca/Desmarca (na Nuvem)
     if (botoes & ORBIS_PAD_BUTTON_R1) {
         if (!pR1) {
-            if (menuAtual == MENU_BAIXAR_DROPBOX_LISTA || menuAtual == MENU_BAIXAR_DROPBOX_UPLOAD) {
-                marcados[sel] = !marcados[sel];
-            }
-            else if (menuAtual == MENU_EXPLORAR) {
-                acaoR1_Explorar();
-            }
+            if (menuAtual == MENU_BAIXAR_DROPBOX_LISTA || menuAtual == MENU_BAIXAR_DROPBOX_UPLOAD) marcados[sel] = !marcados[sel];
+            else if (menuAtual == MENU_EXPLORAR) acaoR1_Explorar();
             pR1 = true;
         }
     }
@@ -129,24 +115,13 @@ void processarControles(uint32_t botoes, int32_t uId, OrbisImeDialogSetting* ime
 
     if (botoes & ORBIS_PAD_BUTTON_CROSS) {
         if (!pCross) {
-            if (showUploadOpcoes && (menuAtual == MENU_BAIXAR_DROPBOX_UPLOAD || menuAtual == MENU_BAIXAR_DROPBOX_LISTA)) {
-                acaoCross_MenuUpload();
-            }
+            if (showUploadOpcoes && (menuAtual == MENU_BAIXAR_DROPBOX_UPLOAD || menuAtual == MENU_BAIXAR_DROPBOX_LISTA)) acaoCross_MenuUpload();
             else if (menuAtual == ROOT || menuAtual == JOGAR_XML || menuAtual == MENU_MIDIA) acaoCross_Root();
             else if (menuAtual == MENU_MUSICAS || menuAtual == MENU_AUDIO_OPCOES) acaoCross_Musicas();
             else if (menuAtual == MENU_NOTEPAD) {
                 if (!notepadSomenteLeitura) {
                     if (estadoNotepad == 0) acaoCross_Notepad(uId, imeSetting, imeTitle, linhasNotepad[linhaSelecionada]);
-                    else if (estadoNotepad == 1) {
-                        if (strcmp(pastaAtualNotepad, "ATALHOS_RAIZ") == 0) lerDiretorioNotepad(pastasNotepad[pastaSelecionada]);
-                        else if (strcmp(pastasNotepad[pastaSelecionada], "[PASTA VAZIA]") != 0) {
-                            char novoCaminho[1024]; int len = strlen(pastaAtualNotepad);
-                            const char* sep = (pastaAtualNotepad[len - 1] == '/') ? "" : "/";
-                            snprintf(novoCaminho, sizeof(novoCaminho), "%s%s%s", pastaAtualNotepad, sep, pastasNotepad[pastaSelecionada]);
-                            lerDiretorioNotepad(novoCaminho);
-                        }
-                    }
-                    else if (estadoNotepad == 2) acaoCross_Notepad(uId, imeSetting, imeTitle, nomeArquivo);
+                    else if (estadoNotepad == 1) acaoCross_Notepad(uId, imeSetting, imeTitle, nomeArquivo);
                 }
             }
             else if (menuAtual == MENU_EXPLORAR || menuAtual == MENU_EXPLORAR_HOME) acaoCross_Explorar();
@@ -160,9 +135,7 @@ void processarControles(uint32_t botoes, int32_t uId, OrbisImeDialogSetting* ime
 
     if (botoes & ORBIS_PAD_BUTTON_CIRCLE) {
         if (!pCircle) {
-            if (showUploadOpcoes && (menuAtual == MENU_BAIXAR_DROPBOX_UPLOAD || menuAtual == MENU_BAIXAR_DROPBOX_LISTA)) {
-                acaoCircle_MenuUpload();
-            }
+            if (showUploadOpcoes && (menuAtual == MENU_BAIXAR_DROPBOX_UPLOAD || menuAtual == MENU_BAIXAR_DROPBOX_LISTA)) acaoCircle_MenuUpload();
             else if (showOpcoes && menuAtual != MENU_AUDIO_OPCOES) showOpcoes = false;
             else {
                 if (menuAtual == MENU_NOTEPAD) {
@@ -170,20 +143,11 @@ void processarControles(uint32_t botoes, int32_t uId, OrbisImeDialogSetting* ime
                         menuAtual = MENU_MIDIA;
                     }
                     else {
-                        if (estadoNotepad == 2) estadoNotepad = 1;
-                        else if (estadoNotepad == 1) {
-                            if (strcmp(pastaAtualNotepad, "ATALHOS_RAIZ") == 0) estadoNotepad = 0;
-                            else {
-                                char* ultimaBarra = strrchr(pastaAtualNotepad, '/');
-                                if (ultimaBarra != NULL) {
-                                    if (ultimaBarra == pastaAtualNotepad + strlen(pastaAtualNotepad) - 1) { *ultimaBarra = '\0'; ultimaBarra = strrchr(pastaAtualNotepad, '/'); }
-                                    if (ultimaBarra != NULL && ultimaBarra != pastaAtualNotepad) { *(ultimaBarra + 1) = '\0'; lerDiretorioNotepad(pastaAtualNotepad); }
-                                    else carregarAtalhosNotepad();
-                                }
-                                else carregarAtalhosNotepad();
-                            }
+                        if (estadoNotepad == 1) estadoNotepad = 0; // Volta do nomear pro editar
+                        else {
+                            menuAtual = MENU_EXPLORAR; // Volta pro explorador
+                            listarDiretorio(pathExplorar);
                         }
-                        else acaoCircle_Notepad();
                     }
                 }
                 else if (menuAtual == JOGAR_XML || menuAtual == MENU_MIDIA) acaoCircle_Root();
@@ -212,17 +176,8 @@ void processarControles(uint32_t botoes, int32_t uId, OrbisImeDialogSetting* ime
         if (!pSquare) {
             if (menuAtual == MENU_NOTEPAD) {
                 if (!notepadSomenteLeitura) {
-                    if (estadoNotepad == 0) { estadoNotepad = 1; carregarAtalhosNotepad(); }
+                    if (estadoNotepad == 0) estadoNotepad = 1; // Pula de editar pro nome!
                     else if (estadoNotepad == 1) {
-                        if (strcmp(pastaAtualNotepad, "ATALHOS_RAIZ") == 0) strcpy(pastaDestinoFinal, pastasNotepad[pastaSelecionada]);
-                        else if (strcmp(pastasNotepad[pastaSelecionada], "[PASTA VAZIA]") == 0) strcpy(pastaDestinoFinal, pastaAtualNotepad);
-                        else {
-                            int len = strlen(pastaAtualNotepad); const char* sep = (pastaAtualNotepad[len - 1] == '/') ? "" : "/";
-                            snprintf(pastaDestinoFinal, sizeof(pastaDestinoFinal), "%s%s%s", pastaAtualNotepad, sep, pastasNotepad[pastaSelecionada]);
-                        }
-                        estadoNotepad = 2;
-                    }
-                    else if (estadoNotepad == 2) {
                         if (strlen(nomeArquivo) > 0) salvarArquivoNotepad();
                         else { snprintf(msgStatus, sizeof(msgStatus), "O nome do arquivo nao pode ser vazio!"); msgTimer = 120; }
                     }
