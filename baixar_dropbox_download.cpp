@@ -8,6 +8,8 @@
 #include <orbis/Http.h>
 #include <orbis/Ssl.h>
 #include <orbis/libkernel.h>
+#include <orbis/Bgft.h>         // Cabeçalho para o serviço de download em segundo plano
+#include <orbis/UserService.h>  // Cabeçalho para gerenciar o usuário na instalação
 
 extern "C" int sceHttpSetRequestContentLength(int reqId, uint64_t contentLength);
 extern void atualizarBarra(float progresso);
@@ -135,6 +137,104 @@ void iniciarDownload(const char* url) {
     char pathPasta[256]; sprintf(pathPasta, "/data/HyperNeiva/baixado/Downloads"); sceKernelMkdir(pathPasta, 0777);
     char nomeArquivo[128] = "arquivo.bin"; char* ref = strrchr(url, '/'); if (ref) strncpy(nomeArquivo, ref + 1, 127);
     char pathFinal[512]; sprintf(pathFinal, "%s/%s", pathPasta, nomeArquivo);
+
+    // =========================================================================================
+    // INÍCIO DO SISTEMA DE BACKGROUND: Ativa instalação oficial do sistema APENAS para arquivos .pkg
+    // =========================================================================================
+    if (strstr(nomeArquivo, ".pkg") != NULL || strstr(nomeArquivo, ".PKG") != NULL) {
+        sprintf(msgStatus, "PREPARANDO INSTALACAO EM SEGUNDO PLANO...");
+        msgTimer = 150; atualizarBarra(0.2f);
+
+        char directUrl[2048];
+        memset(directUrl, 0, sizeof(directUrl));
+
+        // Se for um link interno do Dropbox (inicia com '/'), precisamos gerar o link temporário de download
+        if (url[0] == '/') {
+            char token[2048] = { 0 }; FILE* fToken = fopen("/data/HyperNeiva/configuracao/dropbox_token.txt", "rb");
+            if (fToken) { fseek(fToken, 0, SEEK_END); long sz = ftell(fToken); fseek(fToken, 0, SEEK_SET); if (sz > 0 && sz < 2047) { fread(token, 1, sz, fToken); token[sz] = '\0'; } fclose(fToken); }
+            for (int i = 0; i < strlen(token); i++) if (token[i] == '\r' || token[i] == '\n') token[i] = '\0';
+
+            int tpl = sceHttpCreateTemplate(httpCtxId, "HyperNeiva/1.0", ORBIS_HTTP_VERSION_1_1, 1);
+            sceHttpsSetSslCallback(tpl, skipSslCallback, NULL); sceHttpSetAutoRedirect();
+            const char* apiUrl = "https://api.dropboxapi.com/2/files/get_temporary_link";
+            int conn = sceHttpCreateConnectionWithURL(tpl, apiUrl, 1);
+            int req = sceHttpCreateRequestWithURL(conn, ORBIS_METHOD_POST, apiUrl, 0);
+
+            char authHeader[2048]; sprintf(authHeader, "Bearer %s", token);
+            sceHttpAddRequestHeader(req, "Authorization", authHeader, 1);
+            sceHttpAddRequestHeader(req, "Content-Type", "application/json", 1);
+            char postData[1024]; sprintf(postData, "{\"path\": \"%s\"}", url);
+            sceHttpSetRequestContentLength(req, strlen(postData));
+
+            if (sceHttpSendRequest(req, postData, strlen(postData)) >= 0) {
+                unsigned char buf[8192]; int n = sceHttpReadData(req, buf, sizeof(buf) - 1);
+                if (n > 0) {
+                    buf[n] = '\0';
+                    char* linkPtr = strstr((char*)buf, "\"link\": \"");
+                    if (linkPtr) {
+                        linkPtr += 9;
+                        char* linkEnd = strchr(linkPtr, '\"');
+                        if (linkEnd) strncpy(directUrl, linkPtr, linkEnd - linkPtr);
+                    }
+                }
+            }
+            sceHttpDeleteRequest(req); sceHttpDeleteConnection(conn); sceHttpDeleteTemplate(tpl);
+
+            if (strlen(directUrl) < 10) {
+                sprintf(msgStatus, "ERRO: FALHA AO OBTER LINK DO PKG");
+                msgTimer = 180; atualizarBarra(0.0f);
+                return;
+            }
+        }
+        else {
+            strcpy(directUrl, url);
+        }
+
+        atualizarBarra(0.6f);
+
+        // Inicializa o serviço BGFT com a estrutura correta (OrbisBgftInitParams)
+        static uint8_t bgft_heap[256 * 1024]; // 256KB heap para o serviço
+        OrbisBgftInitParams bgftInit;
+        memset(&bgftInit, 0, sizeof(bgftInit));
+        bgftInit.heap = bgft_heap;
+        bgftInit.heapSize = sizeof(bgft_heap);
+        sceBgftServiceIntInit(&bgftInit);
+
+        int32_t userId = 0;
+        sceUserServiceGetInitialUser(&userId);
+
+        // Configura a estrutura oficial de acordo com o header
+        OrbisBgftDownloadParam bgftParam;
+        memset(&bgftParam, 0, sizeof(bgftParam));
+        bgftParam.userId = userId;
+        bgftParam.entitlementType = 0;
+        bgftParam.id = "";
+        bgftParam.contentUrl = directUrl;
+        bgftParam.contentName = nomeArquivo;
+        bgftParam.iconPath = "";
+        bgftParam.skuId = "";
+        bgftParam.option = ORBIS_BGFT_TASK_OPT_NONE;
+
+        OrbisBgftTaskId taskId = -1;
+        // Função correta na sua SDK para registrar downloads e instalar PKG
+        int res = sceBgftServiceIntDebugDownloadRegisterPkg(&bgftParam, &taskId);
+
+        if (res == 0) {
+            sprintf(msgStatus, "ADICIONADO AOS DOWNLOADS DA TELA INICIAL!");
+            atualizarBarra(1.0f);
+        }
+        else {
+            sprintf(msgStatus, "ERRO AO ENVIAR PARA O SISTEMA: 0x%08X", res);
+            atualizarBarra(0.0f);
+        }
+
+        msgTimer = 240;
+        return; // Interrompe a função aqui para o app não baixar manualmente
+    }
+    // =========================================================================================
+    // FIM DA INSERÇÃO DO BGFT - O código abaixo continua exatamente igual para arquivos comuns
+    // =========================================================================================
+
     sprintf(msgStatus, "CONECTANDO..."); msgTimer = 150; atualizarBarra(0.05f);
 
     int tpl = sceHttpCreateTemplate(httpCtxId, "HyperNeiva/1.0", ORBIS_HTTP_VERSION_1_1, 1);
