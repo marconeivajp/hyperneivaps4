@@ -16,11 +16,11 @@ const char* listaOpcoesAudio[11] = {
     "PARAR",
     "PROXIMA FAIXA",
     "FAIXA ANTERIOR",
-    "VOLUME +",
-    "VOLUME -",
+    "VOLUME +", // O texto será alterado dinamicamente no desenho
+    "VOLUME -", // O texto será alterado dinamicamente no desenho
     "ADIANTAR 10s",
     "RETROCEDER 10s",
-    "REPETIR", // Esta palavra será ignorada e substituída no desenho abaixo
+    "REPETIR",
     "---",
     "VOLTAR"
 };
@@ -40,8 +40,16 @@ void desenharMenuAudio(uint32_t* p) {
         for (int i = 0; i < 11; i++) {
             uint32_t corOp = (i == selAudioOpcao) ? 0xFFFFFF00 : 0xFFFFFFFF;
 
-            // Desenho dinâmico para a opção de Repetir (Índice 8)
-            if (i == 8) {
+            // Desenho dinâmico para as opções que mudam de texto
+            if (i == 4) {
+                char txtVol[64]; sprintf(txtVol, "VOLUME + (%d%%)", volumeGeral);
+                desenharTexto(p, txtVol, 30, listX + 620, listY + 50 + (i * 45), corOp);
+            }
+            else if (i == 5) {
+                char txtVol[64]; sprintf(txtVol, "VOLUME - (%d%%)", volumeGeral);
+                desenharTexto(p, txtVol, 30, listX + 620, listY + 50 + (i * 45), corOp);
+            }
+            else if (i == 8) {
                 desenharTexto(p, modoRepetir ? "MODO: REPETIR FAIXA" : "MODO: LINEAR (TODAS)", 30, listX + 620, listY + 50 + (i * 45), corOp);
             }
             else {
@@ -103,7 +111,19 @@ void tratarSelecaoAudio(int op) {
         }
         break;
 
-    case 8: // REPETIR / LINEAR (NOVA LÓGICA)
+    case 4: // VOLUME +
+        aumentarVolume();
+        sprintf(msgStatus, "VOLUME: %d%%", volumeGeral);
+        msgTimer = 60;
+        break;
+
+    case 5: // VOLUME -
+        diminuirVolume();
+        sprintf(msgStatus, "VOLUME: %d%%", volumeGeral);
+        msgTimer = 60;
+        break;
+
+    case 8: // REPETIR / LINEAR
         modoRepetir = !modoRepetir;
         sprintf(msgStatus, modoRepetir ? "REPETICAO ATIVADA" : "MODO LINEAR ATIVADO");
         msgTimer = 90;

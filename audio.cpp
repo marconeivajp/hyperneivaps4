@@ -34,20 +34,53 @@ static bool sistemaAudioIniciado = false;
 
 static volatile bool comandoTrocar = false;
 volatile bool comandoPausar = false;
-volatile bool modoRepetir = false; // INICIA EM MODO LINEAR (Falso)
+volatile bool modoRepetir = false;
+
+// VARIÁVEL DE VOLUME (0 a 100%)
+int volumeGeral = 100;
 
 char musicaAtual[256] = "PARADO";
 
 enum AudioType { AUDIO_NONE, AUDIO_WAV, AUDIO_MP3 };
 
+// ==========================================
+// FUNÇÕES DE CONTROLO DE VOLUME
+// ==========================================
+void aumentarVolume() {
+    volumeGeral += 10;
+    if (volumeGeral > 100) volumeGeral = 100; // Limite máximo 100% para não distorcer o áudio
+    salvarConfiguracaoAudio();
+}
+
+void diminuirVolume() {
+    volumeGeral -= 10;
+    if (volumeGeral < 0) volumeGeral = 0; // Limite mínimo 0% (Mudo)
+    salvarConfiguracaoAudio();
+}
+
 void salvarConfiguracaoAudio() {
     FILE* f = fopen("/data/HyperNeiva/configuracao/audio_settings.bin", "wb");
-    if (f) { fwrite(musicaAtual, 1, sizeof(musicaAtual), f); fclose(f); }
+    if (f) {
+        fwrite(musicaAtual, 1, sizeof(musicaAtual), f);
+        // Adiciona o volume logo a seguir à string da música
+        fwrite(&volumeGeral, 1, sizeof(int), f);
+        fclose(f);
+    }
 }
 
 void carregarConfiguracaoAudio() {
     FILE* f = fopen("/data/HyperNeiva/configuracao/audio_settings.bin", "rb");
-    if (f) { fread(musicaAtual, 1, sizeof(musicaAtual), f); fclose(f); }
+    if (f) {
+        fread(musicaAtual, 1, sizeof(musicaAtual), f);
+        // Tenta ler o volume. Se não conseguir (ficheiro antigo), define para 100%
+        if (fread(&volumeGeral, 1, sizeof(int), f) <= 0) {
+            volumeGeral = 100;
+        }
+        fclose(f);
+    }
+    else {
+        volumeGeral = 100;
+    }
 }
 
 static bool obterProximaMusica(char* proximaMusicaPath) {
@@ -265,6 +298,18 @@ static void* audioThreadFunc(void* argp) {
         if (framesLidos < 256) {
             for (size_t i = framesLidos * 2; i < 256 * 2; i++) pSampleData[i] = 0;
         }
+
+        // ==========================================
+        // APLICAÇÃO DO VOLUME NAS ONDAS SONORAS
+        // ==========================================
+        if (volumeGeral < 100) {
+            float fatorVolume = volumeGeral / 100.0f; // Ex: 50% vira 0.5
+            for (int i = 0; i < 256 * 2; i++) {
+                // Multiplica o sinal PCM pelo fator do volume (reduz a amplitude da onda)
+                pSampleData[i] = (int16_t)(pSampleData[i] * fatorVolume);
+            }
+        }
+
         sceAudioOutOutput(audioPort, pSampleData);
     }
 
@@ -340,5 +385,4 @@ void preencherMenuMusicas() {
         }
         closedir(d);
     }
-    menuAtual = MENU_MUSICAS;
 }
