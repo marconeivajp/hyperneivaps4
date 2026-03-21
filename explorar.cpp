@@ -28,9 +28,13 @@ const char* listaOpcoes[10] = {
     "selecionar", "selecionar tudo"
 };
 
-// Variáveis do Teclado
+// Variáveis do Teclado e Renomeação
 bool esperandoNomePasta = false;
+bool esperandoRenomear = false;
 wchar_t textoTeclado[64] = L"";
+char oldPathParaRenomear[512] = "";
+char oldExtParaRenomear[64] = "";
+bool ehPastaParaRenomear = false;
 
 void copiarArquivoReal(const char* origem, const char* destino) {
     FILE* src = fopen(origem, "rb"); if (!src) return;
@@ -81,10 +85,55 @@ void acaoArquivo(int op) {
         param.maxTextLength = 63;
         param.inputTextBuffer = textoTeclado;
         param.title = L"Nome da Nova Pasta";
-        param.type = (OrbisImeType)0; // Default
+        param.type = (OrbisImeType)0;
 
         if (sceImeDialogInit(&param, (OrbisImeSettingsExtended*)0) >= 0) {
             esperandoNomePasta = true;
+            showOpcoes = false;
+        }
+        break;
+    }
+    case 5: { // Renomear
+        int alvo = sel;
+        for (int i = 0; i < totalItens; i++) if (marcados[i]) { alvo = i; break; }
+
+        char* nomeReal = nomes[alvo];
+        ehPastaParaRenomear = (nomeReal[0] == '[');
+
+        char nomeLimpo[256];
+        if (ehPastaParaRenomear) {
+            strncpy(nomeLimpo, &nomeReal[1], strlen(nomeReal) - 2);
+            nomeLimpo[strlen(nomeReal) - 2] = '\0';
+        }
+        else {
+            strcpy(nomeLimpo, nomeReal);
+        }
+
+        sprintf(oldPathParaRenomear, "%s/%s", pathExplorar, nomeLimpo);
+
+        // Salva a extensão antiga se for arquivo
+        memset(oldExtParaRenomear, 0, sizeof(oldExtParaRenomear));
+        if (!ehPastaParaRenomear) {
+            char* dot = strrchr(nomeLimpo, '.');
+            if (dot) strcpy(oldExtParaRenomear, dot);
+        }
+
+        OrbisImeDialogSetting param;
+        memset(&param, 0, sizeof(param));
+        memset(textoTeclado, 0, sizeof(textoTeclado));
+
+        // Pré-preenche o teclado com o nome original
+        for (int i = 0; nomeLimpo[i] != '\0' && i < 63; i++) {
+            textoTeclado[i] = (wchar_t)nomeLimpo[i];
+        }
+
+        param.maxTextLength = 63;
+        param.inputTextBuffer = textoTeclado;
+        param.title = L"Renomear Arquivo/Pasta";
+        param.type = (OrbisImeType)0;
+
+        if (sceImeDialogInit(&param, (OrbisImeSettingsExtended*)0) >= 0) {
+            esperandoRenomear = true;
             showOpcoes = false;
         }
         break;
@@ -105,11 +154,11 @@ void acaoArquivo(int op) {
         for (int i = 0; i < totalItens; i++) marcados[i] = ligar; break;
     }
     }
-    if (!esperandoNomePasta) { showOpcoes = false; msgTimer = 120; }
+    if (!esperandoNomePasta && !esperandoRenomear) { showOpcoes = false; msgTimer = 120; }
 }
 
 void atualizarImePasta() {
-    if (!esperandoNomePasta) return;
+    if (!esperandoNomePasta && !esperandoRenomear) return;
 
     // Se o status for diferente de "Rodando" (1), o diálogo terminou
     int status = (int)sceImeDialogGetStatus();
@@ -122,23 +171,39 @@ void atualizarImePasta() {
         int32_t buttonId = *(int32_t*)&res;
 
         if (buttonId == 0) {
-            char nomeFinal[64];
+            char nomeFinal[128]; // Buffer um pouco maior para acomodar a extensão se necessário
             // Converte de wchar_t para char
             for (int i = 0; i < 63; i++) nomeFinal[i] = (char)textoTeclado[i];
             nomeFinal[63] = '\0';
 
             if (strlen(nomeFinal) > 0) {
                 char nPath[512];
-                sprintf(nPath, "%s/%s", pathExplorar, nomeFinal);
-                sceKernelMkdir(nPath, 0777);
+
+                if (esperandoNomePasta) {
+                    sprintf(nPath, "%s/%s", pathExplorar, nomeFinal);
+                    sceKernelMkdir(nPath, 0777);
+                    sprintf(msgStatus, "PASTA CRIADA!");
+                }
+                else if (esperandoRenomear) {
+                    // Mantem a extensão antiga se o usuário não digitou um novo ponto "." e se é um arquivo
+                    if (!ehPastaParaRenomear && strlen(oldExtParaRenomear) > 0) {
+                        if (strrchr(nomeFinal, '.') == NULL) {
+                            strcat(nomeFinal, oldExtParaRenomear);
+                        }
+                    }
+                    sprintf(nPath, "%s/%s", pathExplorar, nomeFinal);
+                    rename(oldPathParaRenomear, nPath);
+                    sprintf(msgStatus, "RENOMEADO COM SUCESSO!");
+                }
+
                 listarDiretorio(pathExplorar);
-                sprintf(msgStatus, "PASTA CRIADA!");
             }
         }
 
         // Finaliza o diálogo e DESBLOQUEIA os botões
         sceImeDialogTerm();
         esperandoNomePasta = false;
+        esperandoRenomear = false;
         msgTimer = 120;
     }
 }

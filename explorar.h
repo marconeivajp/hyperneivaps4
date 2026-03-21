@@ -19,9 +19,13 @@ extern bool showOpcoes;
 extern int selOpcao;
 extern const char* listaOpcoes[10];
 
-// --- VARIÁVEIS DO TECLADO ---
+// --- VARIÁVEIS DO TECLADO E RENOMEAÇÃO ---
 extern bool esperandoNomePasta;
+extern bool esperandoRenomear;
 extern wchar_t textoTeclado[64];
+extern char oldPathParaRenomear[512];
+extern char oldExtParaRenomear[64];
+extern bool ehPastaParaRenomear;
 
 // Variáveis Globais Compartilhadas do Sistema
 extern char nomes[3000][64];
