@@ -136,36 +136,36 @@ void desenharInterface(uint32_t* p) {
             bool* mItems = (refPainel == 0) ? marcadosEsq : marcados;
             MenuLevel mAtual = (refPainel == 0) ? menuAtualEsq : menuAtual;
 
-            // --- CÁLCULO SEGURO DAS POSIÇÕES PARA EVITAR SOBREPOSIÇÃO ---
+            // --- GARANTIA DE PREENCHIMENTO DO MENU HOME ---
+            // Isto resolve o bug de renderizar vazio/por cima quando aperta L2
+            if (mAtual == MENU_EXPLORAR_HOME && tItens <= 0) {
+                strcpy(nItems[0], "Hyper Neiva");
+                strcpy(nItems[1], "Raiz");
+                strcpy(nItems[2], "USB 0");
+                strcpy(nItems[3], "USB 1");
+                tItens = 4;
+                if (refPainel == 0) totalItensEsq = 4; else totalItens = 4;
+            }
+
+            // --- CÁLCULO DINÂMICO BASEADO NO SEU listW ---
             int posX;
-            int larguraItem;
+            int larguraItem = listW; // Usa a largura ORIGINAL do menu, evitando a barra gigante
 
             if (painelDuplo) {
                 if (refPainel == 0) { // PAINEL ESQUERDO
-                    posX = 100; // Posição fixa bem à esquerda
-                    larguraItem = 820; // Largura exata para ocupar quase meia tela
+                    posX = listX; // Fica exatamente onde o menu sempre esteve
                 }
                 else { // PAINEL DIREITO
-                    posX = 960; // Começa um pouco depois do meio da tela
-                    larguraItem = 820; // Mesma largura do esquerdo
+                    posX = listX + listW + 40; // Dá um espaço de 40 pixeis e desenha o segundo painel
+                    if (posX + larguraItem > 1900) larguraItem = 1900 - posX; // Previne que saia do ecrã
                 }
             }
-            else { // MODO NORMAL (TELA CHEIA)
+            else { // MODO NORMAL (TELA ÚNICA)
                 posX = listX;
-                larguraItem = listW;
             }
 
             for (int i = 0; i < 6; i++) {
                 int gIdx = i + oAtual; if (gIdx >= tItens) break;
-
-                // Hack de segurança para garantir que o menu Home Esquerdo apareça mesmo se não estiver preenchido
-                if (refPainel == 0 && mAtual == MENU_EXPLORAR_HOME) {
-                    if (gIdx == 0) strcpy(nItems[0], "Hyper Neiva");
-                    if (gIdx == 1) strcpy(nItems[1], "Raiz");
-                    if (gIdx == 2) strcpy(nItems[2], "USB 0");
-                    if (gIdx == 3) strcpy(nItems[3], "USB 1");
-                    tItens = 4;
-                }
 
                 int yP = listY + (i * 120);
 
@@ -220,12 +220,12 @@ void desenharInterface(uint32_t* p) {
             desenharTexto(p, bread, 30, listX, 1020, 0xFFFFFFFF);
         }
         else {
-            // Ajustamos a posição do texto com os caminhos também!
+            // Ajustamos a posição do texto com os caminhos para ficarem perfeitamente alinhados sob as respetivas listas!
             char breadEsq[300]; sprintf(breadEsq, "ESQ: %s", pathExplorarEsq);
-            desenharTexto(p, breadEsq, 25, 100, 1020, (painelAtivo == 0) ? 0xFF00AAFF : 0xFFAAAAAA);
+            desenharTexto(p, breadEsq, 25, listX, 1020, (painelAtivo == 0) ? 0xFF00AAFF : 0xFFAAAAAA);
 
             char breadDir[300]; sprintf(breadDir, "DIR: %s", pathExplorar);
-            desenharTexto(p, breadDir, 25, 960, 1020, (painelAtivo == 1) ? 0xFF00AAFF : 0xFFAAAAAA);
+            desenharTexto(p, breadDir, 25, listX + listW + 40, 1020, (painelAtivo == 1) ? 0xFF00AAFF : 0xFFAAAAAA);
         }
     }
 
