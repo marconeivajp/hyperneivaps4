@@ -1,21 +1,19 @@
 #ifndef AUDIO_H
 #define AUDIO_H
 
-#include "explorar.h" // Necessário para acessar o enum MenuLevel
+#include "explorar.h" 
 #include "menu.h"
 
-// Truque para manter o explorar.h intacto: definimos o MENU_MUSICAS aqui
-#ifndef MENU_MUSICAS
-#define MENU_MUSICAS ((MenuLevel)11)
-#endif
-
-// Tornamos a musicaAtual acessível (global) para todo o sistema ler
+// Tornamos a musicaAtual e o comandoPausar acessíveis para o menu de áudio
 extern char musicaAtual[256];
+extern volatile bool comandoPausar;
 
 // Funções do módulo de áudio
 void inicializarAudio();
 void pararAudio();
 void tocarMusicaNova(const char* path);
+void tocarProximaMusica();   // NOVA FUNÇÃO
+void tocarMusicaAnterior();  // NOVA FUNÇÃO
 void preencherMenuMusicas();
 void salvarConfiguracaoAudio();
 void carregarConfiguracaoAudio();
