@@ -1,16 +1,6 @@
-// --- INÍCIO DO ARQUIVO controle_explorar.cpp ---
 #include <stdio.h>
 #include <stdarg.h>
 #include <string.h>
-
-
-
-#ifdef __INTELLISENSE__
-#ifndef __builtin_va_list
-#define __builtin_va_list void*
-#endif
-#endif
-
 #include "controle_explorar.h"
 #include "menu.h"
 #include "explorar.h"
@@ -24,6 +14,7 @@ extern bool showOpcoes;
 extern int selOpcao;
 extern int cd;
 extern bool marcados[3000];
+extern bool esperandoNomePasta; // Variável externa do explorador.cpp
 
 extern void listarDiretorio(const char* path);
 extern void preencherExplorerHome();
@@ -31,6 +22,8 @@ extern void acaoArquivo(int acao);
 extern void preencherRoot();
 
 void acaoCross_Explorar() {
+    if (esperandoNomePasta) return; // Bloqueia se teclado estiver aberto
+
     if (menuAtual == MENU_EXPLORAR && showOpcoes) {
         acaoArquivo(selOpcao);
     }
@@ -49,6 +42,8 @@ void acaoCross_Explorar() {
 }
 
 void acaoCircle_Explorar() {
+    if (esperandoNomePasta) return;
+
     if (menuAtual == MENU_EXPLORAR_HOME) {
         preencherRoot();
     }
@@ -66,6 +61,8 @@ void acaoCircle_Explorar() {
 }
 
 void acaoTriangle_Explorar() {
+    if (esperandoNomePasta) return;
+
     if (menuAtual == MENU_EXPLORAR) {
         showOpcoes = !showOpcoes;
         selOpcao = 0;
@@ -73,8 +70,9 @@ void acaoTriangle_Explorar() {
 }
 
 void acaoR1_Explorar() {
+    if (esperandoNomePasta) return;
+
     if (menuAtual == MENU_EXPLORAR) {
         if (cd <= 0) { marcados[sel] = !marcados[sel]; cd = 12; }
     }
 }
-// --- FIM DO ARQUIVO controle_explorar.cpp ---
