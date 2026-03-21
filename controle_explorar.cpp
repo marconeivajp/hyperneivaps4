@@ -4,10 +4,23 @@
 #include "controle_explorar.h"
 #include "menu.h"
 #include "explorar.h"
+#include "stb_image.h" // NECESSÁRIO PARA LER AS IMAGENS
+#include "audio.h"     // NECESSÁRIO PARA TOCAR A MÚSICA
 
 extern int cd;
 extern void preencherExplorerHome();
 extern void preencherRoot();
+
+// --- VARIÁVEIS DA IMAGEM (Vindas do menu_grafico) ---
+extern bool visualizandoMidiaImagem;
+extern unsigned char* imgMidia;
+extern int wM, hM;
+extern float zoomMidia;
+extern bool fullscreenMidia;
+
+// --- VARIÁVEL PARA O ÁUDIO ---
+static char caminhoMusicaTocando[512] = "";
+
 
 void acaoL2_Explorar() {
     painelDuplo = !painelDuplo;
@@ -52,16 +65,80 @@ void acaoCross_Explorar() {
         else { strcpy(baseRaiz, tempBase); listarDiretorio(baseRaiz); }
     }
     else if (mAtual == MENU_EXPLORAR) {
+        // SE FOR UMA PASTA
         if (nItems[sAtual][0] == '[') {
             char pL[128]; strncpy(pL, &nItems[sAtual][1], strlen(nItems[sAtual]) - 2); pL[strlen(nItems[sAtual]) - 2] = '\0';
             char nP[256]; sprintf(nP, "%s/%s", pExplorar, pL);
             if (ehEsq) listarDiretorioEsq(nP); else listarDiretorio(nP);
+        }
+        // SE FOR UM ARQUIVO (AÇÃO AO CLICAR)
+        else {
+            char caminhoArquivo[512];
+            sprintf(caminhoArquivo, "%s/%s", pExplorar, nItems[sAtual]);
+
+            // Pega a extensão do arquivo (ex: .mp3, .png)
+            char* ext = strrchr(nItems[sAtual], '.');
+
+            if (ext) {
+                // 1. LÓGICA DE ÁUDIO (MP3 / WAV) COM A FUNÇÃO CORRETA "tocarMusicaNova"
+                if (strcasecmp(ext, ".mp3") == 0 || strcasecmp(ext, ".wav") == 0) {
+
+                    if (strcmp(caminhoMusicaTocando, caminhoArquivo) == 0) {
+                        // Clicou na MESMA música que já está a tocar -> PARA A MÚSICA
+                        // A sua lógica exige enviar "PARADO" para pausar
+                        tocarMusicaNova("PARADO");
+
+                        strcpy(caminhoMusicaTocando, ""); // Limpa o registo
+                        sprintf(msgStatus, "Música Parada");
+                        msgTimer = 90;
+                    }
+                    else {
+                        // Clicou numa música NOVA ou nenhuma estava a tocar -> TOCA A MÚSICA
+                        tocarMusicaNova(caminhoArquivo);
+
+                        strcpy(caminhoMusicaTocando, caminhoArquivo); // Regista qual está a tocar
+                        sprintf(msgStatus, "Reproduzindo Áudio");
+                        msgTimer = 90;
+                    }
+                }
+                // 2. LÓGICA DE IMAGEM (PNG / JPG / JPEG / BMP)
+                else if (strcasecmp(ext, ".png") == 0 || strcasecmp(ext, ".jpg") == 0 || strcasecmp(ext, ".jpeg") == 0 || strcasecmp(ext, ".bmp") == 0) {
+
+                    if (imgMidia) {
+                        stbi_image_free(imgMidia); // Limpa a memória da imagem anterior
+                        imgMidia = NULL;
+                    }
+
+                    int canais;
+                    imgMidia = stbi_load(caminhoArquivo, &wM, &hM, &canais, 4); // Carrega a nova
+
+                    if (imgMidia) {
+                        visualizandoMidiaImagem = true; // Ativa a tela de visualização no menu_grafico
+                        zoomMidia = 1.0f;
+                        fullscreenMidia = false;
+                    }
+                    else {
+                        sprintf(msgStatus, "ERRO AO CARREGAR IMAGEM");
+                        msgTimer = 90;
+                    }
+                }
+            }
         }
     }
 }
 
 void acaoCircle_Explorar() {
     if (esperandoNomePasta || esperandoRenomear) return;
+
+    // SE ESTIVER A VER UMA IMAGEM, A BOLINHA APENAS FECHA A IMAGEM
+    if (visualizandoMidiaImagem) {
+        visualizandoMidiaImagem = false;
+        if (imgMidia) {
+            stbi_image_free(imgMidia);
+            imgMidia = NULL;
+        }
+        return; // Sai da função para não fechar o explorador!
+    }
 
     bool ehEsq = (painelDuplo && painelAtivo == 0);
     MenuLevel mAtual = ehEsq ? menuAtualEsq : menuAtual;
