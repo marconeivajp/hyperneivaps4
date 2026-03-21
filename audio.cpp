@@ -380,9 +380,27 @@ void abrirMenuAudioOpcoes() {
 void tratarSelecaoAudio(int op) {
     if (totalItens <= 0 && menuAtual == MENU_MUSICAS) return;
 
-    // HUD APENAS VISUAL POR ENQUANTO: Todos os botões estão neutros
     switch (op) {
-    case 10: // VOLTAR (Sair do HUD) - Único que precisa funcionar agora
+    case 0: // PLAY / PAUSE
+        // Só permite pausar/despausar se existir uma música selecionada
+        if (strcmp(musicaAtual, "PARADO") != 0 && strlen(musicaAtual) > 0) {
+            comandoPausar = !comandoPausar; // Alterna entre pausado e tocando
+            sprintf(msgStatus, comandoPausar ? "MUSICA PAUSADA" : "REPRODUZINDO");
+            msgTimer = 90;
+        }
+        else {
+            sprintf(msgStatus, "NENHUMA MUSICA SELECIONADA");
+            msgTimer = 90;
+        }
+        break;
+
+    case 1: // PARAR
+        tocarMusicaNova("PARADO");
+        sprintf(msgStatus, "MUSICA PARADA");
+        msgTimer = 90;
+        break;
+
+    case 10: // VOLTAR (Sair do HUD)
         showOpcoes = false;
         break;
 
