@@ -231,13 +231,10 @@ static void* audioThreadFunc(void* argp) {
         }
 
         if (framesLidos == 0) {
-            // LÓGICA DE REPETIÇÃO
             if (modoRepetir) {
-                // Se repetir estiver ativo, apenas volta ao início do mesmo ficheiro
                 if (currentAudioType == AUDIO_WAV) drwav_seek_to_pcm_frame(&wav, 0);
                 else if (currentAudioType == AUDIO_MP3) drmp3_seek_to_pcm_frame(&mp3, 0);
             }
-            // LÓGICA LINEAR (Original)
             else if (strstr(musicaAtual, "/data/HyperNeiva/Musicas/") != NULL) {
                 char proxima[256];
                 if (obterProximaMusica(proxima)) {
@@ -259,7 +256,6 @@ static void* audioThreadFunc(void* argp) {
                 }
             }
             else {
-                // Ficheiros "fora" da pasta das músicas (ex: música de fundo bgm.wav) repetem sempre por padrão
                 if (currentAudioType == AUDIO_WAV) drwav_seek_to_pcm_frame(&wav, 0);
                 else if (currentAudioType == AUDIO_MP3) drmp3_seek_to_pcm_frame(&mp3, 0);
             }
@@ -268,8 +264,6 @@ static void* audioThreadFunc(void* argp) {
 
         if (framesLidos < 256) {
             for (size_t i = framesLidos * 2; i < 256 * 2; i++) pSampleData[i] = 0;
-            if (currentAudioType == AUDIO_WAV) drwav_seek_to_pcm_frame(&wav, 0);
-            else if (currentAudioType == AUDIO_MP3) drmp3_seek_to_pcm_frame(&mp3, 0);
         }
         sceAudioOutOutput(audioPort, pSampleData);
     }
@@ -346,5 +340,5 @@ void preencherMenuMusicas() {
         }
         closedir(d);
     }
-    menuAtual = MENU_MUSICAS; // Agora usa o valor original do menu.h
+    menuAtual = MENU_MUSICAS;
 }
