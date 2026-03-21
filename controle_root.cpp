@@ -59,16 +59,20 @@ void acaoCross_Root() {
     if (visualizandoMidiaTexto) return;
 
     if (menuAtual == ROOT) {
-        if (sel == 0) carregarXML("/app0/assets/lista.xml");
+        if (sel == 0) { carregarXML("/app0/assets/lista.xml"); }
         else if (sel == 1) { preencherMenuMidia(); sel = 0; off = 0; }
         else if (sel == 2) { preencherMenuBaixar(); sel = 0; off = 0; }
         else if (sel == 3) { preencherMenuEditar(); sel = 0; off = 0; }
         else if (sel == 4) { preencherExplorerHome(); sel = 0; off = 0; }
         else if (sel == 5) {
+            // GARANTIMOS QUE O MENU É DEFINIDO CORRETAMENTE ANTES DE CHAMAR A FUNÇÃO
+            menuAtual = MENU_MUSICAS;
             if (imgPreview) { stbi_image_free(imgPreview); imgPreview = NULL; }
-            strcpy(ultimoJogoCarregado, ""); preencherMenuMusicas(); sel = 0; off = 0;
+            strcpy(ultimoJogoCarregado, "");
+            preencherMenuMusicas();
+            sel = 0;
+            off = 0;
         }
-        // O sel == 6 ("CRIAR") foi completamente removido daqui
     }
     else if (menuAtual == JOGAR_XML && strcasecmp(nomes[sel], "sp") == 0) {
         carregarXML("/app0/assets/sp.xml");
