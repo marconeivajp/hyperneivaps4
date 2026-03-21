@@ -68,16 +68,25 @@ void acaoCircle_Explorar() {
     char* pExplorar = ehEsq ? pathExplorarEsq : pathExplorar;
 
     if (mAtual == MENU_EXPLORAR_HOME) {
-        if (!ehEsq) preencherRoot();
-        // No lado esquerdo, bolinha na home não faz nada, ou poderia fechar o painel duplo
+        // 1. SE APERTAR BOLINHA NA TELA INICIAL (HOME), DESLIGA O PAINEL DUPLO
+        if (painelDuplo) {
+            painelDuplo = false;
+            painelAtivo = 1; // Devolve o foco ao lado direito de forma segura
+        }
+
+        // 2. SE ESTAVA A USAR O LADO DIREITO (PRINCIPAL), VOLTA PARA O MENU ROOT
+        if (!ehEsq) {
+            preencherRoot();
+        }
     }
     else if (mAtual == MENU_EXPLORAR) {
-        // Se estiver na base ou na raiz do disco, volta para a tela inicial
+        // Se estiver na base ou na raiz do disco, volta para a tela inicial (Home) do explorador
         if (strcmp(pExplorar, baseRaiz) == 0 || strcmp(pExplorar, "/") == 0) {
             if (ehEsq) menuAtualEsq = MENU_EXPLORAR_HOME;
             else preencherExplorerHome();
         }
         else {
+            // Volta uma pasta para trás
             char temp[256]; strcpy(temp, pExplorar);
             char* last = strrchr(temp, '/');
             if (last) {

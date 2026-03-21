@@ -146,24 +146,28 @@ void desenharInterface(uint32_t* p) {
                 if (refPainel == 0) totalItensEsq = 4; else totalItens = 4;
             }
 
-            // --- CÁLCULO DAS POSIÇÕES CORRETAS ---
+            // =========================================================
+            // CONFIGURAÇÃO DA LARGURA DA BARRA DE FUNDO (PAINEL DUPLO)
+            // Se a barra ficar longa demais, diminua o valor abaixo (ex: 600, 500)
+            int larguraBarraDupla = 750;
+            // =========================================================
+
             int posX;
             int larguraItem;
 
             if (painelDuplo) {
-                if (refPainel == 0) { // PAINEL ESQUERDO (Abre onde era a capinha)
-                    posX = capaX; // Vai para a esquerda
-                    larguraItem = listX - capaX - 40; // Estica até 40 pixels antes de encostar na lista principal
-                    if (larguraItem < 100) larguraItem = 100; // Segurança mínima
+                if (refPainel == 0) { // PAINEL ESQUERDO
+                    posX = capaX; // Vai para a posição da capinha
+                    larguraItem = larguraBarraDupla; // Fica com o tamanho definido acima
                 }
-                else { // PAINEL DIREITO (O menu original)
-                    posX = listX; // Fica INTACTO na posição original!
-                    larguraItem = listW; // Fica com a largura original
+                else { // PAINEL DIREITO
+                    posX = listX; // Fica na posição do menu original
+                    larguraItem = larguraBarraDupla; // Fica igual ao painel esquerdo para ficar simétrico
                 }
             }
             else { // MODO NORMAL (TELA ÚNICA)
                 posX = listX;
-                larguraItem = listW;
+                larguraItem = listW; // No modo normal, usa a largura original do seu app
             }
 
             for (int i = 0; i < 6; i++) {
@@ -222,12 +226,12 @@ void desenharInterface(uint32_t* p) {
             desenharTexto(p, bread, 30, listX, 1020, 0xFFFFFFFF);
         }
         else {
-            // Ajustamos a posição do texto com os caminhos para bater com a nova lógica
+            // Ajustamos a posição do texto com os caminhos
             char breadEsq[300]; sprintf(breadEsq, "ESQ: %s", pathExplorarEsq);
-            desenharTexto(p, breadEsq, 25, capaX, 1020, (painelAtivo == 0) ? 0xFF00AAFF : 0xFFAAAAAA); // Debaixo do esquerdo
+            desenharTexto(p, breadEsq, 25, capaX, 1020, (painelAtivo == 0) ? 0xFF00AAFF : 0xFFAAAAAA);
 
             char breadDir[300]; sprintf(breadDir, "DIR: %s", pathExplorar);
-            desenharTexto(p, breadDir, 25, listX, 1020, (painelAtivo == 1) ? 0xFF00AAFF : 0xFFAAAAAA); // Debaixo do principal
+            desenharTexto(p, breadDir, 25, listX, 1020, (painelAtivo == 1) ? 0xFF00AAFF : 0xFFAAAAAA);
         }
     }
 
