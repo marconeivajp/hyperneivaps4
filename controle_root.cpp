@@ -13,16 +13,14 @@
 #include "menu.h"
 #include "stb_image.h"
 #include "audio.h"
-#include "bloco_de_notas.h" // <-- Inclusão do Bloco de Notas
+#include "bloco_de_notas.h"
 
-// VARIÁVEIS GLOBAIS DA IMAGEM
 bool visualizandoMidiaImagem = false;
 unsigned char* imgMidia = NULL;
 int wM = 0, hM = 0, cM = 0;
 float zoomMidia = 1.0f;
 bool fullscreenMidia = false;
 
-// VARIÁVEIS GLOBAIS PARA O LEITOR DE TEXTO (Mantidas por compatibilidade, mas o uso principal agora é o Bloco de Notas)
 bool visualizandoMidiaTexto = false;
 char* textoMidiaBuffer = NULL;
 char* linhasTexto[5000];
@@ -70,10 +68,7 @@ void acaoCross_Root() {
             if (imgPreview) { stbi_image_free(imgPreview); imgPreview = NULL; }
             strcpy(ultimoJogoCarregado, ""); preencherMenuMusicas(); sel = 0; off = 0;
         }
-        else if (sel == 6) {
-            menuAtual = MENU_NOTEPAD;
-            inicializarNotepad();
-        }
+        // O sel == 6 ("CRIAR") foi completamente removido daqui
     }
     else if (menuAtual == JOGAR_XML && strcasecmp(nomes[sel], "sp") == 0) {
         carregarXML("/app0/assets/sp.xml");
@@ -149,7 +144,6 @@ void acaoCross_Root() {
                         textoMidiaBuffer[fsize] = '\0';
                         fclose(f);
 
-                        // AGORA ELE ABRE USANDO A INTERFACE DO BLOCO DE NOTAS EM MODO LEITURA!
                         abrirTextoNoNotepad(textoMidiaBuffer);
                         menuAtual = MENU_NOTEPAD;
 

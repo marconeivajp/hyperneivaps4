@@ -7,6 +7,7 @@
 #include <wchar.h>
 #include <stdint.h>
 
+// Forçar Intellisense a ignorar funções da libc
 #ifdef __INTELLISENSE__
 #ifndef __builtin_va_list
 #define __builtin_va_list void*
@@ -30,7 +31,7 @@
 #include "jogar.h"
 #include "audio.h"
 #include "graphics.h"
-#include "controle.h"
+#include "controle.h" // AQUI TEM QUE SER .H
 #include "criar_pastas.h"
 #include "bloco_de_notas.h" 
 
@@ -106,8 +107,6 @@ int main(void) {
         for (int i = 0; i < 1920 * 1080; i++) p[i] = 0xFF121212;
         if (backImg) desenharRedimensionado(p, backImg, wB, hB, backW, backH, backX, backY);
 
-        // --- ADICIONADO: VERIFICAÇÃO DO TECLADO DO EXPLORADOR ---
-        // Esta função processa a criação da pasta e desbloqueia os controlos
         atualizarImePasta();
 
         if (tecladoAtivo) {
@@ -144,8 +143,7 @@ int main(void) {
             }
         }
         else {
-            // Apenas processa controlos se NÃO estiver a aguardar o nome da pasta
-            if (!esperandoNomePasta) {
+            if (!esperandoNomePasta && !esperandoRenomear) {
                 processarControles(pData.buttons, uId, imeSetting, imeTitle);
             }
         }

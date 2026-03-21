@@ -1,6 +1,7 @@
 #include "bloco_de_notas.h"
 #include "graphics.h"
 #include "menu.h"
+#include "explorar.h" // Adicionado para poder atualizar o diretório após salvar
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -12,71 +13,24 @@ char linhasNotepad[MAX_LINHAS][MAX_CHARS_LINHA];
 int linhaSelecionada = 0;
 int totalLinhasNotepad = 1;
 
-char pastaAtualNotepad[512] = "";
-char pastasNotepad[100][256];
-int totalPastasNotepad = 0;
-int pastaSelecionada = 0;
 char pastaDestinoFinal[512] = "";
-
 char nomeArquivo[256] = "";
-
-void carregarAtalhosNotepad() {
-    strcpy(pastaAtualNotepad, "ATALHOS_RAIZ");
-    strcpy(pastasNotepad[0], "/data/HyperNeiva/");
-    strcpy(pastasNotepad[1], "/user/data/");
-    strcpy(pastasNotepad[2], "/mnt/usb0/");
-    strcpy(pastasNotepad[3], "/mnt/usb1/");
-    totalPastasNotepad = 4;
-    pastaSelecionada = 0;
-}
-
-void lerDiretorioNotepad(const char* path) {
-    DIR* d = opendir(path);
-    if (!d) {
-        strcpy(msgStatus, "Nao foi possivel abrir a pasta!");
-        msgTimer = 120;
-        return;
-    }
-
-    totalPastasNotepad = 0;
-    strcpy(pastaAtualNotepad, path);
-    pastaSelecionada = 0;
-
-    struct dirent* dir;
-    while ((dir = readdir(d)) != NULL) {
-        if (dir->d_type == DT_DIR) {
-            if (strcmp(dir->d_name, ".") != 0 && strcmp(dir->d_name, "..") != 0) {
-                if (totalPastasNotepad < 100) {
-                    snprintf(pastasNotepad[totalPastasNotepad], 256, "%s", dir->d_name);
-                    totalPastasNotepad++;
-                }
-            }
-        }
-    }
-    closedir(d);
-    if (totalPastasNotepad == 0) {
-        strcpy(pastasNotepad[0], "[PASTA VAZIA]");
-        totalPastasNotepad = 1;
-    }
-}
 
 void inicializarNotepad() {
     memset(linhasNotepad, 0, sizeof(linhasNotepad));
     linhaSelecionada = 0;
     totalLinhasNotepad = 1;
     estadoNotepad = 0;
-    notepadSomenteLeitura = false; // Ativa edição por padrão
-    carregarAtalhosNotepad();
+    notepadSomenteLeitura = false;
     memset(nomeArquivo, 0, sizeof(nomeArquivo));
 }
 
-// NOVA FUNÇÃO: Quebra o arquivo gigante em linhas para o Bloco de Notas exibir
 void abrirTextoNoNotepad(const char* textoCompleto) {
     memset(linhasNotepad, 0, sizeof(linhasNotepad));
     linhaSelecionada = 0;
     totalLinhasNotepad = 0;
     estadoNotepad = 0;
-    notepadSomenteLeitura = true; // ATIVA TRAVA DE LEITURA
+    notepadSomenteLeitura = true;
 
     int charCount = 0;
     int linhaAtual = 0;
@@ -119,10 +73,9 @@ void renderizarNotepad(uint32_t* pixels) {
         }
         else {
             desenharTexto(pixels, "BLOCO DE NOTAS", 35, 50, 25, 0xFF00AAFF);
-            desenharTexto(pixels, "[X] Editar Linha   |   [QUADRADO] Salvar Arquivo   |   [O] Sair", 25, 50, 1035, 0xFF00AAFF);
+            desenharTexto(pixels, "[X] Editar Linha   |   [QUADRADO] Salvar Arquivo   |   [O] Cancelar", 25, 50, 1035, 0xFF00AAFF);
         }
 
-        // SISTEMA DE CÂMERA/SCROLL: Mostra apenas 21 linhas dependendo da rolagem
         int linhasVisiveis = 21;
         int linhaInicial = linhaSelecionada - (linhasVisiveis / 2);
         if (linhaInicial > totalLinhasNotepad - linhasVisiveis) linhaInicial = totalLinhasNotepad - linhasVisiveis;
@@ -138,36 +91,14 @@ void renderizarNotepad(uint32_t* pixels) {
             desenharTexto(pixels, buffer, 30, 50, 120 + (i * 40), cor);
         }
     }
-    else if (estadoNotepad == 1) {
-        desenharTexto(pixels, "BLOCO DE NOTAS - SELECIONAR DESTINO", 35, 50, 25, 0xFF00AAFF);
-        desenharTexto(pixels, "[X] Entrar na Pasta   |   [QUADRADO] Escolher Esta Pasta   |   [O] Voltar", 25, 50, 1035, 0xFF00AAFF);
-
-        if (strcmp(pastaAtualNotepad, "ATALHOS_RAIZ") == 0) {
-            desenharTexto(pixels, "Navegando: ATALHOS RAPIDOS", 35, 50, 120, 0xFFFFFFFF);
-        }
-        else {
-            char nav[600]; snprintf(nav, sizeof(nav), "Navegando: %s", pastaAtualNotepad);
-            desenharTexto(pixels, nav, 35, 50, 120, 0xFFFFFF00);
-        }
-
-        int offsetPastas = (pastaSelecionada > 15) ? pastaSelecionada - 15 : 0;
-        for (int i = 0; i < 16; i++) {
-            int idx = offsetPastas + i;
-            if (idx >= totalPastasNotepad) break;
-            uint32_t cor = (idx == pastaSelecionada) ? 0xFF00FF00 : 0xFFDDDDDD;
-            char buffer[300];
-            snprintf(buffer, sizeof(buffer), "%s%s", pastasNotepad[idx], (idx == pastaSelecionada) ? " <" : "");
-            desenharTexto(pixels, buffer, 30, 50, 200 + (i * 40), cor);
-        }
-    }
-    else if (estadoNotepad == 2) {
+    else if (estadoNotepad == 1) { // Antes era estado 2
         desenharTexto(pixels, "BLOCO DE NOTAS - NOME DO ARQUIVO", 35, 50, 25, 0xFF00AAFF);
         desenharTexto(pixels, "[X] Digitar nome (Conclua para Salvar automaticamente)   |   [O] Voltar", 25, 50, 1035, 0xFF00AAFF);
         desenharTexto(pixels, "Digite o nome do arquivo (ex: config.xml):", 35, 50, 120, 0xFFFFFFFF);
         desenharTexto(pixels, nomeArquivo, 30, 50, 180, 0xFF00FF00);
 
         char destFinal[600];
-        snprintf(destFinal, sizeof(destFinal), "Sera salvo em: %s", pastaDestinoFinal);
+        snprintf(destFinal, sizeof(destFinal), "Sera salvo na pasta: %s", pastaDestinoFinal);
         desenharTexto(pixels, destFinal, 25, 50, 250, 0xFFAAAAAA);
     }
 }
@@ -187,7 +118,7 @@ void aplicarTextoNotepad(const char* textoDigitado) {
     if (estadoNotepad == 0) {
         strncpy(linhasNotepad[linhaSelecionada], bufferLimpo, MAX_CHARS_LINHA - 1);
     }
-    else if (estadoNotepad == 2) {
+    else if (estadoNotepad == 1) {
         strncpy(nomeArquivo, bufferLimpo, sizeof(nomeArquivo) - 1);
         if (strlen(nomeArquivo) > 0) {
             salvarArquivoNotepad();
@@ -219,7 +150,10 @@ void salvarArquivoNotepad() {
         fclose(f);
         snprintf(msgStatus, sizeof(msgStatus), "Salvo com sucesso!");
         msgTimer = 180;
-        estadoNotepad = 0;
+
+        // Retorna pro Explorador e atualiza a pasta
+        menuAtual = MENU_EXPLORAR;
+        listarDiretorio(pastaDestinoFinal);
     }
     else {
         snprintf(msgStatus, sizeof(msgStatus), "Erro ao salvar o arquivo!");

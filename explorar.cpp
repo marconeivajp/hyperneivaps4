@@ -8,6 +8,7 @@
 #include <orbis/libkernel.h>
 #include "ImeDialog.h"
 #include "CommonDialog.h"
+#include "bloco_de_notas.h" // NECESSÁRIO PARA ABRIR O NOVO ARQUIVO
 
 // Definições manuais para garantir compilação caso o header esteja incompleto
 #define IME_STATUS_RUNNING 1
@@ -93,6 +94,13 @@ void acaoArquivo(int op) {
         }
         break;
     }
+    case 1: { // NOVO ARQUIVO (Abre o Bloco de Notas)
+        inicializarNotepad();
+        strcpy(pastaDestinoFinal, pathExplorar); // Trava o caminho na pasta atual do Explorador!
+        menuAtual = MENU_NOTEPAD;
+        showOpcoes = false;
+        break;
+    }
     case 5: { // Renomear
         int alvo = sel;
         for (int i = 0; i < totalItens; i++) if (marcados[i]) { alvo = i; break; }
@@ -154,7 +162,12 @@ void acaoArquivo(int op) {
         for (int i = 0; i < totalItens; i++) marcados[i] = ligar; break;
     }
     }
-    if (!esperandoNomePasta && !esperandoRenomear) { showOpcoes = false; msgTimer = 120; }
+
+    // AQUI IMPEDE QUE O MENU FECHE O BLOCO DE NOTAS IMEDIATAMENTE
+    if (!esperandoNomePasta && !esperandoRenomear && menuAtual != MENU_NOTEPAD) {
+        showOpcoes = false;
+        msgTimer = 120;
+    }
 }
 
 void atualizarImePasta() {
