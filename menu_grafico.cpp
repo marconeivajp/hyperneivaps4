@@ -3,7 +3,7 @@
 #include "graphics.h"
 #include "bloco_de_notas.h" 
 #include "menu_audio.h" 
-#include "menu_upload.h" // <-- AQUI INCLUÍMOS O DESENHO DO MENU DE UPLOAD
+#include "menu_upload.h" 
 #include <string.h>
 #include <stdio.h>
 
@@ -118,8 +118,22 @@ void desenharInterface(uint32_t* p) {
             uint32_t corFundo = 0xAA222222;
             uint32_t corTexto = 0xFFFFFFFF;
 
-            if (menuAtual == MENU_EXPLORAR && marcados[gIdx]) corFundo = 0xAAFFFF99;
-            if (gIdx == sel) { corFundo = 0xFF00AAFF; corTexto = 0xFF000000; }
+            bool isMarcado = (menuAtual == MENU_EXPLORAR || menuAtual == MENU_BAIXAR_DROPBOX_LISTA || menuAtual == MENU_BAIXAR_DROPBOX_UPLOAD) && marcados[gIdx];
+
+            if (isMarcado) {
+                corFundo = 0xAAFFFF99; // Amarelo se tiver marcado
+            }
+
+            // O Segredo da Cor Mista:
+            if (gIdx == sel) {
+                if (isMarcado) {
+                    corFundo = 0xFF00FF00; // Verde Limão (Marcado + Seletor em cima)
+                }
+                else {
+                    corFundo = 0xFF00AAFF; // Azul Normal (Só o Seletor em cima)
+                }
+                corTexto = 0xFF000000;
+            }
 
             for (int by = 0; by < listH; by++) for (int bx = 0; bx < listW; bx++) {
                 int pxX = listX + bx; int pyY = yP + by; if (pxX >= 0 && pxX < 1920 && pyY >= 0 && pyY < 1080) p[pyY * 1920 + pxX] = corFundo;
@@ -161,7 +175,7 @@ void desenharInterface(uint32_t* p) {
     // 5. DESENHAR MENU SUSPENSO (OPÇÕES DE ÁUDIO)
     desenharMenuAudio(p);
 
-    // 6. DESENHAR MENU SUSPENSO (OPÇÕES DE UPLOAD) <-- AGORA VAI APARECER NA TELA!
+    // 6. DESENHAR MENU SUSPENSO (OPÇÕES DE UPLOAD) 
     desenharMenuUpload(p);
 
     if (msgTimer > 0) {

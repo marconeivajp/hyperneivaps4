@@ -13,7 +13,7 @@
 #include "baixar.h"
 #include "network.h"
 #include "baixar_repositorio.h"
-#include "baixar_dropbox_download.h" // <-- NOVO HEADER AQUI
+#include "baixar_dropbox_download.h"
 
 extern void acaoCross_Notepad(int32_t uId, OrbisImeDialogSetting* imeSetting, uint16_t* imeTitle, const char* textoInicial);
 
@@ -38,12 +38,15 @@ void acaoCross_Baixar(int32_t uId, OrbisImeDialogSetting* imeSetting, uint16_t* 
     }
     else if (menuAtual == MENU_BAIXAR_DROPBOX_LISTA) {
         char urlSel[1024]; strcpy(urlSel, linksAtuais[sel]); int tam = strlen(urlSel);
-        if (tam > 0 && (urlSel[tam - 1] == '/' || strchr(nomes[sel], '.') == NULL)) {
-            if (urlSel[tam - 1] == '/') urlSel[tam - 1] = '\0';
-            acessarDropbox(urlSel);
+
+        // Verifica se é uma pasta (termina com '/')
+        if (tam > 0 && urlSel[tam - 1] == '/') {
+            urlSel[tam - 1] = '\0';
+            acessarDropbox(urlSel); // Entra na pasta
         }
         else {
-            sprintf(msgStatus, "USE [TRIANGULO] PARA BAIXAR %s", nomes[sel]); msgTimer = 120;
+            // SE FOR ARQUIVO, AGORA ELE BAIXA DIRETO NO BOTÃO X!
+            iniciarDownload(urlSel);
         }
     }
     else if (menuAtual == MENU_BAIXAR_DROPBOX_UPLOAD) {
@@ -141,7 +144,6 @@ void acaoCircle_Baixar() {
 }
 
 void acaoTriangle_Baixar() {
-    if (menuAtual == MENU_BAIXAR_DROPBOX_LISTA) {
-        iniciarDownload(linksAtuais[sel]);
-    }
+    // Agora o Triângulo é tratado diretamente no arquivo controle.cpp (para abrir o menu suspenso),
+    // portanto não precisamos de código aqui para evitar conflitos!
 }
