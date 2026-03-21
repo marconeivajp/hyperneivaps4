@@ -15,7 +15,7 @@
 #include "controle_editar.h"
 #include "controle_baixar.h"
 #include "controle_root.h"
-#include "menu_upload.h" // Garantindo o header do upload
+#include "menu_upload.h"
 
 #include "stb_image.h"
 #include "menu.h"
@@ -33,6 +33,8 @@ bool pCross = false;
 bool pCircle = false;
 bool pTri = false;
 bool pSquare = false;
+bool pL1 = false;
+bool pR1 = false;
 
 extern int selAudioOpcao;
 extern int selOpcao;
@@ -41,6 +43,7 @@ extern int off;
 extern int totalItens;
 extern bool showOpcoes;
 extern bool editMode;
+extern bool marcados[3000];
 
 extern void acaoCircle_Notepad();
 extern void acaoCross_Notepad(int32_t uId, OrbisImeDialogSetting* imeSetting, uint16_t* imeTitle, const char* textoInicial);
@@ -68,11 +71,10 @@ void processarNavegacaoDPad(uint32_t botoes) {
                     else if (botoes & ORBIS_PAD_BUTTON_UP && pastaSelecionada > 0) pastaSelecionada--;
                 }
             }
-            else if (showUploadOpcoes) {
-                if (menuAtual == MENU_BAIXAR_DROPBOX_UPLOAD) {
-                    if (botoes & ORBIS_PAD_BUTTON_DOWN && selUploadOpcao < 0) selUploadOpcao++;
-                    else if (botoes & ORBIS_PAD_BUTTON_UP && selUploadOpcao > 0) selUploadOpcao--;
-                }
+            else if (showUploadOpcoes && (menuAtual == MENU_BAIXAR_DROPBOX_UPLOAD || menuAtual == MENU_BAIXAR_DROPBOX_LISTA)) {
+                // AQUI FOI CORRIGIDO PARA O LIMITE DE 3 OPÇÕES (0, 1 e 2)
+                if (botoes & ORBIS_PAD_BUTTON_DOWN && selUploadOpcao < 2) selUploadOpcao++;
+                else if (botoes & ORBIS_PAD_BUTTON_UP && selUploadOpcao > 0) selUploadOpcao--;
             }
             else if (showOpcoes) {
                 if (menuAtual == MENU_AUDIO_OPCOES) {
@@ -100,10 +102,35 @@ void processarControles(uint32_t botoes, int32_t uId, OrbisImeDialogSetting* ime
 
     processarNavegacaoDPad(botoes);
 
+    // SISTEMA DE SELEÇÃO: O L1 Marca/Desmarca
+    if (botoes & ORBIS_PAD_BUTTON_L1) {
+        if (!pL1) {
+            if (menuAtual == MENU_EXPLORAR || menuAtual == MENU_BAIXAR_DROPBOX_LISTA || menuAtual == MENU_BAIXAR_DROPBOX_UPLOAD) {
+                marcados[sel] = !marcados[sel];
+            }
+            pL1 = true;
+        }
+    }
+    else pL1 = false;
+
+    // SISTEMA DE SELEÇÃO: O R1 TAMBÉM Marca/Desmarca (na Nuvem)
+    if (botoes & ORBIS_PAD_BUTTON_R1) {
+        if (!pR1) {
+            if (menuAtual == MENU_BAIXAR_DROPBOX_LISTA || menuAtual == MENU_BAIXAR_DROPBOX_UPLOAD) {
+                marcados[sel] = !marcados[sel];
+            }
+            else if (menuAtual == MENU_EXPLORAR) {
+                acaoR1_Explorar();
+            }
+            pR1 = true;
+        }
+    }
+    else pR1 = false;
+
     if (botoes & ORBIS_PAD_BUTTON_CROSS) {
         if (!pCross) {
-            if (showUploadOpcoes && menuAtual == MENU_BAIXAR_DROPBOX_UPLOAD) {
-                acaoCross_MenuUpload(); // INTERCEPTA O X PARA O UPLOAD
+            if (showUploadOpcoes && (menuAtual == MENU_BAIXAR_DROPBOX_UPLOAD || menuAtual == MENU_BAIXAR_DROPBOX_LISTA)) {
+                acaoCross_MenuUpload();
             }
             else if (menuAtual == ROOT || menuAtual == JOGAR_XML || menuAtual == MENU_MIDIA) acaoCross_Root();
             else if (menuAtual == MENU_MUSICAS || menuAtual == MENU_AUDIO_OPCOES) acaoCross_Musicas();
@@ -133,8 +160,8 @@ void processarControles(uint32_t botoes, int32_t uId, OrbisImeDialogSetting* ime
 
     if (botoes & ORBIS_PAD_BUTTON_CIRCLE) {
         if (!pCircle) {
-            if (showUploadOpcoes && menuAtual == MENU_BAIXAR_DROPBOX_UPLOAD) {
-                acaoCircle_MenuUpload(); // INTERCEPTA A BOLINHA PARA O UPLOAD
+            if (showUploadOpcoes && (menuAtual == MENU_BAIXAR_DROPBOX_UPLOAD || menuAtual == MENU_BAIXAR_DROPBOX_LISTA)) {
+                acaoCircle_MenuUpload();
             }
             else if (showOpcoes && menuAtual != MENU_AUDIO_OPCOES) showOpcoes = false;
             else {
@@ -174,8 +201,7 @@ void processarControles(uint32_t botoes, int32_t uId, OrbisImeDialogSetting* ime
         if (!pTri) {
             if (menuAtual == MENU_MUSICAS) acaoTriangle_Musicas();
             else if (menuAtual == MENU_EXPLORAR) acaoTriangle_Explorar();
-            else if (menuAtual == MENU_BAIXAR_DROPBOX_LISTA) acaoTriangle_Baixar();
-            else if (menuAtual == MENU_BAIXAR_DROPBOX_UPLOAD) acaoTriangle_MenuUpload(); // <-- O SEGREDO ESTÁ AQUI
+            else if (menuAtual == MENU_BAIXAR_DROPBOX_UPLOAD || menuAtual == MENU_BAIXAR_DROPBOX_LISTA) acaoTriangle_MenuUpload();
 
             pTri = true;
         }
@@ -206,8 +232,4 @@ void processarControles(uint32_t botoes, int32_t uId, OrbisImeDialogSetting* ime
         }
     }
     else pSquare = false;
-
-    if (botoes & ORBIS_PAD_BUTTON_R1) {
-        if (menuAtual == MENU_EXPLORAR) acaoR1_Explorar();
-    }
 }
