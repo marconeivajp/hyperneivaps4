@@ -6,8 +6,14 @@
 #include <sys/stat.h>
 #include <unistd.h>
 #include <orbis/libkernel.h>
+#include "ImeDialog.h"
+#include "CommonDialog.h"
 
-// Instanciamento das variáveis do Explorador
+// Definições manuais para garantir compilação caso o header esteja incompleto
+#define IME_STATUS_RUNNING 1
+#define IME_STATUS_FINISHED 2
+
+// Instanciamento das variáveis
 char pathExplorar[256] = "";
 char baseRaiz[256] = "";
 bool marcados[3000];
@@ -21,6 +27,10 @@ const char* listaOpcoes[10] = {
     "colar", "renomear", "deletar", "propriedades",
     "selecionar", "selecionar tudo"
 };
+
+// Variáveis do Teclado
+bool esperandoNomePasta = false;
+wchar_t textoTeclado[64] = L"";
 
 void copiarArquivoReal(const char* origem, const char* destino) {
     FILE* src = fopen(origem, "rb"); if (!src) return;
@@ -45,7 +55,6 @@ void listarDiretorio(const char* path) {
     }
     closedir(d);
 
-    // SORT (Pastas > Arquivos)
     for (int i = 0; i < count - 1; i++) for (int j = 0; j < count - i - 1; j++) {
         bool trocar = false;
         if (!temp[j].ehPasta && temp[j + 1].ehPasta) trocar = true;
@@ -64,36 +73,22 @@ void acaoArquivo(int op) {
     for (int i = 0; i < totalItens; i++) if (marcados[i]) { temMarcado = true; break; }
 
     switch (op) {
-    case 0: { // Nova Pasta
-        char nPath[512]; int tent = 0;
-        sprintf(nPath, "%s/nova_pasta", pathExplorar);
-        while (sceKernelMkdir(nPath, 0777) < 0 && tent < 10) {
-            tent++; sprintf(nPath, "%s/nova_pasta_%d", pathExplorar, tent);
+    case 0: { // Nova Pasta com Teclado
+        OrbisImeDialogSetting param;
+        memset(&param, 0, sizeof(param));
+        memset(textoTeclado, 0, sizeof(textoTeclado));
+
+        param.maxTextLength = 63;
+        param.inputTextBuffer = textoTeclado;
+        param.title = L"Nome da Nova Pasta";
+        param.type = (OrbisImeType)0; // Default
+
+        if (sceImeDialogInit(&param, (OrbisImeSettingsExtended*)0) >= 0) {
+            esperandoNomePasta = true;
+            showOpcoes = false;
         }
-        listarDiretorio(pathExplorar); break;
+        break;
     }
-    case 2: // Copiar
-    case 3: // Recortar
-        clipboardCount = 0; clipboardIsCut = (op == 3);
-        for (int i = 0; i < totalItens; i++) {
-            if (temMarcado ? marcados[i] : (i == sel)) {
-                char* l = (nomes[i][0] == '[') ? &nomes[i][1] : nomes[i];
-                sprintf(clipboardPaths[clipboardCount], "%s/%s", pathExplorar, l);
-                if (nomes[i][0] == '[') clipboardPaths[clipboardCount][strlen(clipboardPaths[clipboardCount]) - 1] = '\0';
-                clipboardCount++; if (clipboardCount >= 100) break;
-            }
-        }
-        sprintf(msgStatus, "%d ITENS NO CLIPBOARD", clipboardCount); break;
-
-    case 4: // Colar Real
-        for (int i = 0; i < clipboardCount; i++) {
-            char* fName = strrchr(clipboardPaths[i], '/');
-            char dPath[512]; sprintf(dPath, "%s%s", pathExplorar, fName);
-            copiarArquivoReal(clipboardPaths[i], dPath);
-            if (clipboardIsCut) unlink(clipboardPaths[i]);
-        }
-        strcpy(msgStatus, "COLADO COM SUCESSO"); clipboardCount = 0; listarDiretorio(pathExplorar); break;
-
     case 6: // Deletar
         for (int i = 0; i < totalItens; i++) {
             if (temMarcado ? marcados[i] : (i == sel)) {
@@ -104,12 +99,46 @@ void acaoArquivo(int op) {
             }
         }
         listarDiretorio(pathExplorar); break;
-
     case 8: marcados[sel] = !marcados[sel]; break;
     case 9: {
         bool ligar = false; for (int i = 0; i < totalItens; i++) if (!marcados[i]) ligar = true;
         for (int i = 0; i < totalItens; i++) marcados[i] = ligar; break;
     }
     }
-    showOpcoes = false; msgTimer = 120;
+    if (!esperandoNomePasta) { showOpcoes = false; msgTimer = 120; }
+}
+
+void atualizarImePasta() {
+    if (!esperandoNomePasta) return;
+
+    // Se o status for diferente de "Rodando" (1), o diálogo terminou
+    int status = (int)sceImeDialogGetStatus();
+    if (status != IME_STATUS_RUNNING && status != 0) {
+        OrbisDialogResult res;
+        memset(&res, 0, sizeof(res));
+        sceImeDialogGetResult(&res);
+
+        // Lemos o código do botão (Geralmente 0 é OK/Concluir)
+        int32_t buttonId = *(int32_t*)&res;
+
+        if (buttonId == 0) {
+            char nomeFinal[64];
+            // Converte de wchar_t para char
+            for (int i = 0; i < 63; i++) nomeFinal[i] = (char)textoTeclado[i];
+            nomeFinal[63] = '\0';
+
+            if (strlen(nomeFinal) > 0) {
+                char nPath[512];
+                sprintf(nPath, "%s/%s", pathExplorar, nomeFinal);
+                sceKernelMkdir(nPath, 0777);
+                listarDiretorio(pathExplorar);
+                sprintf(msgStatus, "PASTA CRIADA!");
+            }
+        }
+
+        // Finaliza o diálogo e DESBLOQUEIA os botões
+        sceImeDialogTerm();
+        esperandoNomePasta = false;
+        msgTimer = 120;
+    }
 }

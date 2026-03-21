@@ -32,7 +32,7 @@
 #include "graphics.h"
 #include "controle.h"
 #include "criar_pastas.h"
-#include "bloco_de_notas.h" // <-- ADICIONADO: Inclusão do header do bloco de notas
+#include "bloco_de_notas.h" 
 
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h" 
@@ -55,6 +55,7 @@ int main(void) {
     initNetwork();
     inicializarAudio();
 
+    // Inicialização dos Diálogos de Sistema
     sceSysmoduleLoadModuleInternal(ORBIS_SYSMODULE_INTERNAL_COMMON_DIALOG);
     sceSysmoduleLoadModule(ORBIS_SYSMODULE_IME_DIALOG);
     sceCommonDialogInitialize();
@@ -64,6 +65,7 @@ int main(void) {
 
     inicializarVideo();
 
+    // Memória para o ImeDialog padrão
     off_t imePh;
     void* imeVm = NULL;
     sceKernelAllocateDirectMemory(0, sceKernelGetDirectMemorySize(), 2097152, 2097152, 2, &imePh);
@@ -78,6 +80,7 @@ int main(void) {
     inicializarPastas();
     carregarConfiguracao();
 
+    // Carregamento de fontes e imagens
     int fd = sceKernelOpen("/app0/assets/fonts/font.ttf", 0, 0);
     if (fd >= 0) {
         off_t fs = sceKernelLseek(fd, 0, 2); sceKernelLseek(fd, 0, 0);
@@ -96,11 +99,16 @@ int main(void) {
 
     preencherRoot();
 
+    // LOOP PRINCIPAL
     for (;;) {
         OrbisPadData pData; scePadReadState(pad, &pData);
         uint32_t* p = obterBufferVideo();
         for (int i = 0; i < 1920 * 1080; i++) p[i] = 0xFF121212;
         if (backImg) desenharRedimensionado(p, backImg, wB, hB, backW, backH, backX, backY);
+
+        // --- ADICIONADO: VERIFICAÇÃO DO TECLADO DO EXPLORADOR ---
+        // Esta função processa a criação da pasta e desbloqueia os controlos
+        atualizarImePasta();
 
         if (tecladoAtivo) {
             int stat = (int)sceImeDialogGetStatus();
@@ -120,7 +128,6 @@ int main(void) {
                         iniciarDownload(bufferTecladoC);
                         menuAtual = MENU_BAIXAR;
                     }
-                    // <-- ADICIONADO: Lógica do Bloco de Notas capturando o texto do teclado
                     else if (menuAtual == MENU_NOTEPAD) {
                         aplicarTextoNotepad(bufferTecladoC);
                     }
@@ -137,7 +144,10 @@ int main(void) {
             }
         }
         else {
-            processarControles(pData.buttons, uId, imeSetting, imeTitle);
+            // Apenas processa controlos se NÃO estiver a aguardar o nome da pasta
+            if (!esperandoNomePasta) {
+                processarControles(pData.buttons, uId, imeSetting, imeTitle);
+            }
         }
 
         desenharInterface(p);
