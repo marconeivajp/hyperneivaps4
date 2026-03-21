@@ -5,40 +5,57 @@
 #include "menu.h"
 #include "explorar.h"
 
-extern MenuLevel menuAtual;
-extern int sel;
-extern char nomes[3000][64];
-extern char baseRaiz[256];
-extern char pathExplorar[256];
-extern bool showOpcoes;
-extern int selOpcao;
 extern int cd;
-extern bool marcados[3000];
-
-extern bool esperandoNomePasta; // Variável externa do explorador.cpp
-extern bool esperandoRenomear;  // Variável externa da renomeação
-
-extern void listarDiretorio(const char* path);
 extern void preencherExplorerHome();
-extern void acaoArquivo(int acao);
 extern void preencherRoot();
 
-void acaoCross_Explorar() {
-    if (esperandoNomePasta || esperandoRenomear) return; // Bloqueia se teclado estiver aberto
+void acaoL2_Explorar() {
+    painelDuplo = !painelDuplo;
+    if (painelDuplo) {
+        painelAtivo = 0; // Foca no painel esquerdo ao abrir
+        menuAtualEsq = MENU_EXPLORAR_HOME; // Reseta pra Home (Hyper Neiva, Raiz, USB0, USB1)
+        selEsq = 0;
+    }
+    else {
+        painelAtivo = 1; // Foca no direito ao fechar
+    }
+}
 
-    if (menuAtual == MENU_EXPLORAR && showOpcoes) {
+void alternarPainelAtivo() {
+    if (painelDuplo && !showOpcoes) {
+        painelAtivo = (painelAtivo == 0) ? 1 : 0;
+    }
+}
+
+void acaoCross_Explorar() {
+    if (esperandoNomePasta || esperandoRenomear) return;
+
+    bool ehEsq = (painelDuplo && painelAtivo == 0);
+    MenuLevel mAtual = ehEsq ? menuAtualEsq : menuAtual;
+    int sAtual = ehEsq ? selEsq : sel;
+    char (*nItems)[64] = ehEsq ? nomesEsq : nomes;
+    char* pExplorar = ehEsq ? pathExplorarEsq : pathExplorar;
+
+    if (mAtual == MENU_EXPLORAR && showOpcoes) {
         acaoArquivo(selOpcao);
+        return;
     }
-    else if (menuAtual == MENU_EXPLORAR_HOME) {
-        if (sel == 0) { strcpy(baseRaiz, "/data/HyperNeiva"); listarDiretorio(baseRaiz); }
-        else if (sel == 1) { strcpy(baseRaiz, "/"); listarDiretorio(baseRaiz); }
-        else if (sel == 2) { strcpy(baseRaiz, "/mnt/usb0"); listarDiretorio(baseRaiz); }
-        else if (sel == 3) { strcpy(baseRaiz, "/mnt/usb1"); listarDiretorio(baseRaiz); }
+
+    if (mAtual == MENU_EXPLORAR_HOME) {
+        char tempBase[256];
+        if (sAtual == 0) strcpy(tempBase, "/data/HyperNeiva");
+        else if (sAtual == 1) strcpy(tempBase, "/");
+        else if (sAtual == 2) strcpy(tempBase, "/mnt/usb0");
+        else if (sAtual == 3) strcpy(tempBase, "/mnt/usb1");
+
+        if (ehEsq) { listarDiretorioEsq(tempBase); }
+        else { strcpy(baseRaiz, tempBase); listarDiretorio(baseRaiz); }
     }
-    else if (menuAtual == MENU_EXPLORAR) {
-        if (nomes[sel][0] == '[') {
-            char pL[128]; strncpy(pL, &nomes[sel][1], strlen(nomes[sel]) - 2); pL[strlen(nomes[sel]) - 2] = '\0';
-            char nP[256]; sprintf(nP, "%s/%s", pathExplorar, pL); listarDiretorio(nP);
+    else if (mAtual == MENU_EXPLORAR) {
+        if (nItems[sAtual][0] == '[') {
+            char pL[128]; strncpy(pL, &nItems[sAtual][1], strlen(nItems[sAtual]) - 2); pL[strlen(nItems[sAtual]) - 2] = '\0';
+            char nP[256]; sprintf(nP, "%s/%s", pExplorar, pL);
+            if (ehEsq) listarDiretorioEsq(nP); else listarDiretorio(nP);
         }
     }
 }
@@ -46,17 +63,27 @@ void acaoCross_Explorar() {
 void acaoCircle_Explorar() {
     if (esperandoNomePasta || esperandoRenomear) return;
 
-    if (menuAtual == MENU_EXPLORAR_HOME) {
-        preencherRoot();
+    bool ehEsq = (painelDuplo && painelAtivo == 0);
+    MenuLevel mAtual = ehEsq ? menuAtualEsq : menuAtual;
+    char* pExplorar = ehEsq ? pathExplorarEsq : pathExplorar;
+
+    if (mAtual == MENU_EXPLORAR_HOME) {
+        if (!ehEsq) preencherRoot();
+        // No lado esquerdo, bolinha na home não faz nada, ou poderia fechar o painel duplo
     }
-    else if (menuAtual == MENU_EXPLORAR) {
-        if (strcmp(pathExplorar, baseRaiz) == 0) preencherExplorerHome();
+    else if (mAtual == MENU_EXPLORAR) {
+        // Se estiver na base ou na raiz do disco, volta para a tela inicial
+        if (strcmp(pExplorar, baseRaiz) == 0 || strcmp(pExplorar, "/") == 0) {
+            if (ehEsq) menuAtualEsq = MENU_EXPLORAR_HOME;
+            else preencherExplorerHome();
+        }
         else {
-            char* last = strrchr(pathExplorar, '/');
+            char temp[256]; strcpy(temp, pExplorar);
+            char* last = strrchr(temp, '/');
             if (last) {
-                if (last == pathExplorar) strcpy(pathExplorar, "/");
+                if (last == temp) strcpy(temp, "/");
                 else *last = '\0';
-                listarDiretorio(pathExplorar);
+                if (ehEsq) listarDiretorioEsq(temp); else listarDiretorio(temp);
             }
         }
     }
@@ -64,8 +91,10 @@ void acaoCircle_Explorar() {
 
 void acaoTriangle_Explorar() {
     if (esperandoNomePasta || esperandoRenomear) return;
+    bool ehEsq = (painelDuplo && painelAtivo == 0);
+    MenuLevel mAtual = ehEsq ? menuAtualEsq : menuAtual;
 
-    if (menuAtual == MENU_EXPLORAR) {
+    if (mAtual == MENU_EXPLORAR) {
         showOpcoes = !showOpcoes;
         selOpcao = 0;
     }
@@ -73,8 +102,12 @@ void acaoTriangle_Explorar() {
 
 void acaoR1_Explorar() {
     if (esperandoNomePasta || esperandoRenomear) return;
+    bool ehEsq = (painelDuplo && painelAtivo == 0);
+    MenuLevel mAtual = ehEsq ? menuAtualEsq : menuAtual;
+    int sAtual = ehEsq ? selEsq : sel;
+    bool* mItems = ehEsq ? marcadosEsq : marcados;
 
-    if (menuAtual == MENU_EXPLORAR) {
-        if (cd <= 0) { marcados[sel] = !marcados[sel]; cd = 12; }
+    if (mAtual == MENU_EXPLORAR) {
+        if (cd <= 0) { mItems[sAtual] = !mItems[sAtual]; cd = 12; }
     }
 }
