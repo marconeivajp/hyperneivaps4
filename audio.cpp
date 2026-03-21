@@ -21,7 +21,6 @@
 // 4. Headers Locais do Projeto
 #include "audio.h"
 #include "explorar.h" 
-// (Os tapa-buracos do MenuLevel foram removidos daqui, pois o menu.h já os fornece perfeitamente)
 
 #define DR_WAV_IMPLEMENTATION
 #include "dr_wav.h"
@@ -35,6 +34,8 @@ static bool sistemaAudioIniciado = false;
 
 static volatile bool comandoTrocar = false;
 volatile bool comandoPausar = false;
+volatile bool modoRepetir = false; // INICIA EM MODO LINEAR (Falso)
+
 char musicaAtual[256] = "PARADO";
 
 enum AudioType { AUDIO_NONE, AUDIO_WAV, AUDIO_MP3 };
@@ -230,7 +231,14 @@ static void* audioThreadFunc(void* argp) {
         }
 
         if (framesLidos == 0) {
-            if (strstr(musicaAtual, "/data/HyperNeiva/Musicas/") != NULL) {
+            // LÓGICA DE REPETIÇÃO
+            if (modoRepetir) {
+                // Se repetir estiver ativo, apenas volta ao início do mesmo ficheiro
+                if (currentAudioType == AUDIO_WAV) drwav_seek_to_pcm_frame(&wav, 0);
+                else if (currentAudioType == AUDIO_MP3) drmp3_seek_to_pcm_frame(&mp3, 0);
+            }
+            // LÓGICA LINEAR (Original)
+            else if (strstr(musicaAtual, "/data/HyperNeiva/Musicas/") != NULL) {
                 char proxima[256];
                 if (obterProximaMusica(proxima)) {
                     if (currentAudioType == AUDIO_WAV) drwav_uninit(&wav);
@@ -251,6 +259,7 @@ static void* audioThreadFunc(void* argp) {
                 }
             }
             else {
+                // Ficheiros "fora" da pasta das músicas (ex: música de fundo bgm.wav) repetem sempre por padrão
                 if (currentAudioType == AUDIO_WAV) drwav_seek_to_pcm_frame(&wav, 0);
                 else if (currentAudioType == AUDIO_MP3) drmp3_seek_to_pcm_frame(&mp3, 0);
             }
@@ -337,5 +346,5 @@ void preencherMenuMusicas() {
         }
         closedir(d);
     }
-    menuAtual = MENU_MUSICAS;
+    menuAtual = MENU_MUSICAS; // Agora usa o valor original do menu.h
 }
