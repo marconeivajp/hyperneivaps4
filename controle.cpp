@@ -2,12 +2,6 @@
 #include <stdarg.h>
 #include <string.h>
 
-#ifdef __INTELLISENSE__
-#ifndef __builtin_va_list
-#define __builtin_va_list void*
-#endif
-#endif
-
 #include "controle.h"
 #include "controle_musicas.h"
 #include "controle_virtual.h"
@@ -35,6 +29,7 @@ bool pTri = false;
 bool pSquare = false;
 bool pL1 = false;
 bool pR1 = false;
+bool pL2 = false; // NOVA: Variável para o botão L2
 
 extern int selAudioOpcao;
 extern int selOpcao;
@@ -45,12 +40,31 @@ extern bool showOpcoes;
 extern bool editMode;
 extern bool marcados[3000];
 
+// VARIÁVEIS DO PAINEL DUPLO IMPORTADAS
+extern bool painelDuplo;
+extern int painelAtivo;
+extern int selEsq;
+extern int totalItensEsq;
+extern int offEsq; // CORRIGIDO: Agora é extern (pois já foi criado no controle_direcional.cpp)
+
 extern void acaoCross_Notepad(int32_t uId, OrbisImeDialogSetting* imeSetting, uint16_t* imeTitle, const char* textoInicial);
 extern void acaoCross_Baixar(int32_t uId, OrbisImeDialogSetting* imeSetting, uint16_t* imeTitle);
 extern void acaoCircle_Baixar();
 extern void acaoTriangle_Baixar();
+extern void acaoL2_Explorar(); // DECLARAÇÃO DA FUNÇÃO DO L2
 
 void processarNavegacaoDPad(uint32_t botoes) {
+    // LÓGICA DO PAINEL DUPLO: Alternar entre Esq/Dir
+    if (painelDuplo && !showOpcoes && (menuAtual == MENU_EXPLORAR || menuAtual == MENU_EXPLORAR_HOME)) {
+        if (botoes & (ORBIS_PAD_BUTTON_LEFT | ORBIS_PAD_BUTTON_RIGHT)) {
+            if (cd <= 0) {
+                painelAtivo = (painelAtivo == 0) ? 1 : 0;
+                cd = 10;
+            }
+            return; // Sai para não acionar as setas para cima/baixo simultaneamente
+        }
+    }
+
     if (botoes & (ORBIS_PAD_BUTTON_DOWN | ORBIS_PAD_BUTTON_UP)) {
         if (cd <= 0) {
             if (menuAtual == MENU_NOTEPAD) {
@@ -81,8 +95,20 @@ void processarNavegacaoDPad(uint32_t botoes) {
                 }
             }
             else {
-                if (botoes & ORBIS_PAD_BUTTON_DOWN && sel < (totalItens - 1)) { sel++; if (sel >= (off + 6)) off++; }
-                else if (botoes & ORBIS_PAD_BUTTON_UP && sel > 0) { sel--; if (sel < off) off--; }
+                // Navegação Clássica com Suporte ao Painel Esquerdo
+                bool ehEsq = (painelDuplo && painelAtivo == 0 && (menuAtual == MENU_EXPLORAR || menuAtual == MENU_EXPLORAR_HOME));
+                int* sAtual = ehEsq ? &selEsq : &sel;
+                int* oAtual = ehEsq ? &offEsq : &off;
+                int tItens = ehEsq ? totalItensEsq : totalItens;
+
+                if (botoes & ORBIS_PAD_BUTTON_DOWN && *sAtual < (tItens - 1)) {
+                    (*sAtual)++;
+                    if (*sAtual >= (*oAtual + 6)) (*oAtual)++;
+                }
+                else if (botoes & ORBIS_PAD_BUTTON_UP && *sAtual > 0) {
+                    (*sAtual)--;
+                    if (*sAtual < *oAtual) (*oAtual)--;
+                }
             }
             cd = 10;
         }
@@ -95,6 +121,16 @@ void processarControles(uint32_t botoes, int32_t uId, OrbisImeDialogSetting* ime
     if (editMode && menuAtual != MENU_NOTEPAD) { processarControlesEdicao(botoes); return; }
 
     processarNavegacaoDPad(botoes);
+
+    // --- NOVA LEITURA DO L2 ---
+    if (botoes & ORBIS_PAD_BUTTON_L2) {
+        if (!pL2) {
+            if (menuAtual == MENU_EXPLORAR || menuAtual == MENU_EXPLORAR_HOME) acaoL2_Explorar();
+            pL2 = true;
+        }
+    }
+    else pL2 = false;
+    // --------------------------
 
     if (botoes & ORBIS_PAD_BUTTON_L1) {
         if (!pL1) {
@@ -146,7 +182,9 @@ void processarControles(uint32_t botoes, int32_t uId, OrbisImeDialogSetting* ime
                         if (estadoNotepad == 1) estadoNotepad = 0; // Volta do nomear pro editar
                         else {
                             menuAtual = MENU_EXPLORAR; // Volta pro explorador
-                            listarDiretorio(pathExplorar);
+                            // Atualizado para recarregar o painel correto
+                            if (painelDuplo && painelAtivo == 0) listarDiretorioEsq(pathExplorarEsq);
+                            else listarDiretorio(pathExplorar);
                         }
                     }
                 }

@@ -15,6 +15,13 @@ extern int sel;
 extern int off;
 extern int totalItens;
 
+// VARIÁVEIS DO PAINEL DUPLO
+extern bool painelDuplo;
+extern int painelAtivo;
+extern int selEsq;
+extern int totalItensEsq;
+int offEsq = 0; // Nova: Rolagem de tela independente pro painel esquerdo
+
 // IMPORTA VARIÁVEIS DA IMAGEM
 extern bool visualizandoMidiaImagem;
 extern float zoomMidia;
@@ -55,15 +62,15 @@ void processarNavegacaoDPad(uint32_t botoes) {
         if (botoes & (ORBIS_PAD_BUTTON_DOWN | ORBIS_PAD_BUTTON_UP)) {
             if (cd <= 0) {
                 if (botoes & ORBIS_PAD_BUTTON_UP) {
-                    textoMidiaScroll -= 2; // Rola rápido pra cima
+                    textoMidiaScroll -= 2;
                     if (textoMidiaScroll < 0) textoMidiaScroll = 0;
                 }
                 else if (botoes & ORBIS_PAD_BUTTON_DOWN) {
-                    textoMidiaScroll += 2; // Rola rápido pra baixo
+                    textoMidiaScroll += 2;
                     if (textoMidiaScroll > totalLinhasTexto - 15) textoMidiaScroll = totalLinhasTexto - 15;
                     if (textoMidiaScroll < 0) textoMidiaScroll = 0;
                 }
-                cd = 4; // Resfriamento equilibrado para leitura
+                cd = 4;
             }
         }
         else {
@@ -73,7 +80,17 @@ void processarNavegacaoDPad(uint32_t botoes) {
         return;
     }
 
-    // 3. NAVEGAÇÃO CLÁSSICA DO SEU MENU
+    // NOVO: ALTERNAR ENTRE OS PAINÉIS (ESQUERDA / DIREITA)
+    if (painelDuplo && !showOpcoes) {
+        if (botoes & (ORBIS_PAD_BUTTON_LEFT | ORBIS_PAD_BUTTON_RIGHT)) {
+            if (cd <= 0) {
+                painelAtivo = (painelAtivo == 0) ? 1 : 0;
+                cd = 10;
+            }
+        }
+    }
+
+    // 3. NAVEGAÇÃO CLÁSSICA DO MENU
     if (botoes & (ORBIS_PAD_BUTTON_DOWN | ORBIS_PAD_BUTTON_UP)) {
         if (cd <= 0) {
             if (showOpcoes) {
@@ -87,13 +104,29 @@ void processarNavegacaoDPad(uint32_t botoes) {
                 }
             }
             else {
-                if (botoes & ORBIS_PAD_BUTTON_DOWN && sel < (totalItens - 1)) { sel++; if (sel >= (off + 6)) off++; }
-                else if (botoes & ORBIS_PAD_BUTTON_UP && sel > 0) { sel--; if (sel < off) off--; }
+                // Identifica se estamos operando a lista da Esquerda ou da Direita
+                bool ehEsq = (painelDuplo && painelAtivo == 0);
+                int* sAtual = ehEsq ? &selEsq : &sel;
+                int* oAtual = ehEsq ? &offEsq : &off;
+                int tItens = ehEsq ? totalItensEsq : totalItens;
+
+                if (botoes & ORBIS_PAD_BUTTON_DOWN && *sAtual < (tItens - 1)) {
+                    (*sAtual)++;
+                    if (*sAtual >= (*oAtual + 6)) (*oAtual)++;
+                }
+                else if (botoes & ORBIS_PAD_BUTTON_UP && *sAtual > 0) {
+                    (*sAtual)--;
+                    if (*sAtual < *oAtual) (*oAtual)--;
+                }
             }
             cd = 10;
         }
     }
-    else cd = 0;
+    // Zera o tempo de espera apenas se não apertar Cima, Baixo, Esquerda ou Direita
+    else if (!(botoes & (ORBIS_PAD_BUTTON_LEFT | ORBIS_PAD_BUTTON_RIGHT))) {
+        cd = 0;
+    }
+
     if (cd > 0) cd--;
 }
 // --- FIM DO ARQUIVO controle_direcional.cpp ---

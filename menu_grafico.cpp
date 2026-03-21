@@ -39,6 +39,18 @@ extern char* linhasTexto[5000];
 extern int totalLinhasTexto;
 extern int textoMidiaScroll;
 
+// --- VARIÁVEIS DO PAINEL DUPLO ---
+extern bool painelDuplo;
+extern int painelAtivo;
+extern char nomesEsq[3000][64];
+extern bool marcadosEsq[3000];
+extern char pathExplorarEsq[256];
+extern int selEsq;
+extern int totalItensEsq;
+extern MenuLevel menuAtualEsq;
+extern int offEsq;
+
+
 void desenharInterface(uint32_t* p) {
 
     // 0.1 DESENHAR LEITOR DE TEXTO E CÓDIGO
@@ -111,43 +123,89 @@ void desenharInterface(uint32_t* p) {
 
     // 1. DESENHAR LISTA DE ITENS
     if (menuAtual != MENU_NOTEPAD) {
-        for (int i = 0; i < 6; i++) {
-            int gIdx = i + off; if (gIdx >= totalItens) break;
-            int yP = listY + (i * 120);
 
-            uint32_t corFundo = 0xAA222222;
-            uint32_t corTexto = 0xFFFFFFFF;
+        int paineisDesenhar = painelDuplo ? 2 : 1;
 
-            bool isMarcado = (menuAtual == MENU_EXPLORAR || menuAtual == MENU_BAIXAR_DROPBOX_LISTA || menuAtual == MENU_BAIXAR_DROPBOX_UPLOAD) && marcados[gIdx];
+        for (int painelIndex = 0; painelIndex < paineisDesenhar; painelIndex++) {
+            int refPainel = painelDuplo ? painelIndex : 1; // 0 = Esq, 1 = Dir
 
-            if (isMarcado) {
-                corFundo = 0xAAFFFF99; // Amarelo se tiver marcado
+            int sAtual = (refPainel == 0) ? selEsq : sel;
+            int oAtual = (refPainel == 0) ? offEsq : off;
+            int tItens = (refPainel == 0) ? totalItensEsq : totalItens;
+            char (*nItems)[64] = (refPainel == 0) ? nomesEsq : nomes;
+            bool* mItems = (refPainel == 0) ? marcadosEsq : marcados;
+            MenuLevel mAtual = (refPainel == 0) ? menuAtualEsq : menuAtual;
+
+            // --- CÁLCULO SEGURO DAS POSIÇÕES PARA EVITAR SOBREPOSIÇÃO ---
+            int posX;
+            int larguraItem;
+
+            if (painelDuplo) {
+                if (refPainel == 0) { // PAINEL ESQUERDO
+                    posX = 100; // Posição fixa bem à esquerda
+                    larguraItem = 820; // Largura exata para ocupar quase meia tela
+                }
+                else { // PAINEL DIREITO
+                    posX = 960; // Começa um pouco depois do meio da tela
+                    larguraItem = 820; // Mesma largura do esquerdo
+                }
+            }
+            else { // MODO NORMAL (TELA CHEIA)
+                posX = listX;
+                larguraItem = listW;
             }
 
-            // O Segredo da Cor Mista:
-            if (gIdx == sel) {
+            for (int i = 0; i < 6; i++) {
+                int gIdx = i + oAtual; if (gIdx >= tItens) break;
+
+                // Hack de segurança para garantir que o menu Home Esquerdo apareça mesmo se não estiver preenchido
+                if (refPainel == 0 && mAtual == MENU_EXPLORAR_HOME) {
+                    if (gIdx == 0) strcpy(nItems[0], "Hyper Neiva");
+                    if (gIdx == 1) strcpy(nItems[1], "Raiz");
+                    if (gIdx == 2) strcpy(nItems[2], "USB 0");
+                    if (gIdx == 3) strcpy(nItems[3], "USB 1");
+                    tItens = 4;
+                }
+
+                int yP = listY + (i * 120);
+
+                // Painel inativo fica mais escuro
+                bool isPainelAtivo = (!painelDuplo || painelAtivo == refPainel);
+                uint32_t corFundo = isPainelAtivo ? 0xAA222222 : 0xAA111111;
+                uint32_t corTexto = isPainelAtivo ? 0xFFFFFFFF : 0xFFAAAAAA;
+
+                bool isMarcado = (mAtual == MENU_EXPLORAR || mAtual == MENU_BAIXAR_DROPBOX_LISTA || mAtual == MENU_BAIXAR_DROPBOX_UPLOAD) && mItems[gIdx];
+
                 if (isMarcado) {
-                    corFundo = 0xFF00FF00; // Verde Limão (Marcado + Seletor em cima)
+                    corFundo = isPainelAtivo ? 0xAAFFFF99 : 0xAA999933; // Amarelo marcado
                 }
-                else {
-                    corFundo = 0xFF00AAFF; // Azul Normal (Só o Seletor em cima)
-                }
-                corTexto = 0xFF000000;
-            }
 
-            for (int by = 0; by < listH; by++) for (int bx = 0; bx < listW; bx++) {
-                int pxX = listX + bx; int pyY = yP + by; if (pxX >= 0 && pxX < 1920 && pyY >= 0 && pyY < 1080) p[pyY * 1920 + pxX] = corFundo;
+                if (gIdx == sAtual) {
+                    if (isPainelAtivo) {
+                        if (isMarcado) corFundo = 0xFF00FF00; // Verde
+                        else corFundo = 0xFF00AAFF; // Azul Normal
+                        corTexto = 0xFF000000;
+                    }
+                    else {
+                        // Cursor no painel inativo
+                        corFundo = 0xAA555555;
+                    }
+                }
+
+                for (int by = 0; by < listH; by++) for (int bx = 0; bx < larguraItem; bx++) {
+                    int pxX = posX + bx; int pyY = yP + by; if (pxX >= 0 && pxX < 1920 && pyY >= 0 && pyY < 1080) p[pyY * 1920 + pxX] = corFundo;
+                }
+                desenharTexto(p, nItems[gIdx], 35, posX + 20, yP + 20, corTexto);
             }
-            desenharTexto(p, nomes[gIdx], 35, listX + 20, yP + 20, corTexto);
         }
     }
 
     // 2. DESENHAR O BLOCO DE NOTAS (NOTEPAD)
-    if (menuAtual == MENU_NOTEPAD) {
+    if (menuAtual == MENU_NOTEPAD || menuAtualEsq == MENU_NOTEPAD) {
         renderizarNotepad(p);
     }
 
-    // 3. DESENHAR AS IMAGENS (CAPAS, DISCOS E SCRAPER)
+    // 3. DESENHAR AS IMAGENS E BREADCRUMBS
     if (menuAtual == JOGAR_XML || editMode) {
         int idx = sel % 6;
         if (capasAssets[idx]) desenharRedimensionado(p, capasAssets[idx], wC[idx], hC[idx], capaW, capaH, capaX, capaY);
@@ -156,9 +214,19 @@ void desenharInterface(uint32_t* p) {
     else if (menuAtual == SCRAPER_LIST && imgPreview) {
         desenharRedimensionado(p, imgPreview, wP, hP, capaW, capaH, capaX, capaY);
     }
-    else if (menuAtual == MENU_EXPLORAR) {
-        char bread[300]; sprintf(bread, "Caminho: %s", pathExplorar);
-        desenharTexto(p, bread, 30, listX, 1020, 0xFFFFFFFF);
+    else if (menuAtual == MENU_EXPLORAR || (painelDuplo && menuAtualEsq == MENU_EXPLORAR)) {
+        if (!painelDuplo) {
+            char bread[300]; sprintf(bread, "Caminho: %s", pathExplorar);
+            desenharTexto(p, bread, 30, listX, 1020, 0xFFFFFFFF);
+        }
+        else {
+            // Ajustamos a posição do texto com os caminhos também!
+            char breadEsq[300]; sprintf(breadEsq, "ESQ: %s", pathExplorarEsq);
+            desenharTexto(p, breadEsq, 25, 100, 1020, (painelAtivo == 0) ? 0xFF00AAFF : 0xFFAAAAAA);
+
+            char breadDir[300]; sprintf(breadDir, "DIR: %s", pathExplorar);
+            desenharTexto(p, breadDir, 25, 960, 1020, (painelAtivo == 1) ? 0xFF00AAFF : 0xFFAAAAAA);
+        }
     }
 
     // 4. DESENHAR MENU SUSPENSO (OPÇÕES DO EXPLORADOR)
