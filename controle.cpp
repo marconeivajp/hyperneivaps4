@@ -15,6 +15,7 @@
 #include "controle_editar.h"
 #include "controle_baixar.h"
 #include "controle_root.h"
+#include "menu_upload.h" // Garantindo o header do upload
 
 #include "stb_image.h"
 #include "menu.h"
@@ -67,6 +68,12 @@ void processarNavegacaoDPad(uint32_t botoes) {
                     else if (botoes & ORBIS_PAD_BUTTON_UP && pastaSelecionada > 0) pastaSelecionada--;
                 }
             }
+            else if (showUploadOpcoes) {
+                if (menuAtual == MENU_BAIXAR_DROPBOX_UPLOAD) {
+                    if (botoes & ORBIS_PAD_BUTTON_DOWN && selUploadOpcao < 0) selUploadOpcao++;
+                    else if (botoes & ORBIS_PAD_BUTTON_UP && selUploadOpcao > 0) selUploadOpcao--;
+                }
+            }
             else if (showOpcoes) {
                 if (menuAtual == MENU_AUDIO_OPCOES) {
                     if (botoes & ORBIS_PAD_BUTTON_DOWN && selAudioOpcao < 10) selAudioOpcao++;
@@ -95,10 +102,13 @@ void processarControles(uint32_t botoes, int32_t uId, OrbisImeDialogSetting* ime
 
     if (botoes & ORBIS_PAD_BUTTON_CROSS) {
         if (!pCross) {
-            if (menuAtual == ROOT || menuAtual == JOGAR_XML || menuAtual == MENU_MIDIA) acaoCross_Root();
+            if (showUploadOpcoes && menuAtual == MENU_BAIXAR_DROPBOX_UPLOAD) {
+                acaoCross_MenuUpload(); // INTERCEPTA O X PARA O UPLOAD
+            }
+            else if (menuAtual == ROOT || menuAtual == JOGAR_XML || menuAtual == MENU_MIDIA) acaoCross_Root();
             else if (menuAtual == MENU_MUSICAS || menuAtual == MENU_AUDIO_OPCOES) acaoCross_Musicas();
             else if (menuAtual == MENU_NOTEPAD) {
-                if (!notepadSomenteLeitura) { // TRAVA: X NÃO FAZ NADA EM MODO LEITURA
+                if (!notepadSomenteLeitura) {
                     if (estadoNotepad == 0) acaoCross_Notepad(uId, imeSetting, imeTitle, linhasNotepad[linhaSelecionada]);
                     else if (estadoNotepad == 1) {
                         if (strcmp(pastaAtualNotepad, "ATALHOS_RAIZ") == 0) lerDiretorioNotepad(pastasNotepad[pastaSelecionada]);
@@ -123,11 +133,14 @@ void processarControles(uint32_t botoes, int32_t uId, OrbisImeDialogSetting* ime
 
     if (botoes & ORBIS_PAD_BUTTON_CIRCLE) {
         if (!pCircle) {
-            if (showOpcoes) showOpcoes = false;
+            if (showUploadOpcoes && menuAtual == MENU_BAIXAR_DROPBOX_UPLOAD) {
+                acaoCircle_MenuUpload(); // INTERCEPTA A BOLINHA PARA O UPLOAD
+            }
+            else if (showOpcoes && menuAtual != MENU_AUDIO_OPCOES) showOpcoes = false;
             else {
                 if (menuAtual == MENU_NOTEPAD) {
                     if (notepadSomenteLeitura) {
-                        menuAtual = MENU_MIDIA; // Devolve para a tela de mídia/arquivos
+                        menuAtual = MENU_MIDIA;
                     }
                     else {
                         if (estadoNotepad == 2) estadoNotepad = 1;
@@ -162,6 +175,7 @@ void processarControles(uint32_t botoes, int32_t uId, OrbisImeDialogSetting* ime
             if (menuAtual == MENU_MUSICAS) acaoTriangle_Musicas();
             else if (menuAtual == MENU_EXPLORAR) acaoTriangle_Explorar();
             else if (menuAtual == MENU_BAIXAR_DROPBOX_LISTA) acaoTriangle_Baixar();
+            else if (menuAtual == MENU_BAIXAR_DROPBOX_UPLOAD) acaoTriangle_MenuUpload(); // <-- O SEGREDO ESTÁ AQUI
 
             pTri = true;
         }
@@ -171,7 +185,7 @@ void processarControles(uint32_t botoes, int32_t uId, OrbisImeDialogSetting* ime
     if (botoes & ORBIS_PAD_BUTTON_SQUARE) {
         if (!pSquare) {
             if (menuAtual == MENU_NOTEPAD) {
-                if (!notepadSomenteLeitura) { // TRAVA: QUADRADO NÃO FAZ NADA EM MODO LEITURA
+                if (!notepadSomenteLeitura) {
                     if (estadoNotepad == 0) { estadoNotepad = 1; carregarAtalhosNotepad(); }
                     else if (estadoNotepad == 1) {
                         if (strcmp(pastaAtualNotepad, "ATALHOS_RAIZ") == 0) strcpy(pastaDestinoFinal, pastasNotepad[pastaSelecionada]);

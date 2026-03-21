@@ -1,9 +1,9 @@
-// --- INÍCIO DO ARQUIVO menu_grafico.cpp ---
 #include "menu_grafico.h"
 #include "menu.h"
 #include "graphics.h"
 #include "bloco_de_notas.h" 
-#include "menu_audio.h" // <-- ADICIONADO AQUI
+#include "menu_audio.h" 
+#include "menu_upload.h" // <-- AQUI INCLUÍMOS O DESENHO DO MENU DE UPLOAD
 #include <string.h>
 #include <stdio.h>
 
@@ -41,7 +41,7 @@ extern int textoMidiaScroll;
 
 void desenharInterface(uint32_t* p) {
 
-    // 0.1 DESENHAR LEITOR DE TEXTO E CÓDIGO (Desativado se usando Bloco de Notas para leitura, mas mantido por segurança)
+    // 0.1 DESENHAR LEITOR DE TEXTO E CÓDIGO
     if (visualizandoMidiaTexto && textoMidiaBuffer) {
         for (int i = 0; i < 1920 * 1080; i++) p[i] = 0xFF151515;
         for (int by = 0; by < 80; by++) {
@@ -109,7 +109,7 @@ void desenharInterface(uint32_t* p) {
         return;
     }
 
-    // 1. DESENHAR LISTA DE ITENS (Menu Principal, Mídia, etc)
+    // 1. DESENHAR LISTA DE ITENS
     if (menuAtual != MENU_NOTEPAD) {
         for (int i = 0; i < 6; i++) {
             int gIdx = i + off; if (gIdx >= totalItens) break;
@@ -158,12 +158,14 @@ void desenharInterface(uint32_t* p) {
         }
     }
 
-    // 5. DESENHAR MENU SUSPENSO (OPÇÕES DE ÁUDIO) - AGORA BEM MAIS LIMPO!
+    // 5. DESENHAR MENU SUSPENSO (OPÇÕES DE ÁUDIO)
     desenharMenuAudio(p);
+
+    // 6. DESENHAR MENU SUSPENSO (OPÇÕES DE UPLOAD) <-- AGORA VAI APARECER NA TELA!
+    desenharMenuUpload(p);
 
     if (msgTimer > 0) {
         desenharTexto(p, msgStatus, 40, 100, 950, 0xFFFFFFFF);
         msgTimer--;
     }
 }
-// --- FIM DO ARQUIVO menu_grafico.cpp ---

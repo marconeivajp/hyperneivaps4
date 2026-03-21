@@ -80,6 +80,7 @@
     <ClCompile Include="menu_audio.cpp" />
     <ClCompile Include="menu_explorar.cpp" />
     <ClCompile Include="menu_grafico.cpp" />
+    <ClCompile Include="menu_upload.cpp" />
     <ClCompile Include="menu_video.cpp" />
     <ClCompile Include="network.cpp" />
     <ClCompile Include="pesquisar.cpp" />
@@ -124,6 +125,7 @@
     <ClInclude Include="menu.h" />
     <ClInclude Include="menu_audio.h" />
     <ClInclude Include="menu_grafico.h" />
+    <ClInclude Include="menu_upload.h" />
     <ClInclude Include="network.h" />
     <ClInclude Include="stb_image.h" />
     <ClInclude Include="upload.h" />

@@ -335,6 +335,45 @@ void fazerUploadDropbox(const char* localPath) {
     sceHttpDeleteRequest(req); sceHttpDeleteConnection(conn); sceHttpDeleteTemplate(tpl);
 }
 
+void fazerUploadPastaDropbox(const char* dirPath) {
+    DIR* d = opendir(dirPath);
+    if (!d) {
+        sprintf(msgStatus, "ERRO AO ABRIR A PASTA!");
+        msgTimer = 180;
+        return;
+    }
+
+    struct dirent* dir;
+    char arquivos[200][512];
+    int numArquivos = 0;
+
+    while ((dir = readdir(d)) != NULL && numArquivos < 200) {
+        if (strcmp(dir->d_name, ".") != 0 && strcmp(dir->d_name, "..") != 0) {
+            if (dir->d_type != DT_DIR) {
+                int len = strlen(dirPath);
+                const char* sep = (dirPath[len - 1] == '/') ? "" : "/";
+                snprintf(arquivos[numArquivos], sizeof(arquivos[numArquivos]), "%s%s%s", dirPath, sep, dir->d_name);
+                numArquivos++;
+            }
+        }
+    }
+    closedir(d);
+
+    if (numArquivos == 0) {
+        sprintf(msgStatus, "NENHUM ARQUIVO NA PASTA!");
+        msgTimer = 180;
+        return;
+    }
+
+    for (int i = 0; i < numArquivos; i++) {
+        fazerUploadDropbox(arquivos[i]);
+    }
+
+    sprintf(msgStatus, "UPLOAD DA PASTA CONCLUIDO! (%d arquivos)", numArquivos);
+    atualizarBarra(1.0f);
+    msgTimer = 240;
+}
+
 void executarBackupTodos() {
     fazerUploadDropbox("/system_data/priv/mms/app.db");
     fazerUploadDropbox("/data/HyperNeiva/configuracao/dropbox_token.txt");
