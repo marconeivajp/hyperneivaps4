@@ -1,8 +1,8 @@
 #include "menu_audio.h"
 #include "menu.h"
 #include "graphics.h"
-#include "audio.h"      // Para acessar musicaAtual, comandoPausar e as novas funções
-#include "explorar.h"   // Para acessar msgStatus e msgTimer
+#include "audio.h"      
+#include "explorar.h"   
 #include <string.h>
 #include <stdio.h>
 
@@ -20,7 +20,7 @@ const char* listaOpcoesAudio[11] = {
     "VOLUME -",
     "ADIANTAR 10s",
     "RETROCEDER 10s",
-    "REPETIR",
+    "REPETIR", // Esta palavra será ignorada e substituída no desenho abaixo
     "---",
     "VOLTAR"
 };
@@ -39,7 +39,14 @@ void desenharMenuAudio(uint32_t* p) {
 
         for (int i = 0; i < 11; i++) {
             uint32_t corOp = (i == selAudioOpcao) ? 0xFFFFFF00 : 0xFFFFFFFF;
-            desenharTexto(p, listaOpcoesAudio[i], 30, listX + 620, listY + 50 + (i * 45), corOp);
+
+            // Desenho dinâmico para a opção de Repetir (Índice 8)
+            if (i == 8) {
+                desenharTexto(p, modoRepetir ? "MODO: REPETIR FAIXA" : "MODO: LINEAR (TODAS)", 30, listX + 620, listY + 50 + (i * 45), corOp);
+            }
+            else {
+                desenharTexto(p, listaOpcoesAudio[i], 30, listX + 620, listY + 50 + (i * 45), corOp);
+            }
         }
     }
 }
@@ -94,6 +101,12 @@ void tratarSelecaoAudio(int op) {
             sprintf(msgStatus, "NENHUMA MUSICA SELECIONADA");
             msgTimer = 90;
         }
+        break;
+
+    case 8: // REPETIR / LINEAR (NOVA LÓGICA)
+        modoRepetir = !modoRepetir;
+        sprintf(msgStatus, modoRepetir ? "REPETICAO ATIVADA" : "MODO LINEAR ATIVADO");
+        msgTimer = 90;
         break;
 
     case 10: // VOLTAR
