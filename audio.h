@@ -8,7 +8,7 @@
 extern char musicaAtual[256];
 extern volatile bool comandoPausar;
 extern volatile bool modoRepetir;
-extern int volumeGeral; // NOVA VARIÁVEL DE VOLUME
+extern int volumeGeral;
 
 // Funções do módulo de áudio
 void inicializarAudio();
@@ -16,8 +16,10 @@ void pararAudio();
 void tocarMusicaNova(const char* path);
 void tocarProximaMusica();
 void tocarMusicaAnterior();
-void aumentarVolume(); // NOVA FUNÇÃO
-void diminuirVolume(); // NOVA FUNÇÃO
+void aumentarVolume();
+void diminuirVolume();
+void adiantarAudio();   // NOVA FUNÇÃO
+void retrocederAudio(); // NOVA FUNÇÃO
 void preencherMenuMusicas();
 void salvarConfiguracaoAudio();
 void carregarConfiguracaoAudio();

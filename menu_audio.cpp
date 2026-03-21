@@ -16,8 +16,8 @@ const char* listaOpcoesAudio[11] = {
     "PARAR",
     "PROXIMA FAIXA",
     "FAIXA ANTERIOR",
-    "VOLUME +", // O texto será alterado dinamicamente no desenho
-    "VOLUME -", // O texto será alterado dinamicamente no desenho
+    "VOLUME +",
+    "VOLUME -",
     "ADIANTAR 10s",
     "RETROCEDER 10s",
     "REPETIR",
@@ -40,7 +40,7 @@ void desenharMenuAudio(uint32_t* p) {
         for (int i = 0; i < 11; i++) {
             uint32_t corOp = (i == selAudioOpcao) ? 0xFFFFFF00 : 0xFFFFFFFF;
 
-            // Desenho dinâmico para as opções que mudam de texto
+            // Desenho dinâmico
             if (i == 4) {
                 char txtVol[64]; sprintf(txtVol, "VOLUME + (%d%%)", volumeGeral);
                 desenharTexto(p, txtVol, 30, listX + 620, listY + 50 + (i * 45), corOp);
@@ -121,6 +121,22 @@ void tratarSelecaoAudio(int op) {
         diminuirVolume();
         sprintf(msgStatus, "VOLUME: %d%%", volumeGeral);
         msgTimer = 60;
+        break;
+
+    case 6: // ADIANTAR 10s
+        if (strcmp(musicaAtual, "PARADO") != 0 && strlen(musicaAtual) > 0) {
+            adiantarAudio();
+            sprintf(msgStatus, "AVANCANDO 10s");
+            msgTimer = 60;
+        }
+        break;
+
+    case 7: // RETROCEDER 10s
+        if (strcmp(musicaAtual, "PARADO") != 0 && strlen(musicaAtual) > 0) {
+            retrocederAudio();
+            sprintf(msgStatus, "RETROCEDENDO 10s");
+            msgTimer = 60;
+        }
         break;
 
     case 8: // REPETIR / LINEAR
