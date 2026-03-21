@@ -137,7 +137,6 @@ void desenharInterface(uint32_t* p) {
             MenuLevel mAtual = (refPainel == 0) ? menuAtualEsq : menuAtual;
 
             // --- GARANTIA DE PREENCHIMENTO DO MENU HOME ---
-            // Isto resolve o bug de renderizar vazio/por cima quando aperta L2
             if (mAtual == MENU_EXPLORAR_HOME && tItens <= 0) {
                 strcpy(nItems[0], "Hyper Neiva");
                 strcpy(nItems[1], "Raiz");
@@ -147,21 +146,24 @@ void desenharInterface(uint32_t* p) {
                 if (refPainel == 0) totalItensEsq = 4; else totalItens = 4;
             }
 
-            // --- CÁLCULO DINÂMICO BASEADO NO SEU listW ---
+            // --- CÁLCULO DAS POSIÇÕES CORRETAS ---
             int posX;
-            int larguraItem = listW; // Usa a largura ORIGINAL do menu, evitando a barra gigante
+            int larguraItem;
 
             if (painelDuplo) {
-                if (refPainel == 0) { // PAINEL ESQUERDO
-                    posX = listX; // Fica exatamente onde o menu sempre esteve
+                if (refPainel == 0) { // PAINEL ESQUERDO (Abre onde era a capinha)
+                    posX = capaX; // Vai para a esquerda
+                    larguraItem = listX - capaX - 40; // Estica até 40 pixels antes de encostar na lista principal
+                    if (larguraItem < 100) larguraItem = 100; // Segurança mínima
                 }
-                else { // PAINEL DIREITO
-                    posX = listX + listW + 40; // Dá um espaço de 40 pixeis e desenha o segundo painel
-                    if (posX + larguraItem > 1900) larguraItem = 1900 - posX; // Previne que saia do ecrã
+                else { // PAINEL DIREITO (O menu original)
+                    posX = listX; // Fica INTACTO na posição original!
+                    larguraItem = listW; // Fica com a largura original
                 }
             }
             else { // MODO NORMAL (TELA ÚNICA)
                 posX = listX;
+                larguraItem = listW;
             }
 
             for (int i = 0; i < 6; i++) {
@@ -220,12 +222,12 @@ void desenharInterface(uint32_t* p) {
             desenharTexto(p, bread, 30, listX, 1020, 0xFFFFFFFF);
         }
         else {
-            // Ajustamos a posição do texto com os caminhos para ficarem perfeitamente alinhados sob as respetivas listas!
+            // Ajustamos a posição do texto com os caminhos para bater com a nova lógica
             char breadEsq[300]; sprintf(breadEsq, "ESQ: %s", pathExplorarEsq);
-            desenharTexto(p, breadEsq, 25, listX, 1020, (painelAtivo == 0) ? 0xFF00AAFF : 0xFFAAAAAA);
+            desenharTexto(p, breadEsq, 25, capaX, 1020, (painelAtivo == 0) ? 0xFF00AAFF : 0xFFAAAAAA); // Debaixo do esquerdo
 
             char breadDir[300]; sprintf(breadDir, "DIR: %s", pathExplorar);
-            desenharTexto(p, breadDir, 25, listX + listW + 40, 1020, (painelAtivo == 1) ? 0xFF00AAFF : 0xFFAAAAAA);
+            desenharTexto(p, breadDir, 25, listX, 1020, (painelAtivo == 1) ? 0xFF00AAFF : 0xFFAAAAAA); // Debaixo do principal
         }
     }
 
