@@ -70,6 +70,7 @@
     <ClCompile Include="controle_root.cpp" />
     <ClCompile Include="controle_virtual.cpp" />
     <ClCompile Include="criar_pastas.cpp" />
+    <ClCompile Include="dowload_sistema.cpp" />
     <ClCompile Include="editar.cpp" />
     <ClCompile Include="explorar.cpp" />
     <ClCompile Include="gestor_de_saves.cpp" />
