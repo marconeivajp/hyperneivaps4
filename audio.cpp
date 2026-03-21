@@ -36,7 +36,9 @@ static volatile bool comandoTrocar = false;
 volatile bool comandoPausar = false;
 volatile bool modoRepetir = false;
 
-// VARIÁVEL DE VOLUME (0 a 100%)
+// Variável para comandar saltos de tempo (+10 ou -10)
+volatile int comandoBuscarSegundos = 0;
+
 int volumeGeral = 100;
 
 char musicaAtual[256] = "PARADO";
@@ -44,17 +46,20 @@ char musicaAtual[256] = "PARADO";
 enum AudioType { AUDIO_NONE, AUDIO_WAV, AUDIO_MP3 };
 
 // ==========================================
-// FUNÇÕES DE CONTROLO DE VOLUME
+// FUNÇÕES DE CONTROLO DE TEMPO / VOLUME
 // ==========================================
+void adiantarAudio() { comandoBuscarSegundos = 10; }
+void retrocederAudio() { comandoBuscarSegundos = -10; }
+
 void aumentarVolume() {
     volumeGeral += 10;
-    if (volumeGeral > 100) volumeGeral = 100; // Limite máximo 100% para não distorcer o áudio
+    if (volumeGeral > 100) volumeGeral = 100;
     salvarConfiguracaoAudio();
 }
 
 void diminuirVolume() {
     volumeGeral -= 10;
-    if (volumeGeral < 0) volumeGeral = 0; // Limite mínimo 0% (Mudo)
+    if (volumeGeral < 0) volumeGeral = 0;
     salvarConfiguracaoAudio();
 }
 
@@ -62,7 +67,6 @@ void salvarConfiguracaoAudio() {
     FILE* f = fopen("/data/HyperNeiva/configuracao/audio_settings.bin", "wb");
     if (f) {
         fwrite(musicaAtual, 1, sizeof(musicaAtual), f);
-        // Adiciona o volume logo a seguir à string da música
         fwrite(&volumeGeral, 1, sizeof(int), f);
         fclose(f);
     }
@@ -72,10 +76,7 @@ void carregarConfiguracaoAudio() {
     FILE* f = fopen("/data/HyperNeiva/configuracao/audio_settings.bin", "rb");
     if (f) {
         fread(musicaAtual, 1, sizeof(musicaAtual), f);
-        // Tenta ler o volume. Se não conseguir (ficheiro antigo), define para 100%
-        if (fread(&volumeGeral, 1, sizeof(int), f) <= 0) {
-            volumeGeral = 100;
-        }
+        if (fread(&volumeGeral, 1, sizeof(int), f) <= 0) volumeGeral = 100;
         fclose(f);
     }
     else {
@@ -212,6 +213,9 @@ static void* audioThreadFunc(void* argp) {
     int16_t pSampleData[256 * 2];
     char caminhoAudio[256];
 
+    // Variável para rastrear a posição exata da música na timeline
+    uint64_t currentFrame = 0;
+
     if (!comandoPausar && prepararArquivoAudio(caminhoAudio)) {
         if (strstr(caminhoAudio, ".mp3") || strstr(caminhoAudio, ".MP3")) {
             if (drmp3_init_file(&mp3, caminhoAudio, NULL)) currentAudioType = AUDIO_MP3;
@@ -222,6 +226,31 @@ static void* audioThreadFunc(void* argp) {
     }
 
     while (audioRodando) {
+
+        // --- LÓGICA DE AVANÇAR / RETROCEDER ---
+        if (comandoBuscarSegundos != 0) {
+            if (currentAudioType != AUDIO_NONE) {
+                // Descobrir a taxa de atualização (geralmente 44100 ou 48000 Hz)
+                int sampleRate = (currentAudioType == AUDIO_WAV) ? wav.sampleRate : mp3.sampleRate;
+
+                // Converter os 10 segundos na quantidade de frames equivalentes
+                int64_t frameOffset = (int64_t)comandoBuscarSegundos * sampleRate;
+                int64_t targetFrame = (int64_t)currentFrame + frameOffset;
+
+                if (targetFrame < 0) targetFrame = 0;
+
+                // Executar o salto físico na música
+                if (currentAudioType == AUDIO_WAV) {
+                    drwav_seek_to_pcm_frame(&wav, (uint64_t)targetFrame);
+                }
+                else if (currentAudioType == AUDIO_MP3) {
+                    drmp3_seek_to_pcm_frame(&mp3, (uint64_t)targetFrame);
+                }
+                currentFrame = (uint64_t)targetFrame;
+            }
+            comandoBuscarSegundos = 0; // Resetar comando após executar
+        }
+
         if (comandoTrocar) {
             comandoTrocar = false;
             if (currentAudioType == AUDIO_WAV) drwav_uninit(&wav);
@@ -236,6 +265,7 @@ static void* audioThreadFunc(void* argp) {
                     if (drwav_init_file(&wav, caminhoAudio, NULL)) currentAudioType = AUDIO_WAV;
                 }
             }
+            currentFrame = 0; // Ao trocar de música, volta ao segundo 0
         }
 
         if (comandoPausar || currentAudioType == AUDIO_NONE) {
@@ -263,10 +293,14 @@ static void* audioThreadFunc(void* argp) {
             }
         }
 
+        // Somar os frames que acabaram de ser lidos para progredir na timeline
+        currentFrame += framesLidos;
+
         if (framesLidos == 0) {
             if (modoRepetir) {
                 if (currentAudioType == AUDIO_WAV) drwav_seek_to_pcm_frame(&wav, 0);
                 else if (currentAudioType == AUDIO_MP3) drmp3_seek_to_pcm_frame(&mp3, 0);
+                currentFrame = 0;
             }
             else if (strstr(musicaAtual, "/data/HyperNeiva/Musicas/") != NULL) {
                 char proxima[256];
@@ -285,12 +319,16 @@ static void* audioThreadFunc(void* argp) {
                     else {
                         if (drwav_init_file(&wav, musicaAtual, NULL)) { currentAudioType = AUDIO_WAV; sucesso = true; }
                     }
-                    if (sucesso) continue;
+                    if (sucesso) {
+                        currentFrame = 0;
+                        continue;
+                    }
                 }
             }
             else {
                 if (currentAudioType == AUDIO_WAV) drwav_seek_to_pcm_frame(&wav, 0);
                 else if (currentAudioType == AUDIO_MP3) drmp3_seek_to_pcm_frame(&mp3, 0);
+                currentFrame = 0;
             }
             continue;
         }
@@ -299,13 +337,9 @@ static void* audioThreadFunc(void* argp) {
             for (size_t i = framesLidos * 2; i < 256 * 2; i++) pSampleData[i] = 0;
         }
 
-        // ==========================================
-        // APLICAÇÃO DO VOLUME NAS ONDAS SONORAS
-        // ==========================================
         if (volumeGeral < 100) {
-            float fatorVolume = volumeGeral / 100.0f; // Ex: 50% vira 0.5
+            float fatorVolume = volumeGeral / 100.0f;
             for (int i = 0; i < 256 * 2; i++) {
-                // Multiplica o sinal PCM pelo fator do volume (reduz a amplitude da onda)
                 pSampleData[i] = (int16_t)(pSampleData[i] * fatorVolume);
             }
         }
@@ -385,4 +419,5 @@ void preencherMenuMusicas() {
         }
         closedir(d);
     }
+    menuAtual = MENU_MUSICAS;
 }
