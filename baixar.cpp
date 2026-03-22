@@ -1,6 +1,7 @@
 #include "baixar.h"
 #include "network.h"
 #include "menu.h"
+#include "graphics.h"
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -13,6 +14,10 @@
 extern uint32_t* obterBufferVideo();
 extern void desenharInterface(uint32_t* p);
 extern void submeterTela();
+
+// VARIÁVEIS DO BACKGROUND (vindas do main.cpp)
+extern unsigned char* backImg;
+extern int wB, hB;
 
 Console listaConsoles[5] = {
     {"Sony - PlayStation", "Sony%20-%20PlayStation"},
@@ -30,15 +35,25 @@ char caminhoXMLAtual[256];
 char linksAtuais[3000][1024];
 int totalLinksAtuais = 0;
 
-// Variáveis agora expostas para serem usadas no outro arquivo
+// Variáveis exportadas para o dropbox/upload
 char currentDropboxPath[512] = "";
 char currentUploadPath[512] = "";
 
 void atualizarBarra(float progresso) {
     uint32_t* p = obterBufferVideo();
+
+    // 1. Limpa a tela
     for (int i = 0; i < 1920 * 1080; i++) p[i] = 0xFF121212;
+
+    // 2. DESENHA A IMAGEM DE FUNDO FIXA EM TELA CHEIA (Evita tela preta!)
+    if (backImg) {
+        desenharRedimensionado(p, backImg, wB, hB, 1920, 1080, 0, 0);
+    }
+
+    // 3. Desenha os elementos do menu por cima do fundo
     desenharInterface(p);
 
+    // 4. Desenha a própria barra de progresso
     int bX = 50;
     int bY = 940;
     int bW = 400;
@@ -59,6 +74,7 @@ void atualizarBarra(float progresso) {
             p[y * 1920 + x] = 0xFF00D83A;
         }
     }
+
     submeterTela();
 }
 

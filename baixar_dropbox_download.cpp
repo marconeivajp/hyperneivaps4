@@ -4,12 +4,14 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
+#include <stdint.h>
 #include <dirent.h>
 #include <orbis/Http.h>
 #include <orbis/Ssl.h>
 #include <orbis/libkernel.h>
-#include <orbis/Bgft.h>         // Cabeçalho para o serviço de download em segundo plano
-#include <orbis/UserService.h>  // Cabeçalho para gerenciar o usuário na instalação
+#include <orbis/Bgft.h>         
+#include <orbis/UserService.h>  
+#include <orbis/Sysmodule.h> 
 
 extern "C" int sceHttpSetRequestContentLength(int reqId, uint64_t contentLength);
 extern void atualizarBarra(float progresso);
@@ -26,7 +28,7 @@ extern char currentUploadPath[512];
 extern char msgStatus[128];
 extern int msgTimer;
 
-extern bool marcados[3000]; // <-- Array de seleção adicionado!
+extern bool marcados[3000];
 
 void preencherMenuBackup() {
     memset(nomes, 0, sizeof(nomes));
@@ -77,7 +79,6 @@ void acessarDropbox(const char* path) {
     sceHttpAddRequestHeader(req, "Content-Type", "application/json; charset=utf-8", 1);
     sceHttpSetRequestContentLength(req, strlen(postData));
 
-    // LIMPA OS MARCADOS AO TROCAR DE PASTA
     memset(nomes, 0, sizeof(nomes)); memset(linksAtuais, 0, sizeof(linksAtuais)); memset(marcados, 0, sizeof(marcados)); totalItens = 0;
     atualizarBarra(0.6f);
 
@@ -139,16 +140,19 @@ void iniciarDownload(const char* url) {
     char pathFinal[512]; sprintf(pathFinal, "%s/%s", pathPasta, nomeArquivo);
 
     // =========================================================================================
-    // INÍCIO DO SISTEMA DE BACKGROUND: Ativa instalação oficial do sistema APENAS para arquivos .pkg
+    // INÍCIO DO SISTEMA DE BACKGROUND (Apenas para arquivos .pkg)
     // =========================================================================================
     if (strstr(nomeArquivo, ".pkg") != NULL || strstr(nomeArquivo, ".PKG") != NULL) {
-        sprintf(msgStatus, "PREPARANDO INSTALACAO EM SEGUNDO PLANO...");
-        msgTimer = 150; atualizarBarra(0.2f);
 
-        char directUrl[2048];
+        // =========================================================================
+        // ETAPA 1: LER E LIMPAR O LINK
+        // =========================================================================
+        sprintf(msgStatus, "PREPARANDO PKG (ETAPA 1: LINK)...");
+        msgTimer = 150; atualizarBarra(0.1f);
+
+        static char directUrl[4096];
         memset(directUrl, 0, sizeof(directUrl));
 
-        // Se for um link interno do Dropbox (inicia com '/'), precisamos gerar o link temporário de download
         if (url[0] == '/') {
             char token[2048] = { 0 }; FILE* fToken = fopen("/data/HyperNeiva/configuracao/dropbox_token.txt", "rb");
             if (fToken) { fseek(fToken, 0, SEEK_END); long sz = ftell(fToken); fseek(fToken, 0, SEEK_SET); if (sz > 0 && sz < 2047) { fread(token, 1, sz, fToken); token[sz] = '\0'; } fclose(fToken); }
@@ -174,7 +178,34 @@ void iniciarDownload(const char* url) {
                     if (linkPtr) {
                         linkPtr += 9;
                         char* linkEnd = strchr(linkPtr, '\"');
-                        if (linkEnd) strncpy(directUrl, linkPtr, linkEnd - linkPtr);
+                        if (linkEnd) {
+                            static char tempUrl[4096];
+                            memset(tempUrl, 0, sizeof(tempUrl));
+
+                            int copyLen = linkEnd - linkPtr;
+                            if (copyLen > 4000) copyLen = 4000;
+                            strncpy(tempUrl, linkPtr, copyLen);
+
+                            int c_idx = 0;
+                            for (int i = 0; i < copyLen && c_idx < 4000; i++) {
+                                if (tempUrl[i] == '\\') {
+                                    if (i + 1 < copyLen && tempUrl[i + 1] == '/') {
+                                        directUrl[c_idx++] = '/';
+                                        i++;
+                                        continue;
+                                    }
+                                    if (i + 5 < copyLen && tempUrl[i + 1] == 'u' && tempUrl[i + 2] == '0' && tempUrl[i + 3] == '0' && tempUrl[i + 4] == '2' && tempUrl[i + 5] == '6') {
+                                        directUrl[c_idx++] = '&';
+                                        i += 5;
+                                        continue;
+                                    }
+                                }
+                                else if (tempUrl[i] >= 33 && tempUrl[i] <= 126) {
+                                    directUrl[c_idx++] = tempUrl[i];
+                                }
+                            }
+                            directUrl[c_idx] = '\0';
+                        }
                     }
                 }
             }
@@ -187,52 +218,117 @@ void iniciarDownload(const char* url) {
             }
         }
         else {
-            strcpy(directUrl, url);
+            strncpy(directUrl, url, 4000);
         }
 
+        if (strstr(directUrl, ".pkg") == NULL && strstr(directUrl, ".PKG") == NULL) {
+            if (strchr(directUrl, '?') != NULL) {
+                strcat(directUrl, "&fake=.pkg");
+            }
+            else {
+                strcat(directUrl, "?fake=.pkg");
+            }
+        }
+
+        static char nomeLimpo[256];
+        memset(nomeLimpo, 0, sizeof(nomeLimpo));
+        int n_idx = 0;
+        for (int i = 0; i < strlen(nomeArquivo) && n_idx < 255; i++) {
+            char c = nomeArquivo[i];
+            if (c >= 33 && c <= 126) {
+                nomeLimpo[n_idx++] = c;
+            }
+        }
+        nomeLimpo[n_idx] = '\0';
+
+        // =========================================================================
+        // ETAPA 2: MODULO
+        // =========================================================================
+        sprintf(msgStatus, "PREPARANDO PKG (ETAPA 2: MODULO)...");
+        atualizarBarra(0.3f);
+
+        sceSysmoduleLoadModuleInternal((OrbisSysModuleInternal)0x0041);
+
+        // =========================================================================
+        // ETAPA 3: INIT SERVICO
+        // =========================================================================
+        sprintf(msgStatus, "PREPARANDO PKG (ETAPA 3: INIT SERVICO)...");
         atualizarBarra(0.6f);
 
-        // Inicializa o serviço BGFT com a estrutura correta (OrbisBgftInitParams)
-        static uint8_t bgft_heap[256 * 1024]; // 256KB heap para o serviço
-        OrbisBgftInitParams bgftInit;
-        memset(&bgftInit, 0, sizeof(bgftInit));
-        bgftInit.heap = bgft_heap;
-        bgftInit.heapSize = sizeof(bgft_heap);
-        sceBgftServiceIntInit(&bgftInit);
+        static bool bgft_inicializado = false;
+        // ALOCAÇÃO FIXA QUE O KERNEL DO PS4 EXIGE! (Sem Malloc)
+        static uint8_t bgft_heap[256 * 1024];
 
-        int32_t userId = 0;
+        if (!bgft_inicializado) {
+            OrbisBgftInitParams bgftInit;
+            memset(&bgftInit, 0, sizeof(bgftInit));
+
+            bgftInit.heap = bgft_heap;
+            bgftInit.heapSize = sizeof(bgft_heap);
+
+            int retInit = sceBgftServiceIntInit(&bgftInit);
+            if (retInit == 0 || retInit == 0x80431003) {
+                bgft_inicializado = true;
+            }
+            else {
+                sprintf(msgStatus, "ERRO INIT BGFT: 0x%08X", retInit);
+                msgTimer = 300; atualizarBarra(0.0f);
+                return;
+            }
+        }
+
+        // =========================================================================
+        // ETAPA 4: REGISTRANDO
+        // =========================================================================
+        sprintf(msgStatus, "PREPARANDO PKG (ETAPA 4: REGISTRANDO)...");
+        atualizarBarra(0.8f);
+
+        int32_t userId = 0x10000000;
         sceUserServiceGetInitialUser(&userId);
+        if (userId == 0 || userId == -1) {
+            userId = 0x10000000;
+        }
 
-        // Configura a estrutura oficial de acordo com o header
-        OrbisBgftDownloadParam bgftParam;
+        static OrbisBgftDownloadParam bgftParam;
         memset(&bgftParam, 0, sizeof(bgftParam));
+
         bgftParam.userId = userId;
-        bgftParam.entitlementType = 0;
-        bgftParam.id = "";
+        bgftParam.entitlementType = 5;
+        bgftParam.id = "UP0001-CUSA00001_00-0000000000000000";
         bgftParam.contentUrl = directUrl;
-        bgftParam.contentName = nomeArquivo;
+        bgftParam.contentExUrl = "";
+        bgftParam.contentName = nomeLimpo;
         bgftParam.iconPath = "";
         bgftParam.skuId = "";
         bgftParam.option = ORBIS_BGFT_TASK_OPT_NONE;
+        bgftParam.playgoScenarioId = "0";
+        bgftParam.releaseDate = "";
+        bgftParam.packageType = "xg";
+        bgftParam.packageSubType = "";
+        bgftParam.packageSize = 0;
 
         OrbisBgftTaskId taskId = -1;
-        // Função correta na sua SDK para registrar downloads e instalar PKG
+
         int res = sceBgftServiceIntDebugDownloadRegisterPkg(&bgftParam, &taskId);
+
+        if (res != 0) {
+            res = sceBgftServiceIntDownloadRegisterTask(&bgftParam, &taskId);
+        }
 
         if (res == 0) {
             sprintf(msgStatus, "ADICIONADO AOS DOWNLOADS DA TELA INICIAL!");
             atualizarBarra(1.0f);
         }
         else {
-            sprintf(msgStatus, "ERRO AO ENVIAR PARA O SISTEMA: 0x%08X", res);
+            sprintf(msgStatus, "ERRO BGFT: 0x%08X (L:%d)", res, (int)strlen(directUrl));
             atualizarBarra(0.0f);
         }
 
-        msgTimer = 240;
-        return; // Interrompe a função aqui para o app não baixar manualmente
+        msgTimer = 500;
+        return;
     }
     // =========================================================================================
-    // FIM DA INSERÇÃO DO BGFT - O código abaixo continua exatamente igual para arquivos comuns
+    // FIM DA INSERÇÃO DO BGFT
     // =========================================================================================
 
     sprintf(msgStatus, "CONECTANDO..."); msgTimer = 150; atualizarBarra(0.05f);
@@ -278,7 +374,6 @@ void iniciarDownload(const char* url) {
 }
 
 void listarArquivosUpload(const char* dirPath) {
-    // LIMPA OS MARCADOS AO TROCAR DE PASTA
     memset(nomes, 0, sizeof(nomes)); memset(linksAtuais, 0, sizeof(linksAtuais)); memset(marcados, 0, sizeof(marcados)); totalItens = 0;
     strcpy(currentUploadPath, dirPath);
 
@@ -558,8 +653,6 @@ void fazerDownloadPastaRecursivo(const char* remotePath, const char* folderName)
     sprintf(msgStatus, "DOWNLOAD DE PASTA CONCLUIDO!"); atualizarBarra(1.0f); msgTimer = 240;
 }
 
-// ---- NOVAS FUNÇÕES: UPLOAD E DOWNLOAD DOS ITENS SELECIONADOS PELO L1 ----
-
 void fazerUploadSelecionados() {
     int count = 0;
     for (int i = 0; i < totalItens; i++) {
@@ -573,7 +666,7 @@ void fazerUploadSelecionados() {
             else {
                 fazerUploadDropbox(alvo);
             }
-            marcados[i] = false; // Desmarca após envio
+            marcados[i] = false;
             count++;
         }
     }
@@ -596,7 +689,7 @@ void fazerDownloadSelecionados() {
             else {
                 iniciarDownload(alvo);
             }
-            marcados[i] = false; // Desmarca após download
+            marcados[i] = false;
             count++;
         }
     }
@@ -605,8 +698,6 @@ void fazerDownloadSelecionados() {
         msgTimer = 180;
     }
 }
-
-// -------------------------------------------------------------------------
 
 void executarBackupTodos() {
     fazerUploadDropbox("/system_data/priv/mms/app.db");
