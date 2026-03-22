@@ -4,17 +4,19 @@
 #endif
 #endif
 
+#include <stdlib.h>
+#include <stdio.h>
+#include <string.h>
+#include <dirent.h>
+
+#include <orbis/libkernel.h>
+#include <orbis/Http.h>
+#include <orbis/Ssl.h>
+
 #include "baixar.h"
 #include "network.h"
 #include "menu.h"
 #include "graphics.h"
-#include <stdio.h>
-#include <string.h>
-#include <stdlib.h>
-#include <dirent.h>
-#include <orbis/Http.h>
-#include <orbis/Ssl.h>
-#include <orbis/libkernel.h>
 #include "stb_image.h"
 
 extern uint32_t* obterBufferVideo();
@@ -43,27 +45,21 @@ int totalLinksAtuais = 0;
 char currentDropboxPath[512] = "";
 char currentUploadPath[512] = "";
 
-// A versão antiga (pra não dar erro nos outros scripts que só enviam a %):
 void atualizarBarra(float progresso) {
-    atualizarBarra(progresso, 1, 1); // Encaminha para a nova função com 1/1
+    atualizarBarra(progresso, 1, 1);
 }
 
-// A versão nova com a barra de porcentagem real e números de arquivos (SEM a palavra "Arquivo")
 void atualizarBarra(float progresso, int arquivoAtual, int totalArquivos) {
     uint32_t* p = obterBufferVideo();
 
-    // 1. Limpa a tela
     for (int i = 0; i < 1920 * 1080; i++) p[i] = 0xFF121212;
 
-    // 2. DESENHA A IMAGEM DE FUNDO
     if (backImg) {
         desenharRedimensionado(p, backImg, wB, hB, 1920, 1080, 0, 0);
     }
 
-    // 3. Desenha os elementos do menu por cima do fundo
     desenharInterface(p);
 
-    // 4. Desenha a própria barra de progresso
     int bX = 50;
     int bY = 940;
     int bW = 400;
@@ -85,13 +81,11 @@ void atualizarBarra(float progresso, int arquivoAtual, int totalArquivos) {
         }
     }
 
-    // 5. TEXTO DA BARRA (% e Numeração apenas)
     int porcentagem = (int)(progresso * 100.0f);
     if (porcentagem > 100) porcentagem = 100;
     if (porcentagem < 0) porcentagem = 0;
 
     char textoLoad[128];
-    // Aqui removemos a palavra "Arquivo". Exemplo de saída: "50%   -   1 / 1"
     snprintf(textoLoad, sizeof(textoLoad), "%d%%   -   %d / %d", porcentagem, arquivoAtual, totalArquivos);
     desenharTexto(p, textoLoad, 25, bX + bW + 20, bY - 2, 0xFFFFFFFF);
 
@@ -138,21 +132,33 @@ void acaoRede(const char* jogo, bool buscarLista, bool salvarNoHD) {
             atualizarBarra(1.0f, 1, 1);
 
             if (buscarLista) {
-                FILE* f2 = fopen("/data/HyperNeiva/remote_list.html", "rb"); fseek(f2, 0, SEEK_END); long sz = ftell(f2); fseek(f2, 0, SEEK_SET);
-                char* h = (char*)malloc(sz + 1); fread(h, 1, sz, f2); h[sz] = '\0'; fclose(f2);
-                memset(nomes, 0, sizeof(nomes)); totalItens = 0; char* b = h;
-                while ((b = strstr(b, "href=\"")) && totalItens < 3000) {
-                    b += 6; if (strstr(b, "Parent Directory") || b[0] == '?' || b[0] == '/') { b++; continue; }
-                    char* e = strstr(b, ".png\"");
-                    if (e) {
-                        int l = (int)(e - b); strncpy(nomes[totalItens], b, l); nomes[totalItens][l] = '\0';
-                        char* pN = nomes[totalItens], * qN = nomes[totalItens];
-                        while (*pN) { if (*pN == '%' && *(pN + 1) == '2' && *(pN + 2) == '0') { *qN++ = ' '; pN += 3; } else { *qN++ = *pN++; } }
-                        *qN = '\0'; totalItens++;
+                FILE* f2 = fopen("/data/HyperNeiva/remote_list.html", "rb");
+                if (f2) {
+                    fseek(f2, 0, SEEK_END); long sz = ftell(f2); fseek(f2, 0, SEEK_SET);
+                    char* h = (char*)malloc(sz + 1); fread(h, 1, sz, f2); h[sz] = '\0'; fclose(f2);
+
+                    memset(nomes, 0, sizeof(nomes));
+                    totalItens = 0; char* b = h;
+
+                    while ((b = strstr(b, "href=\"")) && totalItens < 3000) {
+                        b += 6; if (strstr(b, "Parent Directory") || b[0] == '?' || b[0] == '/') { b++; continue; }
+                        char* e = strstr(b, ".png\"");
+                        if (e) {
+                            int l = (int)(e - b); strncpy(nomes[totalItens], b, l); nomes[totalItens][l] = '\0';
+                            char* pN = nomes[totalItens], * qN = nomes[totalItens];
+                            while (*pN) { if (*pN == '%' && *(pN + 1) == '2' && *(pN + 2) == '0') { *qN++ = ' '; pN += 3; } else { *qN++ = *pN++; } }
+                            *qN = '\0';
+                            totalItens++;
+                        }
+                        b = e + 5;
                     }
-                    b = e + 5;
+                    free(h);
                 }
-                free(h); menuAtual = SCRAPER_LIST;
+
+                // MÁGICA: Zera o seletor para evitar ele sumir lá em baixo!
+                menuAtual = SCRAPER_LIST;
+                sel = 0;
+                off = 0;
             }
             else {
                 if (imgPreview) stbi_image_free(imgPreview);
@@ -171,5 +177,8 @@ void preencherMenuBaixar() {
     strcpy(nomes[2], "LINK DIRETO");
     strcpy(nomes[3], "DROPBOX (DOWNLOAD)");
     strcpy(nomes[4], "DROPBOX (MENU BACKUP)");
-    totalItens = 5; menuAtual = MENU_BAIXAR; sel = 0; off = 0;
+    totalItens = 5;
+    menuAtual = MENU_BAIXAR;
+    sel = 0;
+    off = 0;
 }

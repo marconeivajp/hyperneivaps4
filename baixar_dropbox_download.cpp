@@ -1,16 +1,22 @@
+#ifndef __builtin_va_list
+#define __builtin_va_list char*
+#endif
+
+#include <stdlib.h>
+#include <stdio.h>
+#include <string.h>
+#include <stdarg.h>
+
+#include <orbis/libkernel.h>
+#include <orbis/Http.h>
+#include <orbis/Ssl.h>
+#include <orbis/UserService.h>  
+
 #include "baixar_dropbox_download.h"
 #include "menu.h"
 #include "network.h"
-#include <stdio.h>
-#include <string.h>
-#include <stdlib.h>
 #include <stdint.h>
 #include <dirent.h>
-#include <orbis/Http.h>
-#include <orbis/Ssl.h>
-#include <orbis/libkernel.h>
-#include <orbis/UserService.h>  
-#include <orbis/Sysmodule.h> 
 
 extern "C" int sceHttpSetRequestContentLength(int reqId, uint64_t contentLength);
 extern void atualizarBarra(float progresso);
@@ -141,7 +147,6 @@ void iniciarDownload(const char* url) {
 
     char pathPasta[256];
 
-    // REDIRECIONA PKGs PARA A PASTA OFICIAL DO GOLDHEN
     if (strstr(nomeArquivo, ".pkg") != NULL || strstr(nomeArquivo, ".PKG") != NULL) {
         sprintf(pathPasta, "/data/pkg");
     }
@@ -149,7 +154,6 @@ void iniciarDownload(const char* url) {
         sprintf(pathPasta, "/data/HyperNeiva/baixado/Downloads");
     }
 
-    // Cria os diretórios garantindo que existam
     sceKernelMkdir("/data/pkg", 0777);
     sceKernelMkdir("/data/HyperNeiva/baixado", 0777);
     sceKernelMkdir(pathPasta, 0777);
@@ -192,50 +196,67 @@ void iniciarDownload(const char* url) {
                 else { sprintf(msgStatus, "BAIXANDO: %s...", nomeArquivo); atualizarBarra(0.5f); }
             } fclose(f);
 
-            // =========================================================================================
-            // DOWNLOAD CONCLUÍDO. TENTATIVA EXTRA DE AUTO-INSTALL
-            // =========================================================================================
             if (strstr(nomeArquivo, ".pkg") != NULL || strstr(nomeArquivo, ".PKG") != NULL) {
                 sprintf(msgStatus, "DOWNLOAD CONCLUIDO! TENTANDO INSTALAR...");
                 atualizarBarra(1.0f);
 
-                sceSysmoduleLoadModuleInternal((OrbisSysModuleInternal)0x00A5);
-                int libAppInstUtil = sceKernelLoadStartModule("libSceAppInstUtil.sprx", 0, NULL, 0, NULL, NULL);
+                int (*init_AppInstUtil)(void) = NULL;
+                int (*installPkg_AppInstUtil)(const char*) = NULL;
+                int (*term_AppInstUtil)(void) = NULL;
 
-                if (libAppInstUtil > 0) {
-                    int (*init_AppInstUtil)(void) = NULL;
-                    int (*installPkg_AppInstUtil)(const char*) = NULL;
-                    int (*term_AppInstUtil)(void) = NULL;
+                int handle1 = (int)sceKernelLoadStartModule("libSceAppInstUtil.sprx", 0, NULL, 0, NULL, NULL);
+                int handle2 = (int)sceKernelLoadStartModule("/system/common/lib/libSceAppInstUtil.sprx", 0, NULL, 0, NULL, NULL);
+                int handle3 = (int)sceKernelLoadStartModule("/system/priv/lib/libSceAppInstUtil.sprx", 0, NULL, 0, NULL, NULL);
 
-                    sceKernelDlsym(libAppInstUtil, "sceAppInstUtilInitialize", (void**)&init_AppInstUtil);
-                    sceKernelDlsym(libAppInstUtil, "sceAppInstUtilAppInstallPkg", (void**)&installPkg_AppInstUtil);
-                    sceKernelDlsym(libAppInstUtil, "sceAppInstUtilTerminate", (void**)&term_AppInstUtil);
+                int handles[6];
+                handles[0] = handle1;
+                handles[1] = handle2;
+                handles[2] = handle3;
+                handles[3] = 0x2001; // RTLD_DEFAULT
+                handles[4] = 0;
+                handles[5] = -1;
 
-                    if (init_AppInstUtil && installPkg_AppInstUtil && term_AppInstUtil) {
-                        if (init_AppInstUtil() == 0) {
-                            int retInst = installPkg_AppInstUtil(pathFinal);
+                for (int i = 0; i < 6; i++) {
+                    if (handles[i] <= 0 && i < 3) continue;
+                    if (sceKernelDlsym(handles[i], "sceAppInstUtilInitialize", (void**)&init_AppInstUtil) == 0 && init_AppInstUtil) {
+                        sceKernelDlsym(handles[i], "sceAppInstUtilAppInstallPkg", (void**)&installPkg_AppInstUtil);
+                        sceKernelDlsym(handles[i], "sceAppInstUtilTerminate", (void**)&term_AppInstUtil);
+                        break;
+                    }
+                }
 
-                            if (retInst == 0) {
-                                sprintf(msgStatus, "INSTALADO! ARQUIVO PKG APAGADO DO HD.");
-                                sceKernelUnlink(pathFinal);
-                            }
-                            else {
-                                sprintf(msgStatus, "BAIXADO! VA EM GOLDHEN -> PACKAGE INSTALLER (Erro: 0x%08X)", retInst);
-                            }
-                            term_AppInstUtil();
-                        }
-                        else {
-                            sprintf(msgStatus, "BAIXADO! VA EM GOLDHEN -> PACKAGE INSTALLER (Erro Init)");
+                if (!init_AppInstUtil) {
+                    for (int h = 1; h < 500; h++) {
+                        if (sceKernelDlsym(h, "sceAppInstUtilInitialize", (void**)&init_AppInstUtil) == 0 && init_AppInstUtil) {
+                            sceKernelDlsym(h, "sceAppInstUtilAppInstallPkg", (void**)&installPkg_AppInstUtil);
+                            sceKernelDlsym(h, "sceAppInstUtilTerminate", (void**)&term_AppInstUtil);
+                            break;
                         }
                     }
+                }
+
+                if (init_AppInstUtil && installPkg_AppInstUtil && term_AppInstUtil) {
+                    int retInit = init_AppInstUtil();
+                    if (retInit == 0 || retInit == 0x80431003) {
+                        int retInst = installPkg_AppInstUtil(pathFinal);
+
+                        if (retInst == 0) {
+                            sprintf(msgStatus, "INSTALADO COM SUCESSO!");
+                            // sceKernelUnlink(pathFinal); // Descomente para apagar o PKG após instalar
+                        }
+                        else {
+                            sprintf(msgStatus, "ERRO AO INSTALAR: 0x%08X", retInst);
+                        }
+                        term_AppInstUtil();
+                    }
                     else {
-                        sprintf(msgStatus, "BAIXADO! VA EM GOLDHEN -> PACKAGE INSTALLER (Erro Dlsym)");
+                        sprintf(msgStatus, "ERRO NO INIT DE INSTALACAO: 0x%08X", retInit);
                     }
                 }
                 else {
-                    sprintf(msgStatus, "BAIXADO COM SUCESSO! VA EM GOLDHEN -> PACKAGE INSTALLER");
+                    sprintf(msgStatus, "BAIXADO! VA EM GOLDHEN -> PACKAGE INSTALLER");
                 }
-                msgTimer = 600; // Tempo longo pra você ler e comemorar
+                msgTimer = 600;
             }
             else {
                 sprintf(msgStatus, "DOWNLOAD CONCLUIDO!");
@@ -506,7 +527,7 @@ void processarDownloadPastaRecursiva(const char* remotePath, const char* localPa
                                 strncpy(filesNames[numFiles], namePtr, nameLen); filesNames[numFiles][nameLen] = '\0';
                                 numFiles++;
                             }
-                        } p = strstr(p, "\".tag\": \"");
+                        } p = pathEnd;
                     } free(h);
 
                     for (int i = 0; i < numSubFolders; i++) { char nextLocal[512]; sprintf(nextLocal, "%s/%s", localPath, subFoldersNames[i]); processarDownloadPastaRecursiva(subFolders[i], nextLocal); }

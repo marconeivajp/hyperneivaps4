@@ -1,36 +1,130 @@
+#ifndef __builtin_va_list
+#define __builtin_va_list char*
+#endif
+
+#include <stdlib.h>
 #include <stdio.h>
-#include <stdarg.h>
 #include <string.h>
+#include <stdarg.h>
+
+// Bibliotecas de Rede (Sockets) Padrão
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <unistd.h>
+
 #include "controle_explorar.h"
 #include "menu.h"
 #include "explorar.h"
-#include "stb_image.h" // NECESSÁRIO PARA LER AS IMAGENS
-#include "audio.h"     // NECESSÁRIO PARA TOCAR A MÚSICA
+#include "stb_image.h" 
+#include "audio.h"     
 
 extern int cd;
 extern void preencherExplorerHome();
 extern void preencherRoot();
 
-// --- VARIÁVEIS DA IMAGEM (Vindas do menu_grafico) ---
+// Variáveis da Interface
+extern void atualizarBarra(float progresso);
+extern char msgStatus[128];
+extern int msgTimer;
+
+// --- VARIÁVEIS DA IMAGEM ---
 extern bool visualizandoMidiaImagem;
 extern unsigned char* imgMidia;
 extern int wM, hM;
 extern float zoomMidia;
 extern bool fullscreenMidia;
 
-// --- VARIÁVEL PARA O ÁUDIO ---
+// --- VARIÁVEIS PARA O ÁUDIO ---
+extern char caminhoNavegacaoMusicas[512];
 static char caminhoMusicaTocando[512] = "";
 
+// === FUNÇÃO DE INSTALAÇÃO VIA GOLDHEN FTP (COM HANDSHAKE COMPLETO) ===
+void instalarPkgLocal(const char* caminhoAbsoluto) {
+    sprintf(msgStatus, "CONECTANDO AO GOLDHEN FTP...");
+    msgTimer = 150;
+    atualizarBarra(0.2f);
+
+    struct sockaddr_in addr;
+    memset(&addr, 0, sizeof(addr));
+    addr.sin_family = 2; // AF_INET
+    addr.sin_port = 0x4908; // Porta 2121 convertida para bytes de rede (0x4908)
+    addr.sin_addr.s_addr = 0x0100007F; // IP 127.0.0.1 (Localhost)
+
+    int sock = socket(2, 1, 0); // 2 = AF_INET, 1 = SOCK_STREAM
+    if (sock >= 0) {
+
+        if (connect(sock, (struct sockaddr*)&addr, sizeof(addr)) == 0) {
+            char buf[512];
+            memset(buf, 0, sizeof(buf));
+
+            // 1. Recebe mensagem de boas-vindas do FTP (220)
+            recv(sock, buf, sizeof(buf) - 1, 0);
+
+            // 2. Envia Login Anónimo
+            send(sock, "USER anonymous\r\n", 16, 0);
+            memset(buf, 0, sizeof(buf));
+            recv(sock, buf, sizeof(buf) - 1, 0); // (331)
+
+            // 3. Envia Password Vazia
+            send(sock, "PASS \r\n", 7, 0);
+            memset(buf, 0, sizeof(buf));
+            recv(sock, buf, sizeof(buf) - 1, 0); // (230 Logged in)
+
+            sprintf(msgStatus, "ENVIANDO COMANDO DE INSTALACAO...");
+            atualizarBarra(0.6f);
+
+            // 4. Envia o comando secreto de instalação
+            char cmd[1024];
+            sprintf(cmd, "SITE INSTALL %s\r\n", caminhoAbsoluto);
+            send(sock, cmd, strlen(cmd), 0);
+
+            // 5. Recebe a resposta real do GoldHEN!
+            memset(buf, 0, sizeof(buf));
+            recv(sock, buf, sizeof(buf) - 1, 0);
+
+            close(sock);
+
+            // Verifica o código de resposta (200 é sucesso no FTP)
+            if (strncmp(buf, "200", 3) == 0 || strncmp(buf, "226", 3) == 0) {
+                sprintf(msgStatus, "SUCESSO! Jogo adicionado aos Downloads do PS4!");
+                atualizarBarra(1.0f);
+            }
+            else {
+                // Limpa quebras de linha para mostrar o erro na ecrã
+                for (int i = 0; i < strlen(buf); i++) {
+                    if (buf[i] == '\r' || buf[i] == '\n') buf[i] = '\0';
+                }
+                // Mostra os primeiros 45 caracteres do erro real
+                buf[45] = '\0';
+                sprintf(msgStatus, "ERRO DO FTP: %s", buf);
+                atualizarBarra(0.0f);
+            }
+
+        }
+        else {
+            close(sock);
+            sprintf(msgStatus, "ERRO: Ative o 'FTP Server' nas config do GoldHEN!");
+            atualizarBarra(0.0f);
+        }
+    }
+    else {
+        sprintf(msgStatus, "ERRO AO CRIAR CONEXAO DE REDE");
+        atualizarBarra(0.0f);
+    }
+
+    msgTimer = 600; // Tempo na ecrã
+}
 
 void acaoL2_Explorar() {
     painelDuplo = !painelDuplo;
     if (painelDuplo) {
-        painelAtivo = 0; // Foca no painel esquerdo ao abrir
-        menuAtualEsq = MENU_EXPLORAR_HOME; // Reseta pra Home (Hyper Neiva, Raiz, USB0, USB1)
+        painelAtivo = 0;
+        menuAtualEsq = MENU_EXPLORAR_HOME;
         selEsq = 0;
     }
     else {
-        painelAtivo = 1; // Foca no direito ao fechar
+        painelAtivo = 1;
     }
 }
 
@@ -65,55 +159,44 @@ void acaoCross_Explorar() {
         else { strcpy(baseRaiz, tempBase); listarDiretorio(baseRaiz); }
     }
     else if (mAtual == MENU_EXPLORAR) {
-        // SE FOR UMA PASTA
         if (nItems[sAtual][0] == '[') {
             char pL[128]; strncpy(pL, &nItems[sAtual][1], strlen(nItems[sAtual]) - 2); pL[strlen(nItems[sAtual]) - 2] = '\0';
             char nP[256]; sprintf(nP, "%s/%s", pExplorar, pL);
             if (ehEsq) listarDiretorioEsq(nP); else listarDiretorio(nP);
         }
-        // SE FOR UM ARQUIVO (AÇÃO AO CLICAR)
         else {
             char caminhoArquivo[512];
             sprintf(caminhoArquivo, "%s/%s", pExplorar, nItems[sAtual]);
-
-            // Pega a extensão do arquivo (ex: .mp3, .png)
             char* ext = strrchr(nItems[sAtual], '.');
 
             if (ext) {
-                // 1. LÓGICA DE ÁUDIO (MP3 / WAV) COM A FUNÇÃO CORRETA "tocarMusicaNova"
-                if (strcasecmp(ext, ".mp3") == 0 || strcasecmp(ext, ".wav") == 0) {
-
+                // Instalação de PKG ao apertar X no Explorador
+                if (strcasecmp(ext, ".pkg") == 0 || strcasecmp(ext, ".PKG") == 0) {
+                    instalarPkgLocal(caminhoArquivo);
+                }
+                else if (strcasecmp(ext, ".mp3") == 0 || strcasecmp(ext, ".wav") == 0) {
                     if (strcmp(caminhoMusicaTocando, caminhoArquivo) == 0) {
-                        // Clicou na MESMA música que já está a tocar -> PARA A MÚSICA
-                        // A sua lógica exige enviar "PARADO" para pausar
                         tocarMusicaNova("PARADO");
-
-                        strcpy(caminhoMusicaTocando, ""); // Limpa o registo
+                        strcpy(caminhoMusicaTocando, "");
                         sprintf(msgStatus, "Música Parada");
                         msgTimer = 90;
                     }
                     else {
-                        // Clicou numa música NOVA ou nenhuma estava a tocar -> TOCA A MÚSICA
                         tocarMusicaNova(caminhoArquivo);
-
-                        strcpy(caminhoMusicaTocando, caminhoArquivo); // Regista qual está a tocar
+                        strcpy(caminhoMusicaTocando, caminhoArquivo);
                         sprintf(msgStatus, "Reproduzindo Áudio");
                         msgTimer = 90;
                     }
                 }
-                // 2. LÓGICA DE IMAGEM (PNG / JPG / JPEG / BMP)
                 else if (strcasecmp(ext, ".png") == 0 || strcasecmp(ext, ".jpg") == 0 || strcasecmp(ext, ".jpeg") == 0 || strcasecmp(ext, ".bmp") == 0) {
-
                     if (imgMidia) {
-                        stbi_image_free(imgMidia); // Limpa a memória da imagem anterior
+                        stbi_image_free(imgMidia);
                         imgMidia = NULL;
                     }
-
                     int canais;
-                    imgMidia = stbi_load(caminhoArquivo, &wM, &hM, &canais, 4); // Carrega a nova
-
+                    imgMidia = stbi_load(caminhoArquivo, &wM, &hM, &canais, 4);
                     if (imgMidia) {
-                        visualizandoMidiaImagem = true; // Ativa a tela de visualização no menu_grafico
+                        visualizandoMidiaImagem = true;
                         zoomMidia = 1.0f;
                         fullscreenMidia = false;
                     }
@@ -130,14 +213,13 @@ void acaoCross_Explorar() {
 void acaoCircle_Explorar() {
     if (esperandoNomePasta || esperandoRenomear) return;
 
-    // SE ESTIVER A VER UMA IMAGEM, A BOLINHA APENAS FECHA A IMAGEM
     if (visualizandoMidiaImagem) {
         visualizandoMidiaImagem = false;
         if (imgMidia) {
             stbi_image_free(imgMidia);
             imgMidia = NULL;
         }
-        return; // Sai da função para não fechar o explorador!
+        return;
     }
 
     bool ehEsq = (painelDuplo && painelAtivo == 0);
@@ -145,25 +227,20 @@ void acaoCircle_Explorar() {
     char* pExplorar = ehEsq ? pathExplorarEsq : pathExplorar;
 
     if (mAtual == MENU_EXPLORAR_HOME) {
-        // 1. SE APERTAR BOLINHA NA TELA INICIAL (HOME), DESLIGA O PAINEL DUPLO
         if (painelDuplo) {
             painelDuplo = false;
-            painelAtivo = 1; // Devolve o foco ao lado direito de forma segura
+            painelAtivo = 1;
         }
-
-        // 2. SE ESTAVA A USAR O LADO DIREITO (PRINCIPAL), VOLTA PARA O MENU ROOT
         if (!ehEsq) {
             preencherRoot();
         }
     }
     else if (mAtual == MENU_EXPLORAR) {
-        // Se estiver na base ou na raiz do disco, volta para a tela inicial (Home) do explorador
         if (strcmp(pExplorar, baseRaiz) == 0 || strcmp(pExplorar, "/") == 0) {
             if (ehEsq) menuAtualEsq = MENU_EXPLORAR_HOME;
             else preencherExplorerHome();
         }
         else {
-            // Volta uma pasta para trás
             char temp[256]; strcpy(temp, pExplorar);
             char* last = strrchr(temp, '/');
             if (last) {

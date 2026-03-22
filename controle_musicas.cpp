@@ -1,11 +1,9 @@
-// --- INÍCIO DO ARQUIVO controle_musicas.cpp ---
 #include "controle_musicas.h"
 #include "menu.h"
 #include "audio.h"
 #include <stdio.h>
 #include <string.h>
 
-// Puxamos as variáveis globais que precisamos ler/alterar
 extern int sel;
 extern int off;
 extern char nomes[3000][64];
@@ -15,24 +13,30 @@ extern MenuLevel menuAtual;
 extern bool showOpcoes;
 extern int selAudioOpcao;
 
-// Puxamos as funções de outros arquivos
 extern void tocarMusicaNova(const char* path);
 extern void abrirMenuAudioOpcoes();
 extern void tratarSelecaoAudio(int op);
-extern void preencherRoot();
+extern void preencherMenuMidia(); // Declaração para voltar ao menu MIDIA
 
 void acaoCross_Musicas() {
     if (showOpcoes && menuAtual == MENU_AUDIO_OPCOES) {
         tratarSelecaoAudio(selAudioOpcao);
     }
     else if (!showOpcoes && menuAtual == MENU_MUSICAS) {
-        if (sel == 0) {
+        if (strcmp(nomes[sel], "PARAR MUSICA") == 0) {
             tocarMusicaNova("PARADO");
             sprintf(msgStatus, "MUSICA PARADA");
             msgTimer = 120;
         }
+        else if (nomes[sel][0] == '[') {
+            // SE CLICOU NUMA PASTA, ENTRA NELA E LISTA OS ARQUIVOS!
+            strcpy(caminhoNavegacaoMusicas, caminhosMusicasMenu[sel]);
+            preencherMenuMusicas();
+            sel = 0;
+            off = 0;
+        }
         else {
-            // Usa o caminho absoluto mapeado na busca recursiva
+            // SE CLICOU NUMA MÚSICA, TOCA!
             tocarMusicaNova(caminhosMusicasMenu[sel]);
             sprintf(msgStatus, "A TOCAR MUSICA...");
             msgTimer = 120;
@@ -46,9 +50,25 @@ void acaoCircle_Musicas() {
         menuAtual = MENU_MUSICAS;
     }
     else {
-        preencherRoot();
-        sel = 0;
-        off = 0;
+        // Se estiver na pasta raiz, voltar ao menu MIDIA
+        if (strcmp(caminhoNavegacaoMusicas, "/data/HyperNeiva/Musicas") == 0) {
+            preencherMenuMidia();
+            sel = 0;
+            off = 0;
+        }
+        else {
+            // Volta uma pasta para trás
+            char temp[512];
+            strcpy(temp, caminhoNavegacaoMusicas);
+            char* ultimaBarra = strrchr(temp, '/');
+            if (ultimaBarra != NULL) {
+                *ultimaBarra = '\0';
+                strcpy(caminhoNavegacaoMusicas, temp);
+                preencherMenuMusicas();
+                sel = 0;
+                off = 0;
+            }
+        }
     }
 }
 
@@ -58,4 +78,3 @@ void acaoTriangle_Musicas() {
     showOpcoes = true;
     selAudioOpcao = 0;
 }
-// --- FIM DO ARQUIVO controle_musicas.cpp ---
