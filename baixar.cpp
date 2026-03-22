@@ -19,6 +19,9 @@
 #include "graphics.h"
 #include "stb_image.h"
 
+// IMPORTANDO AS VARIÁVEIS DE EDIÇÃO DA BARRA
+extern int barX, barY, barW, barH;
+
 extern uint32_t* obterBufferVideo();
 extern void desenharInterface(uint32_t* p);
 extern void submeterTela();
@@ -60,10 +63,11 @@ void atualizarBarra(float progresso, int arquivoAtual, int totalArquivos) {
 
     desenharInterface(p);
 
-    int bX = 50;
-    int bY = 940;
-    int bW = 400;
-    int bH = 15;
+    // USANDO AS VARIÁVEIS DE EDIÇÃO AGORA
+    int bX = barX;
+    int bY = barY;
+    int bW = barW;
+    int bH = barH;
 
     for (int y = bY; y < bY + bH; y++) {
         for (int x = bX; x < bX + bW; x++) {
@@ -87,6 +91,8 @@ void atualizarBarra(float progresso, int arquivoAtual, int totalArquivos) {
 
     char textoLoad[128];
     snprintf(textoLoad, sizeof(textoLoad), "%d%%   -   %d / %d", porcentagem, arquivoAtual, totalArquivos);
+
+    // O texto acompanhará a barra automaticamente!
     desenharTexto(p, textoLoad, 25, bX + bW + 20, bY - 2, 0xFFFFFFFF);
 
     submeterTela();
@@ -155,7 +161,6 @@ void acaoRede(const char* jogo, bool buscarLista, bool salvarNoHD) {
                     free(h);
                 }
 
-                // MÁGICA: Zera o seletor para evitar ele sumir lá em baixo!
                 menuAtual = SCRAPER_LIST;
                 sel = 0;
                 off = 0;
