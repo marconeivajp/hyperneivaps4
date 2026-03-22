@@ -4,8 +4,8 @@
 #include <stdbool.h>
 
 // Valores padrão
-extern const int dLXV, dLYV, dListSpcV; // PADROES VERTICAIS
-extern const int dLXH, dLYH, dListSpcH; // PADROES HORIZONTAIS
+extern const int dLXV, dLYV, dListSpcV;
+extern const int dLXH, dLYH, dListSpcH;
 extern const int dLW, dLH;
 extern const int dCX, dCY, dCW, dCH;
 extern const int dDX, dDY, dDW, dDH;
@@ -15,10 +15,11 @@ extern const int dUpX, dUpY, dUpW, dUpH;
 extern const int dFontTam, dMsgX, dMsgY, dMsgTam;
 extern const int dListOri, dListBg;
 extern const int dBarBg, dBarFill, dListMark, dListHoverMark;
+extern const int dFontAlign, dFontScroll; // NOVOS PADRÕES DA FONTE
 
 // Variáveis ativas do Layout
-extern int listXV, listYV, listSpcV; // ATIVAS VERTICAIS
-extern int listXH, listYH, listSpcH; // ATIVAS HORIZONTAIS
+extern int listXV, listYV, listSpcV;
+extern int listXH, listYH, listSpcH;
 extern int listW, listH;
 extern int capaX, capaY, capaW, capaH;
 extern int discoX, discoY, discoW, discoH;
@@ -29,6 +30,7 @@ extern int upX, upY, upW, upH;
 extern int fontTam, msgX, msgY, msgTam;
 extern int listOri, listBg;
 extern int barBg, barFill, listMark, listHoverMark;
+extern int fontAlign, fontScroll; // NOVAS VARIÁVEIS DA FONTE
 
 // Estados do modo de edição
 extern bool editMode;

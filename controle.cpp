@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdarg.h>
 #include <string.h>
+#include <orbis/Pad.h> // CORREÇÃO: Biblioteca dos botões adicionada!
 
 #include "controle.h"
 #include "controle_direcional.h"
@@ -34,7 +35,13 @@ extern bool visualizandoMidiaTexto; extern int textoMidiaScroll, totalLinhasText
 extern int estadoNotepad, linhaSelecionada, totalLinhasNotepad; extern bool notepadSomenteLeitura;
 extern bool showUploadOpcoes; extern int selUploadOpcao;
 
-extern int listOri; // VEM DO EDITAR (0 = Vertical, 1 = Horizontal)
+extern int listOri;
+extern int audioH, upH, discoH;
+
+// VARIÁVEIS DE SCROLL COMO EXTERNAS PARA NÃO DAR DUPLICATE SYMBOL
+extern int offAudioOpcao;
+extern int offUploadOpcao;
+extern int offOpcao;
 
 extern void acaoCross_Notepad(int32_t uId, OrbisImeDialogSetting* imeSetting, uint16_t* imeTitle, const char* textoInicial);
 extern void acaoCross_Baixar(int32_t uId, OrbisImeDialogSetting* imeSetting, uint16_t* imeTitle);
@@ -64,20 +71,14 @@ void processarNavegacaoDPad(uint32_t botoes) {
         else cd = 0; if (cd > 0) cd--; return;
     }
 
-    // NAVEGAÇÃO DINÂMICA INTELIGENTE (Esquerda/Direita se for Horizontal)
     bool isHoriz = (listOri == 1 && !showOpcoes && !showUploadOpcoes && menuAtual != MENU_NOTEPAD && menuAtual != MENU_AUDIO_OPCOES);
-
     int btnNext = isHoriz ? ORBIS_PAD_BUTTON_RIGHT : ORBIS_PAD_BUTTON_DOWN;
     int btnPrev = isHoriz ? ORBIS_PAD_BUTTON_LEFT : ORBIS_PAD_BUTTON_UP;
     int btnPanNext = isHoriz ? ORBIS_PAD_BUTTON_DOWN : ORBIS_PAD_BUTTON_RIGHT;
     int btnPanPrev = isHoriz ? ORBIS_PAD_BUTTON_UP : ORBIS_PAD_BUTTON_LEFT;
 
-    // Troca de Painel Explorar
     if (painelDuplo && !showOpcoes && (menuAtual == MENU_EXPLORAR || menuAtual == MENU_EXPLORAR_HOME)) {
-        if (botoes & (btnPanNext | btnPanPrev)) {
-            if (cd <= 0) { painelAtivo = (painelAtivo == 0) ? 1 : 0; cd = 10; }
-            return;
-        }
+        if (botoes & (btnPanNext | btnPanPrev)) { if (cd <= 0) { painelAtivo = (painelAtivo == 0) ? 1 : 0; cd = 10; } return; }
     }
 
     if (botoes & (btnNext | btnPrev)) {
@@ -89,17 +90,38 @@ void processarNavegacaoDPad(uint32_t botoes) {
                 }
             }
             else if (showUploadOpcoes && (menuAtual == MENU_BAIXAR_DROPBOX_UPLOAD || menuAtual == MENU_BAIXAR_DROPBOX_LISTA)) {
-                if (botoes & btnNext) { if (selUploadOpcao < 2) selUploadOpcao++; else selUploadOpcao = 0; }
-                else if (botoes & btnPrev) { if (selUploadOpcao > 0) selUploadOpcao--; else selUploadOpcao = 2; }
+                int maxV = (upH - 50) / 45; if (maxV < 1) maxV = 1;
+                if (botoes & btnNext) {
+                    if (selUploadOpcao < 2) { selUploadOpcao++; if (selUploadOpcao >= offUploadOpcao + maxV) offUploadOpcao++; }
+                    else { selUploadOpcao = 0; offUploadOpcao = 0; }
+                }
+                else if (botoes & btnPrev) {
+                    if (selUploadOpcao > 0) { selUploadOpcao--; if (selUploadOpcao < offUploadOpcao) offUploadOpcao--; }
+                    else { selUploadOpcao = 2; offUploadOpcao = 3 - maxV; if (offUploadOpcao < 0) offUploadOpcao = 0; }
+                }
             }
             else if (showOpcoes) {
                 if (menuAtual == MENU_AUDIO_OPCOES) {
-                    if (botoes & btnNext) { if (selAudioOpcao < 10) selAudioOpcao++; else selAudioOpcao = 0; }
-                    else if (botoes & btnPrev) { if (selAudioOpcao > 0) selAudioOpcao--; else selAudioOpcao = 10; }
+                    int maxV = (audioH - 50) / 45; if (maxV < 1) maxV = 1;
+                    if (botoes & btnNext) {
+                        if (selAudioOpcao < 10) { selAudioOpcao++; if (selAudioOpcao >= offAudioOpcao + maxV) offAudioOpcao++; }
+                        else { selAudioOpcao = 0; offAudioOpcao = 0; }
+                    }
+                    else if (botoes & btnPrev) {
+                        if (selAudioOpcao > 0) { selAudioOpcao--; if (selAudioOpcao < offAudioOpcao) offAudioOpcao--; }
+                        else { selAudioOpcao = 10; offAudioOpcao = 11 - maxV; if (offAudioOpcao < 0) offAudioOpcao = 0; }
+                    }
                 }
                 else {
-                    if (botoes & btnNext) { if (selOpcao < 9) selOpcao++; else selOpcao = 0; }
-                    else if (botoes & btnPrev) { if (selOpcao > 0) selOpcao--; else selOpcao = 9; }
+                    int maxV = (discoH - 80) / 45; if (maxV < 1) maxV = 1;
+                    if (botoes & btnNext) {
+                        if (selOpcao < 9) { selOpcao++; if (selOpcao >= offOpcao + maxV) offOpcao++; }
+                        else { selOpcao = 0; offOpcao = 0; }
+                    }
+                    else if (botoes & btnPrev) {
+                        if (selOpcao > 0) { selOpcao--; if (selOpcao < offOpcao) offOpcao--; }
+                        else { selOpcao = 9; offOpcao = 10 - maxV; if (offOpcao < 0) offOpcao = 0; }
+                    }
                 }
             }
             else {
@@ -109,18 +131,17 @@ void processarNavegacaoDPad(uint32_t botoes) {
 
                 if (botoes & btnNext) {
                     if (*sAtual < (tItens - 1)) { (*sAtual)++; if (*sAtual >= (*oAtual + 6)) (*oAtual)++; }
-                    else if (tItens > 0) { *sAtual = 0; *oAtual = 0; } // LOOP
+                    else if (tItens > 0) { *sAtual = 0; *oAtual = 0; }
                 }
                 else if (botoes & btnPrev) {
                     if (*sAtual > 0) { (*sAtual)--; if (*sAtual < *oAtual) (*oAtual)--; }
-                    else if (tItens > 0) { *sAtual = tItens - 1; *oAtual = tItens - 6; if (*oAtual < 0) *oAtual = 0; } // LOOP
+                    else if (tItens > 0) { *sAtual = tItens - 1; *oAtual = tItens - 6; if (*oAtual < 0) *oAtual = 0; }
                 }
             }
             cd = 10;
         }
     }
     else if (!(botoes & (ORBIS_PAD_BUTTON_LEFT | ORBIS_PAD_BUTTON_RIGHT | ORBIS_PAD_BUTTON_UP | ORBIS_PAD_BUTTON_DOWN))) { cd = 0; }
-
     if (cd > 0) cd--;
 }
 

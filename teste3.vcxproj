@@ -65,6 +65,7 @@
     <ClCompile Include="controle_baixar.cpp" />
     <ClCompile Include="controle_direcional.cpp" />
     <ClCompile Include="controle_editar.cpp" />
+    <ClCompile Include="controle_elementos.cpp" />
     <ClCompile Include="controle_explorar.cpp" />
     <ClCompile Include="controle_musicas.cpp" />
     <ClCompile Include="controle_root.cpp" />
@@ -72,6 +73,7 @@
     <ClCompile Include="criar_pastas.cpp" />
     <ClCompile Include="dowload_sistema.cpp" />
     <ClCompile Include="editar.cpp" />
+    <ClCompile Include="elementos.cpp" />
     <ClCompile Include="explorar.cpp" />
     <ClCompile Include="gestor_de_saves.cpp" />
     <ClCompile Include="graphics.cpp" />
@@ -114,12 +116,14 @@
     <ClInclude Include="controle_baixar.h" />
     <ClInclude Include="controle_direcional.h" />
     <ClInclude Include="controle_editar.h" />
+    <ClInclude Include="controle_elementos.h" />
     <ClInclude Include="controle_explorar.h" />
     <ClInclude Include="controle_musicas.h" />
     <ClInclude Include="controle_root.h" />
     <ClInclude Include="controle_virtual.h" />
     <ClInclude Include="criar_pastas.h" />
     <ClInclude Include="editar.h" />
+    <ClInclude Include="elementos.h" />
     <ClInclude Include="explorar.h" />
     <ClInclude Include="graphics.h" />
     <ClInclude Include="jogar.h" />
