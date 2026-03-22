@@ -4,6 +4,7 @@
 #include "bloco_de_notas.h" 
 #include "menu_audio.h" 
 #include "menu_upload.h" 
+#include "baixar.h" // PRECISAMOS DISSO PARA LER O CONSOLE ATUAL NO RETROARCH
 #include <string.h>
 #include <strings.h>
 #include <stdio.h>
@@ -20,7 +21,7 @@ extern const char* listaOpcoes[10];
 extern char bufferTecladoC[128];
 extern unsigned char* imgPreview;
 
-// VARIÁVEIS DE ASSETS PADRÃO (Vindos do main.cpp)
+// VARIÁVEIS DE ASSETS PADRÃO
 extern unsigned char* defaultArtwork1;
 extern unsigned char* defaultArtwork2;
 extern int wDef1, hDef1;
@@ -56,10 +57,6 @@ extern int totalItensEsq;
 extern MenuLevel menuAtualEsq;
 extern int offEsq;
 
-
-// =========================================================================
-// FUNÇÃO QUE IGNORA MAIÚSCULAS/MINÚSCULAS APENAS PARA O NOME DO ARQUIVO/EXTENSÃO
-// =========================================================================
 unsigned char* carregarMediaCaseInsensitive(const char* pastaPath, const char* nomeProcurado, int* w, int* h, int* c) {
     DIR* d = opendir(pastaPath);
     if (!d) return NULL;
@@ -95,12 +92,9 @@ unsigned char* carregarMediaCaseInsensitive(const char* pastaPath, const char* n
     }
     return NULL;
 }
-// =========================================================================
-
 
 void desenharInterface(uint32_t* p) {
 
-    // VARIÁVEIS DE MÍDIA DINÂMICA
     static char nomeItemAnterior[128] = "";
     static unsigned char* imgBgDinamico = NULL;
     static int dynBgW = 0, dynBgH = 0, dynBgC = 0;
@@ -109,8 +103,28 @@ void desenharInterface(uint32_t* p) {
     static unsigned char* imgDiscoDinamico = NULL;
     static int dynDiscoW = 0, dynDiscoH = 0, dynDiscoC = 0;
 
-    // Se mudou de item, atualiza as 3 imagens da memória!
-    if (strcmp(nomeItemAnterior, nomes[sel]) != 0) {
+    // LÓGICA DO RETROARCH: Mostra o preview das capinhas já baixadas!
+    if (menuAtual == SCRAPER_LIST) {
+        if (strcmp(nomes[sel], ultimoJogoCarregado) != 0) {
+            char cp[512];
+            snprintf(cp, sizeof(cp), "/data/HyperNeiva/baixado/%s/Named_Boxarts/%s.png", listaConsoles[consoleAtual].nome, nomes[sel]);
+
+            FILE* fEx = fopen(cp, "rb");
+            if (fEx) {
+                fclose(fEx);
+                if (imgPreview) stbi_image_free(imgPreview);
+                imgPreview = stbi_load(cp, &wP, &hP, &cP, 4);
+            }
+            else {
+                if (imgPreview) { stbi_image_free(imgPreview); imgPreview = NULL; }
+            }
+
+            // Otimização importante: grava o nome de qualquer jeito pra não travar o PS4 tentando ler arquivo inexistente
+            strncpy(ultimoJogoCarregado, nomes[sel], 63);
+            ultimoJogoCarregado[63] = '\0';
+        }
+    }
+    else if (strcmp(nomeItemAnterior, nomes[sel]) != 0) {
         strcpy(nomeItemAnterior, nomes[sel]);
 
         if (imgBgDinamico) { stbi_image_free(imgBgDinamico); imgBgDinamico = NULL; }
@@ -124,13 +138,10 @@ void desenharInterface(uint32_t* p) {
         }
     }
 
-    // 0.0 DESENHAR BACKGROUND DINÂMICO SOBRE O PADRÃO (Se existir)
     if (menuAtual != MENU_NOTEPAD && imgBgDinamico) {
-        // Redesenha um fundo fullscreen por cima do original
         desenharRedimensionado(p, imgBgDinamico, dynBgW, dynBgH, 1920, 1080, 0, 0);
     }
 
-    // 0.1 DESENHAR LEITOR DE TEXTO E CÓDIGO
     if (visualizandoMidiaTexto && textoMidiaBuffer) {
         for (int i = 0; i < 1920 * 1080; i++) p[i] = 0xFF151515;
         for (int by = 0; by < 80; by++) {
@@ -156,7 +167,6 @@ void desenharInterface(uint32_t* p) {
         return;
     }
 
-    // 0.2 DESENHAR IMAGEM
     if (visualizandoMidiaImagem && imgMidia) {
         for (int i = 0; i < 1920 * 1080; i++) p[i] = 0xFF000000;
 
@@ -198,7 +208,6 @@ void desenharInterface(uint32_t* p) {
         return;
     }
 
-    // 1. DESENHAR LISTA DE ITENS
     if (menuAtual != MENU_NOTEPAD) {
 
         int paineisDesenhar = painelDuplo ? 2 : 1;
@@ -250,6 +259,7 @@ void desenharInterface(uint32_t* p) {
                 uint32_t corFundo = isPainelAtivo ? 0xAA222222 : 0xAA111111;
                 uint32_t corTexto = isPainelAtivo ? 0xFFFFFFFF : 0xFFAAAAAA;
 
+                // RETIREI A COR AMARELA DO SCRAPER AQUI
                 bool isMarcado = (mAtual == MENU_EXPLORAR || mAtual == MENU_BAIXAR_DROPBOX_LISTA || mAtual == MENU_BAIXAR_DROPBOX_UPLOAD) && mItems[gIdx];
 
                 if (isMarcado) {
@@ -275,12 +285,10 @@ void desenharInterface(uint32_t* p) {
         }
     }
 
-    // 2. DESENHAR O BLOCO DE NOTAS (NOTEPAD)
     if (menuAtual == MENU_NOTEPAD || menuAtualEsq == MENU_NOTEPAD) {
         renderizarNotepad(p);
     }
 
-    // 3. BREADCRUMBS E IMAGENS (Artworks)
     if (menuAtual == SCRAPER_LIST && imgPreview) {
         desenharRedimensionado(p, imgPreview, wP, hP, capaW, capaH, capaX, capaY);
     }
@@ -298,7 +306,6 @@ void desenharInterface(uint32_t* p) {
         }
     }
     else {
-        // EXIBE A CAPINHA (Dinâmica ou Default 1)
         if (imgCapaDinamica) {
             desenharRedimensionado(p, imgCapaDinamica, dynCapaW, dynCapaH, capaW, capaH, capaX, capaY);
         }
@@ -306,7 +313,6 @@ void desenharInterface(uint32_t* p) {
             if (defaultArtwork1) desenharRedimensionado(p, defaultArtwork1, wDef1, hDef1, capaW, capaH, capaX, capaY);
         }
 
-        // EXIBE O DISCO (Dinâmico ou Default 2)
         if (imgDiscoDinamico) {
             desenharDiscoRedondo(p, imgDiscoDinamico, dynDiscoW, dynDiscoH, discoW, discoH, discoX, discoY);
         }
@@ -315,7 +321,6 @@ void desenharInterface(uint32_t* p) {
         }
     }
 
-    // 4. DESENHAR MENU SUSPENSO (OPÇÕES DO EXPLORADOR)
     if (showOpcoes && menuAtual != MENU_AUDIO_OPCOES) {
         for (int my = 0; my < 500; my++) for (int mx = 0; mx < 350; mx++) {
             int pxX = discoX + mx; int pyY = discoY - 100 + my; if (pxX >= 0 && pxX < 1920 && pyY >= 0 && pyY < 1080) p[pyY * 1920 + pxX] = 0xEE111111;
@@ -326,10 +331,7 @@ void desenharInterface(uint32_t* p) {
         }
     }
 
-    // 5. DESENHAR MENU SUSPENSO (OPÇÕES DE ÁUDIO)
     desenharMenuAudio(p);
-
-    // 6. DESENHAR MENU SUSPENSO (OPÇÕES DE UPLOAD) 
     desenharMenuUpload(p);
 
     if (msgTimer > 0) {

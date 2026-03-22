@@ -94,7 +94,7 @@ set asset_fonts_files=
 for %%f in (assets\fonts\*) do set asset_fonts_files=!asset_fonts_files! assets/fonts/%%~nxf
 
 :: 6. CRIACAO DO GP4 E BUILD DO PKG
-"C:\OpenOrbis\bin\windows\create-gp4.exe" -out pkg.gp4 --content-id=UP0001-TEST00021_00-0000000000000000 --files "eboot.bin sce_sys/param.sfo sce_sys/icon0.png sce_module/libc.prx sce_module/libSceFios2.prx assets/lista.xml assets/sp.xml assets/Sega_Master_System.xml assets/dropbox_token.txt !asset_images_files! !asset_fonts_files!"
+"C:\OpenOrbis\bin\windows\create-gp4.exe" -out pkg.gp4 --content-id=UP0001-TEST00021_00-0000000000000000 --files "eboot.bin sce_sys/param.sfo sce_sys/icon0.png sce_module/libc.prx sce_module/libSceFios2.prx assets/lista.xml assets/sp.xml assets/Sega_Master_System.xml !asset_images_files! !asset_fonts_files!"
 
 "C:\OpenOrbis\bin\windows\PkgTool.Core.exe" pkg_build pkg.gp4 .
 

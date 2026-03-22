@@ -42,6 +42,7 @@ char musicaAtual[256] = "PARADO";
 
 // GLOBAL: Mapeia o caminho absoluto de cada música do menu
 char caminhosMusicasMenu[3000][256];
+char caminhoNavegacaoMusicas[512] = "/data/HyperNeiva/Musicas";
 
 enum AudioType { AUDIO_NONE, AUDIO_WAV, AUDIO_MP3 };
 
@@ -85,11 +86,10 @@ void carregarConfiguracaoAudio() {
 }
 
 // ==========================================
-// FUNÇÕES DE BUSCA RECURSIVA DE MÚSICAS
+// FUNÇÕES DE BUSCA RECURSIVA DE MÚSICAS PARA A FILA
 // ==========================================
 #define MAX_PLAYLIST 2000
 
-// Busca as músicas para a Playlist de fundo
 void scanPlaylistRecursivo(const char* basePath, char (*lista)[256], int* total) {
     DIR* d = opendir(basePath);
     if (!d) return;
@@ -101,6 +101,7 @@ void scanPlaylistRecursivo(const char* basePath, char (*lista)[256], int* total)
         snprintf(fullPath, sizeof(fullPath), "%s/%s", basePath, dir->d_name);
 
         struct stat st;
+        // CORREÇÃO: Usando stat para garantir que detecta as pastas no PS4
         if (dir->d_type == DT_DIR || (dir->d_type == DT_UNKNOWN && stat(fullPath, &st) == 0 && S_ISDIR(st.st_mode))) {
             scanPlaylistRecursivo(fullPath, lista, total);
         }
@@ -117,7 +118,6 @@ void scanPlaylistRecursivo(const char* basePath, char (*lista)[256], int* total)
 }
 
 static bool obterProximaMusica(char* proximaMusicaPath) {
-    // Usa malloc para não estourar a memória RAM da thread no PS4
     char (*listaAudios)[256] = (char (*)[256])malloc(MAX_PLAYLIST * 256);
     if (!listaAudios) return false;
 
@@ -129,7 +129,7 @@ static bool obterProximaMusica(char* proximaMusicaPath) {
         return false;
     }
 
-    // Ordena alfabeticamente para seguir a mesma lógica de pastas
+    // Ordena alfabeticamente
     for (int i = 0; i < totalAudios - 1; i++) {
         for (int j = i + 1; j < totalAudios; j++) {
             if (strcasecmp(listaAudios[i], listaAudios[j]) > 0) {
@@ -143,7 +143,6 @@ static bool obterProximaMusica(char* proximaMusicaPath) {
 
     int idx = -1;
     for (int i = 0; i < totalAudios; i++) {
-        // Agora compara com o caminho inteiro!
         if (strcmp(listaAudios[i], musicaAtual) == 0) { idx = i; break; }
     }
 
@@ -311,7 +310,6 @@ static void* audioThreadFunc(void* argp) {
                 else if (currentAudioType == AUDIO_MP3) drmp3_seek_to_pcm_frame(&mp3, 0);
                 currentFrame = 0;
             }
-            // Checa se é arquivo do HyperNeiva pra avançar a playlist
             else if (strstr(musicaAtual, "/data/HyperNeiva/Musicas/") != NULL) {
                 char proxima[256];
                 if (obterProximaMusica(proxima)) {
@@ -387,9 +385,7 @@ void tocarMusicaNova(const char* path) {
         comandoTrocar = false;
         return;
     }
-    // O controle agora já manda o caminho completo!
     strcpy(musicaAtual, path);
-
     salvarConfiguracaoAudio();
     comandoPausar = false;
     comandoTrocar = true;
@@ -411,67 +407,92 @@ void tocarMusicaAnterior() {
     }
 }
 
-// Busca as músicas para o Menu do Player de forma recursiva
-void coletarMusicasMenuRecursivo(const char* basePath) {
-    DIR* d = opendir(basePath);
-    if (!d) return;
-    struct dirent* dir;
-    while ((dir = readdir(d)) != NULL && totalItens < 3000) {
-        if (strcmp(dir->d_name, ".") == 0 || strcmp(dir->d_name, "..") == 0) continue;
+struct ItemAudioTemp {
+    char nome[64];
+    char path[256];
+    bool ehPasta;
+};
 
-        char fullPath[512];
-        snprintf(fullPath, sizeof(fullPath), "%s/%s", basePath, dir->d_name);
-
-        struct stat st;
-        if (dir->d_type == DT_DIR || (dir->d_type == DT_UNKNOWN && stat(fullPath, &st) == 0 && S_ISDIR(st.st_mode))) {
-            coletarMusicasMenuRecursivo(fullPath);
-        }
-        else {
-            if (strstr(dir->d_name, ".wav") || strstr(dir->d_name, ".WAV") ||
-                strstr(dir->d_name, ".mp3") || strstr(dir->d_name, ".MP3")) {
-
-                // Salva só o nome para o menu
-                strncpy(nomes[totalItens], dir->d_name, 63);
-                nomes[totalItens][63] = '\0';
-
-                // Salva o caminho oculto na nova variável global
-                strncpy(caminhosMusicasMenu[totalItens], fullPath, 255);
-                caminhosMusicasMenu[totalItens][255] = '\0';
-
-                totalItens++;
-            }
-        }
-    }
-    closedir(d);
-}
-
+// =========================================================================
+// NOVA LÓGICA DE LISTAGEM: Com verificação rigorosa (stat) para pastas!
+// =========================================================================
 void preencherMenuMusicas() {
     memset(nomes, 0, sizeof(nomes));
     memset(caminhosMusicasMenu, 0, sizeof(caminhosMusicasMenu));
     totalItens = 0;
 
-    strcpy(nomes[totalItens], "PARAR MUSICA");
-    strcpy(caminhosMusicasMenu[totalItens], "PARADO");
-    totalItens++;
+    if (strcmp(caminhoNavegacaoMusicas, "/data/HyperNeiva/Musicas") == 0) {
+        strcpy(nomes[totalItens], "PARAR MUSICA");
+        strcpy(caminhosMusicasMenu[totalItens], "PARADO");
+        totalItens++;
+    }
 
-    coletarMusicasMenuRecursivo("/data/HyperNeiva/Musicas");
+    struct ItemAudioTemp temp[3000];
+    int count = 0;
 
-    // Ordenar o menu (ignorando a opção 0 que é o PARAR MUSICA)
-    for (int i = 1; i < totalItens - 1; i++) {
-        for (int j = i + 1; j < totalItens; j++) {
-            if (strcasecmp(nomes[i], nomes[j]) > 0) {
-                char tempNome[64];
-                char tempPath[256];
+    DIR* d = opendir(caminhoNavegacaoMusicas);
+    if (d) {
+        struct dirent* dir;
+        while ((dir = readdir(d)) != NULL && count < 2900) {
+            if (strcmp(dir->d_name, ".") == 0 || strcmp(dir->d_name, "..") == 0) continue;
 
-                strcpy(tempNome, nomes[i]);
-                strcpy(nomes[i], nomes[j]);
-                strcpy(nomes[j], tempNome);
+            char fullPath[512];
+            snprintf(fullPath, sizeof(fullPath), "%s/%s", caminhoNavegacaoMusicas, dir->d_name);
 
-                strcpy(tempPath, caminhosMusicasMenu[i]);
-                strcpy(caminhosMusicasMenu[i], caminhosMusicasMenu[j]);
-                strcpy(caminhosMusicasMenu[j], tempPath);
+            struct stat st;
+
+            // CORREÇÃO: Usando a mesma verificação forte do Explorador!
+            if (dir->d_type == DT_DIR || (dir->d_type == DT_UNKNOWN && stat(fullPath, &st) == 0 && S_ISDIR(st.st_mode))) {
+                strncpy(temp[count].nome, dir->d_name, 63);
+                temp[count].nome[63] = '\0';
+                temp[count].ehPasta = true;
+                snprintf(temp[count].path, 255, "%s", fullPath);
+                count++;
+            }
+            else {
+                if (strstr(dir->d_name, ".wav") || strstr(dir->d_name, ".WAV") ||
+                    strstr(dir->d_name, ".mp3") || strstr(dir->d_name, ".MP3")) {
+                    strncpy(temp[count].nome, dir->d_name, 63);
+                    temp[count].nome[63] = '\0';
+                    temp[count].ehPasta = false;
+                    snprintf(temp[count].path, 255, "%s", fullPath);
+                    count++;
+                }
             }
         }
+        closedir(d);
+    }
+
+    // Ordenação: Pastas Primeiro, Arquivos Depois (em Ordem Alfabética!)
+    for (int i = 0; i < count - 1; i++) {
+        for (int j = 0; j < count - i - 1; j++) {
+            bool trocar = false;
+
+            if (!temp[j].ehPasta && temp[j + 1].ehPasta) {
+                trocar = true;
+            }
+            else if (temp[j].ehPasta == temp[j + 1].ehPasta && strcasecmp(temp[j].nome, temp[j + 1].nome) > 0) {
+                trocar = true;
+            }
+
+            if (trocar) {
+                ItemAudioTemp aux = temp[j];
+                temp[j] = temp[j + 1];
+                temp[j + 1] = aux;
+            }
+        }
+    }
+
+    // Transfere a lista organizada para os arrays do Menu
+    for (int i = 0; i < count; i++) {
+        if (temp[i].ehPasta) {
+            snprintf(nomes[totalItens], 64, "[%s]", temp[i].nome);
+        }
+        else {
+            strcpy(nomes[totalItens], temp[i].nome);
+        }
+        strcpy(caminhosMusicasMenu[totalItens], temp[i].path);
+        totalItens++;
     }
 
     menuAtual = MENU_MUSICAS;

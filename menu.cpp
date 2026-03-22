@@ -8,7 +8,7 @@ char nomes[3000][64];
 int totalItens = 0;
 int sel = 0;
 int off = 0;
-int offEsq = 0; // <-- AQUI ESTÁ A CORREÇÃO DO UNDEFINED SYMBOL!
+int offEsq = 0;
 
 char msgStatus[128] = "SISTEMA PRONTO";
 int msgTimer = 0;
@@ -22,8 +22,7 @@ void preencherRoot() {
     strcpy(nomes[2], "BAIXAR");
     strcpy(nomes[3], "EDITAR");
     strcpy(nomes[4], "EXPLORAR");
-    strcpy(nomes[5], "MUSICAS");
-    totalItens = 6;
+    totalItens = 5; // Removido o item MUSICAS da tela inicial
     menuAtual = ROOT;
 }
 

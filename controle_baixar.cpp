@@ -77,7 +77,14 @@ void acaoCross_Baixar(int32_t uId, OrbisImeDialogSetting* imeSetting, uint16_t* 
             off = 0;
         }
     }
-    else if (menuAtual == MENU_CONSOLES) { consoleAtual = sel; acaoRede(NULL, true, false); }
+    else if (menuAtual == MENU_CONSOLES) {
+        consoleAtual = sel;
+        acaoRede(NULL, true, false);
+    }
+    // --- CORREÇÃO: O comando que salva a capa no HD quando clica nela na lista do scraper! ---
+    else if (menuAtual == SCRAPER_LIST) {
+        acaoRede(nomes[sel], false, true);
+    }
 }
 
 void acaoCircle_Baixar() {
