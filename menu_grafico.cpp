@@ -5,7 +5,10 @@
 #include "menu_audio.h" 
 #include "menu_upload.h" 
 #include <string.h>
+#include <strings.h>
 #include <stdio.h>
+#include <dirent.h>
+#include "stb_image.h"
 
 extern bool editMode;
 extern bool showOpcoes;
@@ -15,14 +18,17 @@ extern bool marcados[3000];
 extern const char* listaOpcoes[10];
 
 extern char bufferTecladoC[128];
-extern unsigned char* capasAssets[6];
-extern unsigned char* discosAssets[6];
 extern unsigned char* imgPreview;
+
+// VARIÁVEIS DE ASSETS PADRÃO (Vindos do main.cpp)
+extern unsigned char* defaultArtwork1;
+extern unsigned char* defaultArtwork2;
+extern int wDef1, hDef1;
+extern int wDef2, hDef2;
 
 extern int listX, listY, listW, listH;
 extern int capaX, capaY, capaW, capaH;
 extern int discoX, discoY, discoW, discoH;
-extern int wC[6], hC[6], wD[6], hD[6];
 extern int wP, hP;
 
 // VARIÁVEIS DA IMAGEM
@@ -51,7 +57,78 @@ extern MenuLevel menuAtualEsq;
 extern int offEsq;
 
 
+// =========================================================================
+// FUNÇÃO QUE IGNORA MAIÚSCULAS/MINÚSCULAS APENAS PARA O NOME DO ARQUIVO/EXTENSÃO
+// =========================================================================
+unsigned char* carregarMediaCaseInsensitive(const char* pastaPath, const char* nomeProcurado, int* w, int* h, int* c) {
+    DIR* d = opendir(pastaPath);
+    if (!d) return NULL;
+
+    struct dirent* dir;
+    char caminhoEncontrado[1024] = "";
+    bool achou = false;
+
+    while ((dir = readdir(d)) != NULL) {
+        if (strcmp(dir->d_name, ".") == 0 || strcmp(dir->d_name, "..") == 0) continue;
+
+        const char* dot = strrchr(dir->d_name, '.');
+        if (dot) {
+            int lenNome = dot - dir->d_name;
+            char nomeBase[256];
+            if (lenNome >= sizeof(nomeBase)) lenNome = sizeof(nomeBase) - 1;
+            strncpy(nomeBase, dir->d_name, lenNome);
+            nomeBase[lenNome] = '\0';
+
+            if (strcasecmp(nomeBase, nomeProcurado) == 0) {
+                if (strcasecmp(dot, ".png") == 0 || strcasecmp(dot, ".jpg") == 0 || strcasecmp(dot, ".jpeg") == 0) {
+                    snprintf(caminhoEncontrado, sizeof(caminhoEncontrado), "%s/%s", pastaPath, dir->d_name);
+                    achou = true;
+                    break;
+                }
+            }
+        }
+    }
+    closedir(d);
+
+    if (achou) {
+        return stbi_load(caminhoEncontrado, w, h, c, 4);
+    }
+    return NULL;
+}
+// =========================================================================
+
+
 void desenharInterface(uint32_t* p) {
+
+    // VARIÁVEIS DE MÍDIA DINÂMICA
+    static char nomeItemAnterior[128] = "";
+    static unsigned char* imgBgDinamico = NULL;
+    static int dynBgW = 0, dynBgH = 0, dynBgC = 0;
+    static unsigned char* imgCapaDinamica = NULL;
+    static int dynCapaW = 0, dynCapaH = 0, dynCapaC = 0;
+    static unsigned char* imgDiscoDinamico = NULL;
+    static int dynDiscoW = 0, dynDiscoH = 0, dynDiscoC = 0;
+
+    // Se mudou de item, atualiza as 3 imagens da memória!
+    if (strcmp(nomeItemAnterior, nomes[sel]) != 0) {
+        strcpy(nomeItemAnterior, nomes[sel]);
+
+        if (imgBgDinamico) { stbi_image_free(imgBgDinamico); imgBgDinamico = NULL; }
+        if (imgCapaDinamica) { stbi_image_free(imgCapaDinamica); imgCapaDinamica = NULL; }
+        if (imgDiscoDinamico) { stbi_image_free(imgDiscoDinamico); imgDiscoDinamico = NULL; }
+
+        if (strlen(nomeItemAnterior) > 0) {
+            imgBgDinamico = carregarMediaCaseInsensitive("/data/HyperNeiva/midia/imagens/Games/Background", nomeItemAnterior, &dynBgW, &dynBgH, &dynBgC);
+            imgCapaDinamica = carregarMediaCaseInsensitive("/data/HyperNeiva/midia/imagens/Games/Artwork1", nomeItemAnterior, &dynCapaW, &dynCapaH, &dynCapaC);
+            imgDiscoDinamico = carregarMediaCaseInsensitive("/data/HyperNeiva/midia/imagens/Games/Artwork2", nomeItemAnterior, &dynDiscoW, &dynDiscoH, &dynDiscoC);
+        }
+    }
+
+    // 0.0 DESENHAR BACKGROUND DINÂMICO SOBRE O PADRÃO (Se existir)
+    if (menuAtual != MENU_NOTEPAD && imgBgDinamico) {
+        // Redesenha um fundo fullscreen por cima do original
+        desenharRedimensionado(p, imgBgDinamico, dynBgW, dynBgH, 1920, 1080, 0, 0);
+    }
 
     // 0.1 DESENHAR LEITOR DE TEXTO E CÓDIGO
     if (visualizandoMidiaTexto && textoMidiaBuffer) {
@@ -127,7 +204,7 @@ void desenharInterface(uint32_t* p) {
         int paineisDesenhar = painelDuplo ? 2 : 1;
 
         for (int painelIndex = 0; painelIndex < paineisDesenhar; painelIndex++) {
-            int refPainel = painelDuplo ? painelIndex : 1; // 0 = Esq, 1 = Dir
+            int refPainel = painelDuplo ? painelIndex : 1;
 
             int sAtual = (refPainel == 0) ? selEsq : sel;
             int oAtual = (refPainel == 0) ? offEsq : off;
@@ -136,7 +213,6 @@ void desenharInterface(uint32_t* p) {
             bool* mItems = (refPainel == 0) ? marcadosEsq : marcados;
             MenuLevel mAtual = (refPainel == 0) ? menuAtualEsq : menuAtual;
 
-            // --- GARANTIA DE PREENCHIMENTO DO MENU HOME ---
             if (mAtual == MENU_EXPLORAR_HOME && tItens <= 0) {
                 strcpy(nItems[0], "Hyper Neiva");
                 strcpy(nItems[1], "Raiz");
@@ -146,28 +222,23 @@ void desenharInterface(uint32_t* p) {
                 if (refPainel == 0) totalItensEsq = 4; else totalItens = 4;
             }
 
-            // =========================================================
-            // CONFIGURAÇÃO DA LARGURA DA BARRA DE FUNDO (PAINEL DUPLO)
-            // Se a barra ficar longa demais, diminua o valor abaixo (ex: 600, 500)
             int larguraBarraDupla = 750;
-            // =========================================================
-
             int posX;
             int larguraItem;
 
             if (painelDuplo) {
-                if (refPainel == 0) { // PAINEL ESQUERDO
-                    posX = capaX; // Vai para a posição da capinha
-                    larguraItem = larguraBarraDupla; // Fica com o tamanho definido acima
+                if (refPainel == 0) {
+                    posX = capaX;
+                    larguraItem = larguraBarraDupla;
                 }
-                else { // PAINEL DIREITO
-                    posX = listX; // Fica na posição do menu original
-                    larguraItem = larguraBarraDupla; // Fica igual ao painel esquerdo para ficar simétrico
+                else {
+                    posX = listX;
+                    larguraItem = larguraBarraDupla;
                 }
             }
-            else { // MODO NORMAL (TELA ÚNICA)
+            else {
                 posX = listX;
-                larguraItem = listW; // No modo normal, usa a largura original do seu app
+                larguraItem = listW;
             }
 
             for (int i = 0; i < 6; i++) {
@@ -175,7 +246,6 @@ void desenharInterface(uint32_t* p) {
 
                 int yP = listY + (i * 120);
 
-                // Painel inativo fica mais escuro
                 bool isPainelAtivo = (!painelDuplo || painelAtivo == refPainel);
                 uint32_t corFundo = isPainelAtivo ? 0xAA222222 : 0xAA111111;
                 uint32_t corTexto = isPainelAtivo ? 0xFFFFFFFF : 0xFFAAAAAA;
@@ -183,17 +253,16 @@ void desenharInterface(uint32_t* p) {
                 bool isMarcado = (mAtual == MENU_EXPLORAR || mAtual == MENU_BAIXAR_DROPBOX_LISTA || mAtual == MENU_BAIXAR_DROPBOX_UPLOAD) && mItems[gIdx];
 
                 if (isMarcado) {
-                    corFundo = isPainelAtivo ? 0xAAFFFF99 : 0xAA999933; // Amarelo marcado
+                    corFundo = isPainelAtivo ? 0xAAFFFF99 : 0xAA999933;
                 }
 
                 if (gIdx == sAtual) {
                     if (isPainelAtivo) {
-                        if (isMarcado) corFundo = 0xFF00FF00; // Verde
-                        else corFundo = 0xFF00AAFF; // Azul Normal
+                        if (isMarcado) corFundo = 0xFF00FF00;
+                        else corFundo = 0xFF00AAFF;
                         corTexto = 0xFF000000;
                     }
                     else {
-                        // Cursor no painel inativo
                         corFundo = 0xAA555555;
                     }
                 }
@@ -211,13 +280,8 @@ void desenharInterface(uint32_t* p) {
         renderizarNotepad(p);
     }
 
-    // 3. DESENHAR AS IMAGENS E BREADCRUMBS
-    if (menuAtual == JOGAR_XML || editMode) {
-        int idx = sel % 6;
-        if (capasAssets[idx]) desenharRedimensionado(p, capasAssets[idx], wC[idx], hC[idx], capaW, capaH, capaX, capaY);
-        if (discosAssets[idx]) desenharDiscoRedondo(p, discosAssets[idx], wD[idx], hD[idx], discoW, discoH, discoX, discoY);
-    }
-    else if (menuAtual == SCRAPER_LIST && imgPreview) {
+    // 3. BREADCRUMBS E IMAGENS (Artworks)
+    if (menuAtual == SCRAPER_LIST && imgPreview) {
         desenharRedimensionado(p, imgPreview, wP, hP, capaW, capaH, capaX, capaY);
     }
     else if (menuAtual == MENU_EXPLORAR || (painelDuplo && menuAtualEsq == MENU_EXPLORAR)) {
@@ -226,12 +290,28 @@ void desenharInterface(uint32_t* p) {
             desenharTexto(p, bread, 30, listX, 1020, 0xFFFFFFFF);
         }
         else {
-            // Ajustamos a posição do texto com os caminhos
             char breadEsq[300]; sprintf(breadEsq, "ESQ: %s", pathExplorarEsq);
             desenharTexto(p, breadEsq, 25, capaX, 1020, (painelAtivo == 0) ? 0xFF00AAFF : 0xFFAAAAAA);
 
             char breadDir[300]; sprintf(breadDir, "DIR: %s", pathExplorar);
             desenharTexto(p, breadDir, 25, listX, 1020, (painelAtivo == 1) ? 0xFF00AAFF : 0xFFAAAAAA);
+        }
+    }
+    else {
+        // EXIBE A CAPINHA (Dinâmica ou Default 1)
+        if (imgCapaDinamica) {
+            desenharRedimensionado(p, imgCapaDinamica, dynCapaW, dynCapaH, capaW, capaH, capaX, capaY);
+        }
+        else if (menuAtual == JOGAR_XML || editMode) {
+            if (defaultArtwork1) desenharRedimensionado(p, defaultArtwork1, wDef1, hDef1, capaW, capaH, capaX, capaY);
+        }
+
+        // EXIBE O DISCO (Dinâmico ou Default 2)
+        if (imgDiscoDinamico) {
+            desenharDiscoRedondo(p, imgDiscoDinamico, dynDiscoW, dynDiscoH, discoW, discoH, discoX, discoY);
+        }
+        else if (menuAtual == JOGAR_XML || editMode) {
+            if (defaultArtwork2) desenharDiscoRedondo(p, defaultArtwork2, wDef2, hDef2, discoW, discoH, discoX, discoY);
         }
     }
 

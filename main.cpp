@@ -7,7 +7,6 @@
 #include <wchar.h>
 #include <stdint.h>
 
-// Forçar Intellisense a ignorar funções da libc
 #ifdef __INTELLISENSE__
 #ifndef __builtin_va_list
 #define __builtin_va_list void*
@@ -31,7 +30,7 @@
 #include "jogar.h"
 #include "audio.h"
 #include "graphics.h"
-#include "controle.h" // AQUI TEM QUE SER .H
+#include "controle.h"
 #include "criar_pastas.h"
 #include "bloco_de_notas.h" 
 
@@ -45,8 +44,14 @@ bool tecladoAtivo = false;
 uint16_t* bufferTecladoW = NULL;
 char bufferTecladoC[128] = "";
 
-unsigned char* capasAssets[6], * discosAssets[6], * backImg = NULL;
-int wC[6], hC[6], cC[6], wD[6], hD[6], cD[6], wB, hB, cB;
+// NOVAS VARIÁVEIS DE MÍDIA PADRÃO
+unsigned char* backImg = NULL;
+unsigned char* defaultArtwork1 = NULL;
+unsigned char* defaultArtwork2 = NULL;
+
+int wB, hB, cB;
+int wDef1, hDef1, cDef1;
+int wDef2, hDef2, cDef2;
 
 extern const char* listaOpcoesAudio[11];
 extern void abrirMenuAudioOpcoes();
@@ -56,7 +61,6 @@ int main(void) {
     initNetwork();
     inicializarAudio();
 
-    // Inicialização dos Diálogos de Sistema
     sceSysmoduleLoadModuleInternal(ORBIS_SYSMODULE_INTERNAL_COMMON_DIALOG);
     sceSysmoduleLoadModule(ORBIS_SYSMODULE_IME_DIALOG);
     sceCommonDialogInitialize();
@@ -66,7 +70,6 @@ int main(void) {
 
     inicializarVideo();
 
-    // Memória para o ImeDialog padrão
     off_t imePh;
     void* imeVm = NULL;
     sceKernelAllocateDirectMemory(0, sceKernelGetDirectMemorySize(), 2097152, 2097152, 2, &imePh);
@@ -81,7 +84,7 @@ int main(void) {
     inicializarPastas();
     carregarConfiguracao();
 
-    // Carregamento de fontes e imagens
+    // Carregamento de fontes
     int fd = sceKernelOpen("/app0/assets/fonts/font.ttf", 0, 0);
     if (fd >= 0) {
         off_t fs = sceKernelLseek(fd, 0, 2); sceKernelLseek(fd, 0, 0);
@@ -92,11 +95,20 @@ int main(void) {
         sceKernelRead(fd, ttf, fs); sceKernelClose(fd);
         temF = stbtt_InitFont(&font, ttf, 0);
     }
-    backImg = stbi_load("/app0/assets/images/background.png", &wB, &hB, &cB, 4);
-    for (int i = 0; i < 6; i++) {
-        char pC[128], pD[128]; sprintf(pC, "/app0/assets/images/capa%d.png", i + 1); sprintf(pD, "/app0/assets/images/disco%d.png", i + 1);
-        capasAssets[i] = stbi_load(pC, &wC[i], &hC[i], &cC[i], 4); discosAssets[i] = stbi_load(pD, &wD[i], &hD[i], &cD[i], 4);
-    }
+
+    // CARREGANDO O BACKGROUND (Tenta PNG e JPG)
+    backImg = stbi_load("/data/HyperNeiva/configuracao/0_Defalt_Background.png", &wB, &hB, &cB, 4);
+    if (!backImg) backImg = stbi_load("/data/HyperNeiva/configuracao/0_Defalt_Background.jpg", &wB, &hB, &cB, 4);
+    if (!backImg) backImg = stbi_load("/app0/assets/images/0_Defalt_Background.png", &wB, &hB, &cB, 4);
+    if (!backImg) backImg = stbi_load("/app0/assets/images/0_Defalt_Background.jpg", &wB, &hB, &cB, 4);
+
+    // CARREGANDO ARTWORK 1
+    defaultArtwork1 = stbi_load("/data/HyperNeiva/configuracao/0_Defalt_Artwork1.png", &wDef1, &hDef1, &cDef1, 4);
+    if (!defaultArtwork1) defaultArtwork1 = stbi_load("/app0/assets/images/0_Defalt_Artwork1.png", &wDef1, &hDef1, &cDef1, 4);
+
+    // CARREGANDO ARTWORK 2
+    defaultArtwork2 = stbi_load("/data/HyperNeiva/configuracao/0_Defalt_Artwork2.png", &wDef2, &hDef2, &cDef2, 4);
+    if (!defaultArtwork2) defaultArtwork2 = stbi_load("/app0/assets/images/0_Defalt_Artwork2.png", &wDef2, &hDef2, &cDef2, 4);
 
     preencherRoot();
 
@@ -105,7 +117,9 @@ int main(void) {
         OrbisPadData pData; scePadReadState(pad, &pData);
         uint32_t* p = obterBufferVideo();
         for (int i = 0; i < 1920 * 1080; i++) p[i] = 0xFF121212;
-        if (backImg) desenharRedimensionado(p, backImg, wB, hB, backW, backH, backX, backY);
+
+        // CORRIGIDO: Força o desenho da imagem em 1920x1080 na posição X:0 Y:0
+        if (backImg) desenharRedimensionado(p, backImg, wB, hB, 1920, 1080, 0, 0);
 
         atualizarImePasta();
 
