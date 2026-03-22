@@ -21,6 +21,7 @@
 
 // IMPORTANDO AS VARIÁVEIS DE EDIÇÃO DA BARRA
 extern int barX, barY, barW, barH;
+extern int barBg, barFill;
 
 extern uint32_t* obterBufferVideo();
 extern void desenharInterface(uint32_t* p);
@@ -48,6 +49,17 @@ int totalLinksAtuais = 0;
 char currentDropboxPath[512] = "";
 char currentUploadPath[512] = "";
 
+// FUNÇÃO GERADORA DE CORES DA PALETA (Idêntica à da Interface Visual)
+uint32_t getSysColorBarra(int index) {
+    uint32_t sysColors[] = {
+        0xAA222222, 0xAA000000, 0xAA000044, 0xAA440000, 0xAA004400, 0x00000000,
+        0xFF444444, 0xFF00D83A, 0xAAFFFF99, 0xFF00FF00, 0xFF00AAFF, 0xAA999933,
+        0xFFFFFFFF, 0xFFFF0000, 0xFF0000FF
+    };
+    if (index < 0 || index > 14) return sysColors[0];
+    return sysColors[index];
+}
+
 void atualizarBarra(float progresso) {
     atualizarBarra(progresso, 1, 1);
 }
@@ -63,15 +75,15 @@ void atualizarBarra(float progresso, int arquivoAtual, int totalArquivos) {
 
     desenharInterface(p);
 
-    // USANDO AS VARIÁVEIS DE EDIÇÃO AGORA
     int bX = barX;
     int bY = barY;
     int bW = barW;
     int bH = barH;
 
+    // Fundo da Barra
     for (int y = bY; y < bY + bH; y++) {
         for (int x = bX; x < bX + bW; x++) {
-            p[y * 1920 + x] = 0xFF444444;
+            p[y * 1920 + x] = getSysColorBarra(barBg);
         }
     }
 
@@ -79,9 +91,10 @@ void atualizarBarra(float progresso, int arquivoAtual, int totalArquivos) {
     if (fill > bW) fill = bW;
     if (fill < 0) fill = 0;
 
+    // Preenchimento da Barra
     for (int y = bY; y < bY + bH; y++) {
         for (int x = bX; x < bX + fill; x++) {
-            p[y * 1920 + x] = 0xFF00D83A;
+            p[y * 1920 + x] = getSysColorBarra(barFill);
         }
     }
 
@@ -92,7 +105,6 @@ void atualizarBarra(float progresso, int arquivoAtual, int totalArquivos) {
     char textoLoad[128];
     snprintf(textoLoad, sizeof(textoLoad), "%d%%   -   %d / %d", porcentagem, arquivoAtual, totalArquivos);
 
-    // O texto acompanhará a barra automaticamente!
     desenharTexto(p, textoLoad, 25, bX + bW + 20, bY - 2, 0xFFFFFFFF);
 
     submeterTela();
