@@ -1,3 +1,9 @@
+#ifdef __INTELLISENSE__
+#ifndef __builtin_va_list
+#define __builtin_va_list void*
+#endif
+#endif
+
 #include "baixar.h"
 #include "network.h"
 #include "menu.h"
@@ -15,7 +21,6 @@ extern uint32_t* obterBufferVideo();
 extern void desenharInterface(uint32_t* p);
 extern void submeterTela();
 
-// VARIÁVEIS DO BACKGROUND (vindas do main.cpp)
 extern unsigned char* backImg;
 extern int wB, hB;
 
@@ -31,21 +36,26 @@ int consoleAtual = 0;
 unsigned char* imgPreview = NULL;
 int wP = 0, hP = 0, cP = 0;
 char ultimoJogoCarregado[64] = "";
-char caminhoXMLAtual[256];
+char caminhoXMLAtual[256] = "";
 char linksAtuais[3000][1024];
 int totalLinksAtuais = 0;
 
-// Variáveis exportadas para o dropbox/upload
 char currentDropboxPath[512] = "";
 char currentUploadPath[512] = "";
 
+// A versão antiga (pra não dar erro nos outros scripts que só enviam a %):
 void atualizarBarra(float progresso) {
+    atualizarBarra(progresso, 1, 1); // Encaminha para a nova função com 1/1
+}
+
+// A versão nova com a barra de porcentagem real e números de arquivos (SEM a palavra "Arquivo")
+void atualizarBarra(float progresso, int arquivoAtual, int totalArquivos) {
     uint32_t* p = obterBufferVideo();
 
     // 1. Limpa a tela
     for (int i = 0; i < 1920 * 1080; i++) p[i] = 0xFF121212;
 
-    // 2. DESENHA A IMAGEM DE FUNDO FIXA EM TELA CHEIA (Evita tela preta!)
+    // 2. DESENHA A IMAGEM DE FUNDO
     if (backImg) {
         desenharRedimensionado(p, backImg, wB, hB, 1920, 1080, 0, 0);
     }
@@ -74,6 +84,16 @@ void atualizarBarra(float progresso) {
             p[y * 1920 + x] = 0xFF00D83A;
         }
     }
+
+    // 5. TEXTO DA BARRA (% e Numeração apenas)
+    int porcentagem = (int)(progresso * 100.0f);
+    if (porcentagem > 100) porcentagem = 100;
+    if (porcentagem < 0) porcentagem = 0;
+
+    char textoLoad[128];
+    // Aqui removemos a palavra "Arquivo". Exemplo de saída: "50%   -   1 / 1"
+    snprintf(textoLoad, sizeof(textoLoad), "%d%%   -   %d / %d", porcentagem, arquivoAtual, totalArquivos);
+    desenharTexto(p, textoLoad, 25, bX + bW + 20, bY - 2, 0xFFFFFFFF);
 
     submeterTela();
 }
@@ -106,11 +126,16 @@ void acaoRede(const char* jogo, bool buscarLista, bool salvarNoHD) {
         FILE* f = fopen(path, "wb");
         if (f) {
             unsigned char buf[16384]; int n;
+            float pFake = 0.1f;
+
             while ((n = sceHttpReadData(req, buf, sizeof(buf))) > 0) {
                 fwrite(buf, 1, n, f);
-                atualizarBarra(0.5f);
+                pFake += 0.05f;
+                if (pFake > 0.99f) pFake = 0.99f;
+                atualizarBarra(pFake, 1, 1);
             }
             fclose(f);
+            atualizarBarra(1.0f, 1, 1);
 
             if (buscarLista) {
                 FILE* f2 = fopen("/data/HyperNeiva/remote_list.html", "rb"); fseek(f2, 0, SEEK_END); long sz = ftell(f2); fseek(f2, 0, SEEK_SET);

@@ -15,6 +15,10 @@ extern unsigned char* imgPreview;
 extern int wP, hP, cP;
 extern char ultimoJogoCarregado[64];
 
+// MANTEMOS A ANTIGA PARA NÃO QUEBRAR OS OUTROS ARQUIVOS E ADICIONAMOS A NOVA
+void atualizarBarra(float progresso);
+void atualizarBarra(float progresso, int arquivoAtual, int totalArquivos);
+
 void acaoRede(const char* jogo, bool buscarLista, bool salvarNoHD);
 
 void preencherMenuBaixar();
@@ -39,4 +43,4 @@ extern char caminhoXMLAtual[256];
 extern char currentDropboxPath[512];
 extern char currentUploadPath[512];
 
-#endif
+#endif  

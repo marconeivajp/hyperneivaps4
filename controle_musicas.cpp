@@ -23,7 +23,7 @@ extern void preencherRoot();
 
 void acaoCross_Musicas() {
     if (showOpcoes && menuAtual == MENU_AUDIO_OPCOES) {
-        tratarSelecaoAudio(selAudioOpcao); // Confirma parar a música ou ajustar volume
+        tratarSelecaoAudio(selAudioOpcao);
     }
     else if (!showOpcoes && menuAtual == MENU_MUSICAS) {
         if (sel == 0) {
@@ -32,9 +32,8 @@ void acaoCross_Musicas() {
             msgTimer = 120;
         }
         else {
-            static char mPath[512];
-            sprintf(mPath, "/data/HyperNeiva/Musicas/%s", nomes[sel]);
-            tocarMusicaNova(mPath);
+            // Usa o caminho absoluto mapeado na busca recursiva
+            tocarMusicaNova(caminhosMusicasMenu[sel]);
             sprintf(msgStatus, "A TOCAR MUSICA...");
             msgTimer = 120;
         }
@@ -44,10 +43,10 @@ void acaoCross_Musicas() {
 void acaoCircle_Musicas() {
     if (showOpcoes || menuAtual == MENU_AUDIO_OPCOES) {
         showOpcoes = false;
-        menuAtual = MENU_MUSICAS; // Fecha as opções e volta pra lista de música
+        menuAtual = MENU_MUSICAS;
     }
     else {
-        preencherRoot(); // Volta pro menu principal
+        preencherRoot();
         sel = 0;
         off = 0;
     }

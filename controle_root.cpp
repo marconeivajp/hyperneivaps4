@@ -65,7 +65,6 @@ void acaoCross_Root() {
         else if (sel == 3) { preencherMenuEditar(); sel = 0; off = 0; }
         else if (sel == 4) { preencherExplorerHome(); sel = 0; off = 0; }
         else if (sel == 5) {
-            // GARANTIMOS QUE O MENU É DEFINIDO CORRETAMENTE ANTES DE CHAMAR A FUNÇÃO
             menuAtual = MENU_MUSICAS;
             if (imgPreview) { stbi_image_free(imgPreview); imgPreview = NULL; }
             strcpy(ultimoJogoCarregado, "");
@@ -86,7 +85,22 @@ void acaoCross_Root() {
         DIR* chk = opendir(novoCaminho);
         if (chk) {
             closedir(chk);
-            abrirPastaMidia(novoCaminho);
+
+            // --- MÁGICA AQUI ---
+            // Se você clicou na pasta "musicas" dentro do menu Midia, abre o Player de Músicas!
+            if (strcasecmp(nomes[sel], "musicas") == 0 && strcmp(caminhoMidiaAtual, "/data/HyperNeiva/midia") == 0) {
+                menuAtual = MENU_MUSICAS;
+                if (imgPreview) { stbi_image_free(imgPreview); imgPreview = NULL; }
+                strcpy(ultimoJogoCarregado, "");
+                preencherMenuMusicas();
+                sel = 0;
+                off = 0;
+            }
+            else {
+                // Se for qualquer outra pasta, abre normalmente
+                abrirPastaMidia(novoCaminho);
+            }
+            // -------------------
         }
         else {
             int len = strlen(nomes[sel]);

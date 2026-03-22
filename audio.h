@@ -10,6 +10,9 @@ extern volatile bool comandoPausar;
 extern volatile bool modoRepetir;
 extern int volumeGeral;
 
+// NOVA VARIÁVEL: Guarda o caminho absoluto das músicas no menu
+extern char caminhosMusicasMenu[3000][256];
+
 // Funções do módulo de áudio
 void inicializarAudio();
 void pararAudio();
@@ -18,8 +21,8 @@ void tocarProximaMusica();
 void tocarMusicaAnterior();
 void aumentarVolume();
 void diminuirVolume();
-void adiantarAudio();   // NOVA FUNÇÃO
-void retrocederAudio(); // NOVA FUNÇÃO
+void adiantarAudio();
+void retrocederAudio();
 void preencherMenuMusicas();
 void salvarConfiguracaoAudio();
 void carregarConfiguracaoAudio();
