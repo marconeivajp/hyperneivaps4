@@ -1,3 +1,9 @@
+#ifdef __INTELLISENSE__
+#ifndef __builtin_va_list
+#define __builtin_va_list void*
+#endif
+#endif
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -6,12 +12,6 @@
 #include <stdarg.h>
 #include <wchar.h>
 #include <stdint.h>
-
-#ifdef __INTELLISENSE__
-#ifndef __builtin_va_list
-#define __builtin_va_list void*
-#endif
-#endif
 
 #include <orbis/libkernel.h>
 #include <orbis/VideoOut.h>
@@ -44,7 +44,7 @@ bool tecladoAtivo = false;
 uint16_t* bufferTecladoW = NULL;
 char bufferTecladoC[128] = "";
 
-// NOVAS VARIÁVEIS DE MÍDIA PADRÃO
+// VARIÁVEIS DE MÍDIA PADRÃO
 unsigned char* backImg = NULL;
 unsigned char* defaultArtwork1 = NULL;
 unsigned char* defaultArtwork2 = NULL;
@@ -84,7 +84,6 @@ int main(void) {
     inicializarPastas();
     carregarConfiguracao();
 
-    // Carregamento de fontes
     int fd = sceKernelOpen("/app0/assets/fonts/font.ttf", 0, 0);
     if (fd >= 0) {
         off_t fs = sceKernelLseek(fd, 0, 2); sceKernelLseek(fd, 0, 0);
@@ -96,17 +95,13 @@ int main(void) {
         temF = stbtt_InitFont(&font, ttf, 0);
     }
 
-    // CARREGANDO O BACKGROUND (Tenta PNG e JPG)
+    // CARREGANDO O BACKGROUND E ARTWORKS FIXOS TUDO EM PNG
     backImg = stbi_load("/data/HyperNeiva/configuracao/0_Defalt_Background.png", &wB, &hB, &cB, 4);
-    if (!backImg) backImg = stbi_load("/data/HyperNeiva/configuracao/0_Defalt_Background.jpg", &wB, &hB, &cB, 4);
     if (!backImg) backImg = stbi_load("/app0/assets/images/0_Defalt_Background.png", &wB, &hB, &cB, 4);
-    if (!backImg) backImg = stbi_load("/app0/assets/images/0_Defalt_Background.jpg", &wB, &hB, &cB, 4);
 
-    // CARREGANDO ARTWORK 1
     defaultArtwork1 = stbi_load("/data/HyperNeiva/configuracao/0_Defalt_Artwork1.png", &wDef1, &hDef1, &cDef1, 4);
     if (!defaultArtwork1) defaultArtwork1 = stbi_load("/app0/assets/images/0_Defalt_Artwork1.png", &wDef1, &hDef1, &cDef1, 4);
 
-    // CARREGANDO ARTWORK 2
     defaultArtwork2 = stbi_load("/data/HyperNeiva/configuracao/0_Defalt_Artwork2.png", &wDef2, &hDef2, &cDef2, 4);
     if (!defaultArtwork2) defaultArtwork2 = stbi_load("/app0/assets/images/0_Defalt_Artwork2.png", &wDef2, &hDef2, &cDef2, 4);
 
@@ -118,7 +113,7 @@ int main(void) {
         uint32_t* p = obterBufferVideo();
         for (int i = 0; i < 1920 * 1080; i++) p[i] = 0xFF121212;
 
-        // CORRIGIDO: Força o desenho da imagem em 1920x1080 na posição X:0 Y:0
+        // Desenha Background sempre 1920x1080
         if (backImg) desenharRedimensionado(p, backImg, wB, hB, 1920, 1080, 0, 0);
 
         atualizarImePasta();
