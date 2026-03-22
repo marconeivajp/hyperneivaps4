@@ -7,11 +7,7 @@
 #include <string.h>
 #include <stdarg.h>
 
-// Bibliotecas de Rede (Sockets) Padrão
-#include <sys/types.h>
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <unistd.h>
+#include <orbis/libkernel.h> 
 
 #include "controle_explorar.h"
 #include "menu.h"
@@ -39,81 +35,43 @@ extern bool fullscreenMidia;
 extern char caminhoNavegacaoMusicas[512];
 static char caminhoMusicaTocando[512] = "";
 
-// === FUNÇÃO DE INSTALAÇÃO VIA GOLDHEN FTP (COM HANDSHAKE COMPLETO) ===
+// === FUNÇÃO DEFINITIVA (MÉTODO HB-STORE) ===
 void instalarPkgLocal(const char* caminhoAbsoluto) {
-    sprintf(msgStatus, "CONECTANDO AO GOLDHEN FTP...");
-    msgTimer = 150;
-    atualizarBarra(0.2f);
 
-    struct sockaddr_in addr;
-    memset(&addr, 0, sizeof(addr));
-    addr.sin_family = 2; // AF_INET
-    addr.sin_port = 0x4908; // Porta 2121 convertida para bytes de rede (0x4908)
-    addr.sin_addr.s_addr = 0x0100007F; // IP 127.0.0.1 (Localhost)
+    // Extrai o nome do ficheiro (ex: jogo.pkg)
+    char nomeArquivo[128] = "arquivo.pkg";
+    char* ref = strrchr(caminhoAbsoluto, '/');
+    if (ref) strncpy(nomeArquivo, ref + 1, 127);
 
-    int sock = socket(2, 1, 0); // 2 = AF_INET, 1 = SOCK_STREAM
-    if (sock >= 0) {
+    // Garante que a pasta oficial do GoldHEN existe no HD
+    sceKernelMkdir("/data/pkg", 0777);
 
-        if (connect(sock, (struct sockaddr*)&addr, sizeof(addr)) == 0) {
-            char buf[512];
-            memset(buf, 0, sizeof(buf));
+    char destino[512];
+    sprintf(destino, "/data/pkg/%s", nomeArquivo);
 
-            // 1. Recebe mensagem de boas-vindas do FTP (220)
-            recv(sock, buf, sizeof(buf) - 1, 0);
+    // Se o utilizador já clicou no PKG dentro da própria pasta do GoldHEN
+    if (strcmp(caminhoAbsoluto, destino) == 0) {
+        sprintf(msgStatus, "PRONTO! Va em GoldHEN -> Package Installer");
+        atualizarBarra(1.0f);
+    }
+    else {
+        sprintf(msgStatus, "PREPARANDO INSTALACAO (AGUARDE)...");
+        atualizarBarra(0.5f);
 
-            // 2. Envia Login Anónimo
-            send(sock, "USER anonymous\r\n", 16, 0);
-            memset(buf, 0, sizeof(buf));
-            recv(sock, buf, sizeof(buf) - 1, 0); // (331)
+        // A função 'rename' move o ficheiro no HD instantaneamente sem copiar (leva 1 milissegundo)
+        int resMove = rename(caminhoAbsoluto, destino);
 
-            // 3. Envia Password Vazia
-            send(sock, "PASS \r\n", 7, 0);
-            memset(buf, 0, sizeof(buf));
-            recv(sock, buf, sizeof(buf) - 1, 0); // (230 Logged in)
-
-            sprintf(msgStatus, "ENVIANDO COMANDO DE INSTALACAO...");
-            atualizarBarra(0.6f);
-
-            // 4. Envia o comando secreto de instalação
-            char cmd[1024];
-            sprintf(cmd, "SITE INSTALL %s\r\n", caminhoAbsoluto);
-            send(sock, cmd, strlen(cmd), 0);
-
-            // 5. Recebe a resposta real do GoldHEN!
-            memset(buf, 0, sizeof(buf));
-            recv(sock, buf, sizeof(buf) - 1, 0);
-
-            close(sock);
-
-            // Verifica o código de resposta (200 é sucesso no FTP)
-            if (strncmp(buf, "200", 3) == 0 || strncmp(buf, "226", 3) == 0) {
-                sprintf(msgStatus, "SUCESSO! Jogo adicionado aos Downloads do PS4!");
-                atualizarBarra(1.0f);
-            }
-            else {
-                // Limpa quebras de linha para mostrar o erro na ecrã
-                for (int i = 0; i < strlen(buf); i++) {
-                    if (buf[i] == '\r' || buf[i] == '\n') buf[i] = '\0';
-                }
-                // Mostra os primeiros 45 caracteres do erro real
-                buf[45] = '\0';
-                sprintf(msgStatus, "ERRO DO FTP: %s", buf);
-                atualizarBarra(0.0f);
-            }
-
+        if (resMove == 0) {
+            sprintf(msgStatus, "PREPARADO! Va em GoldHEN -> Package Installer");
+            atualizarBarra(1.0f);
         }
         else {
-            close(sock);
-            sprintf(msgStatus, "ERRO: Ative o 'FTP Server' nas config do GoldHEN!");
+            sprintf(msgStatus, "ERRO AO MOVER PKG (Erro %d)", resMove);
             atualizarBarra(0.0f);
         }
     }
-    else {
-        sprintf(msgStatus, "ERRO AO CRIAR CONEXAO DE REDE");
-        atualizarBarra(0.0f);
-    }
 
-    msgTimer = 600; // Tempo na ecrã
+    msgTimer = 600; // Tempo longo na ecrã para o utilizador ler com calma
 }
 
 void acaoL2_Explorar() {
@@ -170,7 +128,7 @@ void acaoCross_Explorar() {
             char* ext = strrchr(nItems[sAtual], '.');
 
             if (ext) {
-                // Instalação de PKG ao apertar X no Explorador
+                // Preparação de PKG ao apertar X no Explorador
                 if (strcasecmp(ext, ".pkg") == 0 || strcasecmp(ext, ".PKG") == 0) {
                     instalarPkgLocal(caminhoArquivo);
                 }
