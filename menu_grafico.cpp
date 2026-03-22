@@ -5,6 +5,8 @@
 #include "menu_audio.h" 
 #include "menu_upload.h" 
 #include "baixar.h" 
+#include "elementos.h" 
+#include "controle_elementos.h" // AQUI ESTÁ A CHAVE DE TUDO!
 #include <string.h>
 #include <strings.h>
 #include <stdio.h>
@@ -21,64 +23,44 @@ extern int fontTam, msgX, msgY, msgTam, listOri, listBg;
 extern int barBg, barFill, listMark, listHoverMark, backX, backY, backW, backH; extern int wP, hP;
 extern int fontAlign, fontScroll;
 
-int offOpcao = 0; // CORREÇÃO: CRIAÇÃO DEFINITIVA DESTA VARIÁVEL
+extern int elem1X, elem1Y, elem1W, elem1H, elem1On;
+extern int ctrl1X, ctrl1Y, ctrl1W, ctrl1H, ctrl1On;
+extern int pont1X, pont1Y, pont1W, pont1H, pont1On, pont1Modo, pont1Lado;
+
+int offOpcao = 0;
+int frameContadorGlobal = 0;
 
 extern bool visualizandoMidiaImagem; extern unsigned char* imgMidia; extern int wM, hM; extern float zoomMidia; extern bool fullscreenMidia;
 extern bool visualizandoMidiaTexto; extern char* textoMidiaBuffer; extern char* linhasTexto[5000]; extern int totalLinhasTexto; extern int textoMidiaScroll;
 extern bool painelDuplo; extern int painelAtivo; extern char nomesEsq[3000][64]; extern bool marcadosEsq[3000]; extern char pathExplorarEsq[256]; extern int selEsq; extern int totalItensEsq; extern MenuLevel menuAtualEsq; extern int offEsq;
 
-int frameContadorGlobal = 0;
-
 uint32_t getSysColor(int index) {
     uint32_t sysColors[] = { 0xAA222222, 0xAA000000, 0xAA000044, 0xAA440000, 0xAA004400, 0x00000000, 0xFF444444, 0xFF00D83A, 0xAAFFFF99, 0xFF00FF00, 0xFF00AAFF, 0xAA999933, 0xFFFFFFFF, 0xFFFF0000, 0xFF0000FF };
-    if (index < 0 || index > 14) return sysColors[0]; return sysColors[index];
+    if (index < 0 || index > 14) return sysColors[0];
+    return sysColors[index];
 }
 
 void desenharTextoAlinhado(uint32_t* p, const char* textoOriginal, int fTam, int xBase, int y, int maxW, uint32_t cor) {
     int maxChars = (maxW - 40) / (fTam * 0.55f);
     if (maxChars < 1) maxChars = 1;
-    int len = strlen(textoOriginal);
-    char txtFinal[512];
+
+    int len = strlen(textoOriginal); char txtFinal[512];
 
     if (len > maxChars) {
         if (fontScroll == 1) {
-            int excess = len - maxChars;
-            int cycle = 60 + excess * 10;
-            int pos = frameContadorGlobal % (cycle * 2);
-            int shift = 0;
-            if (pos < 30) shift = 0;
-            else if (pos < 30 + excess * 10) shift = (pos - 30) / 10;
-            else if (pos < 90 + excess * 10) shift = excess;
-            else shift = excess - (pos - (90 + excess * 10)) / 10;
-
-            if (shift < 0) shift = 0;
-            if (shift > excess) shift = excess;
-            strncpy(txtFinal, textoOriginal + shift, maxChars);
-            txtFinal[maxChars] = '\0';
+            int excess = len - maxChars; int cycle = 60 + excess * 10; int pos = frameContadorGlobal % (cycle * 2); int shift = 0;
+            if (pos < 30) shift = 0; else if (pos < 30 + excess * 10) shift = (pos - 30) / 10; else if (pos < 90 + excess * 10) shift = excess; else shift = excess - (pos - (90 + excess * 10)) / 10;
+            if (shift < 0) shift = 0; if (shift > excess) shift = excess; strncpy(txtFinal, textoOriginal + shift, maxChars); txtFinal[maxChars] = '\0';
         }
         else {
-            if (maxChars > 3) {
-                strncpy(txtFinal, textoOriginal, maxChars - 3);
-                txtFinal[maxChars - 3] = '\0';
-                strcat(txtFinal, "...");
-            }
-            else {
-                strncpy(txtFinal, textoOriginal, maxChars);
-                txtFinal[maxChars] = '\0';
-            }
+            if (maxChars > 3) { strncpy(txtFinal, textoOriginal, maxChars - 3); txtFinal[maxChars - 3] = '\0'; strcat(txtFinal, "..."); }
+            else { strncpy(txtFinal, textoOriginal, maxChars); txtFinal[maxChars] = '\0'; }
         }
     }
-    else {
-        strcpy(txtFinal, textoOriginal);
-    }
+    else { strcpy(txtFinal, textoOriginal); }
 
-    int lenFinal = strlen(txtFinal);
-    int pxWidth = lenFinal * (fTam * 0.55f);
-
-    int posX = xBase + 20;
-    if (fontAlign == 1) posX = xBase + (maxW / 2) - (pxWidth / 2);
-    else if (fontAlign == 2) posX = xBase + maxW - pxWidth - 20;
-
+    int lenFinal = strlen(txtFinal); int pxWidth = lenFinal * (fTam * 0.55f);
+    int posX = xBase + 20; if (fontAlign == 1) posX = xBase + (maxW / 2) - (pxWidth / 2); else if (fontAlign == 2) posX = xBase + maxW - pxWidth - 20;
     desenharTexto(p, txtFinal, fTam, posX, y, cor);
 }
 
@@ -94,6 +76,9 @@ unsigned char* carregarMediaCaseInsensitive(const char* pastaPath, const char* n
 }
 
 void desenharInterface(uint32_t* p) {
+    // ATUALIZA O ANALÓGICO 60 VEZES POR SEGUNDO AQUI!
+    atualizarControleElementos();
+
     frameContadorGlobal++;
 
     static char nomeItemAnterior[128] = ""; static unsigned char* imgBgDinamico = NULL; static int dynBgW = 0, dynBgH = 0, dynBgC = 0; static unsigned char* imgCapaDinamica = NULL; static int dynCapaW = 0, dynCapaH = 0, dynCapaC = 0; static unsigned char* imgDiscoDinamico = NULL; static int dynDiscoW = 0, dynDiscoH = 0, dynDiscoC = 0;
@@ -106,10 +91,11 @@ void desenharInterface(uint32_t* p) {
         if (strlen(nomeItemAnterior) > 0) { imgBgDinamico = carregarMediaCaseInsensitive("/data/HyperNeiva/midia/imagens/Games/Background", nomeItemAnterior, &dynBgW, &dynBgH, &dynBgC); imgCapaDinamica = carregarMediaCaseInsensitive("/data/HyperNeiva/midia/imagens/Games/Artwork1", nomeItemAnterior, &dynCapaW, &dynCapaH, &dynCapaC); imgDiscoDinamico = carregarMediaCaseInsensitive("/data/HyperNeiva/midia/imagens/Games/Artwork2", nomeItemAnterior, &dynDiscoW, &dynDiscoH, &dynDiscoC); }
     }
 
-    if (menuAtual != MENU_NOTEPAD && imgBgDinamico) desenharRedimensionado(p, imgBgDinamico, dynBgW, dynBgH, 1920, 1080, 0, 0);
+    if (menuAtual != MENU_NOTEPAD && imgBgDinamico) { desenharRedimensionado(p, imgBgDinamico, dynBgW, dynBgH, 1920, 1080, 0, 0); }
+
     if (visualizandoMidiaTexto && textoMidiaBuffer) {
         for (int i = 0; i < 1920 * 1080; i++) p[i] = 0xFF151515; for (int by = 0; by < 80; by++) for (int bx = 0; bx < 1920; bx++) p[by * 1920 + bx] = 0xFF303030; desenharTexto(p, "LEITOR DE ARQUIVOS", 35, 50, 25, 0xFF00AAFF);
-        int maxLinhasVisiveis = 23; for (int i = 0; i < maxLinhasVisiveis; i++) { int indiceDaLinha = textoMidiaScroll + i; if (indiceDaLinha < totalLinhasTexto && linhasTexto[indiceDaLinha] != NULL) desenharTexto(p, linhasTexto[indiceDaLinha], 30, 50, 120 + (i * 40), 0xFFDDDDDD); }
+        int maxLinhasVisiveis = 23; for (int i = 0; i < maxLinhasVisiveis; i++) { int indiceDaLinha = textoMidiaScroll + i; if (indiceDaLinha < totalLinhasTexto && linhasTexto[indiceDaLinha] != NULL) { desenharTexto(p, linhasTexto[indiceDaLinha], 30, 50, 120 + (i * 40), 0xFFDDDDDD); } }
         for (int by = 0; by < 60; by++) for (int bx = 0; bx < 1920; bx++) p[(1020 + by) * 1920 + bx] = 0xFF222222; char rodape[128]; sprintf(rodape, "[Setas] Rolar   |   [O] Voltar   |   Linha: %d / %d", textoMidiaScroll, totalLinhasTexto); desenharTexto(p, rodape, 25, 50, 1035, 0xFF00AAFF); return;
     }
 
@@ -118,19 +104,16 @@ void desenharInterface(uint32_t* p) {
         if (fullscreenMidia) { drawW = (int)(wM * propMax); drawH = (int)(hM * propMax); }
         else { drawW = (int)(wM * zoomMidia); drawH = (int)(hM * zoomMidia); if (drawW > 1920 || drawH > 1080) { drawW = (int)(wM * propMax); drawH = (int)(hM * propMax); zoomMidia = propMax; } }
         int posX = (1920 - drawW) / 2; int posY = (1080 - drawH) / 2; desenharRedimensionado(p, imgMidia, wM, hM, drawW, drawH, posX, posY);
-        for (int by = 0; by < 130; by++) for (int bx = 0; bx < 400; bx++) { int pxX = 1480 + bx; int pyY = 930 + by; if (pxX >= 0 && pxX < 1920 && pyY >= 0 && pyY < 1080) p[pyY * 1920 + pxX] = 0xAA000000; }
+        for (int by = 0; by < 130; by++) { for (int bx = 0; bx < 400; bx++) { int pxX = 1480 + bx; int pyY = 930 + by; if (pxX >= 0 && pxX < 1920 && pyY >= 0 && pyY < 1080) p[pyY * 1920 + pxX] = 0xAA000000; } }
         desenharTexto(p, "[X] Tela Cheia", 25, 1500, 960, 0xFFFFFFFF); desenharTexto(p, "[Cima/Baixo] Zoom", 25, 1500, 1000, 0xFFFFFFFF); desenharTexto(p, "[O] Voltar", 25, 1500, 1040, 0xFFFFFFFF); return;
     }
 
     if (menuAtual != MENU_NOTEPAD) {
         int paineisDesenhar = painelDuplo ? 2 : 1; uint32_t corBasePainel = getSysColor(listBg);
-        int curListX = (listOri == 0) ? listXV : listXH;
-        int curListY = (listOri == 0) ? listYV : listYH;
-        int curListSpc = (listOri == 0) ? listSpcV : listSpcH;
+        int curListX = (listOri == 0) ? listXV : listXH; int curListY = (listOri == 0) ? listYV : listYH; int curListSpc = (listOri == 0) ? listSpcV : listSpcH;
 
         for (int painelIndex = 0; painelIndex < paineisDesenhar; painelIndex++) {
-            int refPainel = painelDuplo ? painelIndex : 1;
-            int sAtual = (refPainel == 0) ? selEsq : sel; int oAtual = (refPainel == 0) ? offEsq : off;
+            int refPainel = painelDuplo ? painelIndex : 1; int sAtual = (refPainel == 0) ? selEsq : sel; int oAtual = (refPainel == 0) ? offEsq : off;
             int tItens = (refPainel == 0) ? totalItensEsq : totalItens; char (*nItems)[64] = (refPainel == 0) ? nomesEsq : nomes; bool* mItems = (refPainel == 0) ? marcadosEsq : marcados; MenuLevel mAtual = (refPainel == 0) ? menuAtualEsq : menuAtual;
 
             if (mAtual == MENU_EXPLORAR_HOME && tItens <= 0) { strcpy(nItems[0], "Hyper Neiva"); strcpy(nItems[1], "Raiz"); strcpy(nItems[2], "USB 0"); strcpy(nItems[3], "USB 1"); tItens = 4; if (refPainel == 0) totalItensEsq = 4; else totalItens = 4; }
@@ -145,10 +128,11 @@ void desenharInterface(uint32_t* p) {
                 uint32_t corFundo = isPainelAtivo ? corBasePainel : 0xAA111111; uint32_t corTexto = isPainelAtivo ? 0xFFFFFFFF : 0xFFAAAAAA;
 
                 bool isMarcado = (mAtual == MENU_EXPLORAR || mAtual == MENU_BAIXAR_DROPBOX_LISTA || mAtual == MENU_BAIXAR_DROPBOX_UPLOAD) && mItems[gIdx];
-                if (isMarcado) corFundo = isPainelAtivo ? getSysColor(listMark) : getSysColor(11);
+                if (isMarcado) { corFundo = isPainelAtivo ? getSysColor(listMark) : getSysColor(11); }
 
                 if (gIdx == sAtual) { if (isPainelAtivo) { if (isMarcado) corFundo = getSysColor(listHoverMark); else corFundo = getSysColor(10); corTexto = 0xFF000000; } else corFundo = 0xAA555555; }
-                for (int by = 0; by < listH; by++) for (int bx = 0; bx < larguraItem; bx++) { int pxX = currentX + bx; int pyY = currentY + by; if (pxX >= 0 && pxX < 1920 && pyY >= 0 && pyY < 1080) p[pyY * 1920 + pxX] = corFundo; }
+
+                for (int by = 0; by < listH; by++) { for (int bx = 0; bx < larguraItem; bx++) { int pxX = currentX + bx; int pyY = currentY + by; if (pxX >= 0 && pxX < 1920 && pyY >= 0 && pyY < 1080) p[pyY * 1920 + pxX] = corFundo; } }
 
                 desenharTextoAlinhado(p, nItems[gIdx], fontTam, currentX, currentY + (listH / 4), larguraItem, corTexto);
             }
@@ -156,7 +140,8 @@ void desenharInterface(uint32_t* p) {
     }
 
     if (menuAtual == MENU_NOTEPAD || menuAtualEsq == MENU_NOTEPAD) renderizarNotepad(p);
-    if (menuAtual == SCRAPER_LIST && imgPreview) desenharRedimensionado(p, imgPreview, wP, hP, capaW, capaH, capaX, capaY);
+
+    if (menuAtual == SCRAPER_LIST && imgPreview) { desenharRedimensionado(p, imgPreview, wP, hP, capaW, capaH, capaX, capaY); }
     else if (menuAtual == MENU_EXPLORAR || (painelDuplo && menuAtualEsq == MENU_EXPLORAR)) {
         if (!painelDuplo) { char bread[300]; sprintf(bread, "Caminho: %s", pathExplorar); int cX = (listOri == 0) ? listXV : listXH; desenharTexto(p, bread, 30, cX, 1020, 0xFFFFFFFF); }
         else { char breadEsq[300]; sprintf(breadEsq, "ESQ: %s", pathExplorarEsq); desenharTexto(p, breadEsq, 25, capaX, 1020, (painelAtivo == 0) ? 0xFF00AAFF : 0xFFAAAAAA); char breadDir[300]; sprintf(breadDir, "DIR: %s", pathExplorar); int cX = (listOri == 0) ? listXV : listXH; desenharTexto(p, breadDir, 25, cX, 1020, (painelAtivo == 1) ? 0xFF00AAFF : 0xFFAAAAAA); }
@@ -166,25 +151,25 @@ void desenharInterface(uint32_t* p) {
 
         if (isEditingBar) {
             int bX = barX; int bY = barY; int bW = barW; int bH = barH;
-            for (int y = bY; y < bY + bH; y++) for (int x = bX; x < bX + bW; x++) if (x >= 0 && x < 1920 && y >= 0 && y < 1080) p[y * 1920 + x] = getSysColor(barBg);
-            int fill = bW / 2; for (int y = bY; y < bY + bH; y++) for (int x = bX; x < bX + fill; x++) if (x >= 0 && x < 1920 && y >= 0 && y < 1080) p[y * 1920 + x] = getSysColor(barFill);
+            for (int y = bY; y < bY + bH; y++) { for (int x = bX; x < bX + bW; x++) { if (x >= 0 && x < 1920 && y >= 0 && y < 1080) p[y * 1920 + x] = getSysColor(barBg); } }
+            int fill = bW / 2; for (int y = bY; y < bY + bH; y++) { for (int x = bX; x < bX + fill; x++) { if (x >= 0 && x < 1920 && y >= 0 && y < 1080) p[y * 1920 + x] = getSysColor(barFill); } }
             desenharTexto(p, "50%   -   1 / 1", 25, bX + bW + 20, bY - 2, 0xFFFFFFFF);
         }
         else if (isEditingAudio) {
-            for (int my = 0; my < audioH; my++) for (int mx = 0; mx < audioW; mx++) { int pxX = audioX + mx; int pyY = audioY + my; if (pxX >= 0 && pxX < 1920 && pyY >= 0 && pyY < 1080) p[pyY * 1920 + pxX] = getSysColor(listBg); }
+            for (int my = 0; my < audioH; my++) { for (int mx = 0; mx < audioW; mx++) { int pxX = audioX + mx; int pyY = audioY + my; if (pxX >= 0 && pxX < 1920 && pyY >= 0 && pyY < 1080) p[pyY * 1920 + pxX] = getSysColor(listBg); } }
             int maxV = (audioH - 50) / 45; if (maxV < 1) maxV = 1;
-            if (maxV > 0) desenharTextoAlinhado(p, "PLAY / PAUSE", fontTam, audioX, audioY + 50, audioW, 0xFFFFFF00);
-            if (maxV > 1) desenharTextoAlinhado(p, "PARAR", fontTam, audioX, audioY + 95, audioW, 0xFFFFFFFF);
+            if (maxV > 0) desenharTextoAlinhado(p, "PLAY / PAUSE", fontTam, audioX, audioY + 50, audioW, 0xFFFFFF00); if (maxV > 1) desenharTextoAlinhado(p, "PARAR", fontTam, audioX, audioY + 95, audioW, 0xFFFFFFFF);
         }
         else if (isEditingUp) {
-            for (int my = 0; my < upH; my++) for (int mx = 0; mx < upW; mx++) { int pxX = upX + mx; int pyY = upY + my; if (pxX >= 0 && pxX < 1920 && pyY >= 0 && pyY < 1080) p[pyY * 1920 + pxX] = getSysColor(listBg); }
+            for (int my = 0; my < upH; my++) { for (int mx = 0; mx < upW; mx++) { int pxX = upX + mx; int pyY = upY + my; if (pxX >= 0 && pxX < 1920 && pyY >= 0 && pyY < 1080) p[pyY * 1920 + pxX] = getSysColor(listBg); } }
             int maxV = (upH - 50) / 45; if (maxV < 1) maxV = 1;
-            if (maxV > 0) desenharTextoAlinhado(p, "Selecionar", fontTam, upX, upY + 50, upW, 0xFFFFFF00);
-            if (maxV > 1) desenharTextoAlinhado(p, "Selecionar Tudo", fontTam, upX, upY + 95, upW, 0xFFFFFFFF);
+            if (maxV > 0) desenharTextoAlinhado(p, "Selecionar", fontTam, upX, upY + 50, upW, 0xFFFFFF00); if (maxV > 1) desenharTextoAlinhado(p, "Selecionar Tudo", fontTam, upX, upY + 95, upW, 0xFFFFFFFF);
         }
         else {
-            if (imgCapaDinamica) desenharRedimensionado(p, imgCapaDinamica, dynCapaW, dynCapaH, capaW, capaH, capaX, capaY); else if (menuAtual == JOGAR_XML || (editMode && editTarget != 4 && editTarget != 5 && editTarget != 6)) { if (defaultArtwork1) desenharRedimensionado(p, defaultArtwork1, wDef1, hDef1, capaW, capaH, capaX, capaY); }
-            if (imgDiscoDinamico) desenharDiscoRedondo(p, imgDiscoDinamico, dynDiscoW, dynDiscoH, discoW, discoH, discoX, discoY); else if (menuAtual == JOGAR_XML || (editMode && editTarget != 4 && editTarget != 5 && editTarget != 6)) { if (defaultArtwork2) desenharDiscoRedondo(p, defaultArtwork2, wDef2, hDef2, discoW, discoH, discoX, discoY); }
+            if (imgCapaDinamica) { desenharRedimensionado(p, imgCapaDinamica, dynCapaW, dynCapaH, capaW, capaH, capaX, capaY); }
+            else if (menuAtual == JOGAR_XML || (editMode && editTarget != 4 && editTarget != 5 && editTarget != 6 && editTarget != 10 && editTarget != 11 && editTarget != 12)) { if (defaultArtwork1) desenharRedimensionado(p, defaultArtwork1, wDef1, hDef1, capaW, capaH, capaX, capaY); }
+            if (imgDiscoDinamico) { desenharDiscoRedondo(p, imgDiscoDinamico, dynDiscoW, dynDiscoH, discoW, discoH, discoX, discoY); }
+            else if (menuAtual == JOGAR_XML || (editMode && editTarget != 4 && editTarget != 5 && editTarget != 6 && editTarget != 10 && editTarget != 11 && editTarget != 12)) { if (defaultArtwork2) desenharDiscoRedondo(p, defaultArtwork2, wDef2, hDef2, discoW, discoH, discoX, discoY); }
         }
     }
 
@@ -198,6 +183,9 @@ void desenharInterface(uint32_t* p) {
         else if (editTarget == 5) { tX = &audioX; tY = &audioY; tW = &audioW; tH = &audioH; }
         else if (editTarget == 6) { tX = &upX; tY = &upY; tW = &upW; tH = &upH; }
         else if (editTarget == 8) { tX = &msgX; tY = &msgY; tW = &msgTam; tH = &msgTam; }
+        else if (editTarget == 10) { tX = &elem1X; tY = &elem1Y; tW = &elem1W; tH = &elem1H; }
+        else if (editTarget == 11) { tX = &ctrl1X; tY = &ctrl1Y; tW = &ctrl1W; tH = &ctrl1H; }
+        else if (editTarget == 12) { tX = &pont1X; tY = &pont1Y; tW = &pont1W; tH = &pont1H; }
         else { tX = &fontTam; tY = &fontTam; tW = &fontTam; tH = &fontTam; }
 
         if (editTarget == 9) sprintf(txtPos, "MODO EDICAO - CORES DO EXPLORAR (USE SETAS ESQ/DIR)");
@@ -207,16 +195,19 @@ void desenharInterface(uint32_t* p) {
         else if (editType == 5) sprintf(txtPos, "MODO EDICAO - ORIENTACAO: %s", listOri == 0 ? "VERTICAL" : "HORIZONTAL");
         else if (editType == 10) sprintf(txtPos, "MODO EDICAO - ALINHAMENTO: %s", fontAlign == 0 ? "ESQUERDA" : (fontAlign == 1 ? "CENTRO" : "DIREITA"));
         else if (editType == 11) sprintf(txtPos, "MODO EDICAO - LIMITES: %s", fontScroll == 0 ? "CORTAR (..)" : "ANIMACAO ROLAGEM");
+        else if (editType == 12) { int stat = 0; if (editTarget == 10) stat = elem1On; else if (editTarget == 11) stat = ctrl1On; else if (editTarget == 12) stat = pont1On; sprintf(txtPos, "MODO EDICAO - LIGADO: %s (USE SETAS ESQ/DIR)", stat ? "SIM" : "NAO"); }
+        else if (editType == 13) sprintf(txtPos, "MODO EDICAO - MODO PONTEIRO: %s (USE SETAS ESQ/DIR)", pont1Modo == 0 ? "ACOMPANHA" : "ESTATICO");
+        else if (editType == 14) { const char* lds[] = { "ESQUERDA", "DIREITA", "CIMA", "BAIXO" }; sprintf(txtPos, "MODO EDICAO - LADO PONTEIRO: %s (USE SETAS)", lds[pont1Lado]); }
         else if (editTarget == 7) sprintf(txtPos, "MODO EDICAO - TAMANHO DA FONTE: %d", fontTam);
         else if (editTarget == 8) sprintf(txtPos, "MODO EDICAO - NOTIFICACOES: X: %d  |  Y: %d  |  TAMANHO: %d", msgX, msgY, msgTam);
         else sprintf(txtPos, "MODO EDICAO - X: %d  |  Y: %d  |  LARGURA: %d  |  ALTURA: %d", *tX, *tY, *tW, *tH);
 
-        for (int by = 0; by < 40; by++) for (int bx = 0; bx < 1920; bx++) { int pyY = 1040 + by; if (pyY < 1080) p[pyY * 1920 + bx] = 0xAA000000; }
+        for (int by = 0; by < 40; by++) { for (int bx = 0; bx < 1920; bx++) { int pyY = 1040 + by; if (pyY < 1080) p[pyY * 1920 + bx] = 0xAA000000; } }
         desenharTexto(p, txtPos, 25, 50, 1045, 0xFF00FF00);
     }
 
     if (showOpcoes && menuAtual != MENU_AUDIO_OPCOES) {
-        for (int my = 0; my < discoH; my++) for (int mx = 0; mx < discoW; mx++) { int pxX = discoX + mx; int pyY = discoY - 100 + my; if (pxX >= 0 && pxX < 1920 && pyY >= 0 && pyY < 1080) p[pyY * 1920 + pxX] = getSysColor(listBg); }
+        for (int my = 0; my < discoH; my++) { for (int mx = 0; mx < discoW; mx++) { int pxX = discoX + mx; int pyY = discoY - 100 + my; if (pxX >= 0 && pxX < 1920 && pyY >= 0 && pyY < 1080) p[pyY * 1920 + pxX] = getSysColor(listBg); } }
         int maxV = (discoH - 80) / 45; if (maxV < 1) maxV = 1;
         for (int i = 0; i < maxV; i++) {
             int gIdx = i + offOpcao; if (gIdx >= 10) break;
@@ -226,6 +217,23 @@ void desenharInterface(uint32_t* p) {
     }
 
     desenharMenuAudio(p); desenharMenuUpload(p);
+
+    int curListX = (listOri == 0) ? listXV : listXH;
+    int curListY = (listOri == 0) ? listYV : listYH;
+    int curListSpc = (listOri == 0) ? listSpcV : listSpcH;
+    int stepX = (listOri == 1) ? curListSpc : 0;
+    int stepY = (listOri == 0) ? curListSpc : 0;
+
+    int refP = painelDuplo ? painelAtivo : 1;
+    int sAt = (refP == 0) ? selEsq : sel;
+    int oAt = (refP == 0) ? offEsq : off;
+    int posX_B = (painelDuplo) ? ((refP == 0) ? capaX : curListX) : curListX;
+    int wItem = (painelDuplo) ? 750 : listW;
+
+    int selScreenX = posX_B + ((sAt - oAt) * stepX);
+    int selScreenY = curListY + ((sAt - oAt) * stepY);
+
+    desenharElementos(p, selScreenX, selScreenY, wItem, listH);
 
     if (msgTimer > 0) { desenharTexto(p, msgStatus, msgTam, msgX, msgY, 0xFFFFFFFF); msgTimer--; }
     else if ((menuAtual == MENU_EDIT_TARGET || editMode) && editTarget == 8) { desenharTexto(p, "EXEMPLO DE NOTIFICACAO...", msgTam, msgX, msgY, 0xFF00FF00); }
