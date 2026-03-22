@@ -12,6 +12,7 @@
 #include "stb_image.h"
 
 extern bool editMode;
+extern int editTarget; // IMPORTANDO O ALVO DA EDIÇÃO
 extern bool showOpcoes;
 extern int selOpcao;
 extern char pathExplorar[256];
@@ -30,6 +31,8 @@ extern int wDef2, hDef2;
 extern int listX, listY, listW, listH;
 extern int capaX, capaY, capaW, capaH;
 extern int discoX, discoY, discoW, discoH;
+extern int barX, barY, barW, barH; // IMPORTANDO AS VARIÁVEIS DA BARRA
+extern int backX, backY, backW, backH;
 extern int wP, hP;
 
 // VARIÁVEIS DA IMAGEM
@@ -119,7 +122,6 @@ void desenharInterface(uint32_t* p) {
                 if (imgPreview) { stbi_image_free(imgPreview); imgPreview = NULL; }
             }
 
-            // Otimização importante: grava o nome de qualquer jeito pra não travar o PS4 tentando ler arquivo inexistente
             strncpy(ultimoJogoCarregado, nomes[sel], 63);
             ultimoJogoCarregado[63] = '\0';
         }
@@ -259,7 +261,6 @@ void desenharInterface(uint32_t* p) {
                 uint32_t corFundo = isPainelAtivo ? 0xAA222222 : 0xAA111111;
                 uint32_t corTexto = isPainelAtivo ? 0xFFFFFFFF : 0xFFAAAAAA;
 
-                // RETIREI A COR AMARELA DO SCRAPER AQUI
                 bool isMarcado = (mAtual == MENU_EXPLORAR || mAtual == MENU_BAIXAR_DROPBOX_LISTA || mAtual == MENU_BAIXAR_DROPBOX_UPLOAD) && mItems[gIdx];
 
                 if (isMarcado) {
@@ -306,19 +307,67 @@ void desenharInterface(uint32_t* p) {
         }
     }
     else {
-        if (imgCapaDinamica) {
-            desenharRedimensionado(p, imgCapaDinamica, dynCapaW, dynCapaH, capaW, capaH, capaX, capaY);
+        // LÓGICA DE EXIBIÇÃO: MOSTRAR ASSIM QUE CLICAR NO ALVO!
+        bool isEditingBar = ((menuAtual == MENU_EDIT_TARGET || editMode) && editTarget == 4);
+
+        if (isEditingBar) {
+            // DESENHA A BARRA SIMULADA (Para você ver enquanto edita)
+            int bX = barX; int bY = barY; int bW = barW; int bH = barH;
+
+            for (int y = bY; y < bY + bH; y++) {
+                for (int x = bX; x < bX + bW; x++) {
+                    if (x >= 0 && x < 1920 && y >= 0 && y < 1080) p[y * 1920 + x] = 0xFF444444;
+                }
+            }
+            int fill = bW / 2;
+            for (int y = bY; y < bY + bH; y++) {
+                for (int x = bX; x < bX + fill; x++) {
+                    if (x >= 0 && x < 1920 && y >= 0 && y < 1080) p[y * 1920 + x] = 0xFF00D83A;
+                }
+            }
+            desenharTexto(p, "50%   -   1 / 1", 25, bX + bW + 20, bY - 2, 0xFFFFFFFF);
         }
-        else if (menuAtual == JOGAR_XML || editMode) {
-            if (defaultArtwork1) desenharRedimensionado(p, defaultArtwork1, wDef1, hDef1, capaW, capaH, capaX, capaY);
+        else {
+            // DRAW CAPA
+            if (imgCapaDinamica) {
+                desenharRedimensionado(p, imgCapaDinamica, dynCapaW, dynCapaH, capaW, capaH, capaX, capaY);
+            }
+            else if (menuAtual == JOGAR_XML || editMode || menuAtual == MENU_EDIT_TARGET || menuAtual == MENU_EDITAR) {
+                if (defaultArtwork1) desenharRedimensionado(p, defaultArtwork1, wDef1, hDef1, capaW, capaH, capaX, capaY);
+            }
+
+            // DRAW DISCO
+            if (imgDiscoDinamico) {
+                desenharDiscoRedondo(p, imgDiscoDinamico, dynDiscoW, dynDiscoH, discoW, discoH, discoX, discoY);
+            }
+            else if (menuAtual == JOGAR_XML || editMode || menuAtual == MENU_EDIT_TARGET || menuAtual == MENU_EDITAR) {
+                if (defaultArtwork2) desenharDiscoRedondo(p, defaultArtwork2, wDef2, hDef2, discoW, discoH, discoX, discoY);
+            }
+        }
+    }
+
+    // --- PAINEL DE COORDENADAS EM TEMPO REAL ---
+    if (editMode) {
+        char txtPos[128];
+        int* tX, * tY, * tW, * tH;
+
+        if (editTarget == 0) { tX = &listX;  tY = &listY;  tW = &listW;  tH = &listH; }
+        else if (editTarget == 1) { tX = &capaX;  tY = &capaY;  tW = &capaW;  tH = &capaH; }
+        else if (editTarget == 2) { tX = &discoX; tY = &discoY; tW = &discoW; tH = &discoH; }
+        else if (editTarget == 3) { tX = &backX;  tY = &backY;  tW = &backW;  tH = &backH; }
+        else { tX = &barX;  tY = &barY;  tW = &barW;  tH = &barH; }
+
+        sprintf(txtPos, "MODO EDICAO - X: %d  |  Y: %d  |  LARGURA: %d  |  ALTURA: %d", *tX, *tY, *tW, *tH);
+
+        // Fundo escuro para destacar o texto verde
+        for (int by = 0; by < 40; by++) {
+            for (int bx = 0; bx < 1920; bx++) {
+                int pyY = 1040 + by;
+                if (pyY < 1080) p[pyY * 1920 + bx] = 0xAA000000;
+            }
         }
 
-        if (imgDiscoDinamico) {
-            desenharDiscoRedondo(p, imgDiscoDinamico, dynDiscoW, dynDiscoH, discoW, discoH, discoX, discoY);
-        }
-        else if (menuAtual == JOGAR_XML || editMode) {
-            if (defaultArtwork2) desenharDiscoRedondo(p, defaultArtwork2, wDef2, hDef2, discoW, discoH, discoX, discoY);
-        }
+        desenharTexto(p, txtPos, 25, 50, 1045, 0xFF00FF00); // Texto em verde vibrante!
     }
 
     if (showOpcoes && menuAtual != MENU_AUDIO_OPCOES) {

@@ -10,9 +10,7 @@
 #include <orbis/libkernel.h>
 #include <orbis/Http.h>
 #include <orbis/Ssl.h>
-#include <orbis/UserService.h>  
 #include <orbis/Sysmodule.h> 
-#include <orbis/Bgft.h> // Inclui o BGFT para Downloads Nativos
 
 #include "baixar_dropbox_download.h"
 #include "menu.h"
@@ -140,9 +138,8 @@ void acessarDropbox(const char* path) {
     menuAtual = MENU_BAIXAR_DROPBOX_LISTA; sel = 0; off = 0;
 }
 
-
 // =======================================================================
-// O SISTEMA HÍBRIDO (DOWNLOAD LOCAL P/ MIDIA e FPKGi PARA JOGOS)
+// O SISTEMA 100% SEGURO (DOWNLOAD E PREPARAÇÃO)
 // =======================================================================
 void iniciarDownload(const char* url) {
     if (!url || strlen(url) < 2) return;
@@ -151,204 +148,9 @@ void iniciarDownload(const char* url) {
     char* ref = strrchr(url, '/');
     if (ref) strncpy(nomeArquivo, ref + 1, 127);
 
-    // =====================================================================
-    // ROTA 1: MÉTODO FPKGi (Apenas para Arquivos .PKG)
-    // =====================================================================
-    if (strstr(nomeArquivo, ".pkg") != NULL || strstr(nomeArquivo, ".PKG") != NULL) {
-
-        sprintf(msgStatus, "PREPARANDO LINK DO DROPBOX...");
-        msgTimer = 150; atualizarBarra(0.2f);
-
-        static char directUrl[4096];
-        memset(directUrl, 0, sizeof(directUrl));
-
-        if (url[0] == '/') {
-            static char token[2048];
-            memset(token, 0, sizeof(token));
-            FILE* fToken = fopen("/data/HyperNeiva/configuracao/dropbox_token.txt", "rb");
-            if (fToken) { fseek(fToken, 0, SEEK_END); long sz = ftell(fToken); fseek(fToken, 0, SEEK_SET); if (sz > 0 && sz < 2047) { fread(token, 1, sz, fToken); token[sz] = '\0'; } fclose(fToken); }
-            for (int i = 0; i < strlen(token); i++) if (token[i] == '\r' || token[i] == '\n') token[i] = '\0';
-
-            int tpl = sceHttpCreateTemplate(httpCtxId, "HyperNeiva/1.0", ORBIS_HTTP_VERSION_1_1, 1);
-            sceHttpsSetSslCallback(tpl, skipSslCallback, NULL); sceHttpSetAutoRedirect();
-            const char* apiUrl = "https://api.dropboxapi.com/2/files/get_temporary_link";
-            int conn = sceHttpCreateConnectionWithURL(tpl, apiUrl, 1);
-            int req = sceHttpCreateRequestWithURL(conn, ORBIS_METHOD_POST, apiUrl, 0);
-
-            static char authHeader[2048];
-            sprintf(authHeader, "Bearer %s", token);
-            sceHttpAddRequestHeader(req, "Authorization", authHeader, 1);
-            sceHttpAddRequestHeader(req, "Content-Type", "application/json", 1);
-
-            static char postData[1024];
-            sprintf(postData, "{\"path\": \"%s\"}", url);
-            sceHttpSetRequestContentLength(req, strlen(postData));
-
-            if (sceHttpSendRequest(req, postData, strlen(postData)) >= 0) {
-                static unsigned char buf[8192];
-                memset(buf, 0, sizeof(buf));
-
-                int n = sceHttpReadData(req, buf, sizeof(buf) - 1);
-                if (n > 0) {
-                    buf[n] = '\0';
-                    char* linkPtr = strstr((char*)buf, "\"link\": \"");
-                    if (linkPtr) {
-                        linkPtr += 9;
-                        char* linkEnd = strchr(linkPtr, '\"');
-                        if (linkEnd) {
-                            static char tempUrl[4096];
-                            memset(tempUrl, 0, sizeof(tempUrl));
-
-                            int copyLen = linkEnd - linkPtr;
-                            if (copyLen > 4000) copyLen = 4000;
-                            strncpy(tempUrl, linkPtr, copyLen);
-
-                            int c_idx = 0;
-                            for (int i = 0; i < copyLen && c_idx < 4000; i++) {
-                                if (tempUrl[i] == '\\') {
-                                    if (i + 1 < copyLen && tempUrl[i + 1] == '/') {
-                                        directUrl[c_idx++] = '/';
-                                        i++;
-                                        continue;
-                                    }
-                                    if (i + 5 < copyLen && tempUrl[i + 1] == 'u' && tempUrl[i + 2] == '0' && tempUrl[i + 3] == '0' && tempUrl[i + 4] == '2' && tempUrl[i + 5] == '6') {
-                                        directUrl[c_idx++] = '&';
-                                        i += 5;
-                                        continue;
-                                    }
-                                }
-                                else if (tempUrl[i] >= 33 && tempUrl[i] <= 126) {
-                                    directUrl[c_idx++] = tempUrl[i];
-                                }
-                            }
-                            directUrl[c_idx] = '\0';
-                        }
-                    }
-                }
-            }
-            sceHttpDeleteRequest(req); sceHttpDeleteConnection(conn); sceHttpDeleteTemplate(tpl);
-
-            if (strlen(directUrl) < 10) {
-                sprintf(msgStatus, "ERRO: FALHA AO OBTER LINK TEMPORARIO DO PKG");
-                msgTimer = 180; atualizarBarra(0.0f);
-                return;
-            }
-        }
-        else {
-            strncpy(directUrl, url, 4000);
-        }
-
-        if (strstr(directUrl, ".pkg") == NULL && strstr(directUrl, ".PKG") == NULL) {
-            if (strchr(directUrl, '?') != NULL) {
-                strcat(directUrl, "&fake=.pkg");
-            }
-            else {
-                strcat(directUrl, "?fake=.pkg");
-            }
-        }
-
-        static char nomeLimpo[256];
-        memset(nomeLimpo, 0, sizeof(nomeLimpo));
-        int n_idx = 0;
-        for (int i = 0; i < strlen(nomeArquivo) && n_idx < 255; i++) {
-            char c = nomeArquivo[i];
-            if (c >= 33 && c <= 126) {
-                nomeLimpo[n_idx++] = c;
-            }
-        }
-        nomeLimpo[n_idx] = '\0';
-
-        sprintf(msgStatus, "ENVIANDO PARA O DOWNLOADER DO PS4...");
-        atualizarBarra(0.5f);
-
-        // CORREÇÃO: Usamos sceKernelLoadStartModule ao invés de SysmoduleLoadInternal
-        // O ID do BGFT é 0x0041, mas vamos puxar o módulo "libSceBgft.sprx" pelo nome!
-        int bgftHandle = sceKernelLoadStartModule("libSceBgft.sprx", 0, NULL, 0, NULL, NULL);
-        if (bgftHandle <= 0) {
-            bgftHandle = sceKernelLoadStartModule("/system/common/lib/libSceBgft.sprx", 0, NULL, 0, NULL, NULL);
-        }
-
-        static bool bgft_inicializado = false;
-        static void* bgft_heap = NULL;
-
-        if (!bgft_inicializado) {
-            if (!bgft_heap) {
-                void* raw = malloc((1024 * 1024) + 4096);
-                if (raw) {
-                    bgft_heap = (void*)(((uintptr_t)raw + 4095) & ~4095);
-                }
-            }
-
-            if (bgft_heap) {
-                OrbisBgftInitParams bgftInit;
-                memset(&bgftInit, 0, sizeof(bgftInit));
-                bgftInit.heap = bgft_heap;
-                bgftInit.heapSize = 1024 * 1024;
-
-                int retInit = sceBgftServiceIntInit(&bgftInit);
-                if (retInit == 0 || retInit == 0x80431003) {
-                    bgft_inicializado = true;
-                }
-                else {
-                    sprintf(msgStatus, "ERRO INIT BGFT: 0x%08X", retInit);
-                    msgTimer = 300; atualizarBarra(0.0f);
-                    return;
-                }
-            }
-            else {
-                sprintf(msgStatus, "ERRO DE MEMORIA MALLOC");
-                return;
-            }
-        }
-
-        int32_t userId = 0x10000000;
-        sceUserServiceGetInitialUser(&userId);
-        if (userId == 0 || userId == -1) {
-            userId = 0x10000000;
-        }
-
-        static OrbisBgftDownloadParam bgftParam;
-        memset(&bgftParam, 0, sizeof(bgftParam));
-
-        bgftParam.userId = userId;
-        bgftParam.entitlementType = 5;
-        bgftParam.id = "UP0001-CUSA00001_00-0000000000000000";
-        bgftParam.contentUrl = directUrl;
-        bgftParam.contentExUrl = "";
-        bgftParam.contentName = nomeLimpo;
-        bgftParam.iconPath = "";
-        bgftParam.skuId = "";
-        bgftParam.option = ORBIS_BGFT_TASK_OPT_NONE;
-        bgftParam.playgoScenarioId = "0";
-        bgftParam.releaseDate = "";
-        bgftParam.packageType = "xg";
-        bgftParam.packageSubType = "";
-        bgftParam.packageSize = 0;
-
-        OrbisBgftTaskId taskId = -1;
-
-        int res = sceBgftServiceIntDebugDownloadRegisterPkg(&bgftParam, &taskId);
-        if (res != 0) {
-            res = sceBgftServiceIntDownloadRegisterTask(&bgftParam, &taskId);
-        }
-
-        if (res == 0) {
-            sprintf(msgStatus, "SUCESSO! VEJA AS NOTIFICACOES DO PS4!");
-            atualizarBarra(1.0f);
-        }
-        else {
-            sprintf(msgStatus, "ERRO AO INSERIR NO PS4: 0x%08X", res);
-            atualizarBarra(0.0f);
-        }
-
-        msgTimer = 500;
-        return;
-    }
-
-    // =====================================================================
-    // ROTA 2: MÉTODO CLÁSSICO (Para Imagens, Músicas, Arquivos do App)
-    // =====================================================================
     char pathPasta[256];
+
+    // Todos os downloads vão para a pasta do App primeiro para evitar conflitos
     sprintf(pathPasta, "/data/HyperNeiva/baixado/Downloads");
     sceKernelMkdir("/data/HyperNeiva/baixado", 0777);
     sceKernelMkdir(pathPasta, 0777);
@@ -391,8 +193,29 @@ void iniciarDownload(const char* url) {
                 else { sprintf(msgStatus, "BAIXANDO: %s...", nomeArquivo); atualizarBarra(0.5f); }
             } fclose(f);
 
-            sprintf(msgStatus, "DOWNLOAD CONCLUIDO!");
-            atualizarBarra(1.0f);
+            // DOWNLOAD CONCLUÍDO! VERIFICA SE É UM JOGO E PREPARA PRO GOLDHEN
+            if (strstr(nomeArquivo, ".pkg") != NULL || strstr(nomeArquivo, ".PKG") != NULL) {
+
+                sceKernelMkdir("/data/pkg", 0777);
+                char destino[512];
+                sprintf(destino, "/data/pkg/%s", nomeArquivo);
+
+                int resMove = rename(pathFinal, destino);
+
+                if (resMove == 0) {
+                    sprintf(msgStatus, "PRONTO! Va em GoldHEN -> Package Installer");
+                }
+                else {
+                    sprintf(msgStatus, "BAIXADO, MAS ERRO AO MOVER PARA O GOLDHEN!");
+                }
+
+                atualizarBarra(1.0f);
+                msgTimer = 600;
+            }
+            else {
+                sprintf(msgStatus, "DOWNLOAD CONCLUIDO COM SUCESSO!");
+                atualizarBarra(1.0f);
+            }
         }
     }
     else { sprintf(msgStatus, "ERRO NO DOWNLOAD"); atualizarBarra(0.0f); }
