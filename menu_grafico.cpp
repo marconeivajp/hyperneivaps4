@@ -34,12 +34,15 @@ extern bool visualizandoMidiaImagem; extern unsigned char* imgMidia; extern int 
 extern bool visualizandoMidiaTexto; extern char* textoMidiaBuffer; extern char* linhasTexto[5000]; extern int totalLinhasTexto; extern int textoMidiaScroll;
 extern bool painelDuplo; extern int painelAtivo; extern char nomesEsq[3000][64]; extern bool marcadosEsq[3000]; extern char pathExplorarEsq[256]; extern int selEsq; extern int totalItensEsq; extern MenuLevel menuAtualEsq; extern int offEsq;
 
-// NOVAS VARIÁVEIS DA FILA INFINITA DO TXT
+// VARIÁVEIS DA FILA EXPORTADAS PARA LER O PROGRESSO
 extern volatile bool downloadEmSegundoPlano;
 extern volatile float progressoAtualDownload;
 extern char msgDownloadBg[256];
 extern volatile int totalFilaSessao;
 extern volatile int baixadosFilaSessao;
+
+// VARIÁVEL QUE DIZ QUANTAS OPÇÕES O MENU TEM AGORA
+extern int totalOpcoes;
 
 uint32_t getSysColor(int index) {
     uint32_t sysColors[] = { 0xAA222222, 0xAA000000, 0xAA000044, 0xAA440000, 0xAA004400, 0x00000000, 0xFF444444, 0xFF00D83A, 0xAAFFFF99, 0xFF00FF00, 0xFF00AAFF, 0xAA999933, 0xFFFFFFFF, 0xFFFF0000, 0xFF0000FF };
@@ -210,11 +213,38 @@ void desenharInterface(uint32_t* p) {
         desenharTexto(p, txtPos, 25, 50, 1045, 0xFF00FF00);
     }
 
+    // ==============================================================
+    // MENU OPÇÕES DO EXPLORAR (TAMANHO FIXO EDITÁVEL + SCROLL)
+    // ==============================================================
     if (showOpcoes && menuAtual != MENU_AUDIO_OPCOES) {
-        for (int my = 0; my < upH; my++) { for (int mx = 0; mx < upW; mx++) { int pxX = upX + mx; int pyY = upY + my; if (pxX >= 0 && pxX < 1920 && pyY >= 0 && pyY < 1080) p[pyY * 1920 + pxX] = getSysColor(listBg); } }
-        int maxV = (upH - 50) / 45; if (maxV < 1) maxV = 1;
+
+        // Garante que o cursor não passe da quantidade real de opções (corrige bugs de controle)
+        if (selOpcao >= totalOpcoes) selOpcao = 0;
+        if (selOpcao < 0) selOpcao = totalOpcoes - 1;
+
+        // Desenha o fundo usando as coordenadas fixas (que você pode editar!)
+        for (int my = 0; my < upH; my++) {
+            for (int mx = 0; mx < upW; mx++) {
+                int pxX = upX + mx;
+                int pyY = upY + my;
+                if (pxX >= 0 && pxX < 1920 && pyY >= 0 && pyY < 1080)
+                    p[pyY * 1920 + pxX] = getSysColor(listBg);
+            }
+        }
+
+        // Calcula quantos itens cabem na tela de acordo com a altura (upH) editada
+        int maxV = (upH - 50) / 45;
+        if (maxV < 1) maxV = 1;
+
+        // LÓGICA DE SCROLL AUTOMÁTICO: Acompanha o cursor se a lista for maior que a caixa!
+        if (selOpcao < offOpcao) offOpcao = selOpcao;
+        if (selOpcao >= offOpcao + maxV) offOpcao = selOpcao - maxV + 1;
+
+        // Desenha as opções respeitando a rolagem
         for (int i = 0; i < maxV; i++) {
-            int gIdx = i + offOpcao; if (gIdx >= 10) break;
+            int gIdx = i + offOpcao;
+            if (gIdx >= totalOpcoes) break;
+
             uint32_t corOp = (gIdx == selOpcao) ? 0xFFFFFF00 : 0xFFFFFFFF;
             desenharTextoAlinhado(p, listaOpcoes[gIdx], fontTam, upX, upY + 50 + (i * 45), upW, corOp);
         }
