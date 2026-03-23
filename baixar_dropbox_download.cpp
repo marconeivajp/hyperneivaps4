@@ -7,6 +7,7 @@
 #include <string.h>
 #include <stdarg.h>
 #include <pthread.h>
+#include <unistd.h>
 
 #include <orbis/libkernel.h>
 #include <orbis/Http.h>
@@ -37,19 +38,129 @@ extern bool marcados[3000];
 extern char caminhoXMLAtual[256];
 
 // ==============================================================
-// VARIÁVEIS GLOBAIS PARA A FILA DE DOWNLOAD EM SEGUNDO PLANO
+// VARIÁVEIS GLOBAIS E CONTROLES DA FILA EM ARQUIVO TXT
 // ==============================================================
-#define MAX_FILA 50
-char filaUrls[MAX_FILA][1024];
-MenuLevel filaMenus[MAX_FILA];
-char filaXMLs[MAX_FILA][256];
-
-volatile int totalFila = 0;
-volatile int atualFila = 0;
-
 volatile bool downloadEmSegundoPlano = false;
 volatile float progressoAtualDownload = 0.0f;
 char msgDownloadBg[256] = "";
+
+volatile int totalFilaSessao = 0;
+volatile int baixadosFilaSessao = 0;
+
+pthread_mutex_t filaMutex = PTHREAD_MUTEX_INITIALIZER;
+const char* caminhoFila = "/data/HyperNeiva/configuracao/temporario/fila_downloads.txt";
+const char* caminhoFilaTemp = "/data/HyperNeiva/configuracao/temporario/fila_temp.txt";
+
+int obterTamanhoFila() {
+    pthread_mutex_lock(&filaMutex);
+    int linhas = 0;
+    FILE* f = fopen(caminhoFila, "r");
+    if (f) {
+        char linha[2048];
+        while (fgets(linha, sizeof(linha), f)) linhas++;
+        fclose(f);
+    }
+    pthread_mutex_unlock(&filaMutex);
+    return linhas;
+}
+
+void adicionarNaFila(const char* url, MenuLevel menuOrigem, const char* xmlOrigem) {
+    sceKernelMkdir("/data/HyperNeiva/configuracao/temporario", 0777);
+    pthread_mutex_lock(&filaMutex);
+
+    // Verifica se o URL já existe na fila (Evita links repetidos)
+    bool existe = false;
+    FILE* fCheck = fopen(caminhoFila, "r");
+    if (fCheck) {
+        char linha[2048];
+        while (fgets(linha, sizeof(linha), fCheck)) {
+            for (int i = 0; linha[i]; i++) if (linha[i] == '\r' || linha[i] == '\n') linha[i] = '\0';
+            char* p1 = strchr(linha, '|');
+            if (p1) *p1 = '\0'; // Isola o URL da linha cortando no Pipe |
+
+            if (strcmp(linha, url) == 0) {
+                existe = true;
+                break;
+            }
+        }
+        fclose(fCheck);
+    }
+
+    // Se não for repetido, registra no TXT
+    if (!existe) {
+        FILE* f = fopen(caminhoFila, "a");
+        if (f) {
+            fprintf(f, "%s|%d|%s\n", url, (int)menuOrigem, xmlOrigem);
+            fclose(f);
+            totalFilaSessao++; // Aumenta o visual da barra
+        }
+    }
+
+    pthread_mutex_unlock(&filaMutex);
+}
+
+bool obterPrimeiroDaFila(char* urlOut, MenuLevel* menuOut, char* xmlOut) {
+    pthread_mutex_lock(&filaMutex);
+    FILE* f = fopen(caminhoFila, "r");
+    if (!f) { pthread_mutex_unlock(&filaMutex); return false; }
+
+    char linha[2048];
+    if (fgets(linha, sizeof(linha), f)) {
+        for (int i = 0; linha[i]; i++) if (linha[i] == '\r' || linha[i] == '\n') linha[i] = '\0';
+
+        char* p1 = strchr(linha, '|');
+        if (p1) {
+            *p1 = '\0';
+            strcpy(urlOut, linha); // Puxa a URL
+            p1++;
+            char* p2 = strchr(p1, '|');
+            if (p2) {
+                *p2 = '\0';
+                *menuOut = (MenuLevel)atoi(p1); // Puxa o Menu Original
+                p2++;
+                strcpy(xmlOut, p2); // Puxa o XML Path
+            }
+            else {
+                *menuOut = (MenuLevel)atoi(p1);
+                strcpy(xmlOut, "");
+            }
+        }
+        else {
+            strcpy(urlOut, linha);
+            *menuOut = (MenuLevel)0;
+            strcpy(xmlOut, "");
+        }
+        fclose(f);
+        pthread_mutex_unlock(&filaMutex);
+        return true;
+    }
+    fclose(f);
+    pthread_mutex_unlock(&filaMutex);
+    return false;
+}
+
+void removerPrimeiroDaFila() {
+    pthread_mutex_lock(&filaMutex);
+    FILE* f = fopen(caminhoFila, "r");
+    if (!f) { pthread_mutex_unlock(&filaMutex); return; }
+
+    FILE* fTemp = fopen(caminhoFilaTemp, "w");
+    if (fTemp) {
+        char linha[2048];
+        bool primeiro = true;
+        while (fgets(linha, sizeof(linha), f)) {
+            if (primeiro) { primeiro = false; continue; } // Pula a primeira linha (deleta)
+            fprintf(fTemp, "%s", linha); // Copia o resto
+        }
+        fclose(fTemp);
+    }
+    fclose(f);
+
+    // Substitui o arquivo original pelo novo sem a primeira linha
+    unlink(caminhoFila);
+    rename(caminhoFilaTemp, caminhoFila);
+    pthread_mutex_unlock(&filaMutex);
+}
 
 void preencherMenuBackup() {
     memset(nomes, 0, sizeof(nomes));
@@ -156,18 +267,15 @@ void acessarDropbox(const char* path) {
 }
 
 // =======================================================================
-// O MOTOR DE DOWNLOAD EM SEGUNDO PLANO: AGORA COM SISTEMA DE FILA
+// O MOTOR DE DOWNLOAD EM SEGUNDO PLANO (LENDO DO TXT E DELETANDO)
 // =======================================================================
 void* threadDownloadBackground(void* arg) {
+    char urlDownloadBg[1024];
+    MenuLevel menuOrigemBg;
+    char caminhoXMLOrigemBg[256];
 
-    // O loop continua enquanto houver arquivos na fila
-    while (atualFila < totalFila) {
-
-        char urlDownloadBg[1024];
-        strcpy(urlDownloadBg, filaUrls[atualFila]);
-        MenuLevel menuOrigemBg = filaMenus[atualFila];
-        char caminhoXMLOrigemBg[256];
-        strcpy(caminhoXMLOrigemBg, filaXMLs[atualFila]);
+    // Enquanto o TXT devolver a primeira linha da fila...
+    while (obterPrimeiroDaFila(urlDownloadBg, &menuOrigemBg, caminhoXMLOrigemBg)) {
 
         char nomeArquivo[128] = "arquivo.bin";
         char* ref = strrchr(urlDownloadBg, '/');
@@ -269,64 +377,65 @@ void* threadDownloadBackground(void* arg) {
                     msgTimer = 400;
                 }
                 else {
-                    sprintf(msgStatus, "ARQUIVO %d DE %d CONCLUIDO!", atualFila + 1, totalFila);
+                    sprintf(msgStatus, "ARQUIVO CONCLUIDO!");
                     msgTimer = 300;
                 }
             }
         }
         else {
-            sprintf(msgStatus, "ERRO NO ARQUIVO %d DE %d!", atualFila + 1, totalFila);
+            sprintf(msgStatus, "ERRO NO ARQUIVO ATUAL!");
             msgTimer = 240;
         }
 
         sceHttpDeleteRequest(req); sceHttpDeleteConnection(conn); sceHttpDeleteTemplate(tpl);
 
-        // Pula para o próximo item da fila
-        atualFila++;
+        // Fim da leitura desse arquivo! Apaga ele do TXT.
+        removerPrimeiroDaFila();
+        baixadosFilaSessao++; // Avança o número no menu (ex: 2/5, 3/5...)
     }
 
-    // Fim da linha: Se a fila esvaziar, nós limpamos tudo e apagamos a barra!
-    totalFila = 0;
-    atualFila = 0;
+    // Fim da linha (O arquivo TXT está vazio)
+    totalFilaSessao = 0;
+    baixadosFilaSessao = 0;
     downloadEmSegundoPlano = false;
     return NULL;
 }
 
-// INICIADOR DO DOWNLOAD (Adiciona na Fila)
+// INICIADOR DO DOWNLOAD (Adiciona na Fila em Arquivo TXT)
 void iniciarDownload(const char* url) {
     if (!url || strlen(url) < 2) return;
 
-    // Limite de segurança para não estourar a memória
-    if (totalFila >= MAX_FILA) {
-        sprintf(msgStatus, "ERRO: FILA CHEIA (MAX 50)!");
-        msgTimer = 180;
-        return;
+    int antes = obterTamanhoFila();
+
+    // Se o motor estava desligado, configuramos o visual como o tamanho do que já estava no TXT antigo
+    if (!downloadEmSegundoPlano) {
+        totalFilaSessao = antes;
+        baixadosFilaSessao = 0;
     }
 
-    // Grava o item novo na lista
-    strcpy(filaUrls[totalFila], url);
-    filaMenus[totalFila] = menuAtual;
-    strcpy(filaXMLs[totalFila], caminhoXMLAtual);
-    totalFila++;
+    // A função já checa se é repetido antes de adicionar
+    adicionarNaFila(url, menuAtual, caminhoXMLAtual);
 
-    // Se a máquina estiver parada, nós ligamos o motor
+    int depois = obterTamanhoFila();
+
+    if (depois == antes) {
+        sprintf(msgStatus, "LINK JA EXISTE NA FILA!");
+        msgTimer = 180;
+    }
+    else {
+        sprintf(msgStatus, "ADICIONADO A FILA!");
+        msgTimer = 180;
+    }
+
+    // Liga o motor caso estivesse desligado
     if (!downloadEmSegundoPlano) {
         downloadEmSegundoPlano = true;
-        atualFila = 0;
         progressoAtualDownload = 0.0f;
         strcpy(msgDownloadBg, "PREPARANDO O DOWNLOAD...");
-
-        sprintf(msgStatus, "DOWNLOAD INICIADO!");
-        msgTimer = 240;
 
         pthread_t threadId;
         pthread_create(&threadId, NULL, threadDownloadBackground, NULL);
         pthread_detach(threadId);
-    }
-    // Se já estiver rodando, ele só avisa que entrou na fila
-    else {
-        sprintf(msgStatus, "ADICIONADO A FILA (%d/%d)", totalFila, totalFila);
-        msgTimer = 180;
     }
 }
 

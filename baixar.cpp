@@ -8,6 +8,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <dirent.h>
+#include <unistd.h> // ADDED FOR UNLINK
 
 #include <orbis/libkernel.h>
 #include <orbis/Http.h>
@@ -19,11 +20,14 @@
 #include "graphics.h"
 #include "stb_image.h"
 
+// IMPORTANDO AS VARIÁVEIS DE EDIÇÃO DA BARRA
 extern int barX, barY, barW, barH;
 extern int barBg, barFill;
+
 extern uint32_t* obterBufferVideo();
 extern void desenharInterface(uint32_t* p);
 extern void submeterTela();
+
 extern unsigned char* backImg;
 extern int wB, hB;
 
@@ -40,12 +44,13 @@ unsigned char* imgPreview = NULL;
 int wP = 0, hP = 0, cP = 0;
 char ultimoJogoCarregado[64] = "";
 char caminhoXMLAtual[256] = "";
-char linksAtuais[3000][1024];
+char linksAtuais[3000][1024]; // AQUI ESTÁ A DEFINIÇÃO
 int totalLinksAtuais = 0;
 
 char currentDropboxPath[512] = "";
 char currentUploadPath[512] = "";
 
+// FUNÇÃO GERADORA DE CORES DA PALETA (Idêntica à da Interface Visual)
 uint32_t getSysColorBarra(int index) {
     uint32_t sysColors[] = {
         0xAA222222, 0xAA000000, 0xAA000044, 0xAA440000, 0xAA004400, 0x00000000,
@@ -56,26 +61,42 @@ uint32_t getSysColorBarra(int index) {
     return sysColors[index];
 }
 
-void atualizarBarra(float progresso) { atualizarBarra(progresso, 1, 1); }
+void atualizarBarra(float progresso) {
+    atualizarBarra(progresso, 1, 1);
+}
 
 void atualizarBarra(float progresso, int arquivoAtual, int totalArquivos) {
     uint32_t* p = obterBufferVideo();
+
     for (int i = 0; i < 1920 * 1080; i++) p[i] = 0xFF121212;
-    if (backImg) desenharRedimensionado(p, backImg, wB, hB, 1920, 1080, 0, 0);
+
+    if (backImg) {
+        desenharRedimensionado(p, backImg, wB, hB, 1920, 1080, 0, 0);
+    }
+
     desenharInterface(p);
 
-    int bX = barX; int bY = barY; int bW = barW; int bH = barH;
+    int bX = barX;
+    int bY = barY;
+    int bW = barW;
+    int bH = barH;
 
+    // Fundo da Barra
     for (int y = bY; y < bY + bH; y++) {
-        for (int x = bX; x < bX + bW; x++) p[y * 1920 + x] = getSysColorBarra(barBg);
+        for (int x = bX; x < bX + bW; x++) {
+            p[y * 1920 + x] = getSysColorBarra(barBg);
+        }
     }
 
     int fill = (int)(bW * progresso);
     if (fill > bW) fill = bW;
     if (fill < 0) fill = 0;
 
+    // Preenchimento da Barra
     for (int y = bY; y < bY + bH; y++) {
-        for (int x = bX; x < bX + fill; x++) p[y * 1920 + x] = getSysColorBarra(barFill);
+        for (int x = bX; x < bX + fill; x++) {
+            p[y * 1920 + x] = getSysColorBarra(barFill);
+        }
     }
 
     int porcentagem = (int)(progresso * 100.0f);
@@ -84,7 +105,9 @@ void atualizarBarra(float progresso, int arquivoAtual, int totalArquivos) {
 
     char textoLoad[128];
     snprintf(textoLoad, sizeof(textoLoad), "%d%%   -   %d / %d", porcentagem, arquivoAtual, totalArquivos);
+
     desenharTexto(p, textoLoad, 25, bX + bW + 20, bY - 2, 0xFFFFFFFF);
+
     submeterTela();
 }
 
@@ -105,17 +128,13 @@ void acaoRede(const char* jogo, bool buscarLista, bool salvarNoHD) {
 
     if (sceHttpSendRequest(req, NULL, 0) >= 0) {
         char path[256];
-        // REDIRECIONAMENTOS SOLICITADOS (Temporario e Capas)
-        if (buscarLista) strcpy(path, "/data/HyperNeiva/configuracao/temporario/remote_list.html");
+        if (buscarLista) strcpy(path, "/data/HyperNeiva/remote_list.html");
         else if (salvarNoHD) {
-            sceKernelMkdir("/data/HyperNeiva/baixado/capas", 0777);
-            char sub[256]; sprintf(sub, "/data/HyperNeiva/baixado/capas/%s", listaConsoles[consoleAtual].nome);
-            sceKernelMkdir(sub, 0777);
-            char box[256]; sprintf(box, "%s/Named_Boxarts", sub);
-            sceKernelMkdir(box, 0777);
-            sprintf(path, "%s/%s.png", box, jogo);
+            char sub[256]; sprintf(sub, "/data/HyperNeiva/baixado/%s", listaConsoles[consoleAtual].nome);
+            sceKernelMkdir(sub, 0777); char box[256]; sprintf(box, "%s/Named_Boxarts", sub);
+            sceKernelMkdir(box, 0777); sprintf(path, "%s/%s.png", box, jogo);
         }
-        else strcpy(path, "/data/HyperNeiva/configuracao/temporario/preview.png");
+        else strcpy(path, "/data/HyperNeiva/preview.png");
 
         FILE* f = fopen(path, "wb");
         if (f) {
@@ -132,7 +151,7 @@ void acaoRede(const char* jogo, bool buscarLista, bool salvarNoHD) {
             atualizarBarra(1.0f, 1, 1);
 
             if (buscarLista) {
-                FILE* f2 = fopen("/data/HyperNeiva/configuracao/temporario/remote_list.html", "rb");
+                FILE* f2 = fopen("/data/HyperNeiva/remote_list.html", "rb");
                 if (f2) {
                     fseek(f2, 0, SEEK_END); long sz = ftell(f2); fseek(f2, 0, SEEK_SET);
                     char* h = (char*)malloc(sz + 1); fread(h, 1, sz, f2); h[sz] = '\0'; fclose(f2);
@@ -154,7 +173,10 @@ void acaoRede(const char* jogo, bool buscarLista, bool salvarNoHD) {
                     }
                     free(h);
                 }
-                menuAtual = SCRAPER_LIST; sel = 0; off = 0;
+
+                menuAtual = SCRAPER_LIST;
+                sel = 0;
+                off = 0;
             }
             else {
                 if (imgPreview) stbi_image_free(imgPreview);
@@ -177,4 +199,106 @@ void preencherMenuBaixar() {
     menuAtual = MENU_BAIXAR;
     sel = 0;
     off = 0;
+}
+
+// =========================================================================
+// SISTEMA DE FILA INTELIGENTE (TXT) PARA DOWNLOADS ILIMITADOS
+// =========================================================================
+
+const char* pathFilaTxt = "/data/HyperNeiva/configuracao/fila_downloads.txt";
+const char* pathTempTxt = "/data/HyperNeiva/configuracao/fila_temp.txt";
+
+// 1. Adiciona o link ao arquivo TXT se ele não for repetido
+bool adicionarLinkFila(const char* link) {
+    FILE* fIn = fopen(pathFilaTxt, "r");
+    if (fIn) {
+        char linha[1024];
+        while (fgets(linha, sizeof(linha), fIn)) {
+            linha[strcspn(linha, "\r\n")] = 0;
+            if (strcmp(linha, link) == 0) {
+                fclose(fIn);
+                return false;
+            }
+        }
+        fclose(fIn);
+    }
+
+    FILE* fOut = fopen(pathFilaTxt, "a");
+    if (fOut) {
+        fprintf(fOut, "%s\n", link);
+        fclose(fOut);
+        return true;
+    }
+    return false;
+}
+
+// 2. Pega o primeiro link da fila
+bool obterPrimeiroLinkFila(char* linkSaida) {
+    FILE* f = fopen(pathFilaTxt, "r");
+    if (!f) return false;
+
+    if (fgets(linkSaida, 1024, f)) {
+        linkSaida[strcspn(linkSaida, "\r\n")] = 0;
+        fclose(f);
+        return (strlen(linkSaida) > 0);
+    }
+
+    fclose(f);
+    return false;
+}
+
+// 3. Deleta a primeira linha após o download
+void removerPrimeiroLinkFila() {
+    FILE* fIn = fopen(pathFilaTxt, "r");
+    if (!fIn) return;
+
+    FILE* fOut = fopen(pathTempTxt, "w");
+    if (!fOut) { fclose(fIn); return; }
+
+    char linha[1024];
+    bool primeiraLinha = true;
+
+    while (fgets(linha, sizeof(linha), fIn)) {
+        if (primeiraLinha) {
+            primeiraLinha = false;
+            continue;
+        }
+        fprintf(fOut, "%s", linha);
+    }
+
+    fclose(fIn);
+    fclose(fOut);
+
+    unlink(pathFilaTxt);
+    rename(pathTempTxt, pathFilaTxt);
+}
+
+// 4. Conta quantos arquivos faltam
+int contarLinksFila() {
+    FILE* f = fopen(pathFilaTxt, "r");
+    if (!f) return 0;
+
+    int contagem = 0;
+    char linha[1024];
+    while (fgets(linha, sizeof(linha), f)) {
+        if (strlen(linha) > 2) contagem++;
+    }
+    fclose(f);
+    return contagem;
+}
+
+// 5. Loop Automático
+void processarFilaDownloads() {
+    char linkAtual[1024];
+
+    while (obterPrimeiroLinkFila(linkAtual)) {
+
+        int totalRestante = contarLinksFila();
+
+        // --- CHAME A SUA FUNÇÃO DE DOWNLOAD AQUI ---
+        // Exemplo:
+        // iniciarDownload(linkAtual);
+
+        removerPrimeiroLinkFila();
+    }
 }
