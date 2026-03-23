@@ -1,3 +1,9 @@
+#ifdef __INTELLISENSE__
+#ifndef __builtin_va_list
+#define __builtin_va_list void*
+#endif
+#endif
+
 #include "menu_audio.h"
 #include "menu.h"
 #include "graphics.h"
@@ -16,12 +22,12 @@ extern int fontTam, listBg;
 uint32_t getSysColor(int index);
 extern void desenharTextoAlinhado(uint32_t* p, const char* textoOriginal, int fTam, int xBase, int y, int maxW, uint32_t cor);
 
-int offAudioOpcao = 0; // CORREÇÃO: CRIAÇÃO DEFINITIVA DESTA VARIÁVEL
+int offAudioOpcao = 0;
 
 const char* listaOpcoesAudio[11] = {
     "PLAY / PAUSE", "PARAR", "PROXIMA FAIXA", "FAIXA ANTERIOR",
     "VOLUME +", "VOLUME -", "ADIANTAR 10s", "RETROCEDER 10s",
-    "REPETIR", "---", "VOLTAR"
+    "MODO REPRODUCAO", "---", "VOLTAR"
 };
 
 void desenharMenuAudio(uint32_t* p) {
@@ -54,7 +60,15 @@ void desenharMenuAudio(uint32_t* p) {
                 desenharTextoAlinhado(p, txtVol, fontTam, audioX, audioY + 50 + (i * 45), audioW, corOp);
             }
             else if (gIdx == 8) {
-                desenharTextoAlinhado(p, modoRepetir ? "MODO: REPETIR FAIXA" : "MODO: LINEAR", fontTam, audioX, audioY + 50 + (i * 45), audioW, corOp);
+                // DESENHO INTELIGENTE DOS 5 MODOS
+                const char* textosModo[] = {
+                    "MODO: LINEAR",
+                    "MODO: REPETIR FAIXA",
+                    "MODO: REPETIR PASTA",
+                    "MODO: ALEATORIO PASTA",
+                    "MODO: ALEATORIO TODAS"
+                };
+                desenharTextoAlinhado(p, textosModo[modoReproducao], fontTam, audioX, audioY + 50 + (i * 45), audioW, corOp);
             }
             else {
                 desenharTextoAlinhado(p, listaOpcoesAudio[gIdx], fontTam, audioX, audioY + 50 + (i * 45), audioW, corOp);
@@ -86,7 +100,16 @@ void tratarSelecaoAudio(int op) {
     case 5: diminuirVolume(); sprintf(msgStatus, "VOLUME: %d%%", volumeGeral); msgTimer = 60; break;
     case 6: if (strcmp(musicaAtual, "PARADO") != 0 && strlen(musicaAtual) > 0) { adiantarAudio(); sprintf(msgStatus, "AVANCANDO 10s"); msgTimer = 60; } break;
     case 7: if (strcmp(musicaAtual, "PARADO") != 0 && strlen(musicaAtual) > 0) { retrocederAudio(); sprintf(msgStatus, "RETROCEDENDO 10s"); msgTimer = 60; } break;
-    case 8: modoRepetir = !modoRepetir; sprintf(msgStatus, modoRepetir ? "REPETICAO ATIVADA" : "MODO LINEAR ATIVADO"); msgTimer = 90; break;
+    case 8: { // <--- AS CHAVES MÁGICAS PARA O C++ NÃO RECLAMAR ESTÃO AQUI!
+        modoReproducao++;
+        if (modoReproducao > 4) modoReproducao = 0;
+
+        const char* msgModos[] = { "LINEAR", "REPETIR FAIXA", "REPETIR PASTA", "ALEATORIO PASTA", "ALEATORIO TODAS" };
+        sprintf(msgStatus, "MODO: %s", msgModos[modoReproducao]);
+        msgTimer = 90;
+        salvarConfiguracaoAudio(); // Salva no HD na mesma hora!
+        break;
+    }
     case 10: showOpcoes = false; break;
     default: sprintf(msgStatus, "FUNCAO EM DESENVOLVIMENTO"); msgTimer = 60; break;
     }

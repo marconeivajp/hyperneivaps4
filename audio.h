@@ -6,11 +6,11 @@
 
 extern char musicaAtual[256];
 extern volatile bool comandoPausar;
-extern volatile bool modoRepetir;
+extern volatile int modoReproducao; // NOVA VARIÁVEL DOS 5 MODOS
 extern int volumeGeral;
 
 extern char caminhosMusicasMenu[3000][256];
-extern char caminhoNavegacaoMusicas[512]; // Variável que gerencia as pastas no Player
+extern char caminhoNavegacaoMusicas[512];
 
 void inicializarAudio();
 void pararAudio();
