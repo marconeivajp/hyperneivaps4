@@ -30,7 +30,6 @@
 static int audioPort = -1;
 static volatile bool audioRodando = false;
 static pthread_t audioThreadId;
-static bool sistemaAudioIniciado = false;
 
 static volatile bool comandoTrocar = false;
 volatile bool comandoPausar = false;
@@ -38,7 +37,7 @@ volatile bool modoRepetir = false;
 
 volatile int comandoBuscarSegundos = 0;
 int volumeGeral = 100;
-char musicaAtual[256] = "PARADO";
+char musicaAtual[256] = "";
 
 char caminhosMusicasMenu[3000][256];
 char caminhoNavegacaoMusicas[512] = "/data/HyperNeiva/Musicas";
@@ -77,6 +76,7 @@ void carregarConfiguracaoAudio() {
         fclose(f);
     }
     else {
+        strcpy(musicaAtual, "/data/HyperNeiva/configuracao/audio/bgm.wav");
         volumeGeral = 100;
     }
 }
@@ -116,18 +116,13 @@ static bool obterProximaMusica(char* proximaMusicaPath) {
     int totalAudios = 0;
     scanPlaylistRecursivo("/data/HyperNeiva/Musicas", listaAudios, &totalAudios);
 
-    if (totalAudios == 0) {
-        free(listaAudios);
-        return false;
-    }
+    if (totalAudios == 0) { free(listaAudios); return false; }
 
     for (int i = 0; i < totalAudios - 1; i++) {
         for (int j = i + 1; j < totalAudios; j++) {
             if (strcasecmp(listaAudios[i], listaAudios[j]) > 0) {
                 char temp[256];
-                strcpy(temp, listaAudios[i]);
-                strcpy(listaAudios[i], listaAudios[j]);
-                strcpy(listaAudios[j], temp);
+                strcpy(temp, listaAudios[i]); strcpy(listaAudios[i], listaAudios[j]); strcpy(listaAudios[j], temp);
             }
         }
     }
@@ -137,15 +132,10 @@ static bool obterProximaMusica(char* proximaMusicaPath) {
         if (strcmp(listaAudios[i], musicaAtual) == 0) { idx = i; break; }
     }
 
-    if (idx != -1 && idx + 1 < totalAudios) {
-        strcpy(proximaMusicaPath, listaAudios[idx + 1]);
-    }
-    else {
-        strcpy(proximaMusicaPath, listaAudios[0]);
-    }
+    if (idx != -1 && idx + 1 < totalAudios) strcpy(proximaMusicaPath, listaAudios[idx + 1]);
+    else strcpy(proximaMusicaPath, listaAudios[0]);
 
-    free(listaAudios);
-    return true;
+    free(listaAudios); return true;
 }
 
 static bool obterMusicaAnterior(char* musicaAnteriorPath) {
@@ -155,18 +145,13 @@ static bool obterMusicaAnterior(char* musicaAnteriorPath) {
     int totalAudios = 0;
     scanPlaylistRecursivo("/data/HyperNeiva/Musicas", listaAudios, &totalAudios);
 
-    if (totalAudios == 0) {
-        free(listaAudios);
-        return false;
-    }
+    if (totalAudios == 0) { free(listaAudios); return false; }
 
     for (int i = 0; i < totalAudios - 1; i++) {
         for (int j = i + 1; j < totalAudios; j++) {
             if (strcasecmp(listaAudios[i], listaAudios[j]) > 0) {
                 char temp[256];
-                strcpy(temp, listaAudios[i]);
-                strcpy(listaAudios[i], listaAudios[j]);
-                strcpy(listaAudios[j], temp);
+                strcpy(temp, listaAudios[i]); strcpy(listaAudios[i], listaAudios[j]); strcpy(listaAudios[j], temp);
             }
         }
     }
@@ -176,25 +161,20 @@ static bool obterMusicaAnterior(char* musicaAnteriorPath) {
         if (strcmp(listaAudios[i], musicaAtual) == 0) { idx = i; break; }
     }
 
-    if (idx != -1 && idx - 1 >= 0) {
-        strcpy(musicaAnteriorPath, listaAudios[idx - 1]);
-    }
-    else {
-        strcpy(musicaAnteriorPath, listaAudios[totalAudios - 1]);
-    }
+    if (idx != -1 && idx - 1 >= 0) strcpy(musicaAnteriorPath, listaAudios[idx - 1]);
+    else strcpy(musicaAnteriorPath, listaAudios[totalAudios - 1]);
 
-    free(listaAudios);
-    return true;
+    free(listaAudios); return true;
 }
 
 static bool prepararArquivoAudio(char* caminhoFinal) {
     if (strcmp(musicaAtual, "PARADO") == 0) return false;
+
     if (strlen(musicaAtual) > 0) {
         FILE* fCustom = fopen(musicaAtual, "rb");
         if (fCustom) { fclose(fCustom); strcpy(caminhoFinal, musicaAtual); return true; }
     }
 
-    // CORREÇÃO: O BGM AGORA VAI PARA A PASTA DE AUDIO QUE O SISTEMA SFX CRIOU!
     sceKernelMkdir("/data/HyperNeiva/configuracao/audio", 0777);
     const char* pathHD = "/data/HyperNeiva/configuracao/audio/bgm.wav";
     FILE* fHD = fopen(pathHD, "rb");
@@ -217,9 +197,10 @@ static bool prepararArquivoAudio(char* caminhoFinal) {
 }
 
 static void* audioThreadFunc(void* argp) {
-    if (!sistemaAudioIniciado) { sceAudioOutInit(); sistemaAudioIniciado = true; }
     int32_t userId;
     if (sceUserServiceGetInitialUser(&userId) < 0) userId = ORBIS_USER_SERVICE_USER_ID_SYSTEM;
+
+    // PORTA 0 para MÚSICA BGM
     audioPort = sceAudioOutOpen(userId, ORBIS_AUDIO_OUT_PORT_TYPE_MAIN, 0, 256, 48000, ORBIS_AUDIO_OUT_PARAM_FORMAT_S16_STEREO);
     if (audioPort < 0) { audioRodando = false; return NULL; }
 
@@ -238,7 +219,6 @@ static void* audioThreadFunc(void* argp) {
     }
 
     while (audioRodando) {
-
         if (comandoBuscarSegundos != 0) {
             if (currentAudioType != AUDIO_NONE) {
                 int sampleRate = (currentAudioType == AUDIO_WAV) ? wav.sampleRate : mp3.sampleRate;
@@ -321,10 +301,7 @@ static void* audioThreadFunc(void* argp) {
                     else {
                         if (drwav_init_file(&wav, musicaAtual, NULL)) { currentAudioType = AUDIO_WAV; sucesso = true; }
                     }
-                    if (sucesso) {
-                        currentFrame = 0;
-                        continue;
-                    }
+                    if (sucesso) { currentFrame = 0; continue; }
                 }
             }
             else {
@@ -388,24 +365,16 @@ void tocarMusicaNova(const char* path) {
 void tocarProximaMusica() {
     if (strcmp(musicaAtual, "PARADO") == 0 || strlen(musicaAtual) == 0) return;
     char proxima[256];
-    if (obterProximaMusica(proxima)) {
-        tocarMusicaNova(proxima);
-    }
+    if (obterProximaMusica(proxima)) tocarMusicaNova(proxima);
 }
 
 void tocarMusicaAnterior() {
     if (strcmp(musicaAtual, "PARADO") == 0 || strlen(musicaAtual) == 0) return;
     char anterior[256];
-    if (obterMusicaAnterior(anterior)) {
-        tocarMusicaNova(anterior);
-    }
+    if (obterMusicaAnterior(anterior)) tocarMusicaNova(anterior);
 }
 
-struct ItemAudioTemp {
-    char nome[64];
-    char path[256];
-    bool ehPasta;
-};
+struct ItemAudioTemp { char nome[64]; char path[256]; bool ehPasta; };
 
 void preencherMenuMusicas() {
     memset(nomes, 0, sizeof(nomes));
@@ -455,13 +424,8 @@ void preencherMenuMusicas() {
     for (int i = 0; i < count - 1; i++) {
         for (int j = 0; j < count - i - 1; j++) {
             bool trocar = false;
-
-            if (!temp[j].ehPasta && temp[j + 1].ehPasta) {
-                trocar = true;
-            }
-            else if (temp[j].ehPasta == temp[j + 1].ehPasta && strcasecmp(temp[j].nome, temp[j + 1].nome) > 0) {
-                trocar = true;
-            }
+            if (!temp[j].ehPasta && temp[j + 1].ehPasta) trocar = true;
+            else if (temp[j].ehPasta == temp[j + 1].ehPasta && strcasecmp(temp[j].nome, temp[j + 1].nome) > 0) trocar = true;
 
             if (trocar) {
                 ItemAudioTemp aux = temp[j];
@@ -472,15 +436,11 @@ void preencherMenuMusicas() {
     }
 
     for (int i = 0; i < count; i++) {
-        if (temp[i].ehPasta) {
-            snprintf(nomes[totalItens], 64, "[%s]", temp[i].nome);
-        }
-        else {
-            strcpy(nomes[totalItens], temp[i].nome);
-        }
+        if (temp[i].ehPasta) snprintf(nomes[totalItens], 64, "[%s]", temp[i].nome);
+        else strcpy(nomes[totalItens], temp[i].nome);
+
         strcpy(caminhosMusicasMenu[totalItens], temp[i].path);
         totalItens++;
     }
-
     menuAtual = MENU_MUSICAS;
 }

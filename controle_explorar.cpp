@@ -13,7 +13,8 @@
 #include "menu.h"
 #include "explorar.h"
 #include "stb_image.h" 
-#include "audio.h"     
+#include "audio.h"   
+#include "bloco_de_notas.h" // INCLUIDO PARA USAR O BLOCO DE NOTAS
 
 extern int cd;
 extern void preencherExplorerHome();
@@ -161,6 +162,20 @@ void acaoCross_Explorar() {
                     else {
                         sprintf(msgStatus, "ERRO AO CARREGAR IMAGEM");
                         msgTimer = 90;
+                    }
+                }
+                // INTEGRAÇÃO: Abrir textos no Bloco de Notas para edição
+                else if (strcasecmp(ext, ".txt") == 0 || strcasecmp(ext, ".xml") == 0 ||
+                    strcasecmp(ext, ".json") == 0 || strcasecmp(ext, ".ini") == 0 ||
+                    strcasecmp(ext, ".cfg") == 0 || strcasecmp(ext, ".log") == 0) {
+
+                    editarArquivoExistente(pExplorar, nItems[sAtual]);
+
+                    if (ehEsq) {
+                        menuAtualEsq = MENU_NOTEPAD;
+                    }
+                    else {
+                        menuAtual = MENU_NOTEPAD;
                     }
                 }
             }
