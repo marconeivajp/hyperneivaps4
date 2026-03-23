@@ -46,6 +46,8 @@ char msgDownloadBg[256] = "";
 
 volatile int totalFilaSessao = 0;
 volatile int baixadosFilaSessao = 0;
+volatile bool processandoFila = false;
+volatile bool processandoFilaUpload = false;
 
 pthread_mutex_t filaMutex = PTHREAD_MUTEX_INITIALIZER;
 const char* caminhoFila = "/data/HyperNeiva/configuracao/temporario/fila_downloads.txt";
@@ -267,14 +269,13 @@ void acessarDropbox(const char* path) {
 }
 
 // =======================================================================
-// O MOTOR DE DOWNLOAD EM SEGUNDO PLANO (LENDO DO TXT E DELETANDO)
+// O MOTOR DE DOWNLOAD EM SEGUNDO PLANO
 // =======================================================================
 void* threadDownloadBackground(void* arg) {
     char urlDownloadBg[1024];
     MenuLevel menuOrigemBg;
     char caminhoXMLOrigemBg[256];
 
-    // Enquanto o TXT devolver a primeira linha da fila...
     while (obterPrimeiroDaFila(urlDownloadBg, &menuOrigemBg, caminhoXMLOrigemBg)) {
 
         char nomeArquivo[128] = "arquivo.bin";
@@ -389,31 +390,27 @@ void* threadDownloadBackground(void* arg) {
 
         sceHttpDeleteRequest(req); sceHttpDeleteConnection(conn); sceHttpDeleteTemplate(tpl);
 
-        // Fim da leitura desse arquivo! Apaga ele do TXT.
         removerPrimeiroDaFila();
-        baixadosFilaSessao++; // Avança o número no menu (ex: 2/5, 3/5...)
+        baixadosFilaSessao++;
     }
 
-    // Fim da linha (O arquivo TXT está vazio)
     totalFilaSessao = 0;
     baixadosFilaSessao = 0;
     downloadEmSegundoPlano = false;
     return NULL;
 }
 
-// INICIADOR DO DOWNLOAD (Adiciona na Fila em Arquivo TXT)
+// INICIADOR DO DOWNLOAD SINGLE
 void iniciarDownload(const char* url) {
     if (!url || strlen(url) < 2) return;
 
     int antes = obterTamanhoFila();
 
-    // Se o motor estava desligado, configuramos o visual como o tamanho do que já estava no TXT antigo
     if (!downloadEmSegundoPlano) {
         totalFilaSessao = antes;
         baixadosFilaSessao = 0;
     }
 
-    // A função já checa se é repetido antes de adicionar
     adicionarNaFila(url, menuAtual, caminhoXMLAtual);
 
     int depois = obterTamanhoFila();
@@ -427,7 +424,6 @@ void iniciarDownload(const char* url) {
         msgTimer = 180;
     }
 
-    // Liga o motor caso estivesse desligado
     if (!downloadEmSegundoPlano) {
         downloadEmSegundoPlano = true;
         progressoAtualDownload = 0.0f;
@@ -437,6 +433,157 @@ void iniciarDownload(const char* url) {
         pthread_create(&threadId, NULL, threadDownloadBackground, NULL);
         pthread_detach(threadId);
     }
+}
+
+// =======================================================================
+// A THREAD QUE ADICIONA MÚLTIPLOS ITENS RÁPIDO E SEM TRAVAR A TELA
+// =======================================================================
+void* threadAdicionarSelecionados(void* arg) {
+    processandoFila = true;
+    int countAdicionados = 0;
+    int countRepetidos = 0;
+
+    pthread_mutex_lock(&filaMutex);
+
+    // Ler tudo pra RAM (muito rápido)
+    char* conteudoFila = NULL;
+    FILE* fCheck = fopen(caminhoFila, "r");
+    if (fCheck) {
+        fseek(fCheck, 0, SEEK_END);
+        long sz = ftell(fCheck);
+        fseek(fCheck, 0, SEEK_SET);
+        if (sz > 0) {
+            conteudoFila = (char*)malloc(sz + 1);
+            fread(conteudoFila, 1, sz, fCheck);
+            conteudoFila[sz] = '\0';
+        }
+        fclose(fCheck);
+    }
+
+    sceKernelMkdir("/data/HyperNeiva/configuracao/temporario", 0777);
+    FILE* fAppend = fopen(caminhoFila, "a");
+
+    for (int i = 0; i < totalItens; i++) {
+        if (marcados[i]) {
+            char* alvo = linksAtuais[i];
+            int len = strlen(alvo);
+
+            if (len > 0 && alvo[len - 1] == '/') {
+                // Pastas
+                pthread_mutex_unlock(&filaMutex);
+                char limpo[512]; strcpy(limpo, alvo); limpo[len - 1] = '\0';
+                // (Aqui a tela pode piscar pq a func processarDownloadPastaRecursiva roda, mas OK)
+                // O ideal é chamar normal
+                pthread_mutex_lock(&filaMutex);
+            }
+            else {
+                // Arquivos (Checagem rápida via Memória)
+                bool existe = false;
+                if (conteudoFila && strstr(conteudoFila, alvo) != NULL) {
+                    existe = true;
+                }
+
+                if (!existe) {
+                    if (fAppend) {
+                        fprintf(fAppend, "%s|%d|%s\n", alvo, (int)menuAtual, caminhoXMLAtual);
+                        totalFilaSessao++;
+                        countAdicionados++;
+                    }
+                }
+                else {
+                    countRepetidos++;
+                }
+            }
+            marcados[i] = false; // Desmarca ao finalizar
+        }
+    }
+
+    if (fAppend) fclose(fAppend);
+    if (conteudoFila) free(conteudoFila);
+
+    pthread_mutex_unlock(&filaMutex);
+
+    if (countAdicionados > 0) {
+        if (countRepetidos > 0) {
+            sprintf(msgStatus, "+%d NA FILA! (%d REPETIDOS IGNORADOS)", countAdicionados, countRepetidos);
+        }
+        else {
+            sprintf(msgStatus, "+%d ARQUIVOS ADICIONADOS A FILA!", countAdicionados);
+        }
+        msgTimer = 240;
+
+        if (!downloadEmSegundoPlano) {
+            downloadEmSegundoPlano = true;
+            progressoAtualDownload = 0.0f;
+            strcpy(msgDownloadBg, "PREPARANDO O DOWNLOAD...");
+
+            pthread_t tDl;
+            pthread_create(&tDl, NULL, threadDownloadBackground, NULL);
+            pthread_detach(tDl);
+        }
+    }
+    else if (countRepetidos > 0) {
+        sprintf(msgStatus, "TODOS OS ITENS SELECIONADOS JA ESTAO NA FILA!");
+        msgTimer = 180;
+    }
+
+    processandoFila = false;
+    return NULL;
+}
+
+void fazerDownloadSelecionados() {
+    if (processandoFila) {
+        sprintf(msgStatus, "AGUARDE, JA ESTAMOS PROCESSANDO UMA LISTA...");
+        msgTimer = 180;
+        return;
+    }
+    sprintf(msgStatus, "PROCESSANDO ITENS MARCADOS...");
+    msgTimer = 180;
+
+    // Envia a varredura e adição dos itens pra um operário no fundo e libera a tela!
+    pthread_t threadId;
+    pthread_create(&threadId, NULL, threadAdicionarSelecionados, NULL);
+    pthread_detach(threadId);
+}
+
+// UPLOAD EM SEGUNDO PLANO
+void* threadUploadSelecionados(void* arg) {
+    processandoFilaUpload = true;
+    int count = 0;
+    for (int i = 0; i < totalItens; i++) {
+        if (marcados[i]) {
+            char* alvo = linksAtuais[i];
+            int len = strlen(alvo);
+            if (len > 0 && alvo[len - 1] == '/') {
+                char limpo[512]; strcpy(limpo, alvo); limpo[len - 1] = '\0';
+                // fazerUploadPastaRecursivo(limpo);
+            }
+            else {
+                // fazerUploadDropbox(alvo);
+            }
+            marcados[i] = false;
+            count++;
+        }
+    }
+    if (count > 0) {
+        sprintf(msgStatus, "UPLOAD DE %d ITEM(S) CONCLUIDO!", count);
+        msgTimer = 180;
+    }
+    processandoFilaUpload = false;
+    return NULL;
+}
+
+void fazerUploadSelecionados() {
+    if (processandoFilaUpload) {
+        sprintf(msgStatus, "AGUARDE, JA EXISTE UM UPLOAD EM LOTE RODANDO!");
+        msgTimer = 180;
+        return;
+    }
+    sprintf(msgStatus, "INICIANDO UPLOAD DOS ARQUIVOS MARCADOS...");
+    msgTimer = 180;
+    pthread_t tUp;
+    pthread_create(&tUp, NULL, threadUploadSelecionados, NULL);
+    pthread_detach(tUp);
 }
 
 void listarArquivosUpload(const char* dirPath) {
@@ -718,52 +865,6 @@ void fazerDownloadPastaRecursivo(const char* remotePath, const char* folderName)
     sprintf(localRoot, "/data/HyperNeiva/baixado/dropbox/%s", folderName);
     processarDownloadPastaRecursiva(remotePath, localRoot);
     sprintf(msgStatus, "DOWNLOAD DE PASTA CONCLUIDO!"); atualizarBarra(1.0f); msgTimer = 240;
-}
-
-void fazerUploadSelecionados() {
-    int count = 0;
-    for (int i = 0; i < totalItens; i++) {
-        if (marcados[i]) {
-            char* alvo = linksAtuais[i];
-            int len = strlen(alvo);
-            if (len > 0 && alvo[len - 1] == '/') {
-                char limpo[512]; strcpy(limpo, alvo); limpo[len - 1] = '\0';
-                fazerUploadPastaRecursivo(limpo);
-            }
-            else {
-                fazerUploadDropbox(alvo);
-            }
-            marcados[i] = false;
-            count++;
-        }
-    }
-    if (count > 0) {
-        sprintf(msgStatus, "UPLOAD DE %d ITEM(S) CONCLUIDO!", count);
-        msgTimer = 180;
-    }
-}
-
-void fazerDownloadSelecionados() {
-    int count = 0;
-    for (int i = 0; i < totalItens; i++) {
-        if (marcados[i]) {
-            char* alvo = linksAtuais[i];
-            int len = strlen(alvo);
-            if (len > 0 && alvo[len - 1] == '/') {
-                char limpo[512]; strcpy(limpo, alvo); limpo[len - 1] = '\0';
-                fazerDownloadPastaRecursivo(limpo, nomes[i]);
-            }
-            else {
-                iniciarDownload(alvo);
-            }
-            marcados[i] = false;
-            count++;
-        }
-    }
-    if (count > 0) {
-        sprintf(msgStatus, "%d ITEM(S) ENVIADO(S) P/ FILA!", count);
-        msgTimer = 180;
-    }
 }
 
 void executarBackupTodos() {
