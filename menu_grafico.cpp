@@ -203,22 +203,27 @@ void desenharInterface(uint32_t* p) {
         desenharTexto(p, txtPos, 25, 50, 1045, 0xFF00FF00);
     }
 
+    // ==============================================================
+    // MENU OPÇÕES DO EXPLORAR (Com mesma lógica do Áudio)
+    // ==============================================================
     if (showOpcoes && menuAtual != MENU_AUDIO_OPCOES) {
-        for (int my = 0; my < discoH; my++) { for (int mx = 0; mx < discoW; mx++) { int pxX = discoX + mx; int pyY = discoY - 100 + my; if (pxX >= 0 && pxX < 1920 && pyY >= 0 && pyY < 1080) p[pyY * 1920 + pxX] = getSysColor(listBg); } }
-        int maxV = (discoH - 80) / 45; if (maxV < 1) maxV = 1;
+        for (int my = 0; my < upH; my++) {
+            for (int mx = 0; mx < upW; mx++) {
+                int pxX = upX + mx;
+                int pyY = upY + my;
+                if (pxX >= 0 && pxX < 1920 && pyY >= 0 && pyY < 1080) p[pyY * 1920 + pxX] = getSysColor(listBg);
+            }
+        }
+        int maxV = (upH - 50) / 45; if (maxV < 1) maxV = 1;
         for (int i = 0; i < maxV; i++) {
-            int gIdx = i + offOpcao; if (gIdx >= 10) break;
+            int gIdx = i + offOpcao; if (gIdx >= 10) break; // 10 opções no menu do explorar
             uint32_t corOp = (gIdx == selOpcao) ? 0xFFFFFF00 : 0xFFFFFFFF;
-            desenharTextoAlinhado(p, listaOpcoes[gIdx], fontTam, discoX, discoY - 80 + (i * 45), discoW, corOp);
+            desenharTextoAlinhado(p, listaOpcoes[gIdx], fontTam, upX, upY + 50 + (i * 45), upW, corOp);
         }
     }
 
     desenharMenuAudio(p); desenharMenuUpload(p);
 
-    // ==============================================================
-    // AQUI: Os elementos NÃO SERÃO DESENHADOS se estiver no 
-    // Bloco de Notas ou a visualizar imagens/textos em ecrã inteiro
-    // ==============================================================
     bool esconderElementos = (visualizandoMidiaImagem || visualizandoMidiaTexto || menuAtual == MENU_NOTEPAD || menuAtualEsq == MENU_NOTEPAD);
 
     if (!esconderElementos) {

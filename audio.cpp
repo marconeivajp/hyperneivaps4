@@ -61,7 +61,9 @@ void diminuirVolume() {
 }
 
 void salvarConfiguracaoAudio() {
-    FILE* f = fopen("/data/HyperNeiva/configuracao/audio_settings.bin", "wb");
+    // Garante que a pasta settings existe antes de salvar
+    sceKernelMkdir("/data/HyperNeiva/configuracao/settings", 0777);
+    FILE* f = fopen("/data/HyperNeiva/configuracao/settings/audio_settings.bin", "wb");
     if (f) {
         fwrite(musicaAtual, 1, sizeof(musicaAtual), f);
         fwrite(&volumeGeral, 1, sizeof(int), f);
@@ -70,14 +72,15 @@ void salvarConfiguracaoAudio() {
 }
 
 void carregarConfiguracaoAudio() {
-    FILE* f = fopen("/data/HyperNeiva/configuracao/audio_settings.bin", "rb");
+    FILE* f = fopen("/data/HyperNeiva/configuracao/settings/audio_settings.bin", "rb");
     if (f) {
         fread(musicaAtual, 1, sizeof(musicaAtual), f);
         if (fread(&volumeGeral, 1, sizeof(int), f) <= 0) volumeGeral = 100;
         fclose(f);
     }
     else {
-        strcpy(musicaAtual, "/data/HyperNeiva/configuracao/audio/bgm.wav");
+        // Aponta para a nova pasta audios
+        strcpy(musicaAtual, "/data/HyperNeiva/configuracao/audios/bgm.wav");
         volumeGeral = 100;
     }
 }
@@ -176,8 +179,9 @@ static bool prepararArquivoAudio(char* caminhoFinal) {
         if (fCustom) { fclose(fCustom); strcpy(caminhoFinal, musicaAtual); return true; }
     }
 
-    sceKernelMkdir("/data/HyperNeiva/configuracao/audio", 0777);
-    const char* pathHD = "/data/HyperNeiva/configuracao/audio/bgm.wav";
+    // Aponta para a nova pasta audios
+    sceKernelMkdir("/data/HyperNeiva/configuracao/audios", 0777);
+    const char* pathHD = "/data/HyperNeiva/configuracao/audios/bgm.wav";
     FILE* fHD = fopen(pathHD, "rb");
     if (fHD) { fclose(fHD); strcpy(caminhoFinal, pathHD); return true; }
 

@@ -10,7 +10,8 @@ struct LayoutConfig {
     int e1X, e1Y, e1W, e1H, e1O, c1X, c1Y, c1W, c1H, c1O, p1X, p1Y, p1W, p1H, p1O, p1M, p1L;
 };
 
-const int dLXV = 1054, dLYV = 204, dListSpcV = 120, dLXH = 50, dLYH = 800, dListSpcH = 300, dLW = 550, dLH = 80, dCX = 150, dCY = 640, dCW = 300, dCH = 400, dDX = 555, dDY = 650, dDW = 300, dDH = 300, dBarX = 95, dBarY = 911, dBarW = 345, dBarH = 15, dAudioX = 545, dAudioY = 632, dAudioW = 353, dAudioH = 410, dUpX = 545, dUpY = 632, dUpW = 480, dUpH = 190, dFontTam = 35, dMsgX = 100, dMsgY = 970, dMsgTam = 40, dListOri = 0, dListBg = 0, dBarBg = 6, dBarFill = 7, dListMark = 8, dListHoverMark = 9, dFontAlign = 0, dFontScroll = 0;
+// AS NOVAS DIMENSÕES 321x378 FORAM APLICADAS AQUI NAS VARIÁVEIS dAudioW, dAudioH, dUpW, dUpH
+const int dLXV = 1054, dLYV = 204, dListSpcV = 120, dLXH = 50, dLYH = 800, dListSpcH = 300, dLW = 550, dLH = 80, dCX = 150, dCY = 640, dCW = 300, dCH = 400, dDX = 555, dDY = 650, dDW = 300, dDH = 300, dBarX = 95, dBarY = 911, dBarW = 345, dBarH = 15, dAudioX = 545, dAudioY = 632, dAudioW = 321, dAudioH = 378, dUpX = 545, dUpY = 632, dUpW = 321, dUpH = 378, dFontTam = 35, dMsgX = 100, dMsgY = 970, dMsgTam = 40, dListOri = 0, dListBg = 0, dBarBg = 6, dBarFill = 7, dListMark = 8, dListHoverMark = 9, dFontAlign = 0, dFontScroll = 0;
 
 // =========================================================================
 // TODOS OS ELEMENTOS COMEÇAM DESLIGADOS (0) E NAS SUAS COORDENADAS PADRÃO!
@@ -31,13 +32,14 @@ void salvarConfiguracao() {
         listXV, listYV, listW, listH, capaX, capaY, capaW, capaH, discoX, discoY, discoW, discoH, backX, backY, backW, backH, barX, barY, barW, barH, audioX, audioY, audioW, audioH, upX, upY, upW, upH, fontTam, msgX, msgY, msgTam, listSpcV, listOri, listBg, barBg, barFill, listMark, listHoverMark, listXH, listYH, listSpcH, fontAlign, fontScroll,
         elem1X, elem1Y, elem1W, elem1H, elem1On, ctrl1X, ctrl1Y, ctrl1W, ctrl1H, ctrl1On, pont1X, pont1Y, pont1W, pont1H, pont1On, pont1Modo, pont1Lado
     };
-    FILE* f = fopen("/data/HyperNeiva/configuracao/settings.bin", "wb");
+
+    FILE* f = fopen("/data/HyperNeiva/configuracao/settings/settings.bin", "wb");
     if (f) { fwrite(&cfg, sizeof(LayoutConfig), 1, f); fclose(f); strcpy(msgStatus, "POSICOES SALVAS!"); }
     msgTimer = 90;
 }
 
 void carregarConfiguracao() {
-    LayoutConfig cfg; FILE* f = fopen("/data/HyperNeiva/configuracao/settings.bin", "rb");
+    LayoutConfig cfg; FILE* f = fopen("/data/HyperNeiva/configuracao/settings/settings.bin", "rb");
     if (f) {
         elem1On = dElem1On; ctrl1On = dCtrl1On; pont1On = dPont1On;
         size_t lidos = fread(&cfg, 1, sizeof(LayoutConfig), f);

@@ -56,6 +56,30 @@ void copiarArquivoReal(const char* origem, const char* destino) {
     fclose(src); fclose(dst);
 }
 
+// NOVA FUNÇÃO: Deleta a pasta e tudo o que tiver dentro dela
+void deletarPastaRecursivamente(const char* path) {
+    DIR* d = opendir(path);
+    if (d) {
+        struct dirent* dir;
+        while ((dir = readdir(d)) != NULL) {
+            if (strcmp(dir->d_name, ".") != 0 && strcmp(dir->d_name, "..") != 0) {
+                char fullPath[1024];
+                snprintf(fullPath, sizeof(fullPath), "%s/%s", path, dir->d_name);
+
+                struct stat st;
+                if (dir->d_type == DT_DIR || (dir->d_type == DT_UNKNOWN && stat(fullPath, &st) == 0 && S_ISDIR(st.st_mode))) {
+                    deletarPastaRecursivamente(fullPath); // Entra na subpasta e deleta
+                }
+                else {
+                    unlink(fullPath); // Deleta o arquivo
+                }
+            }
+        }
+        closedir(d);
+    }
+    rmdir(path); // Finalmente, deleta a pasta raiz vazia
+}
+
 // Lista diretório do PAINEL DIREITO
 void listarDiretorio(const char* path) {
     DIR* d = opendir(path);
@@ -179,7 +203,15 @@ void acaoArquivo(int op) {
             copiarArquivoReal(clipboardPaths[i], dest);
 
             if (clipboardIsCut) {
-                unlink(clipboardPaths[i]); // Remove o original se foi "recortado"
+                // Remove o original se foi "recortado"
+                struct stat path_stat;
+                stat(clipboardPaths[i], &path_stat);
+                if (S_ISDIR(path_stat.st_mode)) {
+                    deletarPastaRecursivamente(clipboardPaths[i]);
+                }
+                else {
+                    unlink(clipboardPaths[i]);
+                }
             }
         }
         // Atualiza a listagem do painel ativo e limpa clipboard se foi recorte
@@ -219,7 +251,6 @@ void acaoArquivo(int op) {
         memset(&param, 0, sizeof(param));
         memset(textoTeclado, 0, sizeof(textoTeclado));
 
-        // SOLUÇÃO: Escreve no teclado forçando formato de 16 bits para evitar que corte a palavra original
         uint16_t* bufWrite = (uint16_t*)textoTeclado;
         for (int i = 0; nomeLimpo[i] != '\0' && i < 255; i++) {
             bufWrite[i] = (uint16_t)nomeLimpo[i];
@@ -241,8 +272,14 @@ void acaoArquivo(int op) {
             if (temMarcado ? mItems[i] : (i == sAtual)) {
                 char f[512]; char* l = (nItems[i][0] == '[') ? &nItems[i][1] : nItems[i];
                 sprintf(f, "%s/%s", pExplorar, l);
-                if (nItems[i][0] == '[') { f[strlen(f) - 1] = '\0'; rmdir(f); }
-                else unlink(f);
+
+                if (nItems[i][0] == '[') {
+                    f[strlen(f) - 1] = '\0';
+                    deletarPastaRecursivamente(f); // Apaga a pasta inteira e seu conteudo
+                }
+                else {
+                    unlink(f); // Apaga arquivo normal
+                }
             }
         }
         if (ehEsq) listarDiretorioEsq(pExplorar); else listarDiretorio(pExplorar);
@@ -282,13 +319,12 @@ void atualizarImePasta() {
             char nomeFinal[256];
             memset(nomeFinal, 0, sizeof(nomeFinal));
 
-            // SOLUÇÃO: Lê o teclado forçando formato de 16 bits
             uint16_t* bufRead = (uint16_t*)textoTeclado;
             int len = 0;
 
             for (int i = 0; i < 255; i++) {
                 if (bufRead[i] == 0x0000) {
-                    break; // Só para de ler quando o bloco inteiro de 16 bits for zero
+                    break;
                 }
                 nomeFinal[len] = (char)bufRead[i];
                 len++;
@@ -307,7 +343,6 @@ void atualizarImePasta() {
                     sprintf(msgStatus, "PASTA CRIADA!");
                 }
                 else if (esperandoRenomear) {
-                    // Mantem a extensão antiga se o usuário não digitou um novo ponto "." e se é um arquivo
                     if (!ehPastaParaRenomear && strlen(oldExtParaRenomear) > 0) {
                         if (strrchr(nomeFinal, '.') == NULL) {
                             strcat(nomeFinal, oldExtParaRenomear);
@@ -322,7 +357,6 @@ void atualizarImePasta() {
             }
         }
 
-        // Finaliza o diálogo e DESBLOQUEIA os botões
         sceImeDialogTerm();
         esperandoNomePasta = false;
         esperandoRenomear = false;

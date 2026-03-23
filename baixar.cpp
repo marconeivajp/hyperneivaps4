@@ -19,14 +19,11 @@
 #include "graphics.h"
 #include "stb_image.h"
 
-// IMPORTANDO AS VARIÁVEIS DE EDIÇÃO DA BARRA
 extern int barX, barY, barW, barH;
 extern int barBg, barFill;
-
 extern uint32_t* obterBufferVideo();
 extern void desenharInterface(uint32_t* p);
 extern void submeterTela();
-
 extern unsigned char* backImg;
 extern int wB, hB;
 
@@ -49,7 +46,6 @@ int totalLinksAtuais = 0;
 char currentDropboxPath[512] = "";
 char currentUploadPath[512] = "";
 
-// FUNÇÃO GERADORA DE CORES DA PALETA (Idêntica à da Interface Visual)
 uint32_t getSysColorBarra(int index) {
     uint32_t sysColors[] = {
         0xAA222222, 0xAA000000, 0xAA000044, 0xAA440000, 0xAA004400, 0x00000000,
@@ -60,42 +56,26 @@ uint32_t getSysColorBarra(int index) {
     return sysColors[index];
 }
 
-void atualizarBarra(float progresso) {
-    atualizarBarra(progresso, 1, 1);
-}
+void atualizarBarra(float progresso) { atualizarBarra(progresso, 1, 1); }
 
 void atualizarBarra(float progresso, int arquivoAtual, int totalArquivos) {
     uint32_t* p = obterBufferVideo();
-
     for (int i = 0; i < 1920 * 1080; i++) p[i] = 0xFF121212;
-
-    if (backImg) {
-        desenharRedimensionado(p, backImg, wB, hB, 1920, 1080, 0, 0);
-    }
-
+    if (backImg) desenharRedimensionado(p, backImg, wB, hB, 1920, 1080, 0, 0);
     desenharInterface(p);
 
-    int bX = barX;
-    int bY = barY;
-    int bW = barW;
-    int bH = barH;
+    int bX = barX; int bY = barY; int bW = barW; int bH = barH;
 
-    // Fundo da Barra
     for (int y = bY; y < bY + bH; y++) {
-        for (int x = bX; x < bX + bW; x++) {
-            p[y * 1920 + x] = getSysColorBarra(barBg);
-        }
+        for (int x = bX; x < bX + bW; x++) p[y * 1920 + x] = getSysColorBarra(barBg);
     }
 
     int fill = (int)(bW * progresso);
     if (fill > bW) fill = bW;
     if (fill < 0) fill = 0;
 
-    // Preenchimento da Barra
     for (int y = bY; y < bY + bH; y++) {
-        for (int x = bX; x < bX + fill; x++) {
-            p[y * 1920 + x] = getSysColorBarra(barFill);
-        }
+        for (int x = bX; x < bX + fill; x++) p[y * 1920 + x] = getSysColorBarra(barFill);
     }
 
     int porcentagem = (int)(progresso * 100.0f);
@@ -104,9 +84,7 @@ void atualizarBarra(float progresso, int arquivoAtual, int totalArquivos) {
 
     char textoLoad[128];
     snprintf(textoLoad, sizeof(textoLoad), "%d%%   -   %d / %d", porcentagem, arquivoAtual, totalArquivos);
-
     desenharTexto(p, textoLoad, 25, bX + bW + 20, bY - 2, 0xFFFFFFFF);
-
     submeterTela();
 }
 
@@ -127,13 +105,17 @@ void acaoRede(const char* jogo, bool buscarLista, bool salvarNoHD) {
 
     if (sceHttpSendRequest(req, NULL, 0) >= 0) {
         char path[256];
-        if (buscarLista) strcpy(path, "/data/HyperNeiva/remote_list.html");
+        // REDIRECIONAMENTOS SOLICITADOS (Temporario e Capas)
+        if (buscarLista) strcpy(path, "/data/HyperNeiva/configuracao/temporario/remote_list.html");
         else if (salvarNoHD) {
-            char sub[256]; sprintf(sub, "/data/HyperNeiva/baixado/%s", listaConsoles[consoleAtual].nome);
-            sceKernelMkdir(sub, 0777); char box[256]; sprintf(box, "%s/Named_Boxarts", sub);
-            sceKernelMkdir(box, 0777); sprintf(path, "%s/%s.png", box, jogo);
+            sceKernelMkdir("/data/HyperNeiva/baixado/capas", 0777);
+            char sub[256]; sprintf(sub, "/data/HyperNeiva/baixado/capas/%s", listaConsoles[consoleAtual].nome);
+            sceKernelMkdir(sub, 0777);
+            char box[256]; sprintf(box, "%s/Named_Boxarts", sub);
+            sceKernelMkdir(box, 0777);
+            sprintf(path, "%s/%s.png", box, jogo);
         }
-        else strcpy(path, "/data/HyperNeiva/preview.png");
+        else strcpy(path, "/data/HyperNeiva/configuracao/temporario/preview.png");
 
         FILE* f = fopen(path, "wb");
         if (f) {
@@ -150,7 +132,7 @@ void acaoRede(const char* jogo, bool buscarLista, bool salvarNoHD) {
             atualizarBarra(1.0f, 1, 1);
 
             if (buscarLista) {
-                FILE* f2 = fopen("/data/HyperNeiva/remote_list.html", "rb");
+                FILE* f2 = fopen("/data/HyperNeiva/configuracao/temporario/remote_list.html", "rb");
                 if (f2) {
                     fseek(f2, 0, SEEK_END); long sz = ftell(f2); fseek(f2, 0, SEEK_SET);
                     char* h = (char*)malloc(sz + 1); fread(h, 1, sz, f2); h[sz] = '\0'; fclose(f2);
@@ -172,10 +154,7 @@ void acaoRede(const char* jogo, bool buscarLista, bool salvarNoHD) {
                     }
                     free(h);
                 }
-
-                menuAtual = SCRAPER_LIST;
-                sel = 0;
-                off = 0;
+                menuAtual = SCRAPER_LIST; sel = 0; off = 0;
             }
             else {
                 if (imgPreview) stbi_image_free(imgPreview);
