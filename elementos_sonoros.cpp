@@ -6,6 +6,10 @@
 // IMPORTANTE: Incluimos a biblioteca SEM "IMPLEMENTATION" para não chocar com o audio.cpp!
 #include "dr_wav.h"
 
+// PUXANDO AS VARIÁVEIS DO MENU EDITAR
+extern int sfxLigado;
+extern int sfxVolume;
+
 int16_t* sfxUpData = NULL; size_t sfxUpLen = 0;
 int16_t* sfxDownData = NULL; size_t sfxDownLen = 0;
 int16_t* sfxCrossData = NULL; size_t sfxCrossLen = 0;
@@ -40,7 +44,6 @@ int16_t* carregarWavMemoria(const char* pathPrincipal, const char* pathAlternati
 }
 
 void inicializarElementosSonoros() {
-    // Carrega tudo silenciosamente para a RAM com a nova pasta "audios"
     sfxUpData = carregarWavMemoria("/data/HyperNeiva/configuracao/audios/0_Defalt_direcinal_cima.wav", "/app0/assets/audio/0_Defalt_direcinal_cima.wav", &sfxUpLen);
     sfxDownData = carregarWavMemoria("/data/HyperNeiva/configuracao/audios/0_Defalt_direcional_baixo.wav", "/app0/assets/audio/0_Defalt_direcional_baixo.wav", &sfxDownLen);
     sfxCrossData = carregarWavMemoria("/data/HyperNeiva/configuracao/audios/0_Defalt_x.wav", "/app0/assets/audio/0_Defalt_x.wav", &sfxCrossLen);
@@ -48,7 +51,9 @@ void inicializarElementosSonoros() {
 }
 
 void tocarSom(SfxType tipo) {
-    // Acorda o som escolhido!
+    // Se o som estiver desligado no menu Editar, nem aciona!
+    if (!sfxLigado) return;
+
     switch (tipo) {
     case SFX_UP:
         if (sfxUpData) { currentSfxFrames = sfxUpLen; currentSfxPos = 0; currentSfx = sfxUpData; }
@@ -65,18 +70,26 @@ void tocarSom(SfxType tipo) {
     }
 }
 
-// O HACK MESTRE: Injeta matematicamente os Efeitos Sonoros por cima da música ou do silêncio!
 void misturarEfeitosSonoros(int16_t* bufferAudio, size_t frames) {
+    // Segunda barreira: se desligaram durante o som tocar, corta ele.
+    if (!sfxLigado) return;
+
     if (currentSfx != NULL && currentSfxPos < currentSfxFrames) {
         size_t framesToMix = frames;
         if (currentSfxPos + framesToMix > currentSfxFrames) {
             framesToMix = currentSfxFrames - currentSfxPos;
         }
-        for (size_t i = 0; i < framesToMix * 2; i++) {
-            // Soma a Música de Fundo com o Efeito Sonoro
-            int32_t sample = bufferAudio[i] + currentSfx[currentSfxPos * 2 + i];
 
-            // Impede distorção do alto-falante (Clipping de Segurança)
+        // Calcula o volume como uma porcentagem de 0.00 até 1.00
+        float fatorVolume = sfxVolume / 100.0f;
+
+        for (size_t i = 0; i < framesToMix * 2; i++) {
+            // Pega o sample do efeito sonoro e aplica o multiplicador de volume
+            int32_t sampleSfx = (int32_t)(currentSfx[currentSfxPos * 2 + i] * fatorVolume);
+
+            // Soma a Música de Fundo com o Efeito Sonoro reduzido/aumentado
+            int32_t sample = bufferAudio[i] + sampleSfx;
+
             if (sample > 32767) sample = 32767;
             else if (sample < -32768) sample = -32768;
 
@@ -84,7 +97,7 @@ void misturarEfeitosSonoros(int16_t* bufferAudio, size_t frames) {
         }
         currentSfxPos += framesToMix;
         if (currentSfxPos >= currentSfxFrames) {
-            currentSfx = NULL; // Fim do som
+            currentSfx = NULL;
         }
     }
 }
