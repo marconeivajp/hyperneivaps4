@@ -34,10 +34,12 @@ extern bool visualizandoMidiaImagem; extern unsigned char* imgMidia; extern int 
 extern bool visualizandoMidiaTexto; extern char* textoMidiaBuffer; extern char* linhasTexto[5000]; extern int totalLinhasTexto; extern int textoMidiaScroll;
 extern bool painelDuplo; extern int painelAtivo; extern char nomesEsq[3000][64]; extern bool marcadosEsq[3000]; extern char pathExplorarEsq[256]; extern int selEsq; extern int totalItensEsq; extern MenuLevel menuAtualEsq; extern int offEsq;
 
-// VARIÁVEIS EXPORTADAS PARA LER O PROGRESSO DA THREAD DO DOWNLOAD EM FUNDO
+// VARIÁVEIS DA FILA EXPORTADAS PARA LER O PROGRESSO
 extern volatile bool downloadEmSegundoPlano;
 extern volatile float progressoAtualDownload;
 extern char msgDownloadBg[256];
+extern volatile int totalFila;
+extern volatile int atualFila;
 
 uint32_t getSysColor(int index) {
     uint32_t sysColors[] = { 0xAA222222, 0xAA000000, 0xAA000044, 0xAA440000, 0xAA004400, 0x00000000, 0xFF444444, 0xFF00D83A, 0xAAFFFF99, 0xFF00FF00, 0xFF00AAFF, 0xAA999933, 0xFFFFFFFF, 0xFFFF0000, 0xFF0000FF };
@@ -245,7 +247,7 @@ void desenharInterface(uint32_t* p) {
     else if ((menuAtual == MENU_EDIT_TARGET || editMode) && editTarget == 8) { desenharTexto(p, "EXEMPLO DE NOTIFICACAO...", msgTam, msgX, msgY, 0xFF00FF00); }
 
     // ==============================================================
-    // NOVO: BARRA DE PROGRESSO EM SEGUNDO PLANO (MULTITHREADING)
+    // NOVO: BARRA DE PROGRESSO EM SEGUNDO PLANO (COM FILA DE DOWNLOAD)
     // ==============================================================
     if (downloadEmSegundoPlano) {
         int bX = barX;
@@ -253,7 +255,6 @@ void desenharInterface(uint32_t* p) {
         int bW = barW;
         int bH = barH;
 
-        // Fundo da barra
         for (int y = bY; y < bY + bH; y++) {
             for (int x = bX; x < bX + bW; x++) {
                 if (x >= 0 && x < 1920 && y >= 0 && y < 1080) {
@@ -266,7 +267,6 @@ void desenharInterface(uint32_t* p) {
         if (fill > bW) fill = bW;
         if (fill < 0) fill = 0;
 
-        // Preenchimento da barra
         for (int y = bY; y < bY + bH; y++) {
             for (int x = bX; x < bX + fill; x++) {
                 if (x >= 0 && x < 1920 && y >= 0 && y < 1080) {
@@ -275,9 +275,18 @@ void desenharInterface(uint32_t* p) {
             }
         }
 
-        // Desenha a mensagem de progresso colada em cima da barra
+        // Desenha o nome do arquivo acima da barra
         char pctMsg[300];
         sprintf(pctMsg, "%s", msgDownloadBg);
         desenharTexto(p, pctMsg, 25, bX, bY - 35, 0xFFFFFFFF);
+
+        // Desenha a porcentagem e a fila (Ex: 45% - 1 / 3) à direita
+        int porcentagem = (int)(progressoAtualDownload * 100.0f);
+        if (porcentagem > 100) porcentagem = 100;
+        if (porcentagem < 0) porcentagem = 0;
+
+        char textoFila[128];
+        snprintf(textoFila, sizeof(textoFila), "%d%%   -   %d / %d", porcentagem, atualFila + 1, totalFila);
+        desenharTexto(p, textoFila, 25, bX + bW + 20, bY - 2, 0xFFFFFFFF);
     }
 }
