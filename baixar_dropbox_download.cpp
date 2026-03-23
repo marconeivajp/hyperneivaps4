@@ -32,8 +32,10 @@ extern char currentDropboxPath[512];
 extern char currentUploadPath[512];
 extern char msgStatus[128];
 extern int msgTimer;
-
 extern bool marcados[3000];
+
+// Para capturar o nome do XML do repositório ativo
+extern char caminhoXMLAtual[256];
 
 void preencherMenuBackup() {
     memset(nomes, 0, sizeof(nomes));
@@ -88,11 +90,12 @@ void acessarDropbox(const char* path) {
     atualizarBarra(0.6f);
 
     if (sceHttpSendRequest(req, postData, strlen(postData)) >= 0) {
-        FILE* f = fopen("/data/HyperNeiva/temp_dropbox.json", "wb");
+        sceKernelMkdir("/data/HyperNeiva/configuracao/temporario", 0777);
+        FILE* f = fopen("/data/HyperNeiva/configuracao/temporario/temp_dropbox.json", "wb");
         if (f) {
             unsigned char buf[32768]; int n;
             while ((n = sceHttpReadData(req, buf, sizeof(buf))) > 0) fwrite(buf, 1, n, f); fclose(f);
-            FILE* f2 = fopen("/data/HyperNeiva/temp_dropbox.json", "rb");
+            FILE* f2 = fopen("/data/HyperNeiva/configuracao/temporario/temp_dropbox.json", "rb");
             if (f2) {
                 fseek(f2, 0, SEEK_END); long sz = ftell(f2); fseek(f2, 0, SEEK_SET);
                 char* h = (char*)malloc(sz + 1);
@@ -138,27 +141,67 @@ void acessarDropbox(const char* path) {
     menuAtual = MENU_BAIXAR_DROPBOX_LISTA; sel = 0; off = 0;
 }
 
-// =======================================================================
-// O SISTEMA 100% SEGURO (DOWNLOAD E PREPARAÇÃO)
-// =======================================================================
 void iniciarDownload(const char* url) {
     if (!url || strlen(url) < 2) return;
 
     char nomeArquivo[128] = "arquivo.bin";
     char* ref = strrchr(url, '/');
-    if (ref) strncpy(nomeArquivo, ref + 1, 127);
+    if (ref) {
+        strncpy(nomeArquivo, ref + 1, 127);
+        nomeArquivo[127] = '\0';
+    }
 
-    char pathPasta[256];
+    // CORREÇÃO: Remover parâmetros e "lixo" que vem depois do ? ou # na URL (ex: .zip?dl=1)
+    char* ptrInterrogacao = strchr(nomeArquivo, '?');
+    if (ptrInterrogacao) *ptrInterrogacao = '\0';
 
-    // Todos os downloads vão para a pasta do App primeiro para evitar conflitos
-    sprintf(pathPasta, "/data/HyperNeiva/baixado/Downloads");
+    char* ptrHash = strchr(nomeArquivo, '#');
+    if (ptrHash) *ptrHash = '\0';
+
+    // BÔNUS: Substituir o código de espaço da URL (%20) por espaços normais no nome final
+    char nomeLimpo[128] = { 0 };
+    int j = 0;
+    for (int i = 0; nomeArquivo[i] != '\0' && j < 127; i++) {
+        if (nomeArquivo[i] == '%' && nomeArquivo[i + 1] == '2' && nomeArquivo[i + 2] == '0') {
+            nomeLimpo[j++] = ' ';
+            i += 2; // Pula os números '2' e '0'
+        }
+        else {
+            nomeLimpo[j++] = nomeArquivo[i];
+        }
+    }
+    strcpy(nomeArquivo, nomeLimpo);
+
+    char pathPasta[512];
     sceKernelMkdir("/data/HyperNeiva/baixado", 0777);
-    sceKernelMkdir(pathPasta, 0777);
 
-    char pathFinal[512];
+    // DIRECIONAMENTO INTELIGENTE (DROPBOX, REPOSITÓRIO OU LINK DIRETO)
+    if (menuAtual == MENU_BAIXAR_DROPBOX_LISTA || menuAtual == MENU_BAIXAR_DROPBOX_BACKUP) {
+        sceKernelMkdir("/data/HyperNeiva/baixado/dropbox", 0777);
+        sprintf(pathPasta, "/data/HyperNeiva/baixado/dropbox");
+    }
+    else if (menuAtual == MENU_BAIXAR_LINKS) { // Veio dos XMLs do repositório
+        char nomeRepo[128] = "Games";
+        char* refBarra = strrchr(caminhoXMLAtual, '/');
+        if (refBarra) {
+            strncpy(nomeRepo, refBarra + 1, 127);
+            char* dot = strrchr(nomeRepo, '.');
+            if (dot) *dot = '\0'; // Tira o .xml para usar como nome da pasta
+        }
+        sceKernelMkdir("/data/HyperNeiva/baixado/repositorios", 0777);
+        sceKernelMkdir("/data/HyperNeiva/baixado/repositorios/games", 0777);
+        sprintf(pathPasta, "/data/HyperNeiva/baixado/repositorios/games/%s", nomeRepo);
+        sceKernelMkdir(pathPasta, 0777);
+    }
+    else {
+        sceKernelMkdir("/data/HyperNeiva/baixado/linkdireto", 0777);
+        sprintf(pathPasta, "/data/HyperNeiva/baixado/linkdireto");
+    }
+
+    char pathFinal[1024];
     sprintf(pathFinal, "%s/%s", pathPasta, nomeArquivo);
 
-    sprintf(msgStatus, "CONECTANDO AO DROPBOX..."); msgTimer = 150; atualizarBarra(0.05f);
+    sprintf(msgStatus, "CONECTANDO..."); msgTimer = 150; atualizarBarra(0.05f);
 
     int tpl = sceHttpCreateTemplate(httpCtxId, "HyperNeiva/1.0", ORBIS_HTTP_VERSION_1_1, 1);
     sceHttpsSetSslCallback(tpl, skipSslCallback, NULL); sceHttpSetAutoRedirect(); int conn, req;
@@ -447,11 +490,12 @@ void processarDownloadPastaRecursiva(const char* remotePath, const char* localPa
     sprintf(msgStatus, "LENDO PASTA: %s", remotePath); atualizarBarra(0.3f);
 
     if (sceHttpSendRequest(req, postData, strlen(postData)) >= 0) {
-        FILE* f = fopen("/data/HyperNeiva/temp_down_folder.json", "wb");
+        sceKernelMkdir("/data/HyperNeiva/configuracao/temporario", 0777);
+        FILE* f = fopen("/data/HyperNeiva/configuracao/temporario/temp_down_folder.json", "wb");
         if (f) {
             unsigned char buf[32768]; int n;
             while ((n = sceHttpReadData(req, buf, sizeof(buf))) > 0) fwrite(buf, 1, n, f); fclose(f);
-            FILE* f2 = fopen("/data/HyperNeiva/temp_down_folder.json", "rb");
+            FILE* f2 = fopen("/data/HyperNeiva/configuracao/temporario/temp_down_folder.json", "rb");
             if (f2) {
                 fseek(f2, 0, SEEK_END); long sz = ftell(f2); fseek(f2, 0, SEEK_SET);
                 char* h = (char*)malloc(sz + 1);
@@ -497,8 +541,8 @@ void processarDownloadPastaRecursiva(const char* remotePath, const char* localPa
 
 void fazerDownloadPastaRecursivo(const char* remotePath, const char* folderName) {
     sprintf(msgStatus, "INICIANDO DOWNLOAD DA PASTA..."); atualizarBarra(0.1f);
-    char localRoot[512]; sceKernelMkdir("/data/HyperNeiva/baixado/Downloads", 0777);
-    sprintf(localRoot, "/data/HyperNeiva/baixado/Downloads/%s", folderName);
+    char localRoot[512]; sceKernelMkdir("/data/HyperNeiva/baixado/dropbox", 0777);
+    sprintf(localRoot, "/data/HyperNeiva/baixado/dropbox/%s", folderName);
     processarDownloadPastaRecursiva(remotePath, localRoot);
     sprintf(msgStatus, "DOWNLOAD DE PASTA CONCLUIDO!"); atualizarBarra(1.0f); msgTimer = 240;
 }

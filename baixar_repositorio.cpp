@@ -28,7 +28,8 @@ void preencherMenuRepositorios() {
 void listarXMLsRepositorio() {
     memset(nomes, 0, sizeof(nomes));
     totalItens = 0;
-    DIR* d = opendir("/data/HyperNeiva/baixado/repositorio/games");
+    // Aponta para a nova pasta de repositórios em configuracao
+    DIR* d = opendir("/data/HyperNeiva/configuracao/repositorios");
     if (d) {
         struct dirent* dir;
         while ((dir = readdir(d)) != NULL) {
@@ -49,7 +50,8 @@ void listarXMLsRepositorio() {
 }
 
 void abrirXMLRepositorio(const char* xmlFile) {
-    sprintf(caminhoXMLAtual, "/data/HyperNeiva/baixado/repositorio/games/%s", xmlFile);
+    // Aponta para a nova pasta de repositórios em configuracao
+    sprintf(caminhoXMLAtual, "/data/HyperNeiva/configuracao/repositorios/%s", xmlFile);
     FILE* fp = fopen(caminhoXMLAtual, "rb");
     if (!fp) return;
 

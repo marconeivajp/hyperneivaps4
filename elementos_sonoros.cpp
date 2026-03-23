@@ -40,11 +40,11 @@ int16_t* carregarWavMemoria(const char* pathPrincipal, const char* pathAlternati
 }
 
 void inicializarElementosSonoros() {
-    // Carrega tudo silenciosamente para a RAM
-    sfxUpData = carregarWavMemoria("/data/HyperNeiva/configuracao/audio/0_Defalt_direcinal_cima.wav", "/app0/assets/audio/0_Defalt_direcinal_cima.wav", &sfxUpLen);
-    sfxDownData = carregarWavMemoria("/data/HyperNeiva/configuracao/audio/0_Defalt_direcional_baixo.wav", "/app0/assets/audio/0_Defalt_direcional_baixo.wav", &sfxDownLen);
-    sfxCrossData = carregarWavMemoria("/data/HyperNeiva/configuracao/audio/0_Defalt_x.wav", "/app0/assets/audio/0_Defalt_x.wav", &sfxCrossLen);
-    sfxCircleData = carregarWavMemoria("/data/HyperNeiva/configuracao/audio/0_Defalt_bolinha.wav", "/app0/assets/audio/0_Defalt_bolinha.wav", &sfxCircleLen);
+    // Carrega tudo silenciosamente para a RAM com a nova pasta "audios"
+    sfxUpData = carregarWavMemoria("/data/HyperNeiva/configuracao/audios/0_Defalt_direcinal_cima.wav", "/app0/assets/audio/0_Defalt_direcinal_cima.wav", &sfxUpLen);
+    sfxDownData = carregarWavMemoria("/data/HyperNeiva/configuracao/audios/0_Defalt_direcional_baixo.wav", "/app0/assets/audio/0_Defalt_direcional_baixo.wav", &sfxDownLen);
+    sfxCrossData = carregarWavMemoria("/data/HyperNeiva/configuracao/audios/0_Defalt_x.wav", "/app0/assets/audio/0_Defalt_x.wav", &sfxCrossLen);
+    sfxCircleData = carregarWavMemoria("/data/HyperNeiva/configuracao/audios/0_Defalt_bolinha.wav", "/app0/assets/audio/0_Defalt_bolinha.wav", &sfxCircleLen);
 }
 
 void tocarSom(SfxType tipo) {
