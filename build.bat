@@ -6,7 +6,7 @@ echo        BUILD HYPER NEIVA (PS4)
 echo ==========================================
 echo.
 
-echo [1/8] Limpando arquivos antigos...
+echo [1/7] Limpando arquivos antigos...
 del *.o 2>nul
 del teste3.elf 2>nul
 del teste3.oelf 2>nul
@@ -15,18 +15,7 @@ del *.pkg 2>nul
 
 echo.
 
-echo [1.5/8] Baixando a biblioteca Miniz (Oficial v3.0.2)...
-if not exist miniz.c (
-    echo Baixando ZIP oficial do Github...
-    curl -k -L -o miniz_release.zip https://github.com/richgel999/miniz/releases/download/3.0.2/miniz-3.0.2.zip
-    echo Extraindo arquivos...
-    powershell -command "Expand-Archive -Force 'miniz_release.zip' '.'"
-    del miniz_release.zip
-)
-
-echo.
-
-echo [2/8] Compilando TODOS os modulos C++
+echo [2/7] Compilando TODOS os modulos C++
 "C:\Program Files\LLVM\bin\clang.exe" --target=x86_64-pc-freebsd12-elf -fPIC -funwind-tables -I"C:\OpenOrbis\include" -I"C:\OpenOrbis\include\c++\v1" -I"C:\OpenOrbis\include\orbis" -c miniz.c -o miniz.o
 "C:\Program Files\LLVM\bin\clang++.exe" --target=x86_64-pc-freebsd12-elf -fPIC -funwind-tables -I"C:\OpenOrbis\include" -I"C:\OpenOrbis\include\c++\v1" -I"C:\OpenOrbis\include\orbis" -c main.cpp -o main.o
 "C:\Program Files\LLVM\bin\clang++.exe" --target=x86_64-pc-freebsd12-elf -fPIC -funwind-tables -I"C:\OpenOrbis\include" -I"C:\OpenOrbis\include\c++\v1" -I"C:\OpenOrbis\include\orbis" -c explorar.cpp -o explorar.o
@@ -62,30 +51,30 @@ echo [2/8] Compilando TODOS os modulos C++
 "C:\Program Files\LLVM\bin\clang++.exe" --target=x86_64-pc-freebsd12-elf -fPIC -funwind-tables -I"C:\OpenOrbis\include" -I"C:\OpenOrbis\include\c++\v1" -I"C:\OpenOrbis\include\orbis" -c elementos_sonoros.cpp -o elementos_sonoros.o
 
 echo.
-echo [3/8] Linkando...
+echo [3/7] Linkando...
 "C:\Program Files\LLVM\bin\ld.lld.exe" -m elf_x86_64 -pie --script "C:\OpenOrbis\link.x" --eh-frame-hdr -o teste3.elf "-LC:\OpenOrbis\lib" -lc -lm -lkernel -lc++ -lSceVideoOut -lSceAudioOut -lSceUserService -lSceSysmodule -lSceSysUtil -lScePad -lSceNet -lSceHttp -lSceSsl -lSceImeDialog -lSceCommonDialog -lSceBgft -lSceAppInstUtil "C:\OpenOrbis\lib\crt1.o" miniz.o main.o explorar.o editar.o network.o baixar.o graphics.o jogar.o audio.o controle.o menu.o menu_audio.o menu_imagens.o menu_video.o menu_grafico.o controle_virtual.o pesquisar.o bloco_de_notas.o video.o teclado.o criar_pastas.o controle_musicas.o controle_explorar.o controle_editar.o controle_baixar.o controle_root.o baixar_repositorio.o baixar_dropbox_download.o dowload_sistema.o menu_upload.o elementos.o controle_elementos.o elementos_sonoros.o
 
 echo.
-echo [4/8] Criando FSELF (Com flag de memoria do PS4)...
+echo [4/7] Criando FSELF (Com flag de memoria do PS4)...
 "C:\OpenOrbis\bin\windows\create-fself.exe" -in=teste3.elf -out=teste3.oelf --eboot=eboot.bin --paid 0x3800000000000011
 
 echo.
-echo [5/8] Gerando o SFO do Hyper Neiva...
+echo [5/7] Gerando o SFO do Hyper Neiva...
 "C:\OpenOrbis\bin\windows\PkgTool.Core.exe" sfo_new sce_sys/param.sfo
 "C:\OpenOrbis\bin\windows\PkgTool.Core.exe" sfo_setentry sce_sys/param.sfo APP_TYPE --type Integer --maxsize 4 --value 1
 "C:\OpenOrbis\bin\windows\PkgTool.Core.exe" sfo_setentry sce_sys/param.sfo APP_VER --type Utf8 --maxsize 8 --value "01.00"
 "C:\OpenOrbis\bin\windows\PkgTool.Core.exe" sfo_setentry sce_sys/param.sfo ATTRIBUTE --type Integer --maxsize 4 --value 0
 "C:\OpenOrbis\bin\windows\PkgTool.Core.exe" sfo_setentry sce_sys/param.sfo CATEGORY --type Utf8 --maxsize 4 --value "gd"
-"C:\OpenOrbis\bin\windows\PkgTool.Core.exe" sfo_setentry sce_sys/param.sfo CONTENT_ID --type Utf8 --maxsize 48 --value "UP0001-TEST00021_00-0000000000000000"
+"C:\OpenOrbis\bin\windows\PkgTool.Core.exe" sfo_setentry sce_sys/param.sfo CONTENT_ID --type Utf8 --maxsize 48 --value "UP0001-MARC00001_00-0000000000000000"
 "C:\OpenOrbis\bin\windows\PkgTool.Core.exe" sfo_setentry sce_sys/param.sfo DOWNLOAD_DATA_SIZE --type Integer --maxsize 4 --value 0
 "C:\OpenOrbis\bin\windows\PkgTool.Core.exe" sfo_setentry sce_sys/param.sfo PARENTAL_LEVEL --type Integer --maxsize 4 --value 0
 "C:\OpenOrbis\bin\windows\PkgTool.Core.exe" sfo_setentry sce_sys/param.sfo SYSTEM_VER --type Integer --maxsize 4 --value 0
 "C:\OpenOrbis\bin\windows\PkgTool.Core.exe" sfo_setentry sce_sys/param.sfo TITLE --type Utf8 --maxsize 128 --value "Hyper Neiva"
-"C:\OpenOrbis\bin\windows\PkgTool.Core.exe" sfo_setentry sce_sys/param.sfo TITLE_ID --type Utf8 --maxsize 12 --value "TEST00021"
+"C:\OpenOrbis\bin\windows\PkgTool.Core.exe" sfo_setentry sce_sys/param.sfo TITLE_ID --type Utf8 --maxsize 12 --value "MARC00001"
 "C:\OpenOrbis\bin\windows\PkgTool.Core.exe" sfo_setentry sce_sys/param.sfo VERSION --type Utf8 --maxsize 8 --value "01.00"
 
 echo.
-echo [6/8] Coletando Assets (Imagens e Fontes)...
+echo [6/7] Coletando Assets (Imagens e Fontes)...
 
 set asset_images_files=
 for %%f in (assets\images\*) do set asset_images_files=!asset_images_files! assets/images/%%~nxf
@@ -97,15 +86,19 @@ set asset_audio_files=
 for %%f in (assets\audio\*) do set asset_audio_files=!asset_audio_files! assets/audio/%%~nxf
 
 echo.
-echo [7/8] Criacao do GP4 e Build do PKG...
-"C:\OpenOrbis\bin\windows\create-gp4.exe" -out pkg.gp4 --content-id=UP0001-TEST00021_00-0000000000000000 --files "eboot.bin sce_sys/param.sfo sce_sys/icon0.png sce_module/libc.prx sce_module/libSceFios2.prx assets/lista.xml assets/sp.xml assets/Sega_Master_System.xml assets/dropbox_token.txt !asset_images_files! !asset_fonts_files! !asset_audio_files!"
+echo [7/7] Criacao do GP4 e Build do PKG...
+"C:\OpenOrbis\bin\windows\create-gp4.exe" -out pkg.gp4 --content-id=UP0001-MARC00001_00-0000000000000000 --files "eboot.bin sce_sys/param.sfo sce_sys/icon0.png sce_module/libc.prx sce_module/libSceFios2.prx assets/lista.xml assets/sp.xml assets/Sega_Master_System.xml assets/dropbox_token.txt !asset_images_files! !asset_fonts_files! !asset_audio_files!"
 
 "C:\OpenOrbis\bin\windows\PkgTool.Core.exe" pkg_build pkg.gp4 .
 
+echo.
+echo [Final] Renomeando e Copiando...
+if exist "UP0001-MARC00001_00-0000000000000000.pkg" (
+    ren "UP0001-MARC00001_00-0000000000000000.pkg" "Hyper Neiva.pkg"
+)
+
 if exist E:\ (
-    echo.
-    echo [8/8] Copiando para o pendrive E:...
-    copy /y "UP0001-TEST00021_00-0000000000000000.pkg" "E:\Hyper Neiva.pkg"
+    copy /y "Hyper Neiva.pkg" "E:\Hyper Neiva.pkg"
 )
 
 echo.
