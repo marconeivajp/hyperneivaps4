@@ -15,9 +15,19 @@ del *.pkg 2>nul
 
 echo.
 
+echo [1.5/8] Baixando a biblioteca Miniz (Oficial v3.0.2)...
+if not exist miniz.c (
+    echo Baixando ZIP oficial do Github...
+    curl -k -L -o miniz_release.zip https://github.com/richgel999/miniz/releases/download/3.0.2/miniz-3.0.2.zip
+    echo Extraindo arquivos...
+    powershell -command "Expand-Archive -Force 'miniz_release.zip' '.'"
+    del miniz_release.zip
+)
 
+echo.
 
 echo [2/8] Compilando TODOS os modulos C++
+"C:\Program Files\LLVM\bin\clang.exe" --target=x86_64-pc-freebsd12-elf -fPIC -funwind-tables -I"C:\OpenOrbis\include" -I"C:\OpenOrbis\include\c++\v1" -I"C:\OpenOrbis\include\orbis" -c miniz.c -o miniz.o
 "C:\Program Files\LLVM\bin\clang++.exe" --target=x86_64-pc-freebsd12-elf -fPIC -funwind-tables -I"C:\OpenOrbis\include" -I"C:\OpenOrbis\include\c++\v1" -I"C:\OpenOrbis\include\orbis" -c main.cpp -o main.o
 "C:\Program Files\LLVM\bin\clang++.exe" --target=x86_64-pc-freebsd12-elf -fPIC -funwind-tables -I"C:\OpenOrbis\include" -I"C:\OpenOrbis\include\c++\v1" -I"C:\OpenOrbis\include\orbis" -c explorar.cpp -o explorar.o
 "C:\Program Files\LLVM\bin\clang++.exe" --target=x86_64-pc-freebsd12-elf -fPIC -funwind-tables -I"C:\OpenOrbis\include" -I"C:\OpenOrbis\include\c++\v1" -I"C:\OpenOrbis\include\orbis" -c editar.cpp -o editar.o
@@ -53,7 +63,7 @@ echo [2/8] Compilando TODOS os modulos C++
 
 echo.
 echo [3/8] Linkando...
-"C:\Program Files\LLVM\bin\ld.lld.exe" -m elf_x86_64 -pie --script "C:\OpenOrbis\link.x" --eh-frame-hdr -o teste3.elf "-LC:\OpenOrbis\lib" -lc -lm -lkernel -lc++ -lSceVideoOut -lSceAudioOut -lSceUserService -lSceSysmodule -lSceSysUtil -lScePad -lSceNet -lSceHttp -lSceSsl -lSceImeDialog -lSceCommonDialog -lSceBgft -lSceAppInstUtil "C:\OpenOrbis\lib\crt1.o" main.o explorar.o editar.o network.o baixar.o graphics.o jogar.o audio.o controle.o menu.o menu_audio.o menu_imagens.o menu_video.o menu_grafico.o controle_virtual.o pesquisar.o bloco_de_notas.o video.o teclado.o criar_pastas.o controle_musicas.o controle_explorar.o controle_editar.o controle_baixar.o controle_root.o baixar_repositorio.o baixar_dropbox_download.o dowload_sistema.o menu_upload.o elementos.o controle_elementos.o elementos_sonoros.o
+"C:\Program Files\LLVM\bin\ld.lld.exe" -m elf_x86_64 -pie --script "C:\OpenOrbis\link.x" --eh-frame-hdr -o teste3.elf "-LC:\OpenOrbis\lib" -lc -lm -lkernel -lc++ -lSceVideoOut -lSceAudioOut -lSceUserService -lSceSysmodule -lSceSysUtil -lScePad -lSceNet -lSceHttp -lSceSsl -lSceImeDialog -lSceCommonDialog -lSceBgft -lSceAppInstUtil "C:\OpenOrbis\lib\crt1.o" miniz.o main.o explorar.o editar.o network.o baixar.o graphics.o jogar.o audio.o controle.o menu.o menu_audio.o menu_imagens.o menu_video.o menu_grafico.o controle_virtual.o pesquisar.o bloco_de_notas.o video.o teclado.o criar_pastas.o controle_musicas.o controle_explorar.o controle_editar.o controle_baixar.o controle_root.o baixar_repositorio.o baixar_dropbox_download.o dowload_sistema.o menu_upload.o elementos.o controle_elementos.o elementos_sonoros.o
 
 echo.
 echo [4/8] Criando FSELF (Com flag de memoria do PS4)...
@@ -91,7 +101,6 @@ echo [7/8] Criacao do GP4 e Build do PKG...
 "C:\OpenOrbis\bin\windows\create-gp4.exe" -out pkg.gp4 --content-id=UP0001-TEST00021_00-0000000000000000 --files "eboot.bin sce_sys/param.sfo sce_sys/icon0.png sce_module/libc.prx sce_module/libSceFios2.prx assets/lista.xml assets/sp.xml assets/Sega_Master_System.xml assets/dropbox_token.txt !asset_images_files! !asset_fonts_files! !asset_audio_files!"
 
 "C:\OpenOrbis\bin\windows\PkgTool.Core.exe" pkg_build pkg.gp4 .
-
 
 if exist E:\ (
     echo.

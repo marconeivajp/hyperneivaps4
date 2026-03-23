@@ -61,7 +61,20 @@ extern void tratarSelecaoAudio(int op);
 
 int main(void) {
     // ======================================================================
-    // 1º PASSO ABSOLUTO: LIGAR O NÚCLEO DO PS4 ANTES DE TUDO!
+    // 1º PASSO: LIGAR REDE E ÁUDIO PRIMEIRO (como no código que funciona)
+    // ======================================================================
+    initNetwork();
+    inicializarAudio(); // Inicia o motor de áudio. (Removemos o sceAudioOutInit() solto)
+
+    // ======================================================================
+    // 2º PASSO: Módulos de Sistema e Dialogs
+    // ======================================================================
+    sceSysmoduleLoadModuleInternal(ORBIS_SYSMODULE_INTERNAL_COMMON_DIALOG);
+    sceSysmoduleLoadModule(ORBIS_SYSMODULE_IME_DIALOG);
+    sceCommonDialogInitialize();
+
+    // ======================================================================
+    // 3º PASSO: Ligar o Núcleo do PS4 (Usuário e Controle)
     // ======================================================================
     sceUserServiceInitialize(NULL);
     int32_t uId;
@@ -70,25 +83,14 @@ int main(void) {
     scePadInit();
     int pad = scePadOpen(uId, 0, 0, NULL);
 
-    sceAudioOutInit(); // <-- VITAL: Acorda a placa de som da consola!
     // ======================================================================
-
-    // 2º PASSO: Preparar pastas e ficheiros
-    inicializarPastas();
-    carregarConfiguracao();
-
-    // 3º PASSO: Agora sim, com o PS4 preparado, ligamos os motores de Som
-    inicializarElementosSonoros();
-    inicializarAudio();
-
-    // 4º PASSO: Ligar os restantes sistemas
-    initNetwork();
+    // 4º PASSO: Ligar o Vídeo
+    // ======================================================================
     inicializarVideo();
 
-    sceSysmoduleLoadModuleInternal(ORBIS_SYSMODULE_INTERNAL_COMMON_DIALOG);
-    sceSysmoduleLoadModule(ORBIS_SYSMODULE_IME_DIALOG);
-    sceCommonDialogInitialize();
-
+    // ======================================================================
+    // 5º PASSO: Preparar Memória e Teclado (IME)
+    // ======================================================================
     off_t imePh;
     void* imeVm = NULL;
     sceKernelAllocateDirectMemory(0, sceKernelGetDirectMemorySize(), 2097152, 2097152, 2, &imePh);
@@ -100,6 +102,19 @@ int main(void) {
     uint16_t t[] = { 'D','i','g','i','t','e',' ','o',' ','L','i','n','k','\0' };
     memcpy(imeTitle, t, sizeof(t));
 
+    // ======================================================================
+    // 6º PASSO: Preparar Pastas, Configuração e Elementos Sonoros
+    // ======================================================================
+    inicializarPastas();
+    carregarConfiguracao();
+
+    // IMPORTANTE: Agora que o inicializarAudio() já rodou no começo, 
+    // os sons vão ser carregados corretamente na memória da placa!
+    inicializarElementosSonoros();
+
+    // ======================================================================
+    // 7º PASSO: Carregar Fontes e Imagens
+    // ======================================================================
     int fd = sceKernelOpen("/app0/assets/fonts/font.ttf", 0, 0);
     if (fd >= 0) {
         off_t fs = sceKernelLseek(fd, 0, 2); sceKernelLseek(fd, 0, 0);
@@ -122,6 +137,9 @@ int main(void) {
 
     preencherRoot();
 
+    // ======================================================================
+    // LOOP PRINCIPAL
+    // ======================================================================
     for (;;) {
         OrbisPadData pData;
 
