@@ -2,16 +2,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <pthread.h>
-#include <unistd.h>
-#include <sys/stat.h>
 
-#include <orbis/libkernel.h>
-#include <orbis/AudioOut.h>
-#include <orbis/UserService.h>
-
-// IMPORTANTE: Aqui incluimos a biblioteca, MAS SEM o comando de #define IMPLEMENTATION.
-// Isto impede que o compilador crie bibliotecas duplicadas (e resolve os erros do malloc)!
+// IMPORTANTE: Incluimos a biblioteca SEM "IMPLEMENTATION" para não chocar com o audio.cpp!
 #include "dr_wav.h"
 
 int16_t* sfxUpData = NULL; size_t sfxUpLen = 0;
@@ -22,10 +14,6 @@ int16_t* sfxCircleData = NULL; size_t sfxCircleLen = 0;
 volatile int16_t* currentSfx = NULL;
 volatile size_t currentSfxFrames = 0;
 volatile size_t currentSfxPos = 0;
-
-static int sfxPort = -1;
-static pthread_t sfxThreadId;
-static bool sfxRodando = false;
 
 int16_t* carregarWavMemoria(const char* pathPrincipal, const char* pathAlternativo, size_t* totalFrames) {
     unsigned int channels, sampleRate;
@@ -51,67 +39,16 @@ int16_t* carregarWavMemoria(const char* pathPrincipal, const char* pathAlternati
     return pSampleData;
 }
 
-void* sfxThreadFunc(void* arg) {
-    int32_t userId;
-    if (sceUserServiceGetInitialUser(&userId) < 0) userId = ORBIS_USER_SERVICE_USER_ID_SYSTEM;
-
-    // PORTA 1 para SFX (EFEITOS SONOROS), evitando que a música principal pare!
-    sfxPort = sceAudioOutOpen(userId, ORBIS_AUDIO_OUT_PORT_TYPE_MAIN, 1, 256, 48000, ORBIS_AUDIO_OUT_PARAM_FORMAT_S16_STEREO);
-    if (sfxPort < 0) {
-        sfxRodando = false;
-        return NULL;
-    }
-
-    int16_t silentBuffer[256 * 2];
-    memset(silentBuffer, 0, sizeof(silentBuffer));
-
-    while (sfxRodando) {
-        if (currentSfx != NULL && currentSfxPos < currentSfxFrames) {
-            int16_t outBuf[256 * 2];
-            size_t framesToRead = 256;
-            if (currentSfxPos + framesToRead > currentSfxFrames) {
-                framesToRead = currentSfxFrames - currentSfxPos;
-            }
-
-            memset(outBuf, 0, sizeof(outBuf));
-            for (size_t i = 0; i < framesToRead * 2; i++) {
-                outBuf[i] = currentSfx[currentSfxPos * 2 + i];
-            }
-
-            currentSfxPos += framesToRead;
-            sceAudioOutOutput(sfxPort, outBuf);
-
-            if (currentSfxPos >= currentSfxFrames) {
-                currentSfx = NULL;
-            }
-        }
-        else {
-            sceAudioOutOutput(sfxPort, silentBuffer);
-        }
-    }
-
-    sceAudioOutClose(sfxPort);
-    return NULL;
-}
-
 void inicializarElementosSonoros() {
-    if (sfxRodando) return;
-
+    // Carrega tudo silenciosamente para a RAM
     sfxUpData = carregarWavMemoria("/data/HyperNeiva/configuracao/audio/0_Defalt_direcinal_cima.wav", "/app0/assets/audio/0_Defalt_direcinal_cima.wav", &sfxUpLen);
     sfxDownData = carregarWavMemoria("/data/HyperNeiva/configuracao/audio/0_Defalt_direcional_baixo.wav", "/app0/assets/audio/0_Defalt_direcional_baixo.wav", &sfxDownLen);
     sfxCrossData = carregarWavMemoria("/data/HyperNeiva/configuracao/audio/0_Defalt_x.wav", "/app0/assets/audio/0_Defalt_x.wav", &sfxCrossLen);
     sfxCircleData = carregarWavMemoria("/data/HyperNeiva/configuracao/audio/0_Defalt_bolinha.wav", "/app0/assets/audio/0_Defalt_bolinha.wav", &sfxCircleLen);
-
-    sfxRodando = true;
-    pthread_create(&sfxThreadId, NULL, sfxThreadFunc, NULL);
 }
 
 void tocarSom(SfxType tipo) {
-    if (!sfxRodando) return;
-
-    currentSfx = NULL;
-    sceKernelUsleep(1000);
-
+    // Acorda o som escolhido!
     switch (tipo) {
     case SFX_UP:
         if (sfxUpData) { currentSfxFrames = sfxUpLen; currentSfxPos = 0; currentSfx = sfxUpData; }
@@ -125,5 +62,29 @@ void tocarSom(SfxType tipo) {
     case SFX_CIRCLE:
         if (sfxCircleData) { currentSfxFrames = sfxCircleLen; currentSfxPos = 0; currentSfx = sfxCircleData; }
         break;
+    }
+}
+
+// O HACK MESTRE: Injeta matematicamente os Efeitos Sonoros por cima da música ou do silêncio!
+void misturarEfeitosSonoros(int16_t* bufferAudio, size_t frames) {
+    if (currentSfx != NULL && currentSfxPos < currentSfxFrames) {
+        size_t framesToMix = frames;
+        if (currentSfxPos + framesToMix > currentSfxFrames) {
+            framesToMix = currentSfxFrames - currentSfxPos;
+        }
+        for (size_t i = 0; i < framesToMix * 2; i++) {
+            // Soma a Música de Fundo com o Efeito Sonoro
+            int32_t sample = bufferAudio[i] + currentSfx[currentSfxPos * 2 + i];
+
+            // Impede distorção do alto-falante (Clipping de Segurança)
+            if (sample > 32767) sample = 32767;
+            else if (sample < -32768) sample = -32768;
+
+            bufferAudio[i] = (int16_t)sample;
+        }
+        currentSfxPos += framesToMix;
+        if (currentSfxPos >= currentSfxFrames) {
+            currentSfx = NULL; // Fim do som
+        }
     }
 }
