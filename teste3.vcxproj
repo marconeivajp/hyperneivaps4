@@ -74,6 +74,7 @@
     <ClCompile Include="dowload_sistema.cpp" />
     <ClCompile Include="editar.cpp" />
     <ClCompile Include="elementos.cpp" />
+    <ClCompile Include="elementos_sonoros.cpp" />
     <ClCompile Include="explorar.cpp" />
     <ClCompile Include="gestor_de_saves.cpp" />
     <ClCompile Include="graphics.cpp" />
@@ -124,6 +125,7 @@
     <ClInclude Include="criar_pastas.h" />
     <ClInclude Include="editar.h" />
     <ClInclude Include="elementos.h" />
+    <ClInclude Include="elementos_sonoros.h" />
     <ClInclude Include="explorar.h" />
     <ClInclude Include="graphics.h" />
     <ClInclude Include="jogar.h" />

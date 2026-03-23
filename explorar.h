@@ -38,7 +38,7 @@ extern const char* listaOpcoes[10];
 // --- VARIÁVEIS DO TECLADO E RENOMEAÇÃO ---
 extern bool esperandoNomePasta;
 extern bool esperandoRenomear;
-extern wchar_t textoTeclado[64];
+extern wchar_t textoTeclado[256]; // CORREÇÃO: Limite expandido para 256
 extern char oldPathParaRenomear[512];
 extern char oldExtParaRenomear[64];
 extern bool ehPastaParaRenomear;

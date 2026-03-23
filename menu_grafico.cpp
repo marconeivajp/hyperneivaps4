@@ -6,7 +6,7 @@
 #include "menu_upload.h" 
 #include "baixar.h" 
 #include "elementos.h" 
-#include "controle_elementos.h" // AQUI ESTÁ A CHAVE DE TUDO!
+#include "controle_elementos.h" 
 #include <string.h>
 #include <strings.h>
 #include <stdio.h>
@@ -76,9 +76,6 @@ unsigned char* carregarMediaCaseInsensitive(const char* pastaPath, const char* n
 }
 
 void desenharInterface(uint32_t* p) {
-    // ATUALIZA O ANALÓGICO 60 VEZES POR SEGUNDO AQUI!
-    atualizarControleElementos();
-
     frameContadorGlobal++;
 
     static char nomeItemAnterior[128] = ""; static unsigned char* imgBgDinamico = NULL; static int dynBgW = 0, dynBgH = 0, dynBgC = 0; static unsigned char* imgCapaDinamica = NULL; static int dynCapaW = 0, dynCapaH = 0, dynCapaC = 0; static unsigned char* imgDiscoDinamico = NULL; static int dynDiscoW = 0, dynDiscoH = 0, dynDiscoC = 0;
@@ -131,7 +128,6 @@ void desenharInterface(uint32_t* p) {
                 if (isMarcado) { corFundo = isPainelAtivo ? getSysColor(listMark) : getSysColor(11); }
 
                 if (gIdx == sAtual) { if (isPainelAtivo) { if (isMarcado) corFundo = getSysColor(listHoverMark); else corFundo = getSysColor(10); corTexto = 0xFF000000; } else corFundo = 0xAA555555; }
-
                 for (int by = 0; by < listH; by++) { for (int bx = 0; bx < larguraItem; bx++) { int pxX = currentX + bx; int pyY = currentY + by; if (pxX >= 0 && pxX < 1920 && pyY >= 0 && pyY < 1080) p[pyY * 1920 + pxX] = corFundo; } }
 
                 desenharTextoAlinhado(p, nItems[gIdx], fontTam, currentX, currentY + (listH / 4), larguraItem, corTexto);
@@ -198,6 +194,7 @@ void desenharInterface(uint32_t* p) {
         else if (editType == 12) { int stat = 0; if (editTarget == 10) stat = elem1On; else if (editTarget == 11) stat = ctrl1On; else if (editTarget == 12) stat = pont1On; sprintf(txtPos, "MODO EDICAO - LIGADO: %s (USE SETAS ESQ/DIR)", stat ? "SIM" : "NAO"); }
         else if (editType == 13) sprintf(txtPos, "MODO EDICAO - MODO PONTEIRO: %s (USE SETAS ESQ/DIR)", pont1Modo == 0 ? "ACOMPANHA" : "ESTATICO");
         else if (editType == 14) { const char* lds[] = { "ESQUERDA", "DIREITA", "CIMA", "BAIXO" }; sprintf(txtPos, "MODO EDICAO - LADO PONTEIRO: %s (USE SETAS)", lds[pont1Lado]); }
+        else if (editTarget == 11) sprintf(txtPos, "EDICAO CTRL - POSICAO ATUAL: X:%d Y:%d", ctrl1X, ctrl1Y);
         else if (editTarget == 7) sprintf(txtPos, "MODO EDICAO - TAMANHO DA FONTE: %d", fontTam);
         else if (editTarget == 8) sprintf(txtPos, "MODO EDICAO - NOTIFICACOES: X: %d  |  Y: %d  |  TAMANHO: %d", msgX, msgY, msgTam);
         else sprintf(txtPos, "MODO EDICAO - X: %d  |  Y: %d  |  LARGURA: %d  |  ALTURA: %d", *tX, *tY, *tW, *tH);
@@ -218,22 +215,30 @@ void desenharInterface(uint32_t* p) {
 
     desenharMenuAudio(p); desenharMenuUpload(p);
 
-    int curListX = (listOri == 0) ? listXV : listXH;
-    int curListY = (listOri == 0) ? listYV : listYH;
-    int curListSpc = (listOri == 0) ? listSpcV : listSpcH;
-    int stepX = (listOri == 1) ? curListSpc : 0;
-    int stepY = (listOri == 0) ? curListSpc : 0;
+    // ==============================================================
+    // AQUI: Os elementos NÃO SERÃO DESENHADOS se estiver no 
+    // Bloco de Notas ou a visualizar imagens/textos em ecrã inteiro
+    // ==============================================================
+    bool esconderElementos = (visualizandoMidiaImagem || visualizandoMidiaTexto || menuAtual == MENU_NOTEPAD || menuAtualEsq == MENU_NOTEPAD);
 
-    int refP = painelDuplo ? painelAtivo : 1;
-    int sAt = (refP == 0) ? selEsq : sel;
-    int oAt = (refP == 0) ? offEsq : off;
-    int posX_B = (painelDuplo) ? ((refP == 0) ? capaX : curListX) : curListX;
-    int wItem = (painelDuplo) ? 750 : listW;
+    if (!esconderElementos) {
+        int curListX = (listOri == 0) ? listXV : listXH;
+        int curListY = (listOri == 0) ? listYV : listYH;
+        int curListSpc = (listOri == 0) ? listSpcV : listSpcH;
+        int stepX = (listOri == 1) ? curListSpc : 0;
+        int stepY = (listOri == 0) ? curListSpc : 0;
 
-    int selScreenX = posX_B + ((sAt - oAt) * stepX);
-    int selScreenY = curListY + ((sAt - oAt) * stepY);
+        int refP = painelDuplo ? painelAtivo : 1;
+        int sAt = (refP == 0) ? selEsq : sel;
+        int oAt = (refP == 0) ? offEsq : off;
+        int posX_B = (painelDuplo) ? ((refP == 0) ? capaX : curListX) : curListX;
+        int wItem = (painelDuplo) ? 750 : listW;
 
-    desenharElementos(p, selScreenX, selScreenY, wItem, listH);
+        int selScreenX = posX_B + ((sAt - oAt) * stepX);
+        int selScreenY = curListY + ((sAt - oAt) * stepY);
+
+        desenharElementos(p, selScreenX, selScreenY, wItem, listH);
+    }
 
     if (msgTimer > 0) { desenharTexto(p, msgStatus, msgTam, msgX, msgY, 0xFFFFFFFF); msgTimer--; }
     else if ((menuAtual == MENU_EDIT_TARGET || editMode) && editTarget == 8) { desenharTexto(p, "EXEMPLO DE NOTIFICACAO...", msgTam, msgX, msgY, 0xFF00FF00); }

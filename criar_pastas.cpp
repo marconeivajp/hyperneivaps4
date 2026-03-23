@@ -27,6 +27,10 @@ void inicializarPastas() {
     sceKernelMkdir("/data/HyperNeiva", 0777);
     sceKernelMkdir("/data/HyperNeiva/configuracao", 0777);
     sceKernelMkdir("/data/HyperNeiva/configuracao/xml", 0777);
+
+    // NOVA PASTA DE AUDIO NA CONFIGURACAO
+    sceKernelMkdir("/data/HyperNeiva/configuracao/audio", 0777);
+
     sceKernelMkdir("/data/HyperNeiva/baixado", 0777);
     sceKernelMkdir("/data/HyperNeiva/Musicas", 0777);
     sceKernelMkdir("/data/HyperNeiva/baixado/repositorio", 0777);
@@ -69,4 +73,13 @@ void inicializarPastas() {
     copiarArquivoSeNaoExistir("/app0/assets/images/0_Defalt_Background.jpg", "/data/HyperNeiva/midia/imagens/Games/Background/0_Defalt_Background.jpg");
     copiarArquivoSeNaoExistir("/app0/assets/images/0_Defalt_Artwork1.png", "/data/HyperNeiva/midia/imagens/Games/Artwork1/0_Defalt_Artwork1.png");
     copiarArquivoSeNaoExistir("/app0/assets/images/0_Defalt_Artwork2.png", "/data/HyperNeiva/midia/imagens/Games/Artwork2/0_Defalt_Artwork2.png");
+
+    // ===========================================================================================
+    // INSTALAÇÃO DE TODOS OS ARQUIVOS DE ÁUDIO NA PASTA CONFIGURACAO/AUDIO
+    // ===========================================================================================
+    copiarArquivoSeNaoExistir("/app0/assets/audio/bgm.wav", "/data/HyperNeiva/configuracao/audio/bgm.wav");
+    copiarArquivoSeNaoExistir("/app0/assets/audio/0_Defalt_direcinal_cima.wav", "/data/HyperNeiva/configuracao/audio/0_Defalt_direcinal_cima.wav");
+    copiarArquivoSeNaoExistir("/app0/assets/audio/0_Defalt_direcional_baixo.wav", "/data/HyperNeiva/configuracao/audio/0_Defalt_direcional_baixo.wav");
+    copiarArquivoSeNaoExistir("/app0/assets/audio/0_Defalt_x.wav", "/data/HyperNeiva/configuracao/audio/0_Defalt_x.wav");
+    copiarArquivoSeNaoExistir("/app0/assets/audio/0_Defalt_bolinha.wav", "/data/HyperNeiva/configuracao/audio/0_Defalt_bolinha.wav");
 }

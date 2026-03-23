@@ -3,6 +3,12 @@
 #include <string.h>
 #include <orbis/Pad.h> 
 
+#ifdef __INTELLISENSE__
+#ifndef __builtin_va_list
+#define __builtin_va_list void*
+#endif
+#endif
+
 #include "controle.h"
 #include "controle_direcional.h"
 #include "controle_musicas.h"
@@ -12,6 +18,8 @@
 #include "controle_baixar.h"
 #include "controle_root.h"
 #include "menu_upload.h"
+#include "controle_elementos.h" 
+#include "elementos_sonoros.h" // AQUI: Incluído o gestor de sons!
 
 #include "stb_image.h"
 #include "menu.h"
@@ -44,6 +52,8 @@ extern void acaoCircle_Baixar(); extern void acaoTriangle_Baixar(); extern void 
 extern void abrirMenuAudioOpcoes();
 MenuLevel menuAntesDoAudio = ROOT; bool veioDeOutroMenuParaAudio = false;
 
+int globalUserId = -1;
+
 void processarNavegacaoDPad(uint32_t botoes) {
     if (visualizandoMidiaImagem) { if (botoes & (ORBIS_PAD_BUTTON_DOWN | ORBIS_PAD_BUTTON_UP)) { if (cd <= 0) { if (botoes & ORBIS_PAD_BUTTON_UP) { fullscreenMidia = false; zoomMidia += 0.5f; } else if (botoes & ORBIS_PAD_BUTTON_DOWN) { fullscreenMidia = false; zoomMidia -= 0.5f; if (zoomMidia < 0.1f) zoomMidia = 0.1f; } cd = 2; } } else cd = 0; if (cd > 0) cd--; return; }
     if (visualizandoMidiaTexto) { if (botoes & (ORBIS_PAD_BUTTON_DOWN | ORBIS_PAD_BUTTON_UP)) { if (cd <= 0) { if (botoes & ORBIS_PAD_BUTTON_UP) { textoMidiaScroll -= 2; if (textoMidiaScroll < 0) textoMidiaScroll = 0; } else if (botoes & ORBIS_PAD_BUTTON_DOWN) { textoMidiaScroll += 2; if (textoMidiaScroll > totalLinhasTexto - 15) textoMidiaScroll = totalLinhasTexto - 15; if (textoMidiaScroll < 0) textoMidiaScroll = 0; } cd = 4; } } else cd = 0; if (cd > 0) cd--; return; }
@@ -55,6 +65,11 @@ void processarNavegacaoDPad(uint32_t botoes) {
 
     if (botoes & (btnNext | btnPrev)) {
         if (cd <= 0) {
+
+            // SFX NAVEGACAO:
+            if (botoes & btnNext) tocarSom(SFX_DOWN);
+            else if (botoes & btnPrev) tocarSom(SFX_UP);
+
             if (menuAtual == MENU_NOTEPAD) { if (estadoNotepad == 0) { if (botoes & btnNext) { if (linhaSelecionada < 4999) { linhaSelecionada++; if (linhaSelecionada >= totalLinhasNotepad && !notepadSomenteLeitura) totalLinhasNotepad = linhaSelecionada + 1; } } else if (botoes & btnPrev && linhaSelecionada > 0) linhaSelecionada--; } }
             else if (showUploadOpcoes && (menuAtual == MENU_BAIXAR_DROPBOX_UPLOAD || menuAtual == MENU_BAIXAR_DROPBOX_LISTA)) { int maxV = (upH - 50) / 45; if (maxV < 1) maxV = 1; if (botoes & btnNext) { if (selUploadOpcao < 2) { selUploadOpcao++; if (selUploadOpcao >= offUploadOpcao + maxV) offUploadOpcao++; } else { selUploadOpcao = 0; offUploadOpcao = 0; } } else if (botoes & btnPrev) { if (selUploadOpcao > 0) { selUploadOpcao--; if (selUploadOpcao < offUploadOpcao) offUploadOpcao--; } else { selUploadOpcao = 2; offUploadOpcao = 3 - maxV; if (offUploadOpcao < 0) offUploadOpcao = 0; } } }
             else if (showOpcoes) {
@@ -74,6 +89,8 @@ void processarNavegacaoDPad(uint32_t botoes) {
 }
 
 void processarControles(uint32_t botoes, int32_t uId, OrbisImeDialogSetting* imeSetting, uint16_t* imeTitle) {
+    globalUserId = uId;
+
     if (totalItens <= 0) { sel = 0; off = 0; }
     else if (sel >= totalItens) { sel = totalItens - 1; if (sel < off) off = sel; else if (sel >= off + 6) off = sel - 5; if (off < 0) off = 0; }
     if (painelDuplo) { if (totalItensEsq <= 0) { selEsq = 0; offEsq = 0; } else if (selEsq >= totalItensEsq) { selEsq = totalItensEsq - 1; if (selEsq < offEsq) offEsq = selEsq; else if (selEsq >= offEsq + 6) offEsq = selEsq - 5; if (offEsq < 0) offEsq = 0; } }
@@ -90,6 +107,9 @@ void processarControles(uint32_t botoes, int32_t uId, OrbisImeDialogSetting* ime
 
     if (botoes & ORBIS_PAD_BUTTON_CROSS) {
         if (!pCross) {
+            // SFX CROSS:
+            tocarSom(SFX_CROSS);
+
             if (showUploadOpcoes && (menuAtual == MENU_BAIXAR_DROPBOX_UPLOAD || menuAtual == MENU_BAIXAR_DROPBOX_LISTA)) acaoCross_MenuUpload();
             else if (menuAtual == MENU_AUDIO_OPCOES && veioDeOutroMenuParaAudio && selAudioOpcao == 10) { menuAtual = menuAntesDoAudio; showOpcoes = false; veioDeOutroMenuParaAudio = false; }
             else if (menuAtual == ROOT || menuAtual == JOGAR_XML || menuAtual == MENU_MIDIA) acaoCross_Root();
@@ -105,6 +125,9 @@ void processarControles(uint32_t botoes, int32_t uId, OrbisImeDialogSetting* ime
 
     if (botoes & ORBIS_PAD_BUTTON_CIRCLE) {
         if (!pCircle) {
+            // SFX CIRCLE:
+            tocarSom(SFX_CIRCLE);
+
             if (showUploadOpcoes && (menuAtual == MENU_BAIXAR_DROPBOX_UPLOAD || menuAtual == MENU_BAIXAR_DROPBOX_LISTA)) acaoCircle_MenuUpload();
             else if (menuAtual == MENU_AUDIO_OPCOES && veioDeOutroMenuParaAudio) { menuAtual = menuAntesDoAudio; showOpcoes = false; veioDeOutroMenuParaAudio = false; }
             else if (showOpcoes && menuAtual != MENU_AUDIO_OPCOES) showOpcoes = false;

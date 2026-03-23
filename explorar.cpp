@@ -1,3 +1,11 @@
+// --- CORREÇÕES DE COMPILAÇÃO DO SDK DO PS4 ---
+#ifndef __builtin_va_list
+#define __builtin_va_list char*
+#endif
+
+struct OrbisImeSettingsExtended;
+// ---------------------------------------------
+
 #include "explorar.h"
 #include <stdio.h>
 #include <string.h>
@@ -43,7 +51,7 @@ const char* listaOpcoes[10] = {
 // Variáveis do Teclado e Renomeação
 bool esperandoNomePasta = false;
 bool esperandoRenomear = false;
-wchar_t textoTeclado[64] = L"";
+wchar_t textoTeclado[256] = L"";
 char oldPathParaRenomear[512] = "";
 char oldExtParaRenomear[64] = "";
 bool ehPastaParaRenomear = false;
@@ -134,7 +142,7 @@ void acaoArquivo(int op) {
         memset(&param, 0, sizeof(param));
         memset(textoTeclado, 0, sizeof(textoTeclado));
 
-        param.maxTextLength = 63;
+        param.maxTextLength = 255;
         param.inputTextBuffer = textoTeclado;
         param.title = L"Nome da Nova Pasta";
         param.type = (OrbisImeType)0;
@@ -219,12 +227,11 @@ void acaoArquivo(int op) {
         memset(&param, 0, sizeof(param));
         memset(textoTeclado, 0, sizeof(textoTeclado));
 
-        // Pré-preenche o teclado com o nome original
-        for (int i = 0; nomeLimpo[i] != '\0' && i < 63; i++) {
-            textoTeclado[i] = (wchar_t)nomeLimpo[i];
-        }
+        // Escreve no teclado usando ponteiro de char normal (8 bits)
+        char* bufWrite = (char*)textoTeclado;
+        strncpy(bufWrite, nomeLimpo, 255);
 
-        param.maxTextLength = 63;
+        param.maxTextLength = 255;
         param.inputTextBuffer = textoTeclado;
         param.title = L"Renomear Arquivo/Pasta";
         param.type = (OrbisImeType)0;
@@ -278,10 +285,12 @@ void atualizarImePasta() {
         int32_t buttonId = *(int32_t*)&res;
 
         if (buttonId == 0) {
-            char nomeFinal[128]; // Buffer um pouco maior para acomodar a extensão se necessário
-            // Converte de wchar_t para char
-            for (int i = 0; i < 63; i++) nomeFinal[i] = (char)textoTeclado[i];
-            nomeFinal[63] = '\0';
+            char nomeFinal[256];
+            memset(nomeFinal, 0, sizeof(nomeFinal));
+
+            // A MÁGICA: O teclado devolve um char normal de 8 bits. Lemos diretamente!
+            char* bufRead = (char*)textoTeclado;
+            strncpy(nomeFinal, bufRead, 255);
 
             bool ehEsq = (painelDuplo && painelAtivo == 0);
             char* pExplorar = ehEsq ? pathExplorarEsq : pathExplorar;

@@ -3,7 +3,7 @@
 	<volume>
 		<volume_type>pkg_ps4_app</volume_type>
 		<volume_id>PS4VOLUME</volume_id>
-		<volume_ts>2026-03-22 12:01:03</volume_ts>
+		<volume_ts>2026-03-23 00:37:06</volume_ts>
 		<package content_id="UP0001-TEST00021_00-0000000000000000" passcode="00000000000000000000000000000000"
 			storage_type="digital50" app_type="full" />
 		<chunk_info chunk_count="1" scenario_count="1">
@@ -42,7 +42,14 @@
 		<file targ_path="assets/images/nome2.png" orig_path="assets/images/nome2.png" />
 		<file targ_path="assets/images/nome3.png" orig_path="assets/images/nome3.png" />
 		<file targ_path="assets/fonts/.gitkeep" orig_path="assets/fonts/.gitkeep" />
-		<file targ_path="assets/fonts/font.ttf" orig_path="assets/fonts/font.ttf" />	</files>
+		<file targ_path="assets/fonts/font.ttf" orig_path="assets/fonts/font.ttf" />
+		<file targ_path="assets/audio/.gitkeep" orig_path="assets/audio/.gitkeep" />
+		<file targ_path="assets/audio/0_Defalt_bolinha.wav" orig_path="assets/audio/0_Defalt_bolinha.wav" />
+		<file targ_path="assets/audio/0_Defalt_direcinal_cima.wav" orig_path="assets/audio/0_Defalt_direcinal_cima.wav" />
+		<file targ_path="assets/audio/0_Defalt_direcional_baixo.wav" orig_path="assets/audio/0_Defalt_direcional_baixo.wav" />
+		<file targ_path="assets/audio/0_Defalt_x.wav" orig_path="assets/audio/0_Defalt_x.wav" />
+		<file targ_path="assets/audio/Baby.mp3" orig_path="assets/audio/Baby.mp3" />
+		<file targ_path="assets/audio/bgm.wav" orig_path="assets/audio/bgm.wav" />	</files>
 	<rootdir>
 		<dir targ_name="sce_sys">
 			<dir targ_name="about" />
