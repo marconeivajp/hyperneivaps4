@@ -11,10 +11,13 @@ struct LayoutConfig {
 };
 
 const int dLXV = 1054, dLYV = 204, dListSpcV = 120, dLXH = 50, dLYH = 800, dListSpcH = 300, dLW = 550, dLH = 80, dCX = 150, dCY = 640, dCW = 300, dCH = 400, dDX = 555, dDY = 650, dDW = 300, dDH = 300, dBarX = 95, dBarY = 911, dBarW = 345, dBarH = 15, dAudioX = 545, dAudioY = 632, dAudioW = 353, dAudioH = 410, dUpX = 545, dUpY = 632, dUpW = 480, dUpH = 190, dFontTam = 35, dMsgX = 100, dMsgY = 970, dMsgTam = 40, dListOri = 0, dListBg = 0, dBarBg = 6, dBarFill = 7, dListMark = 8, dListHoverMark = 9, dFontAlign = 0, dFontScroll = 0;
-// CORREÇÃO DA POSIÇÃO PADRÃO DO ELEMENTO FIXO:
-const int dElem1X = 100, dElem1Y = 358, dElem1W = 200, dElem1H = 200, dElem1On = 1;
-const int dCtrl1X = 500, dCtrl1Y = 500, dCtrl1W = 200, dCtrl1H = 200, dCtrl1On = 1;
-const int dPont1X = 0, dPont1Y = 0, dPont1W = 50, dPont1H = 50, dPont1On = 1, dPont1Modo = 0, dPont1Lado = 0;
+
+// =========================================================================
+// TODOS OS ELEMENTOS COMEÇAM DESLIGADOS (0) E NAS SUAS COORDENADAS PADRÃO!
+const int dElem1X = 100, dElem1Y = 358, dElem1W = 200, dElem1H = 200, dElem1On = 0;
+const int dCtrl1X = 724, dCtrl1Y = 361, dCtrl1W = 200, dCtrl1H = 200, dCtrl1On = 0;
+const int dPont1X = 0, dPont1Y = 0, dPont1W = 50, dPont1H = 50, dPont1On = 0, dPont1Modo = 0, dPont1Lado = 0;
+// =========================================================================
 
 int listXV = dLXV, listYV = dLYV, listSpcV = dListSpcV, listXH = dLXH, listYH = dLYH, listSpcH = dListSpcH, listW = dLW, listH = dLH, capaX = dCX, capaY = dCY, capaW = dCW, capaH = dCH, discoX = dDX, discoY = dDY, discoW = dDW, discoH = dDH, backX = 0, backY = 0, backW = 1920, backH = 1080, barX = dBarX, barY = dBarY, barW = dBarW, barH = dBarH, audioX = dAudioX, audioY = dAudioY, audioW = dAudioW, audioH = dAudioH, upX = dUpX, upY = dUpY, upW = dUpW, upH = dUpH, fontTam = dFontTam, msgX = dMsgX, msgY = dMsgY, msgTam = dMsgTam, listOri = dListOri, listBg = dListBg, barBg = dBarBg, barFill = dBarFill, listMark = dListMark, listHoverMark = dListHoverMark, fontAlign = dFontAlign, fontScroll = dFontScroll;
 int elem1X = dElem1X, elem1Y = dElem1Y, elem1W = dElem1W, elem1H = dElem1H, elem1On = dElem1On;

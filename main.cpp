@@ -33,6 +33,8 @@
 #include "controle.h"
 #include "criar_pastas.h"
 #include "bloco_de_notas.h" 
+#include "controle_elementos.h" 
+#include "elementos_sonoros.h" 
 
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h" 
@@ -44,7 +46,6 @@ bool tecladoAtivo = false;
 uint16_t* bufferTecladoW = NULL;
 char bufferTecladoC[128] = "";
 
-// VARIÁVEIS DE MÍDIA PADRÃO
 unsigned char* backImg = NULL;
 unsigned char* defaultArtwork1 = NULL;
 unsigned char* defaultArtwork2 = NULL;
@@ -58,8 +59,16 @@ extern void abrirMenuAudioOpcoes();
 extern void tratarSelecaoAudio(int op);
 
 int main(void) {
-    initNetwork();
+    // 1º PASSO: CRIAR PASTAS E COPIAR ARQUIVOS (Incluindo os Áudios!)
+    inicializarPastas();
+    carregarConfiguracao();
+
+    // 2º PASSO: AGORA SIM PODEMOS LIGAR OS MOTORES DE SOM
+    inicializarElementosSonoros();
     inicializarAudio();
+
+    // 3º PASSO: INICIALIZAR O RESTO DO SISTEMA
+    initNetwork();
 
     sceSysmoduleLoadModuleInternal(ORBIS_SYSMODULE_INTERNAL_COMMON_DIALOG);
     sceSysmoduleLoadModule(ORBIS_SYSMODULE_IME_DIALOG);
@@ -81,9 +90,6 @@ int main(void) {
     uint16_t t[] = { 'D','i','g','i','t','e',' ','o',' ','L','i','n','k','\0' };
     memcpy(imeTitle, t, sizeof(t));
 
-    inicializarPastas();
-    carregarConfiguracao();
-
     int fd = sceKernelOpen("/app0/assets/fonts/font.ttf", 0, 0);
     if (fd >= 0) {
         off_t fs = sceKernelLseek(fd, 0, 2); sceKernelLseek(fd, 0, 0);
@@ -95,7 +101,6 @@ int main(void) {
         temF = stbtt_InitFont(&font, ttf, 0);
     }
 
-    // CARREGANDO O BACKGROUND E ARTWORKS FIXOS TUDO EM PNG
     backImg = stbi_load("/data/HyperNeiva/configuracao/0_Defalt_Background.png", &wB, &hB, &cB, 4);
     if (!backImg) backImg = stbi_load("/app0/assets/images/0_Defalt_Background.png", &wB, &hB, &cB, 4);
 
@@ -107,13 +112,34 @@ int main(void) {
 
     preencherRoot();
 
-    // LOOP PRINCIPAL
     for (;;) {
-        OrbisPadData pData; scePadReadState(pad, &pData);
+        OrbisPadData pData;
+
+        if (scePadReadState(pad, &pData) == 0) {
+
+            if (ctrl1On) {
+                int rx = pData.rightStick.x;
+                int ry = pData.rightStick.y;
+                int lx = pData.leftStick.x;
+                int ly = pData.leftStick.y;
+                int vel = 15;
+
+                // Lê o analógico direito ou esquerdo
+                if (rx > 180 || lx > 180) ctrl1X += vel;
+                if ((rx < 80 && rx > 0) || (lx < 80 && lx > 0)) ctrl1X -= vel;
+                if (ry > 180 || ly > 180) ctrl1Y += vel;
+                if ((ry < 80 && ry > 0) || (ly < 80 && ly > 0)) ctrl1Y -= vel;
+
+                if (ctrl1X < -500) ctrl1X = -500;
+                if (ctrl1X > 2400) ctrl1X = 2400;
+                if (ctrl1Y < -500) ctrl1Y = -500;
+                if (ctrl1Y > 1500) ctrl1Y = 1500;
+            }
+        }
+
         uint32_t* p = obterBufferVideo();
         for (int i = 0; i < 1920 * 1080; i++) p[i] = 0xFF121212;
 
-        // Desenha Background sempre 1920x1080
         if (backImg) desenharRedimensionado(p, backImg, wB, hB, 1920, 1080, 0, 0);
 
         atualizarImePasta();
@@ -121,34 +147,15 @@ int main(void) {
         if (tecladoAtivo) {
             int stat = (int)sceImeDialogGetStatus();
             if (stat != 1) {
-                OrbisDialogResult res;
-                memset(&res, 0, sizeof(res));
-                sceImeDialogGetResult(&res);
-
+                OrbisDialogResult res; memset(&res, 0, sizeof(res)); sceImeDialogGetResult(&res);
                 if (res.endstatus == 0) {
                     memset(bufferTecladoC, 0, sizeof(bufferTecladoC));
-                    for (int i = 0; i < 127; i++) {
-                        if (bufferTecladoW[i] == 0) break;
-                        bufferTecladoC[i] = (char)(bufferTecladoW[i] & 0xFF);
-                    }
-
-                    if (menuAtual == MENU_BAIXAR_LINK_DIRETO) {
-                        iniciarDownload(bufferTecladoC);
-                        menuAtual = MENU_BAIXAR;
-                    }
-                    else if (menuAtual == MENU_NOTEPAD) {
-                        aplicarTextoNotepad(bufferTecladoC);
-                    }
+                    for (int i = 0; i < 127; i++) { if (bufferTecladoW[i] == 0) break; bufferTecladoC[i] = (char)(bufferTecladoW[i] & 0xFF); }
+                    if (menuAtual == MENU_BAIXAR_LINK_DIRETO) { iniciarDownload(bufferTecladoC); menuAtual = MENU_BAIXAR; }
+                    else if (menuAtual == MENU_NOTEPAD) { aplicarTextoNotepad(bufferTecladoC); }
                 }
-                else {
-                    if (menuAtual == MENU_BAIXAR_LINK_DIRETO) {
-                        menuAtual = MENU_BAIXAR;
-                    }
-                }
-
-                msgTimer = 120;
-                sceImeDialogTerm();
-                tecladoAtivo = false;
+                else { if (menuAtual == MENU_BAIXAR_LINK_DIRETO) menuAtual = MENU_BAIXAR; }
+                msgTimer = 120; sceImeDialogTerm(); tecladoAtivo = false;
             }
         }
         else {

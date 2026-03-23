@@ -40,15 +40,11 @@ volatile int comandoBuscarSegundos = 0;
 int volumeGeral = 100;
 char musicaAtual[256] = "PARADO";
 
-// GLOBAL: Mapeia o caminho absoluto de cada música do menu
 char caminhosMusicasMenu[3000][256];
 char caminhoNavegacaoMusicas[512] = "/data/HyperNeiva/Musicas";
 
 enum AudioType { AUDIO_NONE, AUDIO_WAV, AUDIO_MP3 };
 
-// ==========================================
-// FUNÇÕES DE CONTROLO DE TEMPO / VOLUME
-// ==========================================
 void adiantarAudio() { comandoBuscarSegundos = 10; }
 void retrocederAudio() { comandoBuscarSegundos = -10; }
 
@@ -85,9 +81,6 @@ void carregarConfiguracaoAudio() {
     }
 }
 
-// ==========================================
-// FUNÇÕES DE BUSCA RECURSIVA DE MÚSICAS PARA A FILA
-// ==========================================
 #define MAX_PLAYLIST 2000
 
 void scanPlaylistRecursivo(const char* basePath, char (*lista)[256], int* total) {
@@ -101,7 +94,6 @@ void scanPlaylistRecursivo(const char* basePath, char (*lista)[256], int* total)
         snprintf(fullPath, sizeof(fullPath), "%s/%s", basePath, dir->d_name);
 
         struct stat st;
-        // CORREÇÃO: Usando stat para garantir que detecta as pastas no PS4
         if (dir->d_type == DT_DIR || (dir->d_type == DT_UNKNOWN && stat(fullPath, &st) == 0 && S_ISDIR(st.st_mode))) {
             scanPlaylistRecursivo(fullPath, lista, total);
         }
@@ -129,7 +121,6 @@ static bool obterProximaMusica(char* proximaMusicaPath) {
         return false;
     }
 
-    // Ordena alfabeticamente
     for (int i = 0; i < totalAudios - 1; i++) {
         for (int j = i + 1; j < totalAudios; j++) {
             if (strcasecmp(listaAudios[i], listaAudios[j]) > 0) {
@@ -202,7 +193,10 @@ static bool prepararArquivoAudio(char* caminhoFinal) {
         FILE* fCustom = fopen(musicaAtual, "rb");
         if (fCustom) { fclose(fCustom); strcpy(caminhoFinal, musicaAtual); return true; }
     }
-    const char* pathHD = "/data/HyperNeiva/configuracao/bgm.wav";
+
+    // CORREÇÃO: O BGM AGORA VAI PARA A PASTA DE AUDIO QUE O SISTEMA SFX CRIOU!
+    sceKernelMkdir("/data/HyperNeiva/configuracao/audio", 0777);
+    const char* pathHD = "/data/HyperNeiva/configuracao/audio/bgm.wav";
     FILE* fHD = fopen(pathHD, "rb");
     if (fHD) { fclose(fHD); strcpy(caminhoFinal, pathHD); return true; }
 
@@ -413,9 +407,6 @@ struct ItemAudioTemp {
     bool ehPasta;
 };
 
-// =========================================================================
-// NOVA LÓGICA DE LISTAGEM: Com verificação rigorosa (stat) para pastas!
-// =========================================================================
 void preencherMenuMusicas() {
     memset(nomes, 0, sizeof(nomes));
     memset(caminhosMusicasMenu, 0, sizeof(caminhosMusicasMenu));
@@ -440,8 +431,6 @@ void preencherMenuMusicas() {
             snprintf(fullPath, sizeof(fullPath), "%s/%s", caminhoNavegacaoMusicas, dir->d_name);
 
             struct stat st;
-
-            // CORREÇÃO: Usando a mesma verificação forte do Explorador!
             if (dir->d_type == DT_DIR || (dir->d_type == DT_UNKNOWN && stat(fullPath, &st) == 0 && S_ISDIR(st.st_mode))) {
                 strncpy(temp[count].nome, dir->d_name, 63);
                 temp[count].nome[63] = '\0';
@@ -463,7 +452,6 @@ void preencherMenuMusicas() {
         closedir(d);
     }
 
-    // Ordenação: Pastas Primeiro, Arquivos Depois (em Ordem Alfabética!)
     for (int i = 0; i < count - 1; i++) {
         for (int j = 0; j < count - i - 1; j++) {
             bool trocar = false;
@@ -483,7 +471,6 @@ void preencherMenuMusicas() {
         }
     }
 
-    // Transfere a lista organizada para os arrays do Menu
     for (int i = 0; i < count; i++) {
         if (temp[i].ehPasta) {
             snprintf(nomes[totalItens], 64, "[%s]", temp[i].nome);
