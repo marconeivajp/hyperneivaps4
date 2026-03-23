@@ -21,6 +21,7 @@
 // 4. Headers Locais do Projeto
 #include "audio.h"
 #include "explorar.h" 
+#include "elementos_sonoros.h" // <--- CORREÇÃO 1: Faltava incluir os elementos sonoros aqui!
 
 #define DR_WAV_IMPLEMENTATION
 #include "dr_wav.h"
@@ -101,7 +102,6 @@ void scanPlaylistRecursivo(const char* basePath, char (*lista)[256], int* total)
         snprintf(fullPath, sizeof(fullPath), "%s/%s", basePath, dir->d_name);
 
         struct stat st;
-        // CORREÇÃO: Usando stat para garantir que detecta as pastas no PS4
         if (dir->d_type == DT_DIR || (dir->d_type == DT_UNKNOWN && stat(fullPath, &st) == 0 && S_ISDIR(st.st_mode))) {
             scanPlaylistRecursivo(fullPath, lista, total);
         }
@@ -279,6 +279,10 @@ static void* audioThreadFunc(void* argp) {
 
         if (comandoPausar || currentAudioType == AUDIO_NONE) {
             for (int i = 0; i < 256 * 2; i++) pSampleData[i] = 0;
+
+            // ---> CORREÇÃO 2: Misturar os sons dos botões AQUI, mesmo quando não há música a tocar ou estiver pausado!
+            misturarEfeitosSonoros(pSampleData, 256);
+
             sceAudioOutOutput(audioPort, pSampleData);
             continue;
         }
@@ -352,6 +356,9 @@ static void* audioThreadFunc(void* argp) {
             }
         }
 
+        // ---> CORREÇÃO 3: Misturar os sons dos botões AQUI, por cima da música de fundo que já foi carregada!
+        misturarEfeitosSonoros(pSampleData, 256);
+
         sceAudioOutOutput(audioPort, pSampleData);
     }
 
@@ -413,9 +420,6 @@ struct ItemAudioTemp {
     bool ehPasta;
 };
 
-// =========================================================================
-// NOVA LÓGICA DE LISTAGEM: Com verificação rigorosa (stat) para pastas!
-// =========================================================================
 void preencherMenuMusicas() {
     memset(nomes, 0, sizeof(nomes));
     memset(caminhosMusicasMenu, 0, sizeof(caminhosMusicasMenu));
@@ -441,7 +445,6 @@ void preencherMenuMusicas() {
 
             struct stat st;
 
-            // CORREÇÃO: Usando a mesma verificação forte do Explorador!
             if (dir->d_type == DT_DIR || (dir->d_type == DT_UNKNOWN && stat(fullPath, &st) == 0 && S_ISDIR(st.st_mode))) {
                 strncpy(temp[count].nome, dir->d_name, 63);
                 temp[count].nome[63] = '\0';
