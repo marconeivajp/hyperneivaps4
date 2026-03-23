@@ -27,6 +27,9 @@ extern int elem1X, elem1Y, elem1W, elem1H, elem1On;
 extern int ctrl1X, ctrl1Y, ctrl1W, ctrl1H, ctrl1On;
 extern int pont1X, pont1Y, pont1W, pont1H, pont1On, pont1Modo, pont1Lado;
 
+extern int sfxLigado, sfxVolume;
+extern int upBg, upTextNorm, upTextSel;
+
 int offOpcao = 0;
 int frameContadorGlobal = 0;
 
@@ -34,14 +37,12 @@ extern bool visualizandoMidiaImagem; extern unsigned char* imgMidia; extern int 
 extern bool visualizandoMidiaTexto; extern char* textoMidiaBuffer; extern char* linhasTexto[5000]; extern int totalLinhasTexto; extern int textoMidiaScroll;
 extern bool painelDuplo; extern int painelAtivo; extern char nomesEsq[3000][64]; extern bool marcadosEsq[3000]; extern char pathExplorarEsq[256]; extern int selEsq; extern int totalItensEsq; extern MenuLevel menuAtualEsq; extern int offEsq;
 
-// VARIÁVEIS DA FILA EXPORTADAS PARA LER O PROGRESSO
 extern volatile bool downloadEmSegundoPlano;
 extern volatile float progressoAtualDownload;
 extern char msgDownloadBg[256];
 extern volatile int totalFilaSessao;
 extern volatile int baixadosFilaSessao;
 
-// VARIÁVEL QUE DIZ QUANTAS OPÇÕES O MENU TEM AGORA
 extern int totalOpcoes;
 
 uint32_t getSysColor(int index) {
@@ -153,7 +154,10 @@ void desenharInterface(uint32_t* p) {
         else { char breadEsq[300]; sprintf(breadEsq, "ESQ: %s", pathExplorarEsq); desenharTexto(p, breadEsq, 25, capaX, 1020, (painelAtivo == 0) ? 0xFF00AAFF : 0xFFAAAAAA); char breadDir[300]; sprintf(breadDir, "DIR: %s", pathExplorar); int cX = (listOri == 0) ? listXV : listXH; desenharTexto(p, breadDir, 25, cX, 1020, (painelAtivo == 1) ? 0xFF00AAFF : 0xFFAAAAAA); }
     }
     else {
-        bool isEditingBar = ((menuAtual == MENU_EDIT_TARGET || editMode) && editTarget == 4); bool isEditingAudio = ((menuAtual == MENU_EDIT_TARGET || editMode) && editTarget == 5); bool isEditingUp = ((menuAtual == MENU_EDIT_TARGET || editMode) && editTarget == 6);
+        // === AQUI A MÁGICA ACONTECE (Adicionado o preview do EXPLORAR target 9) ===
+        bool isEditingBar = ((menuAtual == MENU_EDIT_TARGET || editMode) && editTarget == 4);
+        bool isEditingAudio = ((menuAtual == MENU_EDIT_TARGET || editMode) && editTarget == 5);
+        bool isEditingUp = ((menuAtual == MENU_EDIT_TARGET || editMode) && (editTarget == 6 || editTarget == 9));
 
         if (isEditingBar) {
             int bX = barX; int bY = barY; int bW = barW; int bH = barH;
@@ -167,15 +171,28 @@ void desenharInterface(uint32_t* p) {
             if (maxV > 0) desenharTextoAlinhado(p, "PLAY / PAUSE", fontTam, audioX, audioY + 50, audioW, 0xFFFFFF00); if (maxV > 1) desenharTextoAlinhado(p, "PARAR", fontTam, audioX, audioY + 95, audioW, 0xFFFFFFFF);
         }
         else if (isEditingUp) {
-            for (int my = 0; my < upH; my++) { for (int mx = 0; mx < upW; mx++) { int pxX = upX + mx; int pyY = upY + my; if (pxX >= 0 && pxX < 1920 && pyY >= 0 && pyY < 1080) p[pyY * 1920 + pxX] = getSysColor(listBg); } }
+            // Desenha a caixa de visualização das opções
+            for (int my = 0; my < upH; my++) { for (int mx = 0; mx < upW; mx++) { int pxX = upX + mx; int pyY = upY + my; if (pxX >= 0 && pxX < 1920 && pyY >= 0 && pyY < 1080) p[pyY * 1920 + pxX] = getSysColor(upBg); } }
             int maxV = (upH - 50) / 45; if (maxV < 1) maxV = 1;
-            if (maxV > 0) desenharTextoAlinhado(p, "Selecionar", fontTam, upX, upY + 50, upW, 0xFFFFFF00); if (maxV > 1) desenharTextoAlinhado(p, "Selecionar Tudo", fontTam, upX, upY + 95, upW, 0xFFFFFFFF);
+
+            // Textos visuais diferentes dependendo se é o UPLOAD (6) ou o EXPLORAR (9)
+            if (editTarget == 9) {
+                if (maxV > 0) desenharTextoAlinhado(p, "Copiar", fontTam, upX, upY + 50, upW, getSysColor(upTextSel));
+                if (maxV > 1) desenharTextoAlinhado(p, "Colar", fontTam, upX, upY + 95, upW, getSysColor(upTextNorm));
+                if (maxV > 2) desenharTextoAlinhado(p, "Deletar", fontTam, upX, upY + 140, upW, getSysColor(upTextNorm));
+                if (maxV > 3) desenharTextoAlinhado(p, "Renomear", fontTam, upX, upY + 185, upW, getSysColor(upTextNorm));
+                if (maxV > 4) desenharTextoAlinhado(p, "Nova Pasta", fontTam, upX, upY + 230, upW, getSysColor(upTextNorm));
+            }
+            else {
+                if (maxV > 0) desenharTextoAlinhado(p, "Selecionar", fontTam, upX, upY + 50, upW, getSysColor(upTextSel));
+                if (maxV > 1) desenharTextoAlinhado(p, "Selecionar Tudo", fontTam, upX, upY + 95, upW, getSysColor(upTextNorm));
+            }
         }
         else {
             if (imgCapaDinamica) { desenharRedimensionado(p, imgCapaDinamica, dynCapaW, dynCapaH, capaW, capaH, capaX, capaY); }
-            else if (menuAtual == JOGAR_XML || (editMode && editTarget != 4 && editTarget != 5 && editTarget != 6 && editTarget != 10 && editTarget != 11 && editTarget != 12)) { if (defaultArtwork1) desenharRedimensionado(p, defaultArtwork1, wDef1, hDef1, capaW, capaH, capaX, capaY); }
+            else if (menuAtual == JOGAR_XML || (editMode && editTarget != 4 && editTarget != 5 && editTarget != 6 && editTarget != 9 && editTarget != 10 && editTarget != 11 && editTarget != 12)) { if (defaultArtwork1) desenharRedimensionado(p, defaultArtwork1, wDef1, hDef1, capaW, capaH, capaX, capaY); }
             if (imgDiscoDinamico) { desenharDiscoRedondo(p, imgDiscoDinamico, dynDiscoW, dynDiscoH, discoW, discoH, discoX, discoY); }
-            else if (menuAtual == JOGAR_XML || (editMode && editTarget != 4 && editTarget != 5 && editTarget != 6 && editTarget != 10 && editTarget != 11 && editTarget != 12)) { if (defaultArtwork2) desenharDiscoRedondo(p, defaultArtwork2, wDef2, hDef2, discoW, discoH, discoX, discoY); }
+            else if (menuAtual == JOGAR_XML || (editMode && editTarget != 4 && editTarget != 5 && editTarget != 6 && editTarget != 9 && editTarget != 10 && editTarget != 11 && editTarget != 12)) { if (defaultArtwork2) desenharDiscoRedondo(p, defaultArtwork2, wDef2, hDef2, discoW, discoH, discoX, discoY); }
         }
     }
 
@@ -187,14 +204,14 @@ void desenharInterface(uint32_t* p) {
         else if (editTarget == 3) { tX = &backX; tY = &backY; tW = &backW; tH = &backH; }
         else if (editTarget == 4) { tX = &barX; tY = &barY; tW = &barW; tH = &barH; }
         else if (editTarget == 5) { tX = &audioX; tY = &audioY; tW = &audioW; tH = &audioH; }
-        else if (editTarget == 6) { tX = &upX; tY = &upY; tW = &upW; tH = &upH; }
+        else if (editTarget == 6 || editTarget == 9) { tX = &upX; tY = &upY; tW = &upW; tH = &upH; } // Serve para os dois agora!
         else if (editTarget == 8) { tX = &msgX; tY = &msgY; tW = &msgTam; tH = &msgTam; }
         else if (editTarget == 10) { tX = &elem1X; tY = &elem1Y; tW = &elem1W; tH = &elem1H; }
         else if (editTarget == 11) { tX = &ctrl1X; tY = &ctrl1Y; tW = &ctrl1W; tH = &ctrl1H; }
         else if (editTarget == 12) { tX = &pont1X; tY = &pont1Y; tW = &pont1W; tH = &pont1H; }
         else { tX = &fontTam; tY = &fontTam; tW = &fontTam; tH = &fontTam; }
 
-        if (editTarget == 9) sprintf(txtPos, "MODO EDICAO - CORES DO EXPLORAR (USE SETAS ESQ/DIR)");
+        if (editTarget == 9 && editType == 0) sprintf(txtPos, "MODO EDICAO - CORES DO EXPLORAR (USE SETAS ESQ/DIR)");
         else if (editType == 3) sprintf(txtPos, "MODO EDICAO - COR DE FUNDO (USE SETAS ESQ/DIR)");
         else if (editType == 8) sprintf(txtPos, "MODO EDICAO - COR PREENCHIMENTO (USE SETAS ESQ/DIR)");
         else if (editType == 4) sprintf(txtPos, "MODO EDICAO - ESPACAMENTO: %d", (listOri == 0) ? listSpcV : listSpcH);
@@ -204,6 +221,15 @@ void desenharInterface(uint32_t* p) {
         else if (editType == 12) { int stat = 0; if (editTarget == 10) stat = elem1On; else if (editTarget == 11) stat = ctrl1On; else if (editTarget == 12) stat = pont1On; sprintf(txtPos, "MODO EDICAO - LIGADO: %s (USE SETAS ESQ/DIR)", stat ? "SIM" : "NAO"); }
         else if (editType == 13) sprintf(txtPos, "MODO EDICAO - MODO PONTEIRO: %s (USE SETAS ESQ/DIR)", pont1Modo == 0 ? "ACOMPANHA" : "ESTATICO");
         else if (editType == 14) { const char* lds[] = { "ESQUERDA", "DIREITA", "CIMA", "BAIXO" }; sprintf(txtPos, "MODO EDICAO - LADO PONTEIRO: %s (USE SETAS)", lds[pont1Lado]); }
+        // TEXTOS VISUAIS PARA O MENU SOM E PARA AS CORES DO EXPLORAR
+        else if (editType == 15) sprintf(txtPos, "MODO EDICAO - EFEITOS SONOROS: %s (USE SETAS)", sfxLigado ? "LIGADO" : "DESLIGADO");
+        else if (editType == 16) sprintf(txtPos, "MODO EDICAO - VOLUME EFEITOS: %d%% (USE SETAS)", sfxVolume);
+        else if (editType == 17) sprintf(txtPos, "MODO EDICAO - MENU OPCOES POSICAO: X:%d Y:%d", upX, upY);
+        else if (editType == 18) sprintf(txtPos, "MODO EDICAO - MENU OPCOES TAMANHO: LARGURA:%d ALTURA:%d", upW, upH);
+        else if (editType == 19) sprintf(txtPos, "MODO EDICAO - MENU OPCOES ESTICAR: LARGURA:%d", upW);
+        else if (editType == 20) sprintf(txtPos, "MODO EDICAO - MENU OPCOES COR FUNDO (USE SETAS)");
+        else if (editType == 21) sprintf(txtPos, "MODO EDICAO - MENU OPCOES COR DO TEXTO (USE SETAS)");
+        else if (editType == 22) sprintf(txtPos, "MODO EDICAO - MENU OPCOES COR TEXTO SELECIONADO (USE SETAS)");
         else if (editTarget == 11) sprintf(txtPos, "EDICAO CTRL - POSICAO ATUAL: X:%d Y:%d", ctrl1X, ctrl1Y);
         else if (editTarget == 7) sprintf(txtPos, "MODO EDICAO - TAMANHO DA FONTE: %d", fontTam);
         else if (editTarget == 8) sprintf(txtPos, "MODO EDICAO - NOTIFICACOES: X: %d  |  Y: %d  |  TAMANHO: %d", msgX, msgY, msgTam);
@@ -214,38 +240,33 @@ void desenharInterface(uint32_t* p) {
     }
 
     // ==============================================================
-    // MENU OPÇÕES DO EXPLORAR (TAMANHO FIXO EDITÁVEL + SCROLL)
+    // MENU OPÇÕES DO EXPLORAR (COM CORES AGORA CUSTOMIZÁVEIS)
     // ==============================================================
     if (showOpcoes && menuAtual != MENU_AUDIO_OPCOES) {
 
-        // Garante que o cursor não passe da quantidade real de opções (corrige bugs de controle)
         if (selOpcao >= totalOpcoes) selOpcao = 0;
         if (selOpcao < 0) selOpcao = totalOpcoes - 1;
 
-        // Desenha o fundo usando as coordenadas fixas (que você pode editar!)
         for (int my = 0; my < upH; my++) {
             for (int mx = 0; mx < upW; mx++) {
                 int pxX = upX + mx;
                 int pyY = upY + my;
                 if (pxX >= 0 && pxX < 1920 && pyY >= 0 && pyY < 1080)
-                    p[pyY * 1920 + pxX] = getSysColor(listBg);
+                    p[pyY * 1920 + pxX] = getSysColor(upBg);
             }
         }
 
-        // Calcula quantos itens cabem na tela de acordo com a altura (upH) editada
         int maxV = (upH - 50) / 45;
         if (maxV < 1) maxV = 1;
 
-        // LÓGICA DE SCROLL AUTOMÁTICO: Acompanha o cursor se a lista for maior que a caixa!
         if (selOpcao < offOpcao) offOpcao = selOpcao;
         if (selOpcao >= offOpcao + maxV) offOpcao = selOpcao - maxV + 1;
 
-        // Desenha as opções respeitando a rolagem
         for (int i = 0; i < maxV; i++) {
             int gIdx = i + offOpcao;
             if (gIdx >= totalOpcoes) break;
 
-            uint32_t corOp = (gIdx == selOpcao) ? 0xFFFFFF00 : 0xFFFFFFFF;
+            uint32_t corOp = (gIdx == selOpcao) ? getSysColor(upTextSel) : getSysColor(upTextNorm);
             desenharTextoAlinhado(p, listaOpcoes[gIdx], fontTam, upX, upY + 50 + (i * 45), upW, corOp);
         }
     }
