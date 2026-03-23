@@ -16,6 +16,9 @@
 #include "audio.h"   
 #include "bloco_de_notas.h"
 
+// IMPORTANDO A FUNÇÃO DE ROTEAMENTO DE MENU
+extern void preencherOpcoesContexto(const char* nomeArquivo);
+
 extern int cd;
 extern void preencherExplorerHome();
 extern void preencherRoot();
@@ -24,9 +27,6 @@ extern void preencherRoot();
 extern void atualizarBarra(float progresso);
 extern char msgStatus[128];
 extern int msgTimer;
-
-// Função de extração do ZIP (que está no explorar.cpp)
-extern void extrairZip(const char* zipPath, const char* outPath);
 
 // --- VARIÁVEIS DA IMAGEM ---
 extern bool visualizandoMidiaImagem;
@@ -42,18 +42,15 @@ static char caminhoMusicaTocando[512] = "";
 // === FUNÇÃO DEFINITIVA (MÉTODO HB-STORE) ===
 void instalarPkgLocal(const char* caminhoAbsoluto) {
 
-    // Extrai o nome do ficheiro (ex: jogo.pkg)
     char nomeArquivo[128] = "arquivo.pkg";
     char* ref = strrchr(caminhoAbsoluto, '/');
     if (ref) strncpy(nomeArquivo, ref + 1, 127);
 
-    // Garante que a pasta oficial do GoldHEN existe no HD
     sceKernelMkdir("/data/pkg", 0777);
 
     char destino[512];
     sprintf(destino, "/data/pkg/%s", nomeArquivo);
 
-    // Se o utilizador já clicou no PKG dentro da própria pasta do GoldHEN
     if (strcmp(caminhoAbsoluto, destino) == 0) {
         sprintf(msgStatus, "PRONTO! Va em GoldHEN -> Package Installer");
         atualizarBarra(1.0f);
@@ -62,7 +59,6 @@ void instalarPkgLocal(const char* caminhoAbsoluto) {
         sprintf(msgStatus, "PREPARANDO INSTALACAO (AGUARDE)...");
         atualizarBarra(0.5f);
 
-        // A função 'rename' move o ficheiro no HD instantaneamente sem copiar (leva 1 milissegundo)
         int resMove = rename(caminhoAbsoluto, destino);
 
         if (resMove == 0) {
@@ -75,11 +71,11 @@ void instalarPkgLocal(const char* caminhoAbsoluto) {
         }
     }
 
-    msgTimer = 600; // Tempo longo na ecrã para o utilizador ler com calma
+    msgTimer = 600;
 }
 
 void acaoL2_Explorar() {
-    if (visualizandoMidiaImagem) return; // BLOQUEIO DA IMAGEM ABERTA
+    if (visualizandoMidiaImagem) return;
 
     painelDuplo = !painelDuplo;
     if (painelDuplo) {
@@ -93,7 +89,7 @@ void acaoL2_Explorar() {
 }
 
 void alternarPainelAtivo() {
-    if (visualizandoMidiaImagem) return; // BLOQUEIO DA IMAGEM ABERTA
+    if (visualizandoMidiaImagem) return;
 
     if (painelDuplo && !showOpcoes) {
         painelAtivo = (painelAtivo == 0) ? 1 : 0;
@@ -103,7 +99,6 @@ void alternarPainelAtivo() {
 void acaoCross_Explorar() {
     if (esperandoNomePasta || esperandoRenomear) return;
 
-    // LÓGICA DA IMAGEM: O botão X agora alterna a tela cheia e impede que clique em outra coisa no painel
     if (visualizandoMidiaImagem) {
         fullscreenMidia = !fullscreenMidia;
         return;
@@ -142,14 +137,14 @@ void acaoCross_Explorar() {
             char* ext = strrchr(nItems[sAtual], '.');
 
             if (ext) {
-                // Preparação de PKG ao apertar X no Explorador
                 if (strcasecmp(ext, ".pkg") == 0 || strcasecmp(ext, ".PKG") == 0) {
                     instalarPkgLocal(caminhoArquivo);
                 }
-                // INTEGRAÇÃO: Extração de arquivo .zip pelo botão X
                 else if (strcasecmp(ext, ".zip") == 0 || strcasecmp(ext, ".ZIP") == 0) {
-                    extrairZip(caminhoArquivo, pExplorar);
-                    if (ehEsq) listarDiretorioEsq(pExplorar); else listarDiretorio(pExplorar);
+                    // PREENCHE APENAS COM A OPÇÃO "extrair zip" E ABRE
+                    preencherOpcoesContexto(nItems[sAtual]);
+                    showOpcoes = true;
+                    selOpcao = 0;
                 }
                 else if (strcasecmp(ext, ".mp3") == 0 || strcasecmp(ext, ".wav") == 0) {
                     if (strcmp(caminhoMusicaTocando, caminhoArquivo) == 0) {
@@ -182,7 +177,6 @@ void acaoCross_Explorar() {
                         msgTimer = 90;
                     }
                 }
-                // INTEGRAÇÃO: Abrir textos no Bloco de Notas para edição
                 else if (strcasecmp(ext, ".txt") == 0 || strcasecmp(ext, ".xml") == 0 ||
                     strcasecmp(ext, ".json") == 0 || strcasecmp(ext, ".ini") == 0 ||
                     strcasecmp(ext, ".cfg") == 0 || strcasecmp(ext, ".log") == 0) {
@@ -245,12 +239,18 @@ void acaoCircle_Explorar() {
 
 void acaoTriangle_Explorar() {
     if (esperandoNomePasta || esperandoRenomear) return;
-    if (visualizandoMidiaImagem) return; // BLOQUEIO DA IMAGEM ABERTA
+    if (visualizandoMidiaImagem) return;
 
     bool ehEsq = (painelDuplo && painelAtivo == 0);
     MenuLevel mAtual = ehEsq ? menuAtualEsq : menuAtual;
 
     if (mAtual == MENU_EXPLORAR) {
+        if (!showOpcoes) {
+            int sAtual = ehEsq ? selEsq : sel;
+            char (*nItems)[64] = ehEsq ? nomesEsq : nomes;
+            // PREENCHE A LISTA ANTES DE ABRIR
+            preencherOpcoesContexto(nItems[sAtual]);
+        }
         showOpcoes = !showOpcoes;
         selOpcao = 0;
     }
@@ -258,7 +258,7 @@ void acaoTriangle_Explorar() {
 
 void acaoR1_Explorar() {
     if (esperandoNomePasta || esperandoRenomear) return;
-    if (visualizandoMidiaImagem) return; // BLOQUEIO DA IMAGEM ABERTA
+    if (visualizandoMidiaImagem) return;
 
     bool ehEsq = (painelDuplo && painelAtivo == 0);
     MenuLevel mAtual = ehEsq ? menuAtualEsq : menuAtual;

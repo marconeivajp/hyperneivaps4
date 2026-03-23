@@ -41,12 +41,51 @@ bool clipboardIsCut = false;
 bool showOpcoes = false;
 int selOpcao = 0;
 
-// ATENÇÃO: Substituímos o inútil "propriedades" pelo "extrair aqui"
-const char* listaOpcoes[10] = {
-    "nova pasta", "novo arquivo", "copiar", "recortar",
-    "colar", "renomear", "deletar", "extrair aqui",
-    "selecionar", "selecionar tudo"
-};
+// ========================================================
+// NOVO SISTEMA DE MENU DE CONTEXTO DINÂMICO
+// ========================================================
+const char* listaOpcoes[10] = { "", "", "", "", "", "", "", "", "", "" };
+int mapOpcoes[10] = { -1, -1, -1, -1, -1, -1, -1, -1, -1, -1 };
+int totalOpcoes = 0;
+
+void preencherOpcoesContexto(const char* nomeArquivo) {
+    // Limpa o menu
+    for (int i = 0; i < 10; i++) {
+        listaOpcoes[i] = "";
+        mapOpcoes[i] = -1;
+    }
+    totalOpcoes = 0;
+
+    // Checa se o item é um arquivo ZIP
+    bool isZip = false;
+    if (nomeArquivo) {
+        const char* ext = strrchr(nomeArquivo, '.');
+        if (ext && (strcasecmp(ext, ".zip") == 0 || strcasecmp(ext, ".ZIP") == 0)) {
+            isZip = true;
+        }
+    }
+
+    // Monta o menu baseado na extensão
+    if (isZip) {
+        listaOpcoes[0] = "extrair zip";
+        mapOpcoes[0] = 7;
+        totalOpcoes = 1;
+    }
+    else {
+        listaOpcoes[0] = "nova pasta"; mapOpcoes[0] = 0;
+        listaOpcoes[1] = "novo arquivo"; mapOpcoes[1] = 1;
+        listaOpcoes[2] = "copiar"; mapOpcoes[2] = 2;
+        listaOpcoes[3] = "recortar"; mapOpcoes[3] = 3;
+        listaOpcoes[4] = "colar"; mapOpcoes[4] = 4;
+        listaOpcoes[5] = "renomear"; mapOpcoes[5] = 5;
+        listaOpcoes[6] = "deletar"; mapOpcoes[6] = 6;
+        listaOpcoes[7] = "selecionar"; mapOpcoes[7] = 8;
+        listaOpcoes[8] = "selecionar tudo"; mapOpcoes[8] = 9;
+        totalOpcoes = 9;
+    }
+}
+// ========================================================
+
 
 // Variáveis do Teclado e Renomeação
 bool esperandoNomePasta = false;
@@ -131,7 +170,7 @@ void extrairZip(const char* zipPath, const char* outPath) {
             mz_zip_reader_extract_to_file(&zip_archive, i, out_file, 0);
         }
 
-        // Mágica: Atualiza a barra de loading na tela para o PS4 não travar!
+        // Atualiza a barra de loading na tela para o PS4 não travar!
         float prog = (float)(i + 1) / (float)totalArquivos;
         sprintf(msgStatus, "EXTRAINDO: %d%%", (int)(prog * 100));
         atualizarBarra(prog);
@@ -203,7 +242,14 @@ void listarDiretorioEsq(const char* path) {
     selEsq = 0;
 }
 
-void acaoArquivo(int op) {
+// AGORA O MENU ROTEIA AS OPÇÕES PELO NOVO SISTEMA INTELIGENTE
+void acaoArquivo(int idxOpcao) {
+    if (idxOpcao < 0 || idxOpcao >= 10) return;
+
+    // Traduz o índice visual para a ação correta
+    int op = mapOpcoes[idxOpcao];
+    if (op == -1) return;
+
     bool ehEsq = (painelDuplo && painelAtivo == 0);
     int tItens = ehEsq ? totalItensEsq : totalItens;
     bool* mItems = ehEsq ? marcadosEsq : marcados;
@@ -286,7 +332,7 @@ void acaoArquivo(int op) {
         for (int i = 0; i < tItens; i++) if (mItems[i]) { alvo = i; break; }
 
         char* nomeReal = nItems[alvo];
-        ehPastaParaRenomear = (nomeReal[0] == '[');
+        ehPastaParaRenomear = (nomeReal[0] == '[') ? true : false;
 
         char nomeLimpo[256];
         if (ehPastaParaRenomear) {
@@ -343,7 +389,7 @@ void acaoArquivo(int op) {
         if (ehEsq) listarDiretorioEsq(pExplorar); else listarDiretorio(pExplorar);
         break;
     }
-    case 7: { // EXTRAIR AQUI (.ZIP)
+    case 7: { // EXTRAIR ZIP
         int alvo = sAtual;
         for (int i = 0; i < tItens; i++) if (mItems[i]) { alvo = i; break; }
 
