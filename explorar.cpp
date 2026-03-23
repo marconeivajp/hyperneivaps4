@@ -10,8 +10,14 @@
 #include "CommonDialog.h"
 #include "bloco_de_notas.h" 
 
+// A NOSSA NOVA BIBLIOTECA DE EXTRAÇÃO ZIP
+#include "miniz.h" 
+
 #define IME_STATUS_RUNNING 1
 #define IME_STATUS_FINISHED 2
+
+// Função de progresso importada do baixar.cpp para mostrar a barra na tela
+extern void atualizarBarra(float progresso);
 
 // Instanciamento das variáveis do Painel Direito (SEM DUPLICADAS)
 char pathExplorar[256] = "";
@@ -34,9 +40,11 @@ int clipboardCount = 0;
 bool clipboardIsCut = false;
 bool showOpcoes = false;
 int selOpcao = 0;
+
+// ATENÇÃO: Substituímos o inútil "propriedades" pelo "extrair aqui"
 const char* listaOpcoes[10] = {
     "nova pasta", "novo arquivo", "copiar", "recortar",
-    "colar", "renomear", "deletar", "propriedades",
+    "colar", "renomear", "deletar", "extrair aqui",
     "selecionar", "selecionar tudo"
 };
 
@@ -56,7 +64,6 @@ void copiarArquivoReal(const char* origem, const char* destino) {
     fclose(src); fclose(dst);
 }
 
-// NOVA FUNÇÃO: Deleta a pasta e tudo o que tiver dentro dela
 void deletarPastaRecursivamente(const char* path) {
     DIR* d = opendir(path);
     if (d) {
@@ -68,17 +75,73 @@ void deletarPastaRecursivamente(const char* path) {
 
                 struct stat st;
                 if (dir->d_type == DT_DIR || (dir->d_type == DT_UNKNOWN && stat(fullPath, &st) == 0 && S_ISDIR(st.st_mode))) {
-                    deletarPastaRecursivamente(fullPath); // Entra na subpasta e deleta
+                    deletarPastaRecursivamente(fullPath);
                 }
                 else {
-                    unlink(fullPath); // Deleta o arquivo
+                    unlink(fullPath);
                 }
             }
         }
         closedir(d);
     }
-    rmdir(path); // Finalmente, deleta a pasta raiz vazia
+    rmdir(path);
 }
+
+// ========================================================
+// LÓGICA DE EXTRAÇÃO DE ARQUIVOS ZIP
+// ========================================================
+void criarCaminho(const char* filepath) {
+    char tmp[1024];
+    strncpy(tmp, filepath, sizeof(tmp));
+    for (char* p = strchr(tmp + 1, '/'); p; p = strchr(p + 1, '/')) {
+        *p = '\0';
+        sceKernelMkdir(tmp, 0777);
+        *p = '/';
+    }
+}
+
+void extrairZip(const char* zipPath, const char* outPath) {
+    mz_zip_archive zip_archive;
+    memset(&zip_archive, 0, sizeof(zip_archive));
+
+    sprintf(msgStatus, "LENDO O ARQUIVO ZIP...");
+    atualizarBarra(0.01f);
+
+    if (!mz_zip_reader_init_file(&zip_archive, zipPath, 0)) {
+        sprintf(msgStatus, "ERRO: ARQUIVO ZIP INVALIDO OU CORROMPIDO!");
+        msgTimer = 180;
+        return;
+    }
+
+    int totalArquivos = (int)mz_zip_reader_get_num_files(&zip_archive);
+
+    for (int i = 0; i < totalArquivos; i++) {
+        mz_zip_archive_file_stat file_stat;
+        if (!mz_zip_reader_file_stat(&zip_archive, i, &file_stat)) continue;
+
+        char out_file[1024];
+        snprintf(out_file, sizeof(out_file), "%s/%s", outPath, file_stat.m_filename);
+
+        if (mz_zip_reader_is_file_a_directory(&zip_archive, i)) {
+            criarCaminho(out_file);
+            sceKernelMkdir(out_file, 0777);
+        }
+        else {
+            criarCaminho(out_file);
+            mz_zip_reader_extract_to_file(&zip_archive, i, out_file, 0);
+        }
+
+        // Mágica: Atualiza a barra de loading na tela para o PS4 não travar!
+        float prog = (float)(i + 1) / (float)totalArquivos;
+        sprintf(msgStatus, "EXTRAINDO: %d%%", (int)(prog * 100));
+        atualizarBarra(prog);
+    }
+
+    mz_zip_reader_end(&zip_archive);
+    sprintf(msgStatus, "EXTRAIDO COM SUCESSO!");
+    msgTimer = 180;
+}
+// ========================================================
 
 // Lista diretório do PAINEL DIREITO
 void listarDiretorio(const char* path) {
@@ -141,7 +204,6 @@ void listarDiretorioEsq(const char* path) {
 }
 
 void acaoArquivo(int op) {
-    // Determina dinamicamente sobre qual painel a ação vai agir
     bool ehEsq = (painelDuplo && painelAtivo == 0);
     int tItens = ehEsq ? totalItensEsq : totalItens;
     bool* mItems = ehEsq ? marcadosEsq : marcados;
@@ -184,7 +246,6 @@ void acaoArquivo(int op) {
             if (temMarcado ? mItems[i] : (i == sAtual)) {
                 char* l = (nItems[i][0] == '[') ? &nItems[i][1] : nItems[i];
                 sprintf(clipboardPaths[clipboardCount], "%s/%s", pExplorar, l);
-                // Remove colchetes se for pasta
                 if (nItems[i][0] == '[') clipboardPaths[clipboardCount][strlen(clipboardPaths[clipboardCount]) - 1] = '\0';
                 clipboardCount++;
             }
@@ -203,7 +264,6 @@ void acaoArquivo(int op) {
             copiarArquivoReal(clipboardPaths[i], dest);
 
             if (clipboardIsCut) {
-                // Remove o original se foi "recortado"
                 struct stat path_stat;
                 stat(clipboardPaths[i], &path_stat);
                 if (S_ISDIR(path_stat.st_mode)) {
@@ -214,7 +274,6 @@ void acaoArquivo(int op) {
                 }
             }
         }
-        // Atualiza a listagem do painel ativo e limpa clipboard se foi recorte
         if (ehEsq) listarDiretorioEsq(pathExplorarEsq); else listarDiretorio(pathExplorar);
         if (clipboardIsCut) { clipboardCount = 0; clipboardIsCut = false; }
 
@@ -240,7 +299,6 @@ void acaoArquivo(int op) {
 
         sprintf(oldPathParaRenomear, "%s/%s", pExplorar, nomeLimpo);
 
-        // Salva a extensão antiga se for arquivo
         memset(oldExtParaRenomear, 0, sizeof(oldExtParaRenomear));
         if (!ehPastaParaRenomear) {
             char* dot = strrchr(nomeLimpo, '.');
@@ -275,13 +333,38 @@ void acaoArquivo(int op) {
 
                 if (nItems[i][0] == '[') {
                     f[strlen(f) - 1] = '\0';
-                    deletarPastaRecursivamente(f); // Apaga a pasta inteira e seu conteudo
+                    deletarPastaRecursivamente(f);
                 }
                 else {
-                    unlink(f); // Apaga arquivo normal
+                    unlink(f);
                 }
             }
         }
+        if (ehEsq) listarDiretorioEsq(pExplorar); else listarDiretorio(pExplorar);
+        break;
+    }
+    case 7: { // EXTRAIR AQUI (.ZIP)
+        int alvo = sAtual;
+        for (int i = 0; i < tItens; i++) if (mItems[i]) { alvo = i; break; }
+
+        char* nomeReal = nItems[alvo];
+        if (nomeReal[0] == '[') {
+            sprintf(msgStatus, "SELECIONE UM ARQUIVO .ZIP");
+            msgTimer = 120;
+            break;
+        }
+
+        char pathFinal[512];
+        sprintf(pathFinal, "%s/%s", pExplorar, nomeReal);
+
+        if (strstr(pathFinal, ".zip") || strstr(pathFinal, ".ZIP")) {
+            extrairZip(pathFinal, pExplorar);
+        }
+        else {
+            sprintf(msgStatus, "SOMENTE ARQUIVOS .ZIP SAO SUPORTADOS");
+            msgTimer = 120;
+        }
+
         if (ehEsq) listarDiretorioEsq(pExplorar); else listarDiretorio(pExplorar);
         break;
     }
@@ -305,14 +388,12 @@ void acaoArquivo(int op) {
 void atualizarImePasta() {
     if (!esperandoNomePasta && !esperandoRenomear) return;
 
-    // Se o status for diferente de "Rodando" (1), o diálogo terminou
     int status = (int)sceImeDialogGetStatus();
     if (status != IME_STATUS_RUNNING && status != 0) {
         OrbisDialogResult res;
         memset(&res, 0, sizeof(res));
         sceImeDialogGetResult(&res);
 
-        // Lemos o código do botão (Geralmente 0 é OK/Concluir)
         int32_t buttonId = *(int32_t*)&res;
 
         if (buttonId == 0) {

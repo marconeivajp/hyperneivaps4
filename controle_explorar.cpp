@@ -25,6 +25,9 @@ extern void atualizarBarra(float progresso);
 extern char msgStatus[128];
 extern int msgTimer;
 
+// Função de extração do ZIP (que está no explorar.cpp)
+extern void extrairZip(const char* zipPath, const char* outPath);
+
 // --- VARIÁVEIS DA IMAGEM ---
 extern bool visualizandoMidiaImagem;
 extern unsigned char* imgMidia;
@@ -142,6 +145,11 @@ void acaoCross_Explorar() {
                 // Preparação de PKG ao apertar X no Explorador
                 if (strcasecmp(ext, ".pkg") == 0 || strcasecmp(ext, ".PKG") == 0) {
                     instalarPkgLocal(caminhoArquivo);
+                }
+                // INTEGRAÇÃO: Extração de arquivo .zip pelo botão X
+                else if (strcasecmp(ext, ".zip") == 0 || strcasecmp(ext, ".ZIP") == 0) {
+                    extrairZip(caminhoArquivo, pExplorar);
+                    if (ehEsq) listarDiretorioEsq(pExplorar); else listarDiretorio(pExplorar);
                 }
                 else if (strcasecmp(ext, ".mp3") == 0 || strcasecmp(ext, ".wav") == 0) {
                     if (strcmp(caminhoMusicaTocando, caminhoArquivo) == 0) {

@@ -1,9 +1,3 @@
-#ifdef __INTELLISENSE__
-#ifndef __builtin_va_list
-#define __builtin_va_list va_list
-#endif
-#endif
-
 // 1. Bibliotecas Padrão C/C++
 #include <stdio.h>
 #include <stdlib.h>
@@ -11,6 +5,13 @@
 #include <dirent.h>
 #include <sys/stat.h>
 #include <pthread.h>
+#include <stdarg.h>
+
+#ifdef __INTELLISENSE__
+#ifndef __builtin_va_list
+#define __builtin_va_list va_list
+#endif
+#endif
 
 // 3. Headers do SDK do PS4
 #include <orbis/libkernel.h>
@@ -20,9 +21,7 @@
 // 4. Headers Locais do Projeto
 #include "audio.h"
 #include "explorar.h" 
-#include "elementos_sonoros.h" // Aqui chamamos o motor de mistura
 
-// 5. IMPLEMENTAÇÃO ÚNICA DAS BIBLIOTECAS DE ÁUDIO PARA NÃO CRASHAR O MALLOC
 #define DR_WAV_IMPLEMENTATION
 #include "dr_wav.h"
 #define DR_MP3_IMPLEMENTATION
@@ -31,6 +30,7 @@
 static int audioPort = -1;
 static volatile bool audioRodando = false;
 static pthread_t audioThreadId;
+static bool sistemaAudioIniciado = false;
 
 static volatile bool comandoTrocar = false;
 volatile bool comandoPausar = false;
@@ -38,13 +38,17 @@ volatile bool modoRepetir = false;
 
 volatile int comandoBuscarSegundos = 0;
 int volumeGeral = 100;
-char musicaAtual[256] = "";
+char musicaAtual[256] = "PARADO";
 
+// GLOBAL: Mapeia o caminho absoluto de cada música do menu
 char caminhosMusicasMenu[3000][256];
 char caminhoNavegacaoMusicas[512] = "/data/HyperNeiva/Musicas";
 
 enum AudioType { AUDIO_NONE, AUDIO_WAV, AUDIO_MP3 };
 
+// ==========================================
+// FUNÇÕES DE CONTROLO DE TEMPO / VOLUME
+// ==========================================
 void adiantarAudio() { comandoBuscarSegundos = 10; }
 void retrocederAudio() { comandoBuscarSegundos = -10; }
 
@@ -61,9 +65,7 @@ void diminuirVolume() {
 }
 
 void salvarConfiguracaoAudio() {
-    // Garante que a pasta settings existe antes de salvar
-    sceKernelMkdir("/data/HyperNeiva/configuracao/settings", 0777);
-    FILE* f = fopen("/data/HyperNeiva/configuracao/settings/audio_settings.bin", "wb");
+    FILE* f = fopen("/data/HyperNeiva/configuracao/audio_settings.bin", "wb");
     if (f) {
         fwrite(musicaAtual, 1, sizeof(musicaAtual), f);
         fwrite(&volumeGeral, 1, sizeof(int), f);
@@ -72,19 +74,20 @@ void salvarConfiguracaoAudio() {
 }
 
 void carregarConfiguracaoAudio() {
-    FILE* f = fopen("/data/HyperNeiva/configuracao/settings/audio_settings.bin", "rb");
+    FILE* f = fopen("/data/HyperNeiva/configuracao/audio_settings.bin", "rb");
     if (f) {
         fread(musicaAtual, 1, sizeof(musicaAtual), f);
         if (fread(&volumeGeral, 1, sizeof(int), f) <= 0) volumeGeral = 100;
         fclose(f);
     }
     else {
-        // Aponta para a nova pasta audios
-        strcpy(musicaAtual, "/data/HyperNeiva/configuracao/audios/bgm.wav");
         volumeGeral = 100;
     }
 }
 
+// ==========================================
+// FUNÇÕES DE BUSCA RECURSIVA DE MÚSICAS PARA A FILA
+// ==========================================
 #define MAX_PLAYLIST 2000
 
 void scanPlaylistRecursivo(const char* basePath, char (*lista)[256], int* total) {
@@ -98,6 +101,7 @@ void scanPlaylistRecursivo(const char* basePath, char (*lista)[256], int* total)
         snprintf(fullPath, sizeof(fullPath), "%s/%s", basePath, dir->d_name);
 
         struct stat st;
+        // CORREÇÃO: Usando stat para garantir que detecta as pastas no PS4
         if (dir->d_type == DT_DIR || (dir->d_type == DT_UNKNOWN && stat(fullPath, &st) == 0 && S_ISDIR(st.st_mode))) {
             scanPlaylistRecursivo(fullPath, lista, total);
         }
@@ -120,13 +124,19 @@ static bool obterProximaMusica(char* proximaMusicaPath) {
     int totalAudios = 0;
     scanPlaylistRecursivo("/data/HyperNeiva/Musicas", listaAudios, &totalAudios);
 
-    if (totalAudios == 0) { free(listaAudios); return false; }
+    if (totalAudios == 0) {
+        free(listaAudios);
+        return false;
+    }
 
+    // Ordena alfabeticamente
     for (int i = 0; i < totalAudios - 1; i++) {
         for (int j = i + 1; j < totalAudios; j++) {
             if (strcasecmp(listaAudios[i], listaAudios[j]) > 0) {
                 char temp[256];
-                strcpy(temp, listaAudios[i]); strcpy(listaAudios[i], listaAudios[j]); strcpy(listaAudios[j], temp);
+                strcpy(temp, listaAudios[i]);
+                strcpy(listaAudios[i], listaAudios[j]);
+                strcpy(listaAudios[j], temp);
             }
         }
     }
@@ -136,10 +146,15 @@ static bool obterProximaMusica(char* proximaMusicaPath) {
         if (strcmp(listaAudios[i], musicaAtual) == 0) { idx = i; break; }
     }
 
-    if (idx != -1 && idx + 1 < totalAudios) strcpy(proximaMusicaPath, listaAudios[idx + 1]);
-    else strcpy(proximaMusicaPath, listaAudios[0]);
+    if (idx != -1 && idx + 1 < totalAudios) {
+        strcpy(proximaMusicaPath, listaAudios[idx + 1]);
+    }
+    else {
+        strcpy(proximaMusicaPath, listaAudios[0]);
+    }
 
-    free(listaAudios); return true;
+    free(listaAudios);
+    return true;
 }
 
 static bool obterMusicaAnterior(char* musicaAnteriorPath) {
@@ -149,13 +164,18 @@ static bool obterMusicaAnterior(char* musicaAnteriorPath) {
     int totalAudios = 0;
     scanPlaylistRecursivo("/data/HyperNeiva/Musicas", listaAudios, &totalAudios);
 
-    if (totalAudios == 0) { free(listaAudios); return false; }
+    if (totalAudios == 0) {
+        free(listaAudios);
+        return false;
+    }
 
     for (int i = 0; i < totalAudios - 1; i++) {
         for (int j = i + 1; j < totalAudios; j++) {
             if (strcasecmp(listaAudios[i], listaAudios[j]) > 0) {
                 char temp[256];
-                strcpy(temp, listaAudios[i]); strcpy(listaAudios[i], listaAudios[j]); strcpy(listaAudios[j], temp);
+                strcpy(temp, listaAudios[i]);
+                strcpy(listaAudios[i], listaAudios[j]);
+                strcpy(listaAudios[j], temp);
             }
         }
     }
@@ -165,23 +185,24 @@ static bool obterMusicaAnterior(char* musicaAnteriorPath) {
         if (strcmp(listaAudios[i], musicaAtual) == 0) { idx = i; break; }
     }
 
-    if (idx != -1 && idx - 1 >= 0) strcpy(musicaAnteriorPath, listaAudios[idx - 1]);
-    else strcpy(musicaAnteriorPath, listaAudios[totalAudios - 1]);
+    if (idx != -1 && idx - 1 >= 0) {
+        strcpy(musicaAnteriorPath, listaAudios[idx - 1]);
+    }
+    else {
+        strcpy(musicaAnteriorPath, listaAudios[totalAudios - 1]);
+    }
 
-    free(listaAudios); return true;
+    free(listaAudios);
+    return true;
 }
 
 static bool prepararArquivoAudio(char* caminhoFinal) {
     if (strcmp(musicaAtual, "PARADO") == 0) return false;
-
     if (strlen(musicaAtual) > 0) {
         FILE* fCustom = fopen(musicaAtual, "rb");
         if (fCustom) { fclose(fCustom); strcpy(caminhoFinal, musicaAtual); return true; }
     }
-
-    // Aponta para a nova pasta audios
-    sceKernelMkdir("/data/HyperNeiva/configuracao/audios", 0777);
-    const char* pathHD = "/data/HyperNeiva/configuracao/audios/bgm.wav";
+    const char* pathHD = "/data/HyperNeiva/configuracao/bgm.wav";
     FILE* fHD = fopen(pathHD, "rb");
     if (fHD) { fclose(fHD); strcpy(caminhoFinal, pathHD); return true; }
 
@@ -202,10 +223,9 @@ static bool prepararArquivoAudio(char* caminhoFinal) {
 }
 
 static void* audioThreadFunc(void* argp) {
+    if (!sistemaAudioIniciado) { sceAudioOutInit(); sistemaAudioIniciado = true; }
     int32_t userId;
     if (sceUserServiceGetInitialUser(&userId) < 0) userId = ORBIS_USER_SERVICE_USER_ID_SYSTEM;
-
-    // UM ÚNICO CANAL MESTRE (PORT 0) PARA BGM E EFEITOS!
     audioPort = sceAudioOutOpen(userId, ORBIS_AUDIO_OUT_PORT_TYPE_MAIN, 0, 256, 48000, ORBIS_AUDIO_OUT_PARAM_FORMAT_S16_STEREO);
     if (audioPort < 0) { audioRodando = false; return NULL; }
 
@@ -224,6 +244,7 @@ static void* audioThreadFunc(void* argp) {
     }
 
     while (audioRodando) {
+
         if (comandoBuscarSegundos != 0) {
             if (currentAudioType != AUDIO_NONE) {
                 int sampleRate = (currentAudioType == AUDIO_WAV) ? wav.sampleRate : mp3.sampleRate;
@@ -256,10 +277,8 @@ static void* audioThreadFunc(void* argp) {
             currentFrame = 0;
         }
 
-        // SE A MÚSICA TIVER PARADA, ELE TOCA SÓ OS SFX!
         if (comandoPausar || currentAudioType == AUDIO_NONE) {
-            for (int i = 0; i < 256 * 2; i++) pSampleData[i] = 0; // Silêncio
-            misturarEfeitosSonoros(pSampleData, 256);             // Injeta o "Bip" dos botões
+            for (int i = 0; i < 256 * 2; i++) pSampleData[i] = 0;
             sceAudioOutOutput(audioPort, pSampleData);
             continue;
         }
@@ -308,7 +327,10 @@ static void* audioThreadFunc(void* argp) {
                     else {
                         if (drwav_init_file(&wav, musicaAtual, NULL)) { currentAudioType = AUDIO_WAV; sucesso = true; }
                     }
-                    if (sucesso) { currentFrame = 0; continue; }
+                    if (sucesso) {
+                        currentFrame = 0;
+                        continue;
+                    }
                 }
             }
             else {
@@ -330,8 +352,6 @@ static void* audioThreadFunc(void* argp) {
             }
         }
 
-        // SE A MÚSICA ESTIVER TOCANDO, MISTURA O "BIP" POR CIMA!
-        misturarEfeitosSonoros(pSampleData, 256);
         sceAudioOutOutput(audioPort, pSampleData);
     }
 
@@ -374,17 +394,28 @@ void tocarMusicaNova(const char* path) {
 void tocarProximaMusica() {
     if (strcmp(musicaAtual, "PARADO") == 0 || strlen(musicaAtual) == 0) return;
     char proxima[256];
-    if (obterProximaMusica(proxima)) tocarMusicaNova(proxima);
+    if (obterProximaMusica(proxima)) {
+        tocarMusicaNova(proxima);
+    }
 }
 
 void tocarMusicaAnterior() {
     if (strcmp(musicaAtual, "PARADO") == 0 || strlen(musicaAtual) == 0) return;
     char anterior[256];
-    if (obterMusicaAnterior(anterior)) tocarMusicaNova(anterior);
+    if (obterMusicaAnterior(anterior)) {
+        tocarMusicaNova(anterior);
+    }
 }
 
-struct ItemAudioTemp { char nome[64]; char path[256]; bool ehPasta; };
+struct ItemAudioTemp {
+    char nome[64];
+    char path[256];
+    bool ehPasta;
+};
 
+// =========================================================================
+// NOVA LÓGICA DE LISTAGEM: Com verificação rigorosa (stat) para pastas!
+// =========================================================================
 void preencherMenuMusicas() {
     memset(nomes, 0, sizeof(nomes));
     memset(caminhosMusicasMenu, 0, sizeof(caminhosMusicasMenu));
@@ -409,6 +440,8 @@ void preencherMenuMusicas() {
             snprintf(fullPath, sizeof(fullPath), "%s/%s", caminhoNavegacaoMusicas, dir->d_name);
 
             struct stat st;
+
+            // CORREÇÃO: Usando a mesma verificação forte do Explorador!
             if (dir->d_type == DT_DIR || (dir->d_type == DT_UNKNOWN && stat(fullPath, &st) == 0 && S_ISDIR(st.st_mode))) {
                 strncpy(temp[count].nome, dir->d_name, 63);
                 temp[count].nome[63] = '\0';
@@ -430,11 +463,17 @@ void preencherMenuMusicas() {
         closedir(d);
     }
 
+    // Ordenação: Pastas Primeiro, Arquivos Depois (em Ordem Alfabética!)
     for (int i = 0; i < count - 1; i++) {
         for (int j = 0; j < count - i - 1; j++) {
             bool trocar = false;
-            if (!temp[j].ehPasta && temp[j + 1].ehPasta) trocar = true;
-            else if (temp[j].ehPasta == temp[j + 1].ehPasta && strcasecmp(temp[j].nome, temp[j + 1].nome) > 0) trocar = true;
+
+            if (!temp[j].ehPasta && temp[j + 1].ehPasta) {
+                trocar = true;
+            }
+            else if (temp[j].ehPasta == temp[j + 1].ehPasta && strcasecmp(temp[j].nome, temp[j + 1].nome) > 0) {
+                trocar = true;
+            }
 
             if (trocar) {
                 ItemAudioTemp aux = temp[j];
@@ -444,12 +483,17 @@ void preencherMenuMusicas() {
         }
     }
 
+    // Transfere a lista organizada para os arrays do Menu
     for (int i = 0; i < count; i++) {
-        if (temp[i].ehPasta) snprintf(nomes[totalItens], 64, "[%s]", temp[i].nome);
-        else strcpy(nomes[totalItens], temp[i].nome);
-
+        if (temp[i].ehPasta) {
+            snprintf(nomes[totalItens], 64, "[%s]", temp[i].nome);
+        }
+        else {
+            strcpy(nomes[totalItens], temp[i].nome);
+        }
         strcpy(caminhosMusicasMenu[totalItens], temp[i].path);
         totalItens++;
     }
+
     menuAtual = MENU_MUSICAS;
 }
