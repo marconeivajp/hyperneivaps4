@@ -24,4 +24,7 @@ void renderizarNotepad(uint32_t* pixels);
 void aplicarTextoNotepad(const char* textoDigitado);
 void salvarArquivoNotepad();
 
+// Nova função para abrir arquivos direto do HD no modo edição
+void editarArquivoExistente(const char* pasta, const char* arquivo);
+
 #endif

@@ -283,7 +283,6 @@ void atualizarImePasta() {
             memset(nomeFinal, 0, sizeof(nomeFinal));
 
             // SOLUÇÃO: Lê o teclado forçando formato de 16 bits
-            // Isso ignora os "bytes nulos" no meio das letras UTF-16 do PS4
             uint16_t* bufRead = (uint16_t*)textoTeclado;
             int len = 0;
 

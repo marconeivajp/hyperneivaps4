@@ -1,7 +1,7 @@
 #include "bloco_de_notas.h"
 #include "graphics.h"
 #include "menu.h"
-#include "explorar.h" // Adicionado para poder atualizar o diretório após salvar
+#include "explorar.h" 
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -59,6 +59,45 @@ void abrirTextoNoNotepad(const char* textoCompleto) {
     totalLinhasNotepad = (linhaAtual == 0) ? 1 : linhaAtual;
 }
 
+// NOVA FUNÇÃO: Abre o arquivo do HD para edição
+void editarArquivoExistente(const char* pasta, const char* arquivo) {
+    inicializarNotepad();
+
+    strcpy(pastaDestinoFinal, pasta);
+    strcpy(nomeArquivo, arquivo);
+
+    char caminhoCompleto[1024];
+    int lenPasta = strlen(pasta);
+    const char* separador = (lenPasta > 0 && pasta[lenPasta - 1] == '/') ? "" : "/";
+    snprintf(caminhoCompleto, sizeof(caminhoCompleto), "%s%s%s", pasta, separador, arquivo);
+
+    FILE* f = fopen(caminhoCompleto, "r");
+    if (f) {
+        int linhaAtual = 0;
+        char linhaTemp[MAX_CHARS_LINHA + 50];
+
+        while (fgets(linhaTemp, sizeof(linhaTemp), f) != NULL && linhaAtual < MAX_LINHAS) {
+            // Limpa as quebras de linha invisíveis (Enter) do final da frase
+            int len = strlen(linhaTemp);
+            while (len > 0 && (linhaTemp[len - 1] == '\n' || linhaTemp[len - 1] == '\r')) {
+                linhaTemp[len - 1] = '\0';
+                len--;
+            }
+            strncpy(linhasNotepad[linhaAtual], linhaTemp, MAX_CHARS_LINHA - 1);
+            linhaAtual++;
+        }
+        fclose(f);
+
+        if (linhaAtual == 0) linhaAtual = 1; // Garante que não fique vazio
+        totalLinhasNotepad = linhaAtual;
+        notepadSomenteLeitura = false; // MODO EDIÇÃO ATIVADO
+    }
+    else {
+        snprintf(msgStatus, sizeof(msgStatus), "ERRO AO ABRIR O ARQUIVO");
+        msgTimer = 120;
+    }
+}
+
 void renderizarNotepad(uint32_t* pixels) {
     for (int i = 0; i < 1920 * 1080; i++) pixels[i] = 0xFF151515;
     for (int by = 0; by < 80; by++) for (int bx = 0; bx < 1920; bx++) pixels[by * 1920 + bx] = 0xFF303030;
@@ -91,7 +130,7 @@ void renderizarNotepad(uint32_t* pixels) {
             desenharTexto(pixels, buffer, 30, 50, 120 + (i * 40), cor);
         }
     }
-    else if (estadoNotepad == 1) { // Antes era estado 2
+    else if (estadoNotepad == 1) {
         desenharTexto(pixels, "BLOCO DE NOTAS - NOME DO ARQUIVO", 35, 50, 25, 0xFF00AAFF);
         desenharTexto(pixels, "[X] Digitar nome (Conclua para Salvar automaticamente)   |   [O] Voltar", 25, 50, 1035, 0xFF00AAFF);
         desenharTexto(pixels, "Digite o nome do arquivo (ex: config.xml):", 35, 50, 120, 0xFFFFFFFF);

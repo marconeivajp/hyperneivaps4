@@ -1,44 +1,23 @@
 @echo off
 SETLOCAL EnableDelayedExpansion
 
-:: Limpeza total de arquivos temporarios
-if exist main.o del main.o
-if exist explorar.o del explorar.o
-if exist editar.o del editar.o
-if exist network.o del network.o
-if exist baixar.o del baixar.o
-if exist graphics.o del graphics.o
-if exist jogar.o del jogar.o
-if exist audio.o del audio.o
-if exist controle.o del controle.o
-if exist menu.o del menu.o
-if exist menu_audio.o del menu_audio.o
-if exist menu_imagens.o del menu_imagens.o
-if exist menu_video.o del menu_video.o
-if exist menu_grafico.o del menu_grafico.o
-if exist controle_virtual.o del controle_virtual.o
-if exist pesquisar.o del pesquisar.o
-if exist bloco_de_notas.o del bloco_de_notas.o
-if exist video.o del video.o
-if exist teclado.o del teclado.o
-if exist criar_pastas.o del criar_pastas.o
-if exist controle_musicas.o del controle_musicas.o
-if exist controle_explorar.o del controle_explorar.o
-if exist controle_editar.o del controle_editar.o
-if exist controle_baixar.o del controle_baixar.o
-if exist controle_root.o del controle_root.o
-if exist baixar_repositorio.o del baixar_repositorio.o
-if exist baixar_dropbox_download.o del baixar_dropbox_download.o
-if exist dowload_sistema.o del dowload_sistema.o
-if exist menu_upload.o del menu_upload.o
-if exist elementos.o del elementos.o
-if exist controle_elementos.o del controle_elementos.o
-if exist elementos_sonoros.o del elementos_sonoros.o
-if exist teste3.elf del teste3.elf
-if exist teste3.oelf del teste3.oelf
-if exist eboot.bin del eboot.bin
+echo ==========================================
+echo        BUILD HYPER NEIVA (PS4)
+echo ==========================================
+echo.
 
-:: 1. COMPILACAO DOS MODULOS
+echo [1/8] Limpando arquivos antigos...
+del *.o 2>nul
+del teste3.elf 2>nul
+del teste3.oelf 2>nul
+del eboot.bin 2>nul
+del *.pkg 2>nul
+
+echo.
+
+
+
+echo [2/8] Compilando TODOS os modulos C++
 "C:\Program Files\LLVM\bin\clang++.exe" --target=x86_64-pc-freebsd12-elf -fPIC -funwind-tables -I"C:\OpenOrbis\include" -I"C:\OpenOrbis\include\c++\v1" -I"C:\OpenOrbis\include\orbis" -c main.cpp -o main.o
 "C:\Program Files\LLVM\bin\clang++.exe" --target=x86_64-pc-freebsd12-elf -fPIC -funwind-tables -I"C:\OpenOrbis\include" -I"C:\OpenOrbis\include\c++\v1" -I"C:\OpenOrbis\include\orbis" -c explorar.cpp -o explorar.o
 "C:\Program Files\LLVM\bin\clang++.exe" --target=x86_64-pc-freebsd12-elf -fPIC -funwind-tables -I"C:\OpenOrbis\include" -I"C:\OpenOrbis\include\c++\v1" -I"C:\OpenOrbis\include\orbis" -c editar.cpp -o editar.o
@@ -72,13 +51,16 @@ if exist eboot.bin del eboot.bin
 "C:\Program Files\LLVM\bin\clang++.exe" --target=x86_64-pc-freebsd12-elf -fPIC -funwind-tables -I"C:\OpenOrbis\include" -I"C:\OpenOrbis\include\c++\v1" -I"C:\OpenOrbis\include\orbis" -c controle_elementos.cpp -o controle_elementos.o
 "C:\Program Files\LLVM\bin\clang++.exe" --target=x86_64-pc-freebsd12-elf -fPIC -funwind-tables -I"C:\OpenOrbis\include" -I"C:\OpenOrbis\include\c++\v1" -I"C:\OpenOrbis\include\orbis" -c elementos_sonoros.cpp -o elementos_sonoros.o
 
-:: 2. LINKAGEM (Adicionado -lSceBgft para suporte a downloads em segundo plano)
+echo.
+echo [3/8] Linkando...
 "C:\Program Files\LLVM\bin\ld.lld.exe" -m elf_x86_64 -pie --script "C:\OpenOrbis\link.x" --eh-frame-hdr -o teste3.elf "-LC:\OpenOrbis\lib" -lc -lm -lkernel -lc++ -lSceVideoOut -lSceAudioOut -lSceUserService -lSceSysmodule -lSceSysUtil -lScePad -lSceNet -lSceHttp -lSceSsl -lSceImeDialog -lSceCommonDialog -lSceBgft -lSceAppInstUtil "C:\OpenOrbis\lib\crt1.o" main.o explorar.o editar.o network.o baixar.o graphics.o jogar.o audio.o controle.o menu.o menu_audio.o menu_imagens.o menu_video.o menu_grafico.o controle_virtual.o pesquisar.o bloco_de_notas.o video.o teclado.o criar_pastas.o controle_musicas.o controle_explorar.o controle_editar.o controle_baixar.o controle_root.o baixar_repositorio.o baixar_dropbox_download.o dowload_sistema.o menu_upload.o elementos.o controle_elementos.o elementos_sonoros.o
 
-:: 3. CRIACAO DO BINARIO PS4
+echo.
+echo [4/8] Criando FSELF (Com flag de memoria do PS4)...
 "C:\OpenOrbis\bin\windows\create-fself.exe" -in=teste3.elf -out=teste3.oelf --eboot=eboot.bin --paid 0x3800000000000011
 
-:: 4. GERACAO DO SFO
+echo.
+echo [5/8] Gerando o SFO do Hyper Neiva...
 "C:\OpenOrbis\bin\windows\PkgTool.Core.exe" sfo_new sce_sys/param.sfo
 "C:\OpenOrbis\bin\windows\PkgTool.Core.exe" sfo_setentry sce_sys/param.sfo APP_TYPE --type Integer --maxsize 4 --value 1
 "C:\OpenOrbis\bin\windows\PkgTool.Core.exe" sfo_setentry sce_sys/param.sfo APP_VER --type Utf8 --maxsize 8 --value "01.00"
@@ -92,7 +74,9 @@ if exist eboot.bin del eboot.bin
 "C:\OpenOrbis\bin\windows\PkgTool.Core.exe" sfo_setentry sce_sys/param.sfo TITLE_ID --type Utf8 --maxsize 12 --value "TEST00021"
 "C:\OpenOrbis\bin\windows\PkgTool.Core.exe" sfo_setentry sce_sys/param.sfo VERSION --type Utf8 --maxsize 8 --value "01.00"
 
-:: 5. COLETANDO ASSETS
+echo.
+echo [6/8] Coletando Assets (Imagens e Fontes)...
+
 set asset_images_files=
 for %%f in (assets\images\*) do set asset_images_files=!asset_images_files! assets/images/%%~nxf
 
@@ -102,16 +86,21 @@ for %%f in (assets\fonts\*) do set asset_fonts_files=!asset_fonts_files! assets/
 set asset_audio_files=
 for %%f in (assets\audio\*) do set asset_audio_files=!asset_audio_files! assets/audio/%%~nxf
 
-:: 6. CRIACAO DO GP4 E BUILD DO PKG
+echo.
+echo [7/8] Criacao do GP4 e Build do PKG...
 "C:\OpenOrbis\bin\windows\create-gp4.exe" -out pkg.gp4 --content-id=UP0001-TEST00021_00-0000000000000000 --files "eboot.bin sce_sys/param.sfo sce_sys/icon0.png sce_module/libc.prx sce_module/libSceFios2.prx assets/lista.xml assets/sp.xml assets/Sega_Master_System.xml !asset_images_files! !asset_fonts_files! !asset_audio_files!"
 
 "C:\OpenOrbis\bin\windows\PkgTool.Core.exe" pkg_build pkg.gp4 .
 
-:: --- COPIA PARA O PENDRIVE E: COM O NOME DESEJADO ---
+
 if exist E:\ (
-    echo Copiando para o pendrive E: como Hyper Neiva.pkg...
+    echo.
+    echo [8/8] Copiando para o pendrive E:...
     copy /y "UP0001-TEST00021_00-0000000000000000.pkg" "E:\Hyper Neiva.pkg"
 )
 
-echo COMPILADO COM SUCESSO!
+echo.
+echo ==========================================
+echo         COMPILADO COM SUCESSO!
+echo ==========================================
 pause
