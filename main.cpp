@@ -20,6 +20,7 @@
 #include <orbis/Sysmodule.h>
 #include <orbis/CommonDialog.h>
 #include <orbis/ImeDialog.h>
+#include <orbis/AudioOut.h>
 
 #include "menu.h" 
 #include "menu_grafico.h" 
@@ -59,25 +60,34 @@ extern void abrirMenuAudioOpcoes();
 extern void tratarSelecaoAudio(int op);
 
 int main(void) {
-    // 1º PASSO: CRIAR PASTAS E COPIAR ARQUIVOS (Incluindo os Áudios!)
+    // ======================================================================
+    // 1º PASSO ABSOLUTO: LIGAR O NÚCLEO DO PS4 ANTES DE TUDO!
+    // ======================================================================
+    sceUserServiceInitialize(NULL);
+    int32_t uId;
+    sceUserServiceGetInitialUser(&uId);
+
+    scePadInit();
+    int pad = scePadOpen(uId, 0, 0, NULL);
+
+    sceAudioOutInit(); // <-- VITAL: Acorda a placa de som da consola!
+    // ======================================================================
+
+    // 2º PASSO: Preparar pastas e ficheiros
     inicializarPastas();
     carregarConfiguracao();
 
-    // 2º PASSO: AGORA SIM PODEMOS LIGAR OS MOTORES DE SOM
+    // 3º PASSO: Agora sim, com o PS4 preparado, ligamos os motores de Som
     inicializarElementosSonoros();
     inicializarAudio();
 
-    // 3º PASSO: INICIALIZAR O RESTO DO SISTEMA
+    // 4º PASSO: Ligar os restantes sistemas
     initNetwork();
+    inicializarVideo();
 
     sceSysmoduleLoadModuleInternal(ORBIS_SYSMODULE_INTERNAL_COMMON_DIALOG);
     sceSysmoduleLoadModule(ORBIS_SYSMODULE_IME_DIALOG);
     sceCommonDialogInitialize();
-
-    sceUserServiceInitialize(NULL); int32_t uId; sceUserServiceGetInitialUser(&uId);
-    scePadInit(); int pad = scePadOpen(uId, 0, 0, NULL);
-
-    inicializarVideo();
 
     off_t imePh;
     void* imeVm = NULL;
@@ -124,7 +134,6 @@ int main(void) {
                 int ly = pData.leftStick.y;
                 int vel = 15;
 
-                // Lê o analógico direito ou esquerdo
                 if (rx > 180 || lx > 180) ctrl1X += vel;
                 if ((rx < 80 && rx > 0) || (lx < 80 && lx > 0)) ctrl1X -= vel;
                 if (ry > 180 || ly > 180) ctrl1Y += vel;

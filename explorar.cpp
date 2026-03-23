@@ -1,11 +1,3 @@
-// --- CORREÇÕES DE COMPILAÇÃO DO SDK DO PS4 ---
-#ifndef __builtin_va_list
-#define __builtin_va_list char*
-#endif
-
-struct OrbisImeSettingsExtended;
-// ---------------------------------------------
-
 #include "explorar.h"
 #include <stdio.h>
 #include <string.h>
@@ -227,9 +219,11 @@ void acaoArquivo(int op) {
         memset(&param, 0, sizeof(param));
         memset(textoTeclado, 0, sizeof(textoTeclado));
 
-        // Escreve no teclado usando ponteiro de char normal (8 bits)
-        char* bufWrite = (char*)textoTeclado;
-        strncpy(bufWrite, nomeLimpo, 255);
+        // SOLUÇÃO: Escreve no teclado forçando formato de 16 bits para evitar que corte a palavra original
+        uint16_t* bufWrite = (uint16_t*)textoTeclado;
+        for (int i = 0; nomeLimpo[i] != '\0' && i < 255; i++) {
+            bufWrite[i] = (uint16_t)nomeLimpo[i];
+        }
 
         param.maxTextLength = 255;
         param.inputTextBuffer = textoTeclado;
@@ -288,9 +282,19 @@ void atualizarImePasta() {
             char nomeFinal[256];
             memset(nomeFinal, 0, sizeof(nomeFinal));
 
-            // A MÁGICA: O teclado devolve um char normal de 8 bits. Lemos diretamente!
-            char* bufRead = (char*)textoTeclado;
-            strncpy(nomeFinal, bufRead, 255);
+            // SOLUÇÃO: Lê o teclado forçando formato de 16 bits
+            // Isso ignora os "bytes nulos" no meio das letras UTF-16 do PS4
+            uint16_t* bufRead = (uint16_t*)textoTeclado;
+            int len = 0;
+
+            for (int i = 0; i < 255; i++) {
+                if (bufRead[i] == 0x0000) {
+                    break; // Só para de ler quando o bloco inteiro de 16 bits for zero
+                }
+                nomeFinal[len] = (char)bufRead[i];
+                len++;
+            }
+            nomeFinal[len] = '\0';
 
             bool ehEsq = (painelDuplo && painelAtivo == 0);
             char* pExplorar = ehEsq ? pathExplorarEsq : pathExplorar;
