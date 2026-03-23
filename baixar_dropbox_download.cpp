@@ -37,14 +37,19 @@ extern bool marcados[3000];
 extern char caminhoXMLAtual[256];
 
 // ==============================================================
-// VARIÁVEIS GLOBAIS PARA O DOWNLOAD EM SEGUNDO PLANO
+// VARIÁVEIS GLOBAIS PARA A FILA DE DOWNLOAD EM SEGUNDO PLANO
 // ==============================================================
+#define MAX_FILA 50
+char filaUrls[MAX_FILA][1024];
+MenuLevel filaMenus[MAX_FILA];
+char filaXMLs[MAX_FILA][256];
+
+volatile int totalFila = 0;
+volatile int atualFila = 0;
+
 volatile bool downloadEmSegundoPlano = false;
 volatile float progressoAtualDownload = 0.0f;
 char msgDownloadBg[256] = "";
-char urlDownloadBg[1024] = "";
-MenuLevel menuOrigemBg;
-char caminhoXMLOrigemBg[256] = "";
 
 void preencherMenuBackup() {
     memset(nomes, 0, sizeof(nomes));
@@ -151,149 +156,178 @@ void acessarDropbox(const char* path) {
 }
 
 // =======================================================================
-// A MÁGICA: O MOTOR DE DOWNLOAD EM SEGUNDO PLANO (CORRIGIDO E OTIMIZADO)
+// O MOTOR DE DOWNLOAD EM SEGUNDO PLANO: AGORA COM SISTEMA DE FILA
 // =======================================================================
 void* threadDownloadBackground(void* arg) {
-    char nomeArquivo[128] = "arquivo.bin";
-    char* ref = strrchr(urlDownloadBg, '/');
-    if (ref) { strncpy(nomeArquivo, ref + 1, 127); nomeArquivo[127] = '\0'; }
 
-    char* ptrInterrogacao = strchr(nomeArquivo, '?'); if (ptrInterrogacao) *ptrInterrogacao = '\0';
-    char* ptrHash = strchr(nomeArquivo, '#'); if (ptrHash) *ptrHash = '\0';
+    // O loop continua enquanto houver arquivos na fila
+    while (atualFila < totalFila) {
 
-    char nomeLimpo[128] = { 0 }; int j = 0;
-    for (int i = 0; nomeArquivo[i] != '\0' && j < 127; i++) {
-        if (nomeArquivo[i] == '%' && nomeArquivo[i + 1] == '2' && nomeArquivo[i + 2] == '0') { nomeLimpo[j++] = ' '; i += 2; }
-        else { nomeLimpo[j++] = nomeArquivo[i]; }
-    }
-    strcpy(nomeArquivo, nomeLimpo);
+        char urlDownloadBg[1024];
+        strcpy(urlDownloadBg, filaUrls[atualFila]);
+        MenuLevel menuOrigemBg = filaMenus[atualFila];
+        char caminhoXMLOrigemBg[256];
+        strcpy(caminhoXMLOrigemBg, filaXMLs[atualFila]);
 
-    char pathPasta[512];
-    sceKernelMkdir("/data/HyperNeiva/baixado", 0777);
+        char nomeArquivo[128] = "arquivo.bin";
+        char* ref = strrchr(urlDownloadBg, '/');
+        if (ref) { strncpy(nomeArquivo, ref + 1, 127); nomeArquivo[127] = '\0'; }
 
-    if (menuOrigemBg == MENU_BAIXAR_DROPBOX_LISTA || menuOrigemBg == MENU_BAIXAR_DROPBOX_BACKUP) {
-        sceKernelMkdir("/data/HyperNeiva/baixado/dropbox", 0777);
-        sprintf(pathPasta, "/data/HyperNeiva/baixado/dropbox");
-    }
-    else if (menuOrigemBg == MENU_BAIXAR_LINKS) {
-        char nomeRepo[128] = "Games";
-        char* refBarra = strrchr(caminhoXMLOrigemBg, '/');
-        if (refBarra) {
-            strncpy(nomeRepo, refBarra + 1, 127);
-            char* dot = strrchr(nomeRepo, '.');
-            if (dot) *dot = '\0';
+        char* ptrInterrogacao = strchr(nomeArquivo, '?'); if (ptrInterrogacao) *ptrInterrogacao = '\0';
+        char* ptrHash = strchr(nomeArquivo, '#'); if (ptrHash) *ptrHash = '\0';
+
+        char nomeLimpo[128] = { 0 }; int j = 0;
+        for (int i = 0; nomeArquivo[i] != '\0' && j < 127; i++) {
+            if (nomeArquivo[i] == '%' && nomeArquivo[i + 1] == '2' && nomeArquivo[i + 2] == '0') { nomeLimpo[j++] = ' '; i += 2; }
+            else { nomeLimpo[j++] = nomeArquivo[i]; }
         }
-        sceKernelMkdir("/data/HyperNeiva/baixado/repositorios", 0777);
-        sceKernelMkdir("/data/HyperNeiva/baixado/repositorios/games", 0777);
-        sprintf(pathPasta, "/data/HyperNeiva/baixado/repositorios/games/%s", nomeRepo);
-        sceKernelMkdir(pathPasta, 0777);
-    }
-    else {
-        sceKernelMkdir("/data/HyperNeiva/baixado/linkdireto", 0777);
-        sprintf(pathPasta, "/data/HyperNeiva/baixado/linkdireto");
-    }
+        strcpy(nomeArquivo, nomeLimpo);
 
-    char pathFinal[1024];
-    sprintf(pathFinal, "%s/%s", pathPasta, nomeArquivo);
+        char pathPasta[512];
+        sceKernelMkdir("/data/HyperNeiva/baixado", 0777);
 
-    progressoAtualDownload = 0.02f;
-    strcpy(msgDownloadBg, "CONECTANDO AO SERVIDOR...");
+        if (menuOrigemBg == MENU_BAIXAR_DROPBOX_LISTA || menuOrigemBg == MENU_BAIXAR_DROPBOX_BACKUP) {
+            sceKernelMkdir("/data/HyperNeiva/baixado/dropbox", 0777);
+            sprintf(pathPasta, "/data/HyperNeiva/baixado/dropbox");
+        }
+        else if (menuOrigemBg == MENU_BAIXAR_LINKS) {
+            char nomeRepo[128] = "Games";
+            char* refBarra = strrchr(caminhoXMLOrigemBg, '/');
+            if (refBarra) {
+                strncpy(nomeRepo, refBarra + 1, 127);
+                char* dot = strrchr(nomeRepo, '.');
+                if (dot) *dot = '\0';
+            }
+            sceKernelMkdir("/data/HyperNeiva/baixado/repositorios", 0777);
+            sceKernelMkdir("/data/HyperNeiva/baixado/repositorios/games", 0777);
+            sprintf(pathPasta, "/data/HyperNeiva/baixado/repositorios/games/%s", nomeRepo);
+            sceKernelMkdir(pathPasta, 0777);
+        }
+        else {
+            sceKernelMkdir("/data/HyperNeiva/baixado/linkdireto", 0777);
+            sprintf(pathPasta, "/data/HyperNeiva/baixado/linkdireto");
+        }
 
-    int tpl = sceHttpCreateTemplate(httpCtxId, "HyperNeiva/1.0", ORBIS_HTTP_VERSION_1_1, 1);
-    sceHttpsSetSslCallback(tpl, skipSslCallback, NULL); sceHttpSetAutoRedirect(); int conn, req;
+        char pathFinal[1024];
+        sprintf(pathFinal, "%s/%s", pathPasta, nomeArquivo);
 
-    if (urlDownloadBg[0] == '/') {
-        char token[2048] = { 0 }; FILE* fToken = fopen("/data/HyperNeiva/configuracao/dropbox_token.txt", "rb");
-        if (fToken) { fseek(fToken, 0, SEEK_END); long sz = ftell(fToken); fseek(fToken, 0, SEEK_SET); if (sz > 0 && sz < 2047) { fread(token, 1, sz, fToken); token[sz] = '\0'; } fclose(fToken); }
-        for (int i = 0; i < strlen(token); i++) if (token[i] == '\r' || token[i] == '\n') token[i] = '\0';
+        progressoAtualDownload = 0.0f;
+        strcpy(msgDownloadBg, "CONECTANDO...");
 
-        const char* apiUrl = "https://content.dropboxapi.com/2/files/download";
-        conn = sceHttpCreateConnectionWithURL(tpl, apiUrl, 1); req = sceHttpCreateRequestWithURL(conn, ORBIS_METHOD_POST, apiUrl, 0);
-        char authHeader[2048]; sprintf(authHeader, "Bearer %s", token);
-        sceHttpAddRequestHeader(req, "Authorization", authHeader, 1);
-        char apiArg[1024]; sprintf(apiArg, "{\"path\": \"%s\"}", urlDownloadBg);
-        sceHttpAddRequestHeader(req, "Dropbox-API-Arg", apiArg, 1);
-    }
-    else {
-        conn = sceHttpCreateConnectionWithURL(tpl, urlDownloadBg, 1); req = sceHttpCreateRequestWithURL(conn, ORBIS_METHOD_GET, urlDownloadBg, 0);
-    }
+        int tpl = sceHttpCreateTemplate(httpCtxId, "HyperNeiva/1.0", ORBIS_HTTP_VERSION_1_1, 1);
+        sceHttpsSetSslCallback(tpl, skipSslCallback, NULL); sceHttpSetAutoRedirect(); int conn, req;
 
-    if (sceHttpSendRequest(req, NULL, 0) >= 0) {
-        size_t tamanhoTotal = 0; int32_t statusRes = 0; sceHttpGetResponseContentLength(req, &statusRes, &tamanhoTotal);
-        FILE* f = fopen(pathFinal, "wb");
-        if (f) {
-            // SOLUÇÃO DO CRASH E TRAVAMENTO DA INTERFACE: 
-            // 1. Usar malloc para não estourar a memória (stack) minúscula da Thread
-            unsigned char* buf = (unsigned char*)malloc(65536);
-            if (buf) {
-                int n; uint64_t baixado = 0;
-                while ((n = sceHttpReadData(req, buf, 65536)) > 0) {
-                    fwrite(buf, 1, n, f); baixado += n;
+        if (urlDownloadBg[0] == '/') {
+            char token[2048] = { 0 }; FILE* fToken = fopen("/data/HyperNeiva/configuracao/dropbox_token.txt", "rb");
+            if (fToken) { fseek(fToken, 0, SEEK_END); long sz = ftell(fToken); fseek(fToken, 0, SEEK_SET); if (sz > 0 && sz < 2047) { fread(token, 1, sz, fToken); token[sz] = '\0'; } fclose(fToken); }
+            for (int i = 0; i < strlen(token); i++) if (token[i] == '\r' || token[i] == '\n') token[i] = '\0';
 
-                    // Proteção de memória para a mensagem na tela: Montamos a string numa variável temporária primeiro!
-                    char msgTemp[256];
-                    if (tamanhoTotal > 0) {
-                        progressoAtualDownload = (float)baixado / (float)tamanhoTotal;
-                        sprintf(msgTemp, "BAIXANDO: %s (%d%%)", nomeArquivo, (int)(progressoAtualDownload * 100));
+            const char* apiUrl = "https://content.dropboxapi.com/2/files/download";
+            conn = sceHttpCreateConnectionWithURL(tpl, apiUrl, 1); req = sceHttpCreateRequestWithURL(conn, ORBIS_METHOD_POST, apiUrl, 0);
+            char authHeader[2048]; sprintf(authHeader, "Bearer %s", token);
+            sceHttpAddRequestHeader(req, "Authorization", authHeader, 1);
+            char apiArg[1024]; sprintf(apiArg, "{\"path\": \"%s\"}", urlDownloadBg);
+            sceHttpAddRequestHeader(req, "Dropbox-API-Arg", apiArg, 1);
+        }
+        else {
+            conn = sceHttpCreateConnectionWithURL(tpl, urlDownloadBg, 1); req = sceHttpCreateRequestWithURL(conn, ORBIS_METHOD_GET, urlDownloadBg, 0);
+        }
+
+        if (sceHttpSendRequest(req, NULL, 0) >= 0) {
+            size_t tamanhoTotal = 0; int32_t statusRes = 0; sceHttpGetResponseContentLength(req, &statusRes, &tamanhoTotal);
+            FILE* f = fopen(pathFinal, "wb");
+            if (f) {
+                unsigned char* buf = (unsigned char*)malloc(65536);
+                if (buf) {
+                    int n; uint64_t baixado = 0;
+                    while ((n = sceHttpReadData(req, buf, 65536)) > 0) {
+                        fwrite(buf, 1, n, f); baixado += n;
+
+                        char msgTemp[256];
+                        if (tamanhoTotal > 0) {
+                            progressoAtualDownload = (float)baixado / (float)tamanhoTotal;
+                            sprintf(msgTemp, "BAIXANDO: %s", nomeArquivo);
+                        }
+                        else {
+                            progressoAtualDownload = 0.5f;
+                            sprintf(msgTemp, "BAIXANDO: %s... (%.2f MB)", nomeArquivo, (float)baixado / 1048576.0f);
+                        }
+                        strcpy(msgDownloadBg, msgTemp);
+
+                        sceKernelUsleep(1000);
                     }
-                    else {
-                        progressoAtualDownload = 0.5f;
-                        sprintf(msgTemp, "BAIXANDO: %s... (%.2f MB)", nomeArquivo, (float)baixado / 1048576.0f);
-                    }
-                    strcpy(msgDownloadBg, msgTemp); // Passa a mensagem para a interface gráfica rapidamente
-
-                    // 2. O segredo da fluidez: Um respiro de 1 milissegundo para o processador conseguir desenhar a tela e ler seu controle!
-                    sceKernelUsleep(1000);
+                    free(buf);
                 }
-                free(buf);
-            }
-            fclose(f);
+                fclose(f);
 
-            if (strstr(nomeArquivo, ".pkg") != NULL || strstr(nomeArquivo, ".PKG") != NULL) {
-                sceKernelMkdir("/data/pkg", 0777);
-                char destino[512]; sprintf(destino, "/data/pkg/%s", nomeArquivo);
-                int resMove = rename(pathFinal, destino);
-                if (resMove == 0) { sprintf(msgStatus, "PRONTO! Va em GoldHEN -> Package Installer"); }
-                else { sprintf(msgStatus, "BAIXADO, MAS ERRO AO MOVER PARA O GOLDHEN!"); }
-                msgTimer = 600;
-            }
-            else {
-                sprintf(msgStatus, "DOWNLOAD CONCLUIDO: %s", nomeArquivo);
-                msgTimer = 300;
+                if (strstr(nomeArquivo, ".pkg") != NULL || strstr(nomeArquivo, ".PKG") != NULL) {
+                    sceKernelMkdir("/data/pkg", 0777);
+                    char destino[512]; sprintf(destino, "/data/pkg/%s", nomeArquivo);
+                    int resMove = rename(pathFinal, destino);
+                    if (resMove == 0) { sprintf(msgStatus, "PKG PREPARADO! Va em GoldHEN"); }
+                    else { sprintf(msgStatus, "BAIXADO, MAS ERRO AO MOVER!"); }
+                    msgTimer = 400;
+                }
+                else {
+                    sprintf(msgStatus, "ARQUIVO %d DE %d CONCLUIDO!", atualFila + 1, totalFila);
+                    msgTimer = 300;
+                }
             }
         }
-    }
-    else { sprintf(msgStatus, "ERRO NO DOWNLOAD!"); msgTimer = 240; }
+        else {
+            sprintf(msgStatus, "ERRO NO ARQUIVO %d DE %d!", atualFila + 1, totalFila);
+            msgTimer = 240;
+        }
 
-    sceHttpDeleteRequest(req); sceHttpDeleteConnection(conn); sceHttpDeleteTemplate(tpl);
-    downloadEmSegundoPlano = false; // DESLIGA A BARRA DE FUNDO E ENCERRA A THREAD!
+        sceHttpDeleteRequest(req); sceHttpDeleteConnection(conn); sceHttpDeleteTemplate(tpl);
+
+        // Pula para o próximo item da fila
+        atualFila++;
+    }
+
+    // Fim da linha: Se a fila esvaziar, nós limpamos tudo e apagamos a barra!
+    totalFila = 0;
+    atualFila = 0;
+    downloadEmSegundoPlano = false;
     return NULL;
 }
 
-// INICIADOR DO DOWNLOAD (Apenas dá o gatilho na Thread e volta a atenção para a tela imediatamente)
+// INICIADOR DO DOWNLOAD (Adiciona na Fila)
 void iniciarDownload(const char* url) {
-    if (downloadEmSegundoPlano) {
-        sprintf(msgStatus, "AGUARDE O DOWNLOAD ATUAL TERMINAR!");
+    if (!url || strlen(url) < 2) return;
+
+    // Limite de segurança para não estourar a memória
+    if (totalFila >= MAX_FILA) {
+        sprintf(msgStatus, "ERRO: FILA CHEIA (MAX 50)!");
         msgTimer = 180;
         return;
     }
-    if (!url || strlen(url) < 2) return;
 
-    strcpy(urlDownloadBg, url);
-    menuOrigemBg = menuAtual;
-    strcpy(caminhoXMLOrigemBg, caminhoXMLAtual);
+    // Grava o item novo na lista
+    strcpy(filaUrls[totalFila], url);
+    filaMenus[totalFila] = menuAtual;
+    strcpy(filaXMLs[totalFila], caminhoXMLAtual);
+    totalFila++;
 
-    downloadEmSegundoPlano = true;
-    progressoAtualDownload = 0.0f;
-    strcpy(msgDownloadBg, "PREPARANDO O DOWNLOAD...");
+    // Se a máquina estiver parada, nós ligamos o motor
+    if (!downloadEmSegundoPlano) {
+        downloadEmSegundoPlano = true;
+        atualFila = 0;
+        progressoAtualDownload = 0.0f;
+        strcpy(msgDownloadBg, "PREPARANDO O DOWNLOAD...");
 
-    sprintf(msgStatus, "DOWNLOAD INICIADO EM SEGUNDO PLANO!");
-    msgTimer = 240;
+        sprintf(msgStatus, "DOWNLOAD INICIADO!");
+        msgTimer = 240;
 
-    // Inicia o processo de forma silenciosa e paralela
-    pthread_t threadId;
-    pthread_create(&threadId, NULL, threadDownloadBackground, NULL);
-    pthread_detach(threadId); // Detach diz ao PS4 para limpar a memória da thread sozinho quando terminar
+        pthread_t threadId;
+        pthread_create(&threadId, NULL, threadDownloadBackground, NULL);
+        pthread_detach(threadId);
+    }
+    // Se já estiver rodando, ele só avisa que entrou na fila
+    else {
+        sprintf(msgStatus, "ADICIONADO A FILA (%d/%d)", totalFila, totalFila);
+        msgTimer = 180;
+    }
 }
 
 void listarArquivosUpload(const char* dirPath) {
@@ -618,7 +652,7 @@ void fazerDownloadSelecionados() {
         }
     }
     if (count > 0) {
-        sprintf(msgStatus, "DOWNLOAD DE %d ITEM(S) CONCLUIDO!", count);
+        sprintf(msgStatus, "%d ITEM(S) ENVIADO(S) P/ FILA!", count);
         msgTimer = 180;
     }
 }
