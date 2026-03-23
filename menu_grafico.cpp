@@ -34,6 +34,11 @@ extern bool visualizandoMidiaImagem; extern unsigned char* imgMidia; extern int 
 extern bool visualizandoMidiaTexto; extern char* textoMidiaBuffer; extern char* linhasTexto[5000]; extern int totalLinhasTexto; extern int textoMidiaScroll;
 extern bool painelDuplo; extern int painelAtivo; extern char nomesEsq[3000][64]; extern bool marcadosEsq[3000]; extern char pathExplorarEsq[256]; extern int selEsq; extern int totalItensEsq; extern MenuLevel menuAtualEsq; extern int offEsq;
 
+// VARIÁVEIS EXPORTADAS PARA LER O PROGRESSO DA THREAD DO DOWNLOAD EM FUNDO
+extern volatile bool downloadEmSegundoPlano;
+extern volatile float progressoAtualDownload;
+extern char msgDownloadBg[256];
+
 uint32_t getSysColor(int index) {
     uint32_t sysColors[] = { 0xAA222222, 0xAA000000, 0xAA000044, 0xAA440000, 0xAA004400, 0x00000000, 0xFF444444, 0xFF00D83A, 0xAAFFFF99, 0xFF00FF00, 0xFF00AAFF, 0xAA999933, 0xFFFFFFFF, 0xFFFF0000, 0xFF0000FF };
     if (index < 0 || index > 14) return sysColors[0];
@@ -203,20 +208,11 @@ void desenharInterface(uint32_t* p) {
         desenharTexto(p, txtPos, 25, 50, 1045, 0xFF00FF00);
     }
 
-    // ==============================================================
-    // MENU OPÇÕES DO EXPLORAR (Com mesma lógica do Áudio)
-    // ==============================================================
     if (showOpcoes && menuAtual != MENU_AUDIO_OPCOES) {
-        for (int my = 0; my < upH; my++) {
-            for (int mx = 0; mx < upW; mx++) {
-                int pxX = upX + mx;
-                int pyY = upY + my;
-                if (pxX >= 0 && pxX < 1920 && pyY >= 0 && pyY < 1080) p[pyY * 1920 + pxX] = getSysColor(listBg);
-            }
-        }
+        for (int my = 0; my < upH; my++) { for (int mx = 0; mx < upW; mx++) { int pxX = upX + mx; int pyY = upY + my; if (pxX >= 0 && pxX < 1920 && pyY >= 0 && pyY < 1080) p[pyY * 1920 + pxX] = getSysColor(listBg); } }
         int maxV = (upH - 50) / 45; if (maxV < 1) maxV = 1;
         for (int i = 0; i < maxV; i++) {
-            int gIdx = i + offOpcao; if (gIdx >= 10) break; // 10 opções no menu do explorar
+            int gIdx = i + offOpcao; if (gIdx >= 10) break;
             uint32_t corOp = (gIdx == selOpcao) ? 0xFFFFFF00 : 0xFFFFFFFF;
             desenharTextoAlinhado(p, listaOpcoes[gIdx], fontTam, upX, upY + 50 + (i * 45), upW, corOp);
         }
@@ -247,4 +243,41 @@ void desenharInterface(uint32_t* p) {
 
     if (msgTimer > 0) { desenharTexto(p, msgStatus, msgTam, msgX, msgY, 0xFFFFFFFF); msgTimer--; }
     else if ((menuAtual == MENU_EDIT_TARGET || editMode) && editTarget == 8) { desenharTexto(p, "EXEMPLO DE NOTIFICACAO...", msgTam, msgX, msgY, 0xFF00FF00); }
+
+    // ==============================================================
+    // NOVO: BARRA DE PROGRESSO EM SEGUNDO PLANO (MULTITHREADING)
+    // ==============================================================
+    if (downloadEmSegundoPlano) {
+        int bX = barX;
+        int bY = barY;
+        int bW = barW;
+        int bH = barH;
+
+        // Fundo da barra
+        for (int y = bY; y < bY + bH; y++) {
+            for (int x = bX; x < bX + bW; x++) {
+                if (x >= 0 && x < 1920 && y >= 0 && y < 1080) {
+                    p[y * 1920 + x] = getSysColor(barBg);
+                }
+            }
+        }
+
+        int fill = (int)(bW * progressoAtualDownload);
+        if (fill > bW) fill = bW;
+        if (fill < 0) fill = 0;
+
+        // Preenchimento da barra
+        for (int y = bY; y < bY + bH; y++) {
+            for (int x = bX; x < bX + fill; x++) {
+                if (x >= 0 && x < 1920 && y >= 0 && y < 1080) {
+                    p[y * 1920 + x] = getSysColor(barFill);
+                }
+            }
+        }
+
+        // Desenha a mensagem de progresso colada em cima da barra
+        char pctMsg[300];
+        sprintf(pctMsg, "%s", msgDownloadBg);
+        desenharTexto(p, pctMsg, 25, bX, bY - 35, 0xFFFFFFFF);
+    }
 }
