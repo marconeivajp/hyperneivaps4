@@ -14,7 +14,7 @@
 #include "explorar.h"
 #include "stb_image.h" 
 #include "audio.h"   
-#include "bloco_de_notas.h" // INCLUIDO PARA USAR O BLOCO DE NOTAS
+#include "bloco_de_notas.h"
 
 extern int cd;
 extern void preencherExplorerHome();
@@ -76,6 +76,8 @@ void instalarPkgLocal(const char* caminhoAbsoluto) {
 }
 
 void acaoL2_Explorar() {
+    if (visualizandoMidiaImagem) return; // BLOQUEIO DA IMAGEM ABERTA
+
     painelDuplo = !painelDuplo;
     if (painelDuplo) {
         painelAtivo = 0;
@@ -88,6 +90,8 @@ void acaoL2_Explorar() {
 }
 
 void alternarPainelAtivo() {
+    if (visualizandoMidiaImagem) return; // BLOQUEIO DA IMAGEM ABERTA
+
     if (painelDuplo && !showOpcoes) {
         painelAtivo = (painelAtivo == 0) ? 1 : 0;
     }
@@ -95,6 +99,12 @@ void alternarPainelAtivo() {
 
 void acaoCross_Explorar() {
     if (esperandoNomePasta || esperandoRenomear) return;
+
+    // LÓGICA DA IMAGEM: O botão X agora alterna a tela cheia e impede que clique em outra coisa no painel
+    if (visualizandoMidiaImagem) {
+        fullscreenMidia = !fullscreenMidia;
+        return;
+    }
 
     bool ehEsq = (painelDuplo && painelAtivo == 0);
     MenuLevel mAtual = ehEsq ? menuAtualEsq : menuAtual;
@@ -227,6 +237,8 @@ void acaoCircle_Explorar() {
 
 void acaoTriangle_Explorar() {
     if (esperandoNomePasta || esperandoRenomear) return;
+    if (visualizandoMidiaImagem) return; // BLOQUEIO DA IMAGEM ABERTA
+
     bool ehEsq = (painelDuplo && painelAtivo == 0);
     MenuLevel mAtual = ehEsq ? menuAtualEsq : menuAtual;
 
@@ -238,6 +250,8 @@ void acaoTriangle_Explorar() {
 
 void acaoR1_Explorar() {
     if (esperandoNomePasta || esperandoRenomear) return;
+    if (visualizandoMidiaImagem) return; // BLOQUEIO DA IMAGEM ABERTA
+
     bool ehEsq = (painelDuplo && painelAtivo == 0);
     MenuLevel mAtual = ehEsq ? menuAtualEsq : menuAtual;
     int sAtual = ehEsq ? selEsq : sel;

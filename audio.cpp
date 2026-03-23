@@ -1,3 +1,9 @@
+#ifdef __INTELLISENSE__
+#ifndef __builtin_va_list
+#define __builtin_va_list va_list
+#endif
+#endif
+
 // 1. Bibliotecas Padrão C/C++
 #include <stdio.h>
 #include <stdlib.h>
@@ -5,13 +11,6 @@
 #include <dirent.h>
 #include <sys/stat.h>
 #include <pthread.h>
-#include <stdarg.h>
-
-#ifdef __INTELLISENSE__
-#ifndef __builtin_va_list
-#define __builtin_va_list va_list
-#endif
-#endif
 
 // 3. Headers do SDK do PS4
 #include <orbis/libkernel.h>
@@ -21,7 +20,9 @@
 // 4. Headers Locais do Projeto
 #include "audio.h"
 #include "explorar.h" 
+#include "elementos_sonoros.h" // Aqui chamamos o motor de mistura
 
+// 5. IMPLEMENTAÇÃO ÚNICA DAS BIBLIOTECAS DE ÁUDIO PARA NÃO CRASHAR O MALLOC
 #define DR_WAV_IMPLEMENTATION
 #include "dr_wav.h"
 #define DR_MP3_IMPLEMENTATION
@@ -200,7 +201,7 @@ static void* audioThreadFunc(void* argp) {
     int32_t userId;
     if (sceUserServiceGetInitialUser(&userId) < 0) userId = ORBIS_USER_SERVICE_USER_ID_SYSTEM;
 
-    // PORTA 0 para MÚSICA BGM
+    // UM ÚNICO CANAL MESTRE (PORT 0) PARA BGM E EFEITOS!
     audioPort = sceAudioOutOpen(userId, ORBIS_AUDIO_OUT_PORT_TYPE_MAIN, 0, 256, 48000, ORBIS_AUDIO_OUT_PARAM_FORMAT_S16_STEREO);
     if (audioPort < 0) { audioRodando = false; return NULL; }
 
@@ -251,8 +252,10 @@ static void* audioThreadFunc(void* argp) {
             currentFrame = 0;
         }
 
+        // SE A MÚSICA TIVER PARADA, ELE TOCA SÓ OS SFX!
         if (comandoPausar || currentAudioType == AUDIO_NONE) {
-            for (int i = 0; i < 256 * 2; i++) pSampleData[i] = 0;
+            for (int i = 0; i < 256 * 2; i++) pSampleData[i] = 0; // Silêncio
+            misturarEfeitosSonoros(pSampleData, 256);             // Injeta o "Bip" dos botões
             sceAudioOutOutput(audioPort, pSampleData);
             continue;
         }
@@ -323,6 +326,8 @@ static void* audioThreadFunc(void* argp) {
             }
         }
 
+        // SE A MÚSICA ESTIVER TOCANDO, MISTURA O "BIP" POR CIMA!
+        misturarEfeitosSonoros(pSampleData, 256);
         sceAudioOutOutput(audioPort, pSampleData);
     }
 
