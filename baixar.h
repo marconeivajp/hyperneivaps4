@@ -15,10 +15,8 @@ extern unsigned char* imgPreview;
 extern int wP, hP, cP;
 extern char ultimoJogoCarregado[64];
 
-// MANTEMOS A ANTIGA PARA NÃO QUEBRAR OS OUTROS ARQUIVOS E ADICIONAMOS A NOVA
 void atualizarBarra(float progresso);
 void atualizarBarra(float progresso, int arquivoAtual, int totalArquivos);
-
 void acaoRede(const char* jogo, bool buscarLista, bool salvarNoHD);
 
 void preencherMenuBaixar();
@@ -33,14 +31,22 @@ void iniciarDownload(const char* url);
 void listarArquivosUpload(const char* dirPath);
 void fazerUploadDropbox(const char* localPath);
 
-// NOVAS FUNÇÕES DO MENU DE BACKUP
 void preencherMenuBackup();
 void executarBackupTodos();
 
-extern char linksAtuais[3000][1024];
 extern char caminhoXMLAtual[256];
-
 extern char currentDropboxPath[512];
 extern char currentUploadPath[512];
 
-#endif  
+extern char linksAtuais[3000][1024]; // DECLARAÇÃO RESTAURADA
+
+// ==========================================
+// NOVO SISTEMA DE FILA DE DOWNLOADS NO TXT
+// ==========================================
+bool adicionarLinkFila(const char* link);
+bool obterPrimeiroLinkFila(char* linkSaida);
+void removerPrimeiroLinkFila();
+int contarLinksFila();
+void processarFilaDownloads();
+
+#endif

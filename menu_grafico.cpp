@@ -34,12 +34,12 @@ extern bool visualizandoMidiaImagem; extern unsigned char* imgMidia; extern int 
 extern bool visualizandoMidiaTexto; extern char* textoMidiaBuffer; extern char* linhasTexto[5000]; extern int totalLinhasTexto; extern int textoMidiaScroll;
 extern bool painelDuplo; extern int painelAtivo; extern char nomesEsq[3000][64]; extern bool marcadosEsq[3000]; extern char pathExplorarEsq[256]; extern int selEsq; extern int totalItensEsq; extern MenuLevel menuAtualEsq; extern int offEsq;
 
-// VARIÁVEIS DA FILA EXPORTADAS PARA LER O PROGRESSO
+// NOVAS VARIÁVEIS DA FILA INFINITA DO TXT
 extern volatile bool downloadEmSegundoPlano;
 extern volatile float progressoAtualDownload;
 extern char msgDownloadBg[256];
-extern volatile int totalFila;
-extern volatile int atualFila;
+extern volatile int totalFilaSessao;
+extern volatile int baixadosFilaSessao;
 
 uint32_t getSysColor(int index) {
     uint32_t sysColors[] = { 0xAA222222, 0xAA000000, 0xAA000044, 0xAA440000, 0xAA004400, 0x00000000, 0xFF444444, 0xFF00D83A, 0xAAFFFF99, 0xFF00FF00, 0xFF00AAFF, 0xAA999933, 0xFFFFFFFF, 0xFFFF0000, 0xFF0000FF };
@@ -88,7 +88,7 @@ void desenharInterface(uint32_t* p) {
     static char nomeItemAnterior[128] = ""; static unsigned char* imgBgDinamico = NULL; static int dynBgW = 0, dynBgH = 0, dynBgC = 0; static unsigned char* imgCapaDinamica = NULL; static int dynCapaW = 0, dynCapaH = 0, dynCapaC = 0; static unsigned char* imgDiscoDinamico = NULL; static int dynDiscoW = 0, dynDiscoH = 0, dynDiscoC = 0;
 
     if (menuAtual == SCRAPER_LIST) {
-        if (strcmp(nomes[sel], ultimoJogoCarregado) != 0) { char cp[512]; snprintf(cp, sizeof(cp), "/data/HyperNeiva/baixado/%s/Named_Boxarts/%s.png", listaConsoles[consoleAtual].nome, nomes[sel]); FILE* fEx = fopen(cp, "rb"); if (fEx) { fclose(fEx); if (imgPreview) stbi_image_free(imgPreview); imgPreview = stbi_load(cp, &wP, &hP, &cP, 4); } else { if (imgPreview) { stbi_image_free(imgPreview); imgPreview = NULL; } } strncpy(ultimoJogoCarregado, nomes[sel], 63); ultimoJogoCarregado[63] = '\0'; }
+        if (strcmp(nomes[sel], ultimoJogoCarregado) != 0) { char cp[512]; snprintf(cp, sizeof(cp), "/data/HyperNeiva/baixado/capas/%s/Named_Boxarts/%s.png", listaConsoles[consoleAtual].nome, nomes[sel]); FILE* fEx = fopen(cp, "rb"); if (fEx) { fclose(fEx); if (imgPreview) stbi_image_free(imgPreview); imgPreview = stbi_load(cp, &wP, &hP, &cP, 4); } else { if (imgPreview) { stbi_image_free(imgPreview); imgPreview = NULL; } } strncpy(ultimoJogoCarregado, nomes[sel], 63); ultimoJogoCarregado[63] = '\0'; }
     }
     else if (strcmp(nomeItemAnterior, nomes[sel]) != 0) {
         strcpy(nomeItemAnterior, nomes[sel]); if (imgBgDinamico) { stbi_image_free(imgBgDinamico); imgBgDinamico = NULL; } if (imgCapaDinamica) { stbi_image_free(imgCapaDinamica); imgCapaDinamica = NULL; } if (imgDiscoDinamico) { stbi_image_free(imgDiscoDinamico); imgDiscoDinamico = NULL; }
@@ -246,9 +246,6 @@ void desenharInterface(uint32_t* p) {
     if (msgTimer > 0) { desenharTexto(p, msgStatus, msgTam, msgX, msgY, 0xFFFFFFFF); msgTimer--; }
     else if ((menuAtual == MENU_EDIT_TARGET || editMode) && editTarget == 8) { desenharTexto(p, "EXEMPLO DE NOTIFICACAO...", msgTam, msgX, msgY, 0xFF00FF00); }
 
-    // ==============================================================
-    // NOVO: BARRA DE PROGRESSO EM SEGUNDO PLANO (COM FILA DE DOWNLOAD)
-    // ==============================================================
     if (downloadEmSegundoPlano) {
         int bX = barX;
         int bY = barY;
@@ -275,18 +272,16 @@ void desenharInterface(uint32_t* p) {
             }
         }
 
-        // Desenha o nome do arquivo acima da barra
         char pctMsg[300];
         sprintf(pctMsg, "%s", msgDownloadBg);
         desenharTexto(p, pctMsg, 25, bX, bY - 35, 0xFFFFFFFF);
 
-        // Desenha a porcentagem e a fila (Ex: 45% - 1 / 3) à direita
         int porcentagem = (int)(progressoAtualDownload * 100.0f);
         if (porcentagem > 100) porcentagem = 100;
         if (porcentagem < 0) porcentagem = 0;
 
         char textoFila[128];
-        snprintf(textoFila, sizeof(textoFila), "%d%%   -   %d / %d", porcentagem, atualFila + 1, totalFila);
+        snprintf(textoFila, sizeof(textoFila), "%d%%   -   %d / %d", porcentagem, baixadosFilaSessao + 1, totalFilaSessao);
         desenharTexto(p, textoFila, 25, bX + bW + 20, bY - 2, 0xFFFFFFFF);
     }
 }
