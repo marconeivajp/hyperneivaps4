@@ -50,6 +50,7 @@ char currentDropboxPath[512] = "";
 char currentUploadPath[512] = "";
 
 bool emSubmenuLojas = false;
+bool emSubmenuDropbox = false; // <-- Nova flag para a pasta Dropbox
 bool emApolloSaves = false;
 char currentApolloUrl[1024] = "";
 
@@ -172,15 +173,27 @@ void acaoRede(const char* jogo, bool buscarLista, bool salvarNoHD) {
 
 void preencherMenuBaixar() {
     emSubmenuLojas = false;
+    emSubmenuDropbox = false; // Reset da pasta Dropbox
     emApolloSaves = false;
     memset(nomes, 0, sizeof(nomes));
     strcpy(nomes[0], "Repositorios");
-    strcpy(nomes[1], "CAPAS");
-    strcpy(nomes[2], "LINK DIRETO");
-    strcpy(nomes[3], "DROPBOX (DOWNLOAD)");
-    strcpy(nomes[4], "DROPBOX (MENU BACKUP)");
-    strcpy(nomes[5], "Lojas");
-    totalItens = 6;
+    strcpy(nomes[1], "LINK DIRETO");
+    strcpy(nomes[2], "Dropbox"); // <-- Pasta Dropbox criada
+    strcpy(nomes[3], "Lojas");
+    totalItens = 4;
+    menuAtual = MENU_BAIXAR;
+    sel = 0;
+    off = 0;
+}
+
+void preencherMenuDropbox() {
+    emSubmenuLojas = false;
+    emSubmenuDropbox = true; // Ativa a pasta Dropbox
+    emApolloSaves = false;
+    memset(nomes, 0, sizeof(nomes));
+    strcpy(nomes[0], "Download");
+    strcpy(nomes[1], "Menu Backup (Upload)");
+    totalItens = 2;
     menuAtual = MENU_BAIXAR;
     sel = 0;
     off = 0;
@@ -188,12 +201,14 @@ void preencherMenuBaixar() {
 
 void preencherMenuLojas() {
     emSubmenuLojas = true;
+    emSubmenuDropbox = false;
     emApolloSaves = false;
     memset(nomes, 0, sizeof(nomes));
     strcpy(nomes[0], "HB Store");
-    strcpy(nomes[1], "Apollo Saves"); // <--- ADICIONADO AQUI!
-    totalItens = 2;
-    menuAtual = MENU_BAIXAR; // Mantém a tela rodando!
+    strcpy(nomes[1], "Apollo Saves");
+    strcpy(nomes[2], "Retroarch");
+    totalItens = 3;
+    menuAtual = MENU_BAIXAR;
     sel = 0;
     off = 0;
 }

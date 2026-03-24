@@ -18,20 +18,39 @@
 
 extern void acaoCross_Notepad(int32_t uId, OrbisImeDialogSetting* imeSetting, uint16_t* imeTitle, const char* textoInicial);
 
+extern bool emSubmenuDropbox;
+extern void preencherMenuDropbox();
+
+// Declarado para podermos chamar a Atualização forçada pelo controle
+extern void atualizarHBStore();
+
 void acaoCross_Baixar(int32_t uId, OrbisImeDialogSetting* imeSetting, uint16_t* imeTitle) {
     if (menuAtual == MENU_BAIXAR) {
-        if (!emSubmenuLojas) {
+        if (!emSubmenuLojas && !emSubmenuDropbox) {
             if (sel == 0) preencherMenuRepositorios();
-            else if (sel == 1) { memset(nomes, 0, sizeof(nomes)); strcpy(nomes[0], "RETROARCH"); totalItens = 1; menuAtual = MENU_CAPAS; }
-            else if (sel == 2) { menuAtual = MENU_BAIXAR_LINK_DIRETO; acaoCross_Notepad(uId, imeSetting, imeTitle, ""); }
-            else if (sel == 3) { acessarDropbox(""); }
-            else if (sel == 4) { preencherMenuBackup(); }
-            else if (sel == 5) { preencherMenuLojas(); }
+            else if (sel == 1) { menuAtual = MENU_BAIXAR_LINK_DIRETO; acaoCross_Notepad(uId, imeSetting, imeTitle, ""); }
+            else if (sel == 2) { preencherMenuDropbox(); }
+            else if (sel == 3) { preencherMenuLojas(); }
         }
-        else {
-            // CORRIGIDO PARA BUCANERO:
+        else if (emSubmenuDropbox) {
+            if (sel == 0) { acessarDropbox(""); }
+            else if (sel == 1) { preencherMenuBackup(); }
+        }
+        else if (emSubmenuLojas) {
             if (sel == 0) { emApolloSaves = false; acessarHBStore(); }
             else if (sel == 1) { emApolloSaves = true; acessarApolloSaves("https://bucanero.github.io/apollo-saves/"); }
+            else if (sel == 2) {
+                memset(nomes, 0, sizeof(nomes));
+                strcpy(nomes[0], "Sony - PlayStation");
+                strcpy(nomes[1], "Sony - PlayStation Portable");
+                strcpy(nomes[2], "Nintendo - Super Nintendo Entertainment System");
+                strcpy(nomes[3], "Sega - Mega Drive - Genesis");
+                strcpy(nomes[4], "Nintendo - Nintendo Entertainment System");
+                totalItens = 5;
+                menuAtual = MENU_CONSOLES;
+                sel = 0;
+                off = 0;
+            }
         }
     }
     else if (menuAtual == MENU_BAIXAR_DROPBOX_BACKUP) {
@@ -47,6 +66,12 @@ void acaoCross_Baixar(int32_t uId, OrbisImeDialogSetting* imeSetting, uint16_t* 
     }
     else if (menuAtual == MENU_BAIXAR_DROPBOX_LISTA) {
         char urlSel[1024]; strcpy(urlSel, linksAtuais[sel]); int tam = strlen(urlSel);
+
+        // AQUI ESTÁ O BOTÃO MÁGICO DE ATUALIZAÇÃO
+        if (strcmp(urlSel, "UPDATE_HB_STORE") == 0) {
+            atualizarHBStore();
+            return;
+        }
 
         if (tam > 0 && urlSel[tam - 1] == '/') {
             if (emApolloSaves) {
@@ -75,20 +100,6 @@ void acaoCross_Baixar(int32_t uId, OrbisImeDialogSetting* imeSetting, uint16_t* 
     else if (menuAtual == MENU_BAIXAR_GAMES_XMLS) { if (strstr(nomes[sel], ".xml")) abrirXMLRepositorio(nomes[sel]); }
     else if (menuAtual == MENU_BAIXAR_GAMES_LIST) mostrarLinksJogo(sel);
     else if (menuAtual == MENU_BAIXAR_LINKS) iniciarDownload(linksAtuais[sel]);
-    else if (menuAtual == MENU_CAPAS) {
-        if (sel == 0) {
-            memset(nomes, 0, sizeof(nomes));
-            strcpy(nomes[0], "Sony - PlayStation");
-            strcpy(nomes[1], "Sony - PlayStation Portable");
-            strcpy(nomes[2], "Nintendo - Super Nintendo Entertainment System");
-            strcpy(nomes[3], "Sega - Mega Drive - Genesis");
-            strcpy(nomes[4], "Nintendo - Nintendo Entertainment System");
-            totalItens = 5;
-            menuAtual = MENU_CONSOLES;
-            sel = 0;
-            off = 0;
-        }
-    }
     else if (menuAtual == MENU_CONSOLES) {
         consoleAtual = sel;
         acaoRede(NULL, true, false);
@@ -100,13 +111,12 @@ void acaoCross_Baixar(int32_t uId, OrbisImeDialogSetting* imeSetting, uint16_t* 
 
 void acaoCircle_Baixar() {
     if (menuAtual == MENU_BAIXAR) {
-        if (!emSubmenuLojas) { preencherRoot(); }
-        else { preencherMenuBaixar(); }
+        if (emSubmenuLojas || emSubmenuDropbox) { preencherMenuBaixar(); }
+        else { preencherRoot(); }
     }
-    else if (menuAtual == MENU_BAIXAR_DROPBOX_BACKUP) { preencherMenuBaixar(); }
+    else if (menuAtual == MENU_BAIXAR_DROPBOX_BACKUP) { preencherMenuDropbox(); }
     else if (menuAtual == MENU_BAIXAR_DROPBOX_LISTA) {
         if (emApolloSaves) {
-            // CORRIGIDO PARA BUCANERO:
             if (strcmp(currentApolloUrl, "https://bucanero.github.io/apollo-saves/") == 0 || strlen(currentApolloUrl) < 41) {
                 preencherMenuLojas();
             }
@@ -124,8 +134,14 @@ void acaoCircle_Baixar() {
             }
         }
         else {
-            if (strlen(currentDropboxPath) == 0 || strcmp(currentDropboxPath, "/") == 0) {
+            // Verifica se está na HB-Store
+            if (!emSubmenuLojas && !emApolloSaves && !emSubmenuDropbox && strlen(currentDropboxPath) == 0) {
+                // Se clicarmos O dentro da HB-Store ou Link Direto vazio:
+                preencherMenuLojas();
+            }
+            else if (strlen(currentDropboxPath) == 0 || strcmp(currentDropboxPath, "/") == 0) {
                 if (emSubmenuLojas) preencherMenuLojas();
+                else if (emSubmenuDropbox) preencherMenuDropbox();
                 else preencherMenuBaixar();
             }
             else {
@@ -162,16 +178,8 @@ void acaoCircle_Baixar() {
         if (ultimaBarra) strcpy(nomeXML, ultimaBarra + 1);
         abrirXMLRepositorio(nomeXML);
     }
-    else if (menuAtual == MENU_CAPAS) {
-        preencherMenuBaixar();
-    }
     else if (menuAtual == MENU_CONSOLES) {
-        memset(nomes, 0, sizeof(nomes));
-        strcpy(nomes[0], "RETROARCH");
-        totalItens = 1;
-        menuAtual = MENU_CAPAS;
-        sel = 0;
-        off = 0;
+        preencherMenuLojas();
     }
     else if (menuAtual == SCRAPER_LIST) {
         memset(nomes, 0, sizeof(nomes));

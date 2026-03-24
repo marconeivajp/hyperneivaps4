@@ -78,6 +78,11 @@ void inicializarPastas() {
     copiarArquivoSeNaoExistir("/app0/assets/images/0_Defalt_Artwork1.png", "/data/HyperNeiva/configuracao/imagens/0_Defalt_Artwork1.png");
     copiarArquivoSeNaoExistir("/app0/assets/images/0_Defalt_Artwork2.png", "/data/HyperNeiva/configuracao/imagens/0_Defalt_Artwork2.png");
 
+    // ELEMENTOS E PONTEIRO ADICIONADOS AQUI
+    copiarArquivoSeNaoExistir("/app0/assets/images/0_Defalt_elemento1.png", "/data/HyperNeiva/configuracao/imagens/0_Defalt_elemento1.png");
+    copiarArquivoSeNaoExistir("/app0/assets/images/0_Defalt_elemento_controlavel1.png", "/data/HyperNeiva/configuracao/imagens/0_Defalt_elemento_controlavel1.png");
+    copiarArquivoSeNaoExistir("/app0/assets/images/0_Defalt_ponteiro1.png", "/data/HyperNeiva/configuracao/imagens/0_Defalt_ponteiro1.png");
+
     // IMAGENS PADRÃO (Mídia Games)
     copiarArquivoSeNaoExistir("/app0/assets/images/0_Defalt_Background.png", "/data/HyperNeiva/midia/imagens/Games/Background/0_Defalt_Background.png");
     copiarArquivoSeNaoExistir("/app0/assets/images/0_Defalt_Background.jpg", "/data/HyperNeiva/midia/imagens/Games/Background/0_Defalt_Background.jpg");
