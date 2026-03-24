@@ -20,15 +20,19 @@ extern void acaoCross_Notepad(int32_t uId, OrbisImeDialogSetting* imeSetting, ui
 
 void acaoCross_Baixar(int32_t uId, OrbisImeDialogSetting* imeSetting, uint16_t* imeTitle) {
     if (menuAtual == MENU_BAIXAR) {
-        if (sel == 0) preencherMenuRepositorios();
-        else if (sel == 1) { memset(nomes, 0, sizeof(nomes)); strcpy(nomes[0], "RETROARCH"); totalItens = 1; menuAtual = MENU_CAPAS; }
-        else if (sel == 2) { menuAtual = MENU_BAIXAR_LINK_DIRETO; acaoCross_Notepad(uId, imeSetting, imeTitle, ""); }
-        else if (sel == 3) { acessarDropbox(""); }
-        else if (sel == 4) { preencherMenuBackup(); }
-        else if (sel == 5) { preencherMenuLojas(); } // ABRE TELA LOJAS
-    }
-    else if (menuAtual == MENU_LOJAS) {
-        if (sel == 0) acessarHBStore(); // ABRE A HB STORE DENTRO DA TELA LOJAS
+        if (!emSubmenuLojas) {
+            if (sel == 0) preencherMenuRepositorios();
+            else if (sel == 1) { memset(nomes, 0, sizeof(nomes)); strcpy(nomes[0], "RETROARCH"); totalItens = 1; menuAtual = MENU_CAPAS; }
+            else if (sel == 2) { menuAtual = MENU_BAIXAR_LINK_DIRETO; acaoCross_Notepad(uId, imeSetting, imeTitle, ""); }
+            else if (sel == 3) { acessarDropbox(""); }
+            else if (sel == 4) { preencherMenuBackup(); }
+            else if (sel == 5) { preencherMenuLojas(); }
+        }
+        else {
+            // CORRIGIDO PARA BUCANERO:
+            if (sel == 0) { emApolloSaves = false; acessarHBStore(); }
+            else if (sel == 1) { emApolloSaves = true; acessarApolloSaves("https://bucanero.github.io/apollo-saves/"); }
+        }
     }
     else if (menuAtual == MENU_BAIXAR_DROPBOX_BACKUP) {
         if (sel == 0) listarArquivosUpload("/");
@@ -45,8 +49,13 @@ void acaoCross_Baixar(int32_t uId, OrbisImeDialogSetting* imeSetting, uint16_t* 
         char urlSel[1024]; strcpy(urlSel, linksAtuais[sel]); int tam = strlen(urlSel);
 
         if (tam > 0 && urlSel[tam - 1] == '/') {
-            urlSel[tam - 1] = '\0';
-            acessarDropbox(urlSel);
+            if (emApolloSaves) {
+                acessarApolloSaves(urlSel);
+            }
+            else {
+                urlSel[tam - 1] = '\0';
+                acessarDropbox(urlSel);
+            }
         }
         else {
             iniciarDownload(urlSel);
@@ -90,19 +99,44 @@ void acaoCross_Baixar(int32_t uId, OrbisImeDialogSetting* imeSetting, uint16_t* 
 }
 
 void acaoCircle_Baixar() {
-    if (menuAtual == MENU_BAIXAR) { preencherRoot(); }
-    else if (menuAtual == MENU_LOJAS) { preencherMenuBaixar(); } // VOLTA DA LOJA PRO MENU BAIXAR
+    if (menuAtual == MENU_BAIXAR) {
+        if (!emSubmenuLojas) { preencherRoot(); }
+        else { preencherMenuBaixar(); }
+    }
     else if (menuAtual == MENU_BAIXAR_DROPBOX_BACKUP) { preencherMenuBaixar(); }
     else if (menuAtual == MENU_BAIXAR_DROPBOX_LISTA) {
-        if (strlen(currentDropboxPath) == 0 || strcmp(currentDropboxPath, "/") == 0) { preencherMenuBaixar(); }
-        else {
-            char* ultimaBarra = strrchr(currentDropboxPath, '/');
-            if (ultimaBarra != NULL) {
-                if (ultimaBarra == currentDropboxPath) strcpy(currentDropboxPath, "");
-                else *ultimaBarra = '\0';
-                acessarDropbox(currentDropboxPath);
+        if (emApolloSaves) {
+            // CORRIGIDO PARA BUCANERO:
+            if (strcmp(currentApolloUrl, "https://bucanero.github.io/apollo-saves/") == 0 || strlen(currentApolloUrl) < 41) {
+                preencherMenuLojas();
             }
-            else { strcpy(currentDropboxPath, ""); acessarDropbox(currentDropboxPath); }
+            else {
+                int len = strlen(currentApolloUrl);
+                if (currentApolloUrl[len - 1] == '/') currentApolloUrl[len - 1] = '\0';
+                char* ultimaBarra = strrchr(currentApolloUrl, '/');
+                if (ultimaBarra != NULL) {
+                    *(ultimaBarra + 1) = '\0';
+                    acessarApolloSaves(currentApolloUrl);
+                }
+                else {
+                    preencherMenuLojas();
+                }
+            }
+        }
+        else {
+            if (strlen(currentDropboxPath) == 0 || strcmp(currentDropboxPath, "/") == 0) {
+                if (emSubmenuLojas) preencherMenuLojas();
+                else preencherMenuBaixar();
+            }
+            else {
+                char* ultimaBarra = strrchr(currentDropboxPath, '/');
+                if (ultimaBarra != NULL) {
+                    if (ultimaBarra == currentDropboxPath) strcpy(currentDropboxPath, "");
+                    else *ultimaBarra = '\0';
+                    acessarDropbox(currentDropboxPath);
+                }
+                else { strcpy(currentDropboxPath, ""); acessarDropbox(currentDropboxPath); }
+            }
         }
     }
     else if (menuAtual == MENU_BAIXAR_DROPBOX_UPLOAD) {
