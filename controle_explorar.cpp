@@ -16,8 +16,9 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 
-#ifndef MSG_NOSIGNAL
-#define MSG_NOSIGNAL 0x20000 
+// Proteção Anti-Crash do FreeBSD/Orbis OS
+#ifndef SO_NOSIGPIPE
+#define SO_NOSIGPIPE 0x0800 
 #endif
 
 // --- BIBLIOTECAS PARA INSTALAÇÃO NATIVA (BGFT) ---
@@ -49,21 +50,27 @@ extern char caminhoNavegacaoMusicas[512];
 static char caminhoMusicaTocando[512] = "";
 
 // ====================================================================
-// SERVIDOR HTTP INTERNO (Com Resposta 206 Rigorosa para o PS4)
+// SERVIDOR HTTP INTERNO (O SEU CÓDIGO, MAS MULTITHREAD E COM CLOSE)
 // ====================================================================
 char caminhoPkgAtual[512] = "";
 bool servidorRodando = false;
 
+// Função que atende um pedido sem travar os outros
 void* handle_client(void* arg) {
     int client_fd = *(int*)arg;
     free(arg);
 
+    // O SEGREDO DO ANTI-CRASH (Evita o CE-34878-0)
+    int set = 1;
+    setsockopt(client_fd, SOL_SOCKET, SO_NOSIGPIPE, (void*)&set, sizeof(int));
+
     char buffer_req[2048];
     memset(buffer_req, 0, sizeof(buffer_req));
-    int bytes_recvd = recv(client_fd, buffer_req, sizeof(buffer_req) - 1, 0);
+    recv(client_fd, buffer_req, sizeof(buffer_req) - 1, 0);
 
-    if (bytes_recvd > 0 && strlen(caminhoPkgAtual) > 0) {
+    if (strlen(caminhoPkgAtual) > 0 && strlen(buffer_req) > 0) {
 
+        // O SEGREDO DO ERRO CE-37732-2: Verificar se é HEAD ou GET
         bool is_head_request = (strncmp(buffer_req, "HEAD", 4) == 0);
 
         FILE* f = fopen(caminhoPkgAtual, "rb");
@@ -73,34 +80,23 @@ void* handle_client(void* arg) {
             fseek(f, 0, SEEK_SET);
 
             size_t start_range = 0;
-            size_t end_range = fsize - 1;
-            bool has_range = false;
-
-            // Lendo EXATAMENTE o que o PS4 pede
             char* range_str = strstr(buffer_req, "Range: bytes=");
-            if (range_str) {
-                has_range = true;
-                if (sscanf(range_str, "Range: bytes=%zu-%zu", &start_range, &end_range) == 1) {
-                    end_range = fsize - 1; // Se não tiver final, vai até o fim
-                }
-            }
+            if (range_str) sscanf(range_str, "Range: bytes=%zu-", &start_range);
 
-            if (end_range >= fsize) end_range = fsize - 1;
-
-            size_t content_length = (end_range - start_range) + 1;
-            char header[1024];
-
-            // O PULO DO GATO: Sempre manda 206 se o PS4 pediu Range (Mesmo que seja do zero)
-            if (has_range) {
+            char header[512];
+            if (start_range > 0) {
+                // TROCADO KEEP-ALIVE POR CLOSE
                 sprintf(header, "HTTP/1.1 206 Partial Content\r\n"
                     "Content-Type: application/octet-stream\r\n"
                     "Accept-Ranges: bytes\r\n"
                     "Content-Range: bytes %zu-%zu/%zu\r\n"
                     "Content-Length: %zu\r\n"
                     "Connection: close\r\n\r\n",
-                    start_range, end_range, fsize, content_length);
+                    start_range, fsize - 1, fsize, fsize - start_range);
+                fseek(f, start_range, SEEK_SET);
             }
             else {
+                // TROCADO KEEP-ALIVE POR CLOSE
                 sprintf(header, "HTTP/1.1 200 OK\r\n"
                     "Content-Type: application/octet-stream\r\n"
                     "Accept-Ranges: bytes\r\n"
@@ -108,31 +104,17 @@ void* handle_client(void* arg) {
                     "Connection: close\r\n\r\n", fsize);
             }
 
-            send(client_fd, header, strlen(header), MSG_NOSIGNAL);
+            // Envia os cabeçalhos
+            send(client_fd, header, strlen(header), 0);
 
+            // SE FOR 'GET', NÓS ENVIAMOS O JOGO. SE FOR 'HEAD', ENCERRAMOS AQUI!
             if (!is_head_request) {
-                fseek(f, start_range, SEEK_SET);
-
-                size_t bytes_to_send = content_length;
+                size_t bytes_read;
                 char* file_buffer = (char*)malloc(65536);
-
-                while (bytes_to_send > 0) {
-                    size_t chunk_size = (bytes_to_send > 65536) ? 65536 : bytes_to_send;
-                    size_t bytes_read = fread(file_buffer, 1, chunk_size, f);
-
-                    if (bytes_read <= 0) break;
-
-                    char* p = file_buffer;
-                    size_t to_send = bytes_read;
-                    while (to_send > 0) {
-                        ssize_t sent = send(client_fd, p, to_send, MSG_NOSIGNAL);
-                        if (sent <= 0) break;
-                        p += sent;
-                        to_send -= sent;
+                while ((bytes_read = fread(file_buffer, 1, 65536, f)) > 0) {
+                    if (send(client_fd, file_buffer, bytes_read, 0) < 0) {
+                        break; // Se o PS4 abortar, saímos silenciosamente sem crashar!
                     }
-                    if (to_send > 0) break; // PS4 fechou a conexão
-
-                    bytes_to_send -= bytes_read;
                 }
                 free(file_buffer);
             }
@@ -140,10 +122,10 @@ void* handle_client(void* arg) {
         }
         else {
             char* not_found = (char*)"HTTP/1.1 404 Not Found\r\n\r\n";
-            send(client_fd, not_found, strlen(not_found), MSG_NOSIGNAL);
+            send(client_fd, not_found, strlen(not_found), 0);
         }
     }
-    close(client_fd);
+    close(client_fd); // Fecha a conexão limpinha
     return NULL;
 }
 
@@ -151,8 +133,8 @@ void* threadServidorHTTP(void* arg) {
     int server_fd = socket(AF_INET, SOCK_STREAM, 0);
     struct sockaddr_in addr;
     addr.sin_family = AF_INET;
-    addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
-    addr.sin_port = htons(8080);
+    addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK); // 127.0.0.1
+    addr.sin_port = htons(8080); // Porta 8080
 
     int opt = 1;
     setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
@@ -164,6 +146,7 @@ void* threadServidorHTTP(void* arg) {
         int client_fd = accept(server_fd, NULL, NULL);
         if (client_fd < 0) continue;
 
+        // Distribui para a thread e volta a escutar a porta imediatamente
         int* pclient = (int*)malloc(sizeof(int));
         *pclient = client_fd;
         pthread_t tid;
@@ -182,28 +165,28 @@ void ligarServidorSeNecessario() {
 }
 
 // ====================================================================
-// INSTALAÇÃO NATIVA (BGFT)
+// MÉTODO DE INSTALAÇÃO NATIVA (BGFT) - EXATAMENTE O SEU CÓDIGO
 // ====================================================================
-static char s_contentId[40];
-static char s_urlPkg[256];
-static char s_contentName[128];
-
 void instalarPkgLocal(const char* caminhoAbsoluto) {
-    sprintf(msgStatus, "REGISTRANDO TAREFA...");
+    sprintf(msgStatus, "ANALISANDO FILA DE DOWNLOADS...");
     atualizarBarra(0.2f);
 
     strcpy(caminhoPkgAtual, caminhoAbsoluto);
     ligarServidorSeNecessario();
 
-    memset(s_contentId, 0, sizeof(s_contentId));
+    char contentId[40];
+    memset(contentId, 0, sizeof(contentId));
     uint32_t fileSize = 0;
     FILE* f = fopen(caminhoAbsoluto, "rb");
     if (f) {
         fseek(f, 0x40, SEEK_SET);
-        fread(s_contentId, 1, 36, f);
+        fread(contentId, 1, 36, f);
         fseek(f, 0, SEEK_END);
         fileSize = (uint32_t)ftell(f);
         fclose(f);
+    }
+    else {
+        strcpy(contentId, "UP0000-000000000_00-0000000000000000");
     }
 
     sceSysmoduleLoadModuleInternal(ORBIS_SYSMODULE_INTERNAL_APP_INST_UTIL);
@@ -220,32 +203,36 @@ void instalarPkgLocal(const char* caminhoAbsoluto) {
         sceBgftServiceIntInit(&bgftInit);
     }
 
+    // Limpa tarefas antigas travadas
     OrbisBgftTaskId tarefaAntiga = -1;
-    sceBgftServiceIntDownloadFindActiveTask(s_contentId, ORBIS_BGFT_TASK_SUB_TYPE_PACKAGE, &tarefaAntiga);
-    if (tarefaAntiga != -1) sceBgftServiceIntDownloadUnregisterTask(tarefaAntiga);
+    sceBgftServiceIntDownloadFindActiveTask(contentId, ORBIS_BGFT_TASK_SUB_TYPE_PACKAGE, &tarefaAntiga);
+    if (tarefaAntiga != -1) {
+        sceBgftServiceIntDownloadUnregisterTask(tarefaAntiga);
+    }
 
     int32_t userId = 0;
     sceUserServiceGetInitialUser(&userId);
 
-    sprintf(s_urlPkg, "http://127.0.0.1:8080/download.pkg");
-    sprintf(s_contentName, "Hyper Neiva - Instalando Jogo");
+    // O Link do nosso servidor agora aponta certinho
+    char urlPkg[1024];
+    sprintf(urlPkg, "http://127.0.0.1:8080/%s.pkg", contentId);
 
     OrbisBgftDownloadParam params;
     memset(&params, 0, sizeof(OrbisBgftDownloadParam));
     params.userId = userId;
     params.entitlementType = 5;
-    params.id = s_contentId;
-    params.contentUrl = s_urlPkg;
-    params.contentName = s_contentName;
-    params.packageSize = fileSize;
+    params.id = contentId;
+    params.contentUrl = urlPkg;
+    params.contentName = "Hyper Neiva - Instalando PKG";
     params.playgoScenarioId = "0";
+    params.packageSize = fileSize;
 
     OrbisBgftTaskId taskId = -1;
     int res = sceBgftServiceIntDebugDownloadRegisterPkg(&params, &taskId);
 
     if (res == 0 && taskId >= 0) {
         sceBgftServiceDownloadStartTask(taskId);
-        sprintf(msgStatus, "INSTALACAO INICIADA! Acompanhe as Notificacoes.");
+        sprintf(msgStatus, "DOWNLOAD INICIADO! Verifique as Notificacoes.");
         atualizarBarra(1.0f);
     }
     else {
@@ -256,7 +243,7 @@ void instalarPkgLocal(const char* caminhoAbsoluto) {
 }
 // ====================================================================
 
-// RESTO DA INTERFACE MANTIDA IGUAL
+// RESTANTE DAS FUNÇÕES (acaoL2, acaoCross, etc) CONTINUAM IGUAIS...
 void acaoL2_Explorar() { if (visualizandoMidiaImagem) return; painelDuplo = !painelDuplo; if (painelDuplo) { painelAtivo = 0; menuAtualEsq = MENU_EXPLORAR_HOME; selEsq = 0; } else { painelAtivo = 1; } }
 void alternarPainelAtivo() { if (visualizandoMidiaImagem) return; if (painelDuplo && !showOpcoes) painelAtivo = (painelAtivo == 0) ? 1 : 0; }
 void acaoCross_Explorar() {
