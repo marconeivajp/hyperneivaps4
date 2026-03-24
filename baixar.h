@@ -20,7 +20,7 @@ void atualizarBarra(float progresso, int arquivoAtual, int totalArquivos);
 void acaoRede(const char* jogo, bool buscarLista, bool salvarNoHD);
 
 void preencherMenuBaixar();
-void preencherMenuLojas(); // <--- ADICIONADO AQUI
+void preencherMenuLojas();
 void preencherMenuRepositorios();
 void listarXMLsRepositorio();
 void abrirXMLRepositorio(const char* xmlFile);
@@ -42,8 +42,12 @@ extern char currentUploadPath[512];
 extern char linksAtuais[3000][1024];
 
 // ==========================================
-// NOVO SISTEMA DE FILA DE DOWNLOADS NO TXT
+// VARIÁVEIS DE CONTROLE DOS SUBMENUS
 // ==========================================
+extern bool emSubmenuLojas;
+extern bool emApolloSaves;
+extern char currentApolloUrl[1024];
+
 bool adicionarLinkFila(const char* link);
 bool obterPrimeiroLinkFila(char* linkSaida);
 void removerPrimeiroLinkFila();

@@ -49,6 +49,10 @@ int totalLinksAtuais = 0;
 char currentDropboxPath[512] = "";
 char currentUploadPath[512] = "";
 
+bool emSubmenuLojas = false;
+bool emApolloSaves = false;
+char currentApolloUrl[1024] = "";
+
 uint32_t getSysColorBarra(int index) {
     uint32_t sysColors[] = {
         0xAA222222, 0xAA000000, 0xAA000044, 0xAA440000, 0xAA004400, 0x00000000,
@@ -68,21 +72,14 @@ void atualizarBarra(float progresso, int arquivoAtual, int totalArquivos) {
 
     for (int i = 0; i < 1920 * 1080; i++) p[i] = 0xFF121212;
 
-    if (backImg) {
-        desenharRedimensionado(p, backImg, wB, hB, 1920, 1080, 0, 0);
-    }
+    if (backImg) desenharRedimensionado(p, backImg, wB, hB, 1920, 1080, 0, 0);
 
     desenharInterface(p);
 
-    int bX = barX;
-    int bY = barY;
-    int bW = barW;
-    int bH = barH;
+    int bX = barX; int bY = barY; int bW = barW; int bH = barH;
 
     for (int y = bY; y < bY + bH; y++) {
-        for (int x = bX; x < bX + bW; x++) {
-            p[y * 1920 + x] = getSysColorBarra(barBg);
-        }
+        for (int x = bX; x < bX + bW; x++) p[y * 1920 + x] = getSysColorBarra(barBg);
     }
 
     int fill = (int)(bW * progresso);
@@ -90,9 +87,7 @@ void atualizarBarra(float progresso, int arquivoAtual, int totalArquivos) {
     if (fill < 0) fill = 0;
 
     for (int y = bY; y < bY + bH; y++) {
-        for (int x = bX; x < bX + fill; x++) {
-            p[y * 1920 + x] = getSysColorBarra(barFill);
-        }
+        for (int x = bX; x < bX + fill; x++) p[y * 1920 + x] = getSysColorBarra(barFill);
     }
 
     int porcentagem = (int)(progresso * 100.0f);
@@ -101,9 +96,7 @@ void atualizarBarra(float progresso, int arquivoAtual, int totalArquivos) {
 
     char textoLoad[128];
     snprintf(textoLoad, sizeof(textoLoad), "%d%%   -   %d / %d", porcentagem, arquivoAtual, totalArquivos);
-
     desenharTexto(p, textoLoad, 25, bX + bW + 20, bY - 2, 0xFFFFFFFF);
-
     submeterTela();
 }
 
@@ -151,10 +144,7 @@ void acaoRede(const char* jogo, bool buscarLista, bool salvarNoHD) {
                 if (f2) {
                     fseek(f2, 0, SEEK_END); long sz = ftell(f2); fseek(f2, 0, SEEK_SET);
                     char* h = (char*)malloc(sz + 1); fread(h, 1, sz, f2); h[sz] = '\0'; fclose(f2);
-
-                    memset(nomes, 0, sizeof(nomes));
-                    totalItens = 0; char* b = h;
-
+                    memset(nomes, 0, sizeof(nomes)); totalItens = 0; char* b = h;
                     while ((b = strstr(b, "href=\"")) && totalItens < 3000) {
                         b += 6; if (strstr(b, "Parent Directory") || b[0] == '?' || b[0] == '/') { b++; continue; }
                         char* e = strstr(b, ".png\"");
@@ -162,17 +152,13 @@ void acaoRede(const char* jogo, bool buscarLista, bool salvarNoHD) {
                             int l = (int)(e - b); strncpy(nomes[totalItens], b, l); nomes[totalItens][l] = '\0';
                             char* pN = nomes[totalItens], * qN = nomes[totalItens];
                             while (*pN) { if (*pN == '%' && *(pN + 1) == '2' && *(pN + 2) == '0') { *qN++ = ' '; pN += 3; } else { *qN++ = *pN++; } }
-                            *qN = '\0';
-                            totalItens++;
+                            *qN = '\0'; totalItens++;
                         }
                         b = e + 5;
                     }
                     free(h);
                 }
-
-                menuAtual = SCRAPER_LIST;
-                sel = 0;
-                off = 0;
+                menuAtual = SCRAPER_LIST; sel = 0; off = 0;
             }
             else {
                 if (imgPreview) stbi_image_free(imgPreview);
@@ -185,13 +171,15 @@ void acaoRede(const char* jogo, bool buscarLista, bool salvarNoHD) {
 }
 
 void preencherMenuBaixar() {
+    emSubmenuLojas = false;
+    emApolloSaves = false;
     memset(nomes, 0, sizeof(nomes));
     strcpy(nomes[0], "Repositorios");
     strcpy(nomes[1], "CAPAS");
     strcpy(nomes[2], "LINK DIRETO");
     strcpy(nomes[3], "DROPBOX (DOWNLOAD)");
     strcpy(nomes[4], "DROPBOX (MENU BACKUP)");
-    strcpy(nomes[5], "Lojas"); // <--- MENU LOJAS ADICIONADO AQUI
+    strcpy(nomes[5], "Lojas");
     totalItens = 6;
     menuAtual = MENU_BAIXAR;
     sel = 0;
@@ -199,10 +187,13 @@ void preencherMenuBaixar() {
 }
 
 void preencherMenuLojas() {
+    emSubmenuLojas = true;
+    emApolloSaves = false;
     memset(nomes, 0, sizeof(nomes));
-    strcpy(nomes[0], "HB Store"); // <--- A OPÇÃO FICA DENTRO DO SUBMENU "LOJAS"
-    totalItens = 1;
-    menuAtual = MENU_LOJAS;
+    strcpy(nomes[0], "HB Store");
+    strcpy(nomes[1], "Apollo Saves"); // <--- ADICIONADO AQUI!
+    totalItens = 2;
+    menuAtual = MENU_BAIXAR; // Mantém a tela rodando!
     sel = 0;
     off = 0;
 }
@@ -216,78 +207,44 @@ bool adicionarLinkFila(const char* link) {
         char linha[1024];
         while (fgets(linha, sizeof(linha), fIn)) {
             linha[strcspn(linha, "\r\n")] = 0;
-            if (strcmp(linha, link) == 0) {
-                fclose(fIn);
-                return false;
-            }
+            if (strcmp(linha, link) == 0) { fclose(fIn); return false; }
         }
         fclose(fIn);
     }
 
     FILE* fOut = fopen(pathFilaTxt, "a");
-    if (fOut) {
-        fprintf(fOut, "%s\n", link);
-        fclose(fOut);
-        return true;
-    }
+    if (fOut) { fprintf(fOut, "%s\n", link); fclose(fOut); return true; }
     return false;
 }
 
 bool obterPrimeiroLinkFila(char* linkSaida) {
     FILE* f = fopen(pathFilaTxt, "r");
     if (!f) return false;
-
-    if (fgets(linkSaida, 1024, f)) {
-        linkSaida[strcspn(linkSaida, "\r\n")] = 0;
-        fclose(f);
-        return (strlen(linkSaida) > 0);
-    }
-
-    fclose(f);
-    return false;
+    if (fgets(linkSaida, 1024, f)) { linkSaida[strcspn(linkSaida, "\r\n")] = 0; fclose(f); return (strlen(linkSaida) > 0); }
+    fclose(f); return false;
 }
 
 void removerPrimeiroLinkFila() {
-    FILE* fIn = fopen(pathFilaTxt, "r");
-    if (!fIn) return;
-
-    FILE* fOut = fopen(pathTempTxt, "w");
-    if (!fOut) { fclose(fIn); return; }
-
-    char linha[1024];
-    bool primeiraLinha = true;
-
+    FILE* fIn = fopen(pathFilaTxt, "r"); if (!fIn) return;
+    FILE* fOut = fopen(pathTempTxt, "w"); if (!fOut) { fclose(fIn); return; }
+    char linha[1024]; bool primeiraLinha = true;
     while (fgets(linha, sizeof(linha), fIn)) {
-        if (primeiraLinha) {
-            primeiraLinha = false;
-            continue;
-        }
+        if (primeiraLinha) { primeiraLinha = false; continue; }
         fprintf(fOut, "%s", linha);
     }
-
-    fclose(fIn);
-    fclose(fOut);
-
-    unlink(pathFilaTxt);
-    rename(pathTempTxt, pathFilaTxt);
+    fclose(fIn); fclose(fOut);
+    unlink(pathFilaTxt); rename(pathTempTxt, pathFilaTxt);
 }
 
 int contarLinksFila() {
-    FILE* f = fopen(pathFilaTxt, "r");
-    if (!f) return 0;
-
-    int contagem = 0;
-    char linha[1024];
-    while (fgets(linha, sizeof(linha), f)) {
-        if (strlen(linha) > 2) contagem++;
-    }
-    fclose(f);
-    return contagem;
+    FILE* f = fopen(pathFilaTxt, "r"); if (!f) return 0;
+    int contagem = 0; char linha[1024];
+    while (fgets(linha, sizeof(linha), f)) { if (strlen(linha) > 2) contagem++; }
+    fclose(f); return contagem;
 }
 
 void processarFilaDownloads() {
     char linkAtual[1024];
-
     while (obterPrimeiroLinkFila(linkAtual)) {
         int totalRestante = contarLinksFila();
         removerPrimeiroLinkFila();
