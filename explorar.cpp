@@ -9,6 +9,7 @@
 #include "ImeDialog.h"
 #include "CommonDialog.h"
 #include "bloco_de_notas.h" 
+#include <errno.h> // ADICIONADO PARA LER ERROS DO SISTEMA
 
 // A NOSSA NOVA BIBLIOTECA DE EXTRAÇÃO ZIP
 #include "miniz.h" 
@@ -185,7 +186,21 @@ void extrairZip(const char* zipPath, const char* outPath) {
 // Lista diretório do PAINEL DIREITO
 void listarDiretorio(const char* path) {
     DIR* d = opendir(path);
-    if (!d) { sprintf(msgStatus, "ERRO AO ACESSAR"); msgTimer = 90; return; }
+    if (!d) {
+        // VAMOS IMPRIMIR O NUMERO DO ERRO (errno) NA TELA!
+        if (errno == EACCES) {
+            sprintf(msgStatus, "ERRO 13: SEM PERMISSAO DE ROOT");
+        }
+        else if (errno == ENOENT) {
+            sprintf(msgStatus, "ERRO 2: INVISIVEL (SANDBOX) - %s", path);
+        }
+        else {
+            sprintf(msgStatus, "ERRO %d AO ABRIR USB", errno);
+        }
+        msgTimer = 240;
+        return;
+    }
+
     memset(marcados, 0, sizeof(marcados));
     memset(nomes, 0, sizeof(nomes));
     ItemLista temp[3000]; int count = 0; struct dirent* dir;
@@ -215,7 +230,21 @@ void listarDiretorio(const char* path) {
 // Lista diretório do PAINEL ESQUERDO
 void listarDiretorioEsq(const char* path) {
     DIR* d = opendir(path);
-    if (!d) { sprintf(msgStatus, "ERRO AO ACESSAR"); msgTimer = 90; return; }
+    if (!d) {
+        // VAMOS IMPRIMIR O NUMERO DO ERRO (errno) NA TELA!
+        if (errno == EACCES) {
+            sprintf(msgStatus, "ERRO 13: SEM PERMISSAO DE ROOT");
+        }
+        else if (errno == ENOENT) {
+            sprintf(msgStatus, "ERRO 2: INVISIVEL (SANDBOX) - %s", path);
+        }
+        else {
+            sprintf(msgStatus, "ERRO %d AO ABRIR USB", errno);
+        }
+        msgTimer = 240;
+        return;
+    }
+
     memset(marcadosEsq, 0, sizeof(marcadosEsq));
     memset(nomesEsq, 0, sizeof(nomesEsq));
     ItemLista temp[3000]; int count = 0; struct dirent* dir;

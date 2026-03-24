@@ -119,6 +119,8 @@ void acaoCross_Explorar() {
         char tempBase[256];
         if (sAtual == 0) strcpy(tempBase, "/data/HyperNeiva");
         else if (sAtual == 1) strcpy(tempBase, "/");
+
+        // CORREÇÃO: SEM BARRA NO FINAL PARA NÃO DAR ERRO NO OPENDIR
         else if (sAtual == 2) strcpy(tempBase, "/mnt/usb0");
         else if (sAtual == 3) strcpy(tempBase, "/mnt/usb1");
 
@@ -141,7 +143,6 @@ void acaoCross_Explorar() {
                     instalarPkgLocal(caminhoArquivo);
                 }
                 else if (strcasecmp(ext, ".zip") == 0 || strcasecmp(ext, ".ZIP") == 0) {
-                    // PREENCHE APENAS COM A OPÇÃO "extrair zip" E ABRE
                     preencherOpcoesContexto(nItems[sAtual]);
                     showOpcoes = true;
                     selOpcao = 0;
@@ -221,7 +222,9 @@ void acaoCircle_Explorar() {
         }
     }
     else if (mAtual == MENU_EXPLORAR) {
-        if (strcmp(pExplorar, baseRaiz) == 0 || strcmp(pExplorar, "/") == 0) {
+        // Se estiver na base do pendrive, voltar para a HOME do explorer
+        if (strcmp(pExplorar, baseRaiz) == 0 || strcmp(pExplorar, "/") == 0 ||
+            strcmp(pExplorar, "/mnt/usb0") == 0 || strcmp(pExplorar, "/mnt/usb1") == 0) {
             if (ehEsq) menuAtualEsq = MENU_EXPLORAR_HOME;
             else preencherExplorerHome();
         }

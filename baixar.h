@@ -20,6 +20,7 @@ void atualizarBarra(float progresso, int arquivoAtual, int totalArquivos);
 void acaoRede(const char* jogo, bool buscarLista, bool salvarNoHD);
 
 void preencherMenuBaixar();
+void preencherMenuLojas(); // <--- ADICIONADO AQUI
 void preencherMenuRepositorios();
 void listarXMLsRepositorio();
 void abrirXMLRepositorio(const char* xmlFile);
@@ -38,7 +39,7 @@ extern char caminhoXMLAtual[256];
 extern char currentDropboxPath[512];
 extern char currentUploadPath[512];
 
-extern char linksAtuais[3000][1024]; // DECLARAÇÃO RESTAURADA
+extern char linksAtuais[3000][1024];
 
 // ==========================================
 // NOVO SISTEMA DE FILA DE DOWNLOADS NO TXT

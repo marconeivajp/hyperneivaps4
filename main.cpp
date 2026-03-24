@@ -12,6 +12,7 @@
 #include <stdarg.h>
 #include <wchar.h>
 #include <stdint.h>
+#include <sys/types.h>
 
 #include <orbis/libkernel.h>
 #include <orbis/VideoOut.h>
@@ -21,6 +22,30 @@
 #include <orbis/CommonDialog.h>
 #include <orbis/ImeDialog.h>
 #include <orbis/AudioOut.h>
+
+// ======================================================================
+// FORÇANDO O COMPILADOR A LIGAR O JAILBREAK SEM ERROS DE HEADER
+// ======================================================================
+extern "C" {
+    struct jbc_cred {
+        uid_t uid;
+        uid_t ruid;
+        uid_t svuid;
+        gid_t rgid;
+        gid_t svgid;
+        uintptr_t prison;
+        uintptr_t cdir;
+        uintptr_t rdir;
+        uintptr_t jdir;
+        uint64_t sceProcType;
+        uint64_t sonyCred;
+        uint64_t sceProcCap;
+    };
+
+    int jbc_get_cred(struct jbc_cred*);
+    int jbc_jailbreak_cred(struct jbc_cred*);
+    int jbc_set_cred(const struct jbc_cred*);
+}
 
 #include "menu.h" 
 #include "menu_grafico.h" 
@@ -61,10 +86,10 @@ extern void tratarSelecaoAudio(int op);
 
 int main(void) {
     // ======================================================================
-    // 1º PASSO: LIGAR REDE E ÁUDIO PRIMEIRO (como no código que funciona)
+    // 1º PASSO: LIGAR REDE E ÁUDIO PRIMEIRO
     // ======================================================================
     initNetwork();
-    inicializarAudio(); // Inicia o motor de áudio. (Removemos o sceAudioOutInit() solto)
+    inicializarAudio();
 
     // ======================================================================
     // 2º PASSO: Módulos de Sistema e Dialogs
@@ -107,13 +132,11 @@ int main(void) {
     // ======================================================================
     inicializarPastas();
     carregarConfiguracao();
-
-    // IMPORTANTE: Agora que o inicializarAudio() já rodou no começo, 
-    // os sons vão ser carregados corretamente na memória da placa!
     inicializarElementosSonoros();
 
     // ======================================================================
-    // 7º PASSO: Carregar Fontes e Imagens
+    // 7º PASSO: Carregar Fontes e Imagens da pasta /app0/
+    // (A Sandbox ainda está ativa aqui, então tudo carrega perfeito!)
     // ======================================================================
     int fd = sceKernelOpen("/app0/assets/fonts/font.ttf", 0, 0);
     if (fd >= 0) {
@@ -134,6 +157,20 @@ int main(void) {
 
     defaultArtwork2 = stbi_load("/data/HyperNeiva/configuracao/0_Defalt_Artwork2.png", &wDef2, &hDef2, &cDef2, 4);
     if (!defaultArtwork2) defaultArtwork2 = stbi_load("/app0/assets/images/0_Defalt_Artwork2.png", &wDef2, &hDef2, &cDef2, 4);
+
+
+    // ======================================================================
+    // 8º PASSO: ESCAPAR DA SANDBOX (JAILBREAK)
+    // Agora que os gráficos estão na memória, nós quebramos o sistema
+    // para podermos ler o pendrive em /mnt/usb0
+    // ======================================================================
+    struct jbc_cred cred;
+    jbc_get_cred(&cred);
+    jbc_jailbreak_cred(&cred);
+    jbc_set_cred(&cred);
+
+    sceKernelChmod("/mnt/usb0", 0777);
+    sceKernelChmod("/mnt/usb1", 0777);
 
     preencherRoot();
 
