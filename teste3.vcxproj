@@ -58,6 +58,7 @@
     <ClCompile Include="audio.cpp" />
     <ClCompile Include="baixar.cpp" />
     <ClCompile Include="baixar_dropbox_download.cpp" />
+    <ClCompile Include="baixar_lojas.cpp" />
     <ClCompile Include="baixar_repositorio.cpp" />
     <ClCompile Include="barra_de_load.cpp" />
     <ClCompile Include="bloco_de_notas.cpp" />
@@ -110,6 +111,7 @@
     <ClInclude Include="audio.h" />
     <ClInclude Include="baixar.h" />
     <ClInclude Include="baixar_dropbox_download.h" />
+    <ClInclude Include="baixar_lojas.h" />
     <ClInclude Include="baixar_repositorio.h" />
     <ClInclude Include="barra_de_load.h" />
     <ClInclude Include="bloco_de_notas.h" />
@@ -135,6 +137,7 @@
     <ClInclude Include="menu_upload.h" />
     <ClInclude Include="network.h" />
     <ClInclude Include="stb_image.h" />
+    <ClInclude Include="teclado.h" />
     <ClInclude Include="upload.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

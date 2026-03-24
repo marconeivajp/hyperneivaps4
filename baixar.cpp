@@ -8,7 +8,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <dirent.h>
-#include <unistd.h> // ADDED FOR UNLINK
+#include <unistd.h> 
 
 #include <orbis/libkernel.h>
 #include <orbis/Http.h>
@@ -20,7 +20,6 @@
 #include "graphics.h"
 #include "stb_image.h"
 
-// IMPORTANDO AS VARIÁVEIS DE EDIÇÃO DA BARRA
 extern int barX, barY, barW, barH;
 extern int barBg, barFill;
 
@@ -44,13 +43,12 @@ unsigned char* imgPreview = NULL;
 int wP = 0, hP = 0, cP = 0;
 char ultimoJogoCarregado[64] = "";
 char caminhoXMLAtual[256] = "";
-char linksAtuais[3000][1024]; // AQUI ESTÁ A DEFINIÇÃO
+char linksAtuais[3000][1024];
 int totalLinksAtuais = 0;
 
 char currentDropboxPath[512] = "";
 char currentUploadPath[512] = "";
 
-// FUNÇÃO GERADORA DE CORES DA PALETA (Idêntica à da Interface Visual)
 uint32_t getSysColorBarra(int index) {
     uint32_t sysColors[] = {
         0xAA222222, 0xAA000000, 0xAA000044, 0xAA440000, 0xAA004400, 0x00000000,
@@ -81,7 +79,6 @@ void atualizarBarra(float progresso, int arquivoAtual, int totalArquivos) {
     int bW = barW;
     int bH = barH;
 
-    // Fundo da Barra
     for (int y = bY; y < bY + bH; y++) {
         for (int x = bX; x < bX + bW; x++) {
             p[y * 1920 + x] = getSysColorBarra(barBg);
@@ -92,7 +89,6 @@ void atualizarBarra(float progresso, int arquivoAtual, int totalArquivos) {
     if (fill > bW) fill = bW;
     if (fill < 0) fill = 0;
 
-    // Preenchimento da Barra
     for (int y = bY; y < bY + bH; y++) {
         for (int x = bX; x < bX + fill; x++) {
             p[y * 1920 + x] = getSysColorBarra(barFill);
@@ -195,20 +191,25 @@ void preencherMenuBaixar() {
     strcpy(nomes[2], "LINK DIRETO");
     strcpy(nomes[3], "DROPBOX (DOWNLOAD)");
     strcpy(nomes[4], "DROPBOX (MENU BACKUP)");
-    totalItens = 5;
+    strcpy(nomes[5], "Lojas"); // <--- MENU LOJAS ADICIONADO AQUI
+    totalItens = 6;
     menuAtual = MENU_BAIXAR;
     sel = 0;
     off = 0;
 }
 
-// =========================================================================
-// SISTEMA DE FILA INTELIGENTE (TXT) PARA DOWNLOADS ILIMITADOS
-// =========================================================================
+void preencherMenuLojas() {
+    memset(nomes, 0, sizeof(nomes));
+    strcpy(nomes[0], "HB Store"); // <--- A OPÇÃO FICA DENTRO DO SUBMENU "LOJAS"
+    totalItens = 1;
+    menuAtual = MENU_LOJAS;
+    sel = 0;
+    off = 0;
+}
 
 const char* pathFilaTxt = "/data/HyperNeiva/configuracao/fila_downloads.txt";
 const char* pathTempTxt = "/data/HyperNeiva/configuracao/fila_temp.txt";
 
-// 1. Adiciona o link ao arquivo TXT se ele não for repetido
 bool adicionarLinkFila(const char* link) {
     FILE* fIn = fopen(pathFilaTxt, "r");
     if (fIn) {
@@ -232,7 +233,6 @@ bool adicionarLinkFila(const char* link) {
     return false;
 }
 
-// 2. Pega o primeiro link da fila
 bool obterPrimeiroLinkFila(char* linkSaida) {
     FILE* f = fopen(pathFilaTxt, "r");
     if (!f) return false;
@@ -247,7 +247,6 @@ bool obterPrimeiroLinkFila(char* linkSaida) {
     return false;
 }
 
-// 3. Deleta a primeira linha após o download
 void removerPrimeiroLinkFila() {
     FILE* fIn = fopen(pathFilaTxt, "r");
     if (!fIn) return;
@@ -273,7 +272,6 @@ void removerPrimeiroLinkFila() {
     rename(pathTempTxt, pathFilaTxt);
 }
 
-// 4. Conta quantos arquivos faltam
 int contarLinksFila() {
     FILE* f = fopen(pathFilaTxt, "r");
     if (!f) return 0;
@@ -287,18 +285,11 @@ int contarLinksFila() {
     return contagem;
 }
 
-// 5. Loop Automático
 void processarFilaDownloads() {
     char linkAtual[1024];
 
     while (obterPrimeiroLinkFila(linkAtual)) {
-
         int totalRestante = contarLinksFila();
-
-        // --- CHAME A SUA FUNÇÃO DE DOWNLOAD AQUI ---
-        // Exemplo:
-        // iniciarDownload(linkAtual);
-
         removerPrimeiroLinkFila();
     }
 }

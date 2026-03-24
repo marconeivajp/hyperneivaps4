@@ -14,6 +14,7 @@
 #include "network.h"
 #include "baixar_repositorio.h"
 #include "baixar_dropbox_download.h"
+#include "baixar_lojas.h" 
 
 extern void acaoCross_Notepad(int32_t uId, OrbisImeDialogSetting* imeSetting, uint16_t* imeTitle, const char* textoInicial);
 
@@ -24,6 +25,10 @@ void acaoCross_Baixar(int32_t uId, OrbisImeDialogSetting* imeSetting, uint16_t* 
         else if (sel == 2) { menuAtual = MENU_BAIXAR_LINK_DIRETO; acaoCross_Notepad(uId, imeSetting, imeTitle, ""); }
         else if (sel == 3) { acessarDropbox(""); }
         else if (sel == 4) { preencherMenuBackup(); }
+        else if (sel == 5) { preencherMenuLojas(); } // ABRE TELA LOJAS
+    }
+    else if (menuAtual == MENU_LOJAS) {
+        if (sel == 0) acessarHBStore(); // ABRE A HB STORE DENTRO DA TELA LOJAS
     }
     else if (menuAtual == MENU_BAIXAR_DROPBOX_BACKUP) {
         if (sel == 0) listarArquivosUpload("/");
@@ -39,13 +44,11 @@ void acaoCross_Baixar(int32_t uId, OrbisImeDialogSetting* imeSetting, uint16_t* 
     else if (menuAtual == MENU_BAIXAR_DROPBOX_LISTA) {
         char urlSel[1024]; strcpy(urlSel, linksAtuais[sel]); int tam = strlen(urlSel);
 
-        // Verifica se é uma pasta (termina com '/')
         if (tam > 0 && urlSel[tam - 1] == '/') {
             urlSel[tam - 1] = '\0';
-            acessarDropbox(urlSel); // Entra na pasta
+            acessarDropbox(urlSel);
         }
         else {
-            // SE FOR ARQUIVO, AGORA ELE BAIXA DIRETO NO BOTÃO X!
             iniciarDownload(urlSel);
         }
     }
@@ -81,7 +84,6 @@ void acaoCross_Baixar(int32_t uId, OrbisImeDialogSetting* imeSetting, uint16_t* 
         consoleAtual = sel;
         acaoRede(NULL, true, false);
     }
-    // --- CORREÇÃO: O comando que salva a capa no HD quando clica nela na lista do scraper! ---
     else if (menuAtual == SCRAPER_LIST) {
         acaoRede(nomes[sel], false, true);
     }
@@ -89,6 +91,7 @@ void acaoCross_Baixar(int32_t uId, OrbisImeDialogSetting* imeSetting, uint16_t* 
 
 void acaoCircle_Baixar() {
     if (menuAtual == MENU_BAIXAR) { preencherRoot(); }
+    else if (menuAtual == MENU_LOJAS) { preencherMenuBaixar(); } // VOLTA DA LOJA PRO MENU BAIXAR
     else if (menuAtual == MENU_BAIXAR_DROPBOX_BACKUP) { preencherMenuBaixar(); }
     else if (menuAtual == MENU_BAIXAR_DROPBOX_LISTA) {
         if (strlen(currentDropboxPath) == 0 || strcmp(currentDropboxPath, "/") == 0) { preencherMenuBaixar(); }
@@ -151,6 +154,4 @@ void acaoCircle_Baixar() {
 }
 
 void acaoTriangle_Baixar() {
-    // Agora o Triângulo é tratado diretamente no arquivo controle.cpp (para abrir o menu suspenso),
-    // portanto não precisamos de código aqui para evitar conflitos!
 }
