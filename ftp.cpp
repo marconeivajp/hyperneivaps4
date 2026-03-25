@@ -44,6 +44,8 @@ extern int painelAtivo;
 extern char msgStatus[128];
 extern int msgTimer;
 extern void atualizarBarra(float progresso);
+
+// ESSE É O "MÉTODO DO EXPLORAR" PUXADO DO SEU CONTROLE_EXPLORAR.CPP
 extern void instalarPkgLocal(const char* caminhoAbsoluto);
 
 extern const char* listaOpcoes[10];
@@ -166,7 +168,7 @@ bool parse_ftp_line(char* line, char* nameOut, bool* isDirOut) {
 }
 
 // ==============================================================
-// FILA INTELIGENTE DE UPLOAD / DOWNLOAD (CORRECAO DE MEMORIA)
+// FILA INTELIGENTE DE UPLOAD / DOWNLOAD (MEMÓRIA BLINDADA)
 // ==============================================================
 struct FtpTransfer {
     char sourcePath[1024];
@@ -182,7 +184,7 @@ bool ftpFilaRodando = false;
 
 void adicionarFilaFTP(const char* sourcePath, const char* destPath, bool isUpload, bool isDir) {
     if (!ftpFila) ftpFila = (FtpTransfer*)malloc(sizeof(FtpTransfer) * 1000);
-    if (ftpFilaCount >= 999) return; // Limite seguro!
+    if (ftpFilaCount >= 999) return;
 
     strcpy(ftpFila[ftpFilaCount].sourcePath, sourcePath);
     strcpy(ftpFila[ftpFilaCount].destPath, destPath);
@@ -258,10 +260,13 @@ void* threadProcessarFilaFTP(void* arg) {
                     FILE* f = fopen(t->sourcePath, "rb");
                     if (f) {
                         fseek(f, 0, SEEK_END); uint64_t totalSize = ftell(f); fseek(f, 0, SEEK_SET);
-                        unsigned char buf[65536]; int n; uint64_t enviado = 0;
-                        while ((n = fread(buf, 1, sizeof(buf), f)) > 0) {
-                            send(data_sock, buf, n, 0); enviado += n;
-                            if (totalSize > 0) { float prog = (float)enviado / (float)totalSize; sprintf(msgStatus, "UP: %d%% (%d/%d)", (int)(prog * 100), ftpFilaCurrent + 1, ftpFilaCount); atualizarBarra(prog); }
+                        unsigned char* buf = (unsigned char*)malloc(65536); // SOLUCAO DO ERRO 348780
+                        if (buf) {
+                            int n; uint64_t enviado = 0;
+                            while ((n = fread(buf, 1, 65536, f)) > 0) {
+                                send(data_sock, buf, n, 0); enviado += n;
+                                if (totalSize > 0) { float prog = (float)enviado / (float)totalSize; sprintf(msgStatus, "UP: %d%% (%d/%d)", (int)(prog * 100), ftpFilaCurrent + 1, ftpFilaCount); atualizarBarra(prog); }
+                            } free(buf);
                         } fclose(f);
                     } close(data_sock); send_ftp_cmd(ctrl_sock, NULL, resp);
                 }
@@ -275,19 +280,26 @@ void* threadProcessarFilaFTP(void* arg) {
                     char cmdRetr[512]; sprintf(cmdRetr, "RETR %s", t->sourcePath); send_ftp_cmd(ctrl_sock, cmdRetr, resp);
                     FILE* f = fopen(t->destPath, "wb");
                     if (f) {
-                        unsigned char buf[65536]; int n; uint64_t baixado = 0;
-                        while ((n = recv(data_sock, buf, sizeof(buf), 0)) > 0) {
-                            fwrite(buf, 1, n, f); baixado += n;
-                            if (totalSize > 0) { float prog = (float)baixado / (float)totalSize; sprintf(msgStatus, "DOWN: %d%% (%d/%d)", (int)(prog * 100), ftpFilaCurrent + 1, ftpFilaCount); atualizarBarra(prog); }
+                        unsigned char* buf = (unsigned char*)malloc(65536); // SOLUCAO DO ERRO 348780
+                        if (buf) {
+                            int n; uint64_t baixado = 0;
+                            while ((n = recv(data_sock, buf, 65536, 0)) > 0) {
+                                fwrite(buf, 1, n, f); baixado += n;
+                                if (totalSize > 0) { float prog = (float)baixado / (float)totalSize; sprintf(msgStatus, "DOWN: %d%% (%d/%d)", (int)(prog * 100), ftpFilaCurrent + 1, ftpFilaCount); atualizarBarra(prog); }
+                            } free(buf);
                         } fclose(f);
                     } close(data_sock); send_ftp_cmd(ctrl_sock, NULL, resp);
                 }
 
+                // ===============================================
+                // AQUI OCORRE O MÉTODO DO EXPLORAR PARA O PKG
+                // ===============================================
                 char* ext = strrchr(t->destPath, '.');
                 if (ext && (strcasecmp(ext, ".pkg") == 0 || strcasecmp(ext, ".PKG") == 0)) {
                     char justName[256]; char* bName = strrchr(t->destPath, '/'); if (bName) strcpy(justName, bName + 1); else strcpy(justName, t->destPath);
                     sceKernelMkdir("/data/pkg", 0777); char destino[512]; sprintf(destino, "/data/pkg/%s", justName); rename(t->destPath, destino);
-                    sprintf(msgStatus, "INSTALANDO NO PS4..."); msgTimer = 180; instalarPkgLocal(destino);
+                    sprintf(msgStatus, "INSTALANDO NO PS4..."); msgTimer = 180;
+                    instalarPkgLocal(destino); // Método que está lá no seu controle_explorar.cpp !
                 }
             }
         }
@@ -547,7 +559,7 @@ void acaoOpcaoFTP(int idxOpcao, int32_t uId) {
     char (*lItems)[1024] = isEsq ? linksAtuaisEsq : linksAtuais;
     int sAt = isEsq ? selEsq : sel;
 
-    if (idxOpcao == 0) { // Transferência Lote (Usa Fila Oculta)
+    if (idxOpcao == 0) {
         bool temMarcado = false; for (int i = 0; i < tItens; i++) if (mItems[i]) { temMarcado = true; break; }
         ftpFilaCount = 0; ftpFilaCurrent = 0;
         for (int i = 0; i < tItens; i++) {
@@ -646,7 +658,7 @@ void* threadPreviewFTP(void* arg) {
     int data_sock = ftp_enter_pasv(ctrl_sock);
     char cmdRetr[512]; sprintf(cmdRetr, "RETR %s", remotePath); send_ftp_cmd(ctrl_sock, cmdRetr, resp);
     FILE* f = fopen(localPath, "wb");
-    if (f) { unsigned char buf[65536]; int n; uint64_t baixado = 0; while ((n = recv(data_sock, buf, sizeof(buf), 0)) > 0) { fwrite(buf, 1, n, f); baixado += n; if (totalSize > 0) { float prog = (float)baixado / (float)totalSize; sprintf(msgStatus, "ABRINDO: %d%%", (int)(prog * 100)); atualizarBarra(prog); } } fclose(f); } close(data_sock); send_ftp_cmd(ctrl_sock, NULL, resp); close(ctrl_sock);
+    if (f) { unsigned char* buf = (unsigned char*)malloc(65536); if (buf) { int n; uint64_t baixado = 0; while ((n = recv(data_sock, buf, 65536, 0)) > 0) { fwrite(buf, 1, n, f); baixado += n; if (totalSize > 0) { float prog = (float)baixado / (float)totalSize; sprintf(msgStatus, "ABRINDO: %d%%", (int)(prog * 100)); atualizarBarra(prog); } } free(buf); } fclose(f); } close(data_sock); send_ftp_cmd(ctrl_sock, NULL, resp); close(ctrl_sock);
     char* ext = strrchr(nomeArquivo, '.');
     if (ext && (strcasecmp(ext, ".png") == 0 || strcasecmp(ext, ".jpg") == 0 || strcasecmp(ext, ".jpeg") == 0)) {
         if (imgMidia) { stbi_image_free(imgMidia); imgMidia = NULL; } int canais; imgMidia = stbi_load(localPath, &wM, &hM, &canais, 4);
@@ -660,7 +672,7 @@ void* threadPreviewFTP(void* arg) {
 }
 void prepararPreviewFTP(const char* remotePath) { sprintf(msgStatus, "PREPARANDO VISUALIZACAO..."); atualizarBarra(0.1f); msgTimer = 180; char* p = strdup(remotePath); pthread_t tId; pthread_create(&tId, NULL, threadPreviewFTP, p); pthread_detach(tId); }
 
-// ESSA É A THREAD CLÁSSICA QUE O BOTÃO X CHAMA!
+// MODO CLÁSSICO - DOWNLOAD DIRETO (BOTÃO X) - AGORA COM MALLOC BLINDADO
 void* threadDownloadFTP(void* arg) {
     char* remotePath = (char*)arg; char nomeArquivo[256];
     char* ref = strrchr(remotePath, '/'); if (ref) strcpy(nomeArquivo, ref + 1); else strcpy(nomeArquivo, remotePath);
@@ -686,17 +698,22 @@ void* threadDownloadFTP(void* arg) {
 
     FILE* f = fopen(localPath, "wb");
     if (f) {
-        unsigned char buf[65536]; int n; uint64_t baixado = 0;
-        while ((n = recv(data_sock, buf, sizeof(buf), 0)) > 0) {
-            fwrite(buf, 1, n, f); baixado += n;
-            if (totalSize > 0) { float prog = (float)baixado / (float)totalSize; sprintf(msgStatus, "BAIXANDO: %d%%", (int)(prog * 100)); atualizarBarra(prog); }
+        unsigned char* buf = (unsigned char*)malloc(65536); // SOLUCAO DO ERRO 348780
+        if (buf) {
+            int n; uint64_t baixado = 0;
+            while ((n = recv(data_sock, buf, 65536, 0)) > 0) {
+                fwrite(buf, 1, n, f); baixado += n;
+                if (totalSize > 0) { float prog = (float)baixado / (float)totalSize; sprintf(msgStatus, "BAIXANDO: %d%%", (int)(prog * 100)); atualizarBarra(prog); }
+            } free(buf);
         } fclose(f);
     } close(data_sock); send_ftp_cmd(ctrl_sock, NULL, resp); close(ctrl_sock);
 
+    // MODO EXPLORAR PARA O PKG
     char* ext = strrchr(nomeArquivo, '.');
     if (ext && (strcasecmp(ext, ".pkg") == 0 || strcasecmp(ext, ".PKG") == 0)) {
         sceKernelMkdir("/data/pkg", 0777); char destino[512]; sprintf(destino, "/data/pkg/%s", nomeArquivo);
-        rename(localPath, destino); sprintf(msgStatus, "INSTALANDO NO PS4..."); msgTimer = 300; instalarPkgLocal(destino);
+        rename(localPath, destino); sprintf(msgStatus, "INSTALANDO NO PS4..."); msgTimer = 300;
+        instalarPkgLocal(destino); // MODO EXPLORAR ATIVADO
     }
     else {
         sprintf(msgStatus, "ARQUIVO BAIXADO COM SUCESSO!"); msgTimer = 240;
@@ -710,6 +727,7 @@ void iniciarDownloadFTP(const char* remotePath) {
     char* p = strdup(remotePath); pthread_t tId; pthread_create(&tId, NULL, threadDownloadFTP, p); pthread_detach(tId);
 }
 
+// MODO CLÁSSICO - UPLOAD DIRETO (BOTÃO X) - AGORA COM MALLOC BLINDADO
 void* threadUploadFTP(void* arg) {
     char* localPath = (char*)arg; char nomeArquivo[256];
     char* ref = strrchr(localPath, '/'); if (ref) strcpy(nomeArquivo, ref + 1); else strcpy(nomeArquivo, localPath);
@@ -727,8 +745,15 @@ void* threadUploadFTP(void* arg) {
     char cmdStor[512]; sprintf(cmdStor, "STOR %s", nomeArquivo); send_ftp_cmd(ctrl_sock, cmdStor, resp);
     FILE* f = fopen(localPath, "rb");
     if (f) {
-        fseek(f, 0, SEEK_END); uint64_t totalSize = ftell(f); fseek(f, 0, SEEK_SET); unsigned char buf[65536]; int n; uint64_t enviado = 0;
-        while ((n = fread(buf, 1, sizeof(buf), f)) > 0) { send(data_sock, buf, n, 0); enviado += n; if (totalSize > 0) { float prog = (float)enviado / (float)totalSize; sprintf(msgStatus, "ENVIANDO: %d%%", (int)(prog * 100)); atualizarBarra(prog); } } fclose(f);
+        fseek(f, 0, SEEK_END); uint64_t totalSize = ftell(f); fseek(f, 0, SEEK_SET);
+        unsigned char* buf = (unsigned char*)malloc(65536); // SOLUCAO DO ERRO 348780
+        if (buf) {
+            int n; uint64_t enviado = 0;
+            while ((n = fread(buf, 1, 65536, f)) > 0) {
+                send(data_sock, buf, n, 0); enviado += n;
+                if (totalSize > 0) { float prog = (float)enviado / (float)totalSize; sprintf(msgStatus, "ENVIANDO: %d%%", (int)(prog * 100)); atualizarBarra(prog); }
+            } free(buf);
+        } fclose(f);
     } close(data_sock); send_ftp_cmd(ctrl_sock, NULL, resp); close(ctrl_sock);
 
     sprintf(msgStatus, "ENVIO PARA O COMPUTADOR CONCLUIDO!"); msgTimer = 240; atualizarBarra(1.0f);
