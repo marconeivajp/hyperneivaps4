@@ -26,3 +26,8 @@ void iniciarDownloadFTP(const char* remotePath);
 void preencherMenuFTPUploadRaizes();
 void listarArquivosUploadFTP(const char* dirPath);
 void fazerUploadFTP(const char* localPath);
+
+// --- NOVAS FUNCOES DO EXPLORAR REMOTO ---
+void preencherOpcoesFTP();
+void acaoOpcaoFTP(int idxOpcao, int32_t uId);
+void prepararPreviewFTP(const char* remotePath);

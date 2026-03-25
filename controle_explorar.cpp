@@ -206,7 +206,7 @@ void acaoCross_Explorar() {
                 totalOpcoes = 1; showOpcoes = true; selOpcao = 0;
             }
             // ========================================================
-            // MENU DO 'X' PARA IMAGENS E AVATARES (AS 4 OPÇÕES)
+            // MENU DO X: AS 4 OPÇÕES! (Visualizar, Usar, Fundos...)
             // ========================================================
             else if (strstr(nomeBlindado, ".png") || strstr(nomeBlindado, ".jpg") || strstr(nomeBlindado, ".jpeg") || strstr(nomeBlindado, ".bmp") || strstr(nomeBlindado, ".xavatar")) {
                 strcpy(caminhoImagemAberta, caminhoArquivo);
@@ -214,11 +214,11 @@ void acaoCross_Explorar() {
                 listaOpcoes[0] = "visualizar";
                 if (strstr(nomeBlindado, ".xavatar")) mapOpcoes[0] = 13; else mapOpcoes[0] = 14;
 
-                listaOpcoes[1] = "definir como perfil ps4";
+                listaOpcoes[1] = "usar no perfil ps4";
                 mapOpcoes[1] = 12;
-                listaOpcoes[2] = "definir como plano de fundo ps4";
+                listaOpcoes[2] = "plano de fundo do ps4";
                 mapOpcoes[2] = 11;
-                listaOpcoes[3] = "definir fundo hyper neiva";
+                listaOpcoes[3] = "plano de fundo hyper neiva";
                 mapOpcoes[3] = 10;
 
                 if (strstr(nomeBlindado, ".xavatar")) {
@@ -259,6 +259,7 @@ void acaoCircle_Explorar() {
 void acaoTriangle_Explorar() {
     if (esperandoNomePasta || esperandoRenomear) return;
     bool ehEsq = (painelDuplo && painelAtivo == 0); MenuLevel mAtual = ehEsq ? menuAtualEsq : menuAtual;
+
     if (mAtual == MENU_EXPLORAR) {
         if (!showOpcoes) {
             int sAtual = ehEsq ? selEsq : sel; char (*nItems)[64] = ehEsq ? nomesEsq : nomes;

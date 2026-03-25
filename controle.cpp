@@ -127,9 +127,13 @@ void processarControles(uint32_t botoes, int32_t uId, OrbisImeDialogSetting* ime
 
     if (botoes & ORBIS_PAD_BUTTON_L2) { if (!pL2) { if (menuAtual == MENU_EXPLORAR || menuAtual == MENU_EXPLORAR_HOME) acaoL2_Explorar(); pL2 = true; } }
     else pL2 = false;
-    if (botoes & ORBIS_PAD_BUTTON_L1) { if (!pL1) { if (menuAtual == MENU_EXPLORAR || menuAtual == MENU_BAIXAR_DROPBOX_LISTA || menuAtual == MENU_BAIXAR_DROPBOX_UPLOAD) marcados[sel] = !marcados[sel]; pL1 = true; } }
+
+    // AQUI: L1 ativado para marcar ficheiros no FTP também!
+    if (botoes & ORBIS_PAD_BUTTON_L1) { if (!pL1) { if (menuAtual == MENU_EXPLORAR || menuAtual == MENU_BAIXAR_DROPBOX_LISTA || menuAtual == MENU_BAIXAR_DROPBOX_UPLOAD || menuAtual == MENU_BAIXAR_FTP_LISTA) marcados[sel] = !marcados[sel]; pL1 = true; } }
     else pL1 = false;
-    if (botoes & ORBIS_PAD_BUTTON_R1) { if (!pR1) { if (menuAtual == MENU_BAIXAR_DROPBOX_LISTA || menuAtual == MENU_BAIXAR_DROPBOX_UPLOAD) marcados[sel] = !marcados[sel]; else if (menuAtual == MENU_EXPLORAR) acaoR1_Explorar(); pR1 = true; } }
+
+    // AQUI: R1 ativado para marcar ficheiros no FTP também!
+    if (botoes & ORBIS_PAD_BUTTON_R1) { if (!pR1) { if (menuAtual == MENU_BAIXAR_DROPBOX_LISTA || menuAtual == MENU_BAIXAR_DROPBOX_UPLOAD || menuAtual == MENU_BAIXAR_FTP_LISTA) marcados[sel] = !marcados[sel]; else if (menuAtual == MENU_EXPLORAR) acaoR1_Explorar(); pR1 = true; } }
     else pR1 = false;
 
     if (botoes & ORBIS_PAD_BUTTON_CROSS) {
@@ -167,10 +171,16 @@ void processarControles(uint32_t botoes, int32_t uId, OrbisImeDialogSetting* ime
     }
     else pCircle = false;
 
+    // AQUI: Triângulo ativado para todas as secções do FTP!
     if (botoes & ORBIS_PAD_BUTTON_TRIANGLE) {
         if (!pTri) {
             if (botoes & ORBIS_PAD_BUTTON_L2) { if (menuAtual != MENU_AUDIO_OPCOES) { menuAntesDoAudio = menuAtual; veioDeOutroMenuParaAudio = true; abrirMenuAudioOpcoes(); } else if (veioDeOutroMenuParaAudio) { menuAtual = menuAntesDoAudio; showOpcoes = false; veioDeOutroMenuParaAudio = false; } }
-            else { if (menuAtual == MENU_MUSICAS) acaoTriangle_Musicas(); else if (menuAtual == MENU_EXPLORAR) acaoTriangle_Explorar(); else if (menuAtual == MENU_BAIXAR_DROPBOX_UPLOAD || menuAtual == MENU_BAIXAR_DROPBOX_LISTA) acaoTriangle_MenuUpload(); else if (menuAtual == MENU_BAIXAR_FTP_SERVIDORES) acaoTriangle_Baixar(); }
+            else {
+                if (menuAtual == MENU_MUSICAS) acaoTriangle_Musicas();
+                else if (menuAtual == MENU_EXPLORAR) acaoTriangle_Explorar();
+                else if (menuAtual == MENU_BAIXAR_DROPBOX_UPLOAD || menuAtual == MENU_BAIXAR_DROPBOX_LISTA) acaoTriangle_MenuUpload();
+                else if (menuAtual == MENU_BAIXAR_FTP_SERVIDORES || menuAtual == MENU_BAIXAR_FTP_LISTA || menuAtual == MENU_BAIXAR_FTP_UPLOAD) acaoTriangle_Baixar();
+            }
             pTri = true;
         }
     }
