@@ -20,8 +20,6 @@ extern void acaoCross_Notepad(int32_t uId, OrbisImeDialogSetting* imeSetting, ui
 
 extern bool emSubmenuDropbox;
 extern void preencherMenuDropbox();
-
-// Declarado para podermos chamar a Atualização forçada pelo controle
 extern void atualizarHBStore();
 
 void acaoCross_Baixar(int32_t uId, OrbisImeDialogSetting* imeSetting, uint16_t* imeTitle) {
@@ -54,20 +52,16 @@ void acaoCross_Baixar(int32_t uId, OrbisImeDialogSetting* imeSetting, uint16_t* 
         }
     }
     else if (menuAtual == MENU_BAIXAR_DROPBOX_BACKUP) {
-        if (sel == 0) listarArquivosUpload("/");
-        else if (sel == 1) executarBackupTodos();
-        else if (sel == 2) listarArquivosUpload("/user/home/10000000/savedata");
-        else if (sel == 3) listarArquivosUpload("/data/retroarch");
-        else if (sel == 4) listarArquivosUpload("/data/HyperNeiva/configuracao");
-        else if (sel == 5) fazerUploadDropbox("/system_data/priv/mms/app.db");
-        else if (sel == 6) listarArquivosUpload("/user/av_contents/photo");
-        else if (sel == 7) listarArquivosUpload("/user/home/10000000/trophy");
-        else if (sel == 8) listarArquivosUpload("/data/apollo");
+        // LÓGICA DO EXPLORER APLICADA AO UPLOAD!
+        if (sel == 0) listarArquivosUpload("/data/HyperNeiva");
+        else if (sel == 1) listarArquivosUpload("/");
+        else if (sel == 2) listarArquivosUpload("/mnt/usb0");
+        else if (sel == 3) listarArquivosUpload("/mnt/usb1");
+        else if (sel == 4) executarBackupTodos();
     }
     else if (menuAtual == MENU_BAIXAR_DROPBOX_LISTA) {
         char urlSel[1024]; strcpy(urlSel, linksAtuais[sel]); int tam = strlen(urlSel);
 
-        // AQUI ESTÁ O BOTÃO MÁGICO DE ATUALIZAÇÃO
         if (strcmp(urlSel, "UPDATE_HB_STORE") == 0) {
             atualizarHBStore();
             return;
@@ -134,9 +128,7 @@ void acaoCircle_Baixar() {
             }
         }
         else {
-            // Verifica se está na HB-Store
             if (!emSubmenuLojas && !emApolloSaves && !emSubmenuDropbox && strlen(currentDropboxPath) == 0) {
-                // Se clicarmos O dentro da HB-Store ou Link Direto vazio:
                 preencherMenuLojas();
             }
             else if (strlen(currentDropboxPath) == 0 || strcmp(currentDropboxPath, "/") == 0) {
@@ -156,14 +148,21 @@ void acaoCircle_Baixar() {
         }
     }
     else if (menuAtual == MENU_BAIXAR_DROPBOX_UPLOAD) {
-        if (strcmp(currentUploadPath, "/") == 0) {
-            preencherMenuBackup();
+        // Lógica ultra-inteligente para o Círculo no Explorador de Upload
+        if (strcmp(currentUploadPath, "/") == 0 || strcmp(currentUploadPath, "/data/HyperNeiva") == 0 || strcmp(currentUploadPath, "/mnt/usb0") == 0 || strcmp(currentUploadPath, "/mnt/usb1") == 0 || strlen(currentUploadPath) == 0) {
+            preencherMenuBackup(); // Se estiver numa das 4 raízes, volta para o Menu Base
         }
         else {
             char* ultimaBarra = strrchr(currentUploadPath, '/');
-            if (ultimaBarra != NULL && ultimaBarra != currentUploadPath) {
-                *ultimaBarra = '\0';
-                listarArquivosUpload(currentUploadPath);
+            if (ultimaBarra != NULL) {
+                if (ultimaBarra == currentUploadPath) {
+                    strcpy(currentUploadPath, "/");
+                    listarArquivosUpload(currentUploadPath);
+                }
+                else {
+                    *ultimaBarra = '\0';
+                    listarArquivosUpload(currentUploadPath);
+                }
             }
             else {
                 preencherMenuBackup();

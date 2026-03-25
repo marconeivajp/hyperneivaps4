@@ -14,6 +14,11 @@
 #include <orbis/Ssl.h>
 #include <orbis/Sysmodule.h> 
 
+// --- NOVAS BIBLIOTECAS PARA O GERENCIADOR NATIVO (BGFT) ---
+#include <orbis/AppInstUtil.h>
+#include <orbis/Bgft.h>
+#include <orbis/UserService.h>
+
 #include "baixar_dropbox_download.h"
 #include "menu.h"
 #include "network.h"
@@ -70,7 +75,6 @@ void adicionarNaFila(const char* url, MenuLevel menuOrigem, const char* xmlOrige
     sceKernelMkdir("/data/HyperNeiva/configuracao/temporario", 0777);
     pthread_mutex_lock(&filaMutex);
 
-    // Verifica se o URL já existe na fila (Evita links repetidos)
     bool existe = false;
     FILE* fCheck = fopen(caminhoFila, "r");
     if (fCheck) {
@@ -78,7 +82,7 @@ void adicionarNaFila(const char* url, MenuLevel menuOrigem, const char* xmlOrige
         while (fgets(linha, sizeof(linha), fCheck)) {
             for (int i = 0; linha[i]; i++) if (linha[i] == '\r' || linha[i] == '\n') linha[i] = '\0';
             char* p1 = strchr(linha, '|');
-            if (p1) *p1 = '\0'; // Isola o URL da linha cortando no Pipe |
+            if (p1) *p1 = '\0';
 
             if (strcmp(linha, url) == 0) {
                 existe = true;
@@ -88,16 +92,14 @@ void adicionarNaFila(const char* url, MenuLevel menuOrigem, const char* xmlOrige
         fclose(fCheck);
     }
 
-    // Se não for repetido, registra no TXT
     if (!existe) {
         FILE* f = fopen(caminhoFila, "a");
         if (f) {
             fprintf(f, "%s|%d|%s\n", url, (int)menuOrigem, xmlOrigem);
             fclose(f);
-            totalFilaSessao++; // Aumenta o visual da barra
+            totalFilaSessao++;
         }
     }
-
     pthread_mutex_unlock(&filaMutex);
 }
 
@@ -113,14 +115,14 @@ bool obterPrimeiroDaFila(char* urlOut, MenuLevel* menuOut, char* xmlOut) {
         char* p1 = strchr(linha, '|');
         if (p1) {
             *p1 = '\0';
-            strcpy(urlOut, linha); // Puxa a URL
+            strcpy(urlOut, linha);
             p1++;
             char* p2 = strchr(p1, '|');
             if (p2) {
                 *p2 = '\0';
-                *menuOut = (MenuLevel)atoi(p1); // Puxa o Menu Original
+                *menuOut = (MenuLevel)atoi(p1);
                 p2++;
-                strcpy(xmlOut, p2); // Puxa o XML Path
+                strcpy(xmlOut, p2);
             }
             else {
                 *menuOut = (MenuLevel)atoi(p1);
@@ -151,14 +153,13 @@ void removerPrimeiroDaFila() {
         char linha[2048];
         bool primeiro = true;
         while (fgets(linha, sizeof(linha), f)) {
-            if (primeiro) { primeiro = false; continue; } // Pula a primeira linha (deleta)
-            fprintf(fTemp, "%s", linha); // Copia o resto
+            if (primeiro) { primeiro = false; continue; }
+            fprintf(fTemp, "%s", linha);
         }
         fclose(fTemp);
     }
     fclose(f);
 
-    // Substitui o arquivo original pelo novo sem a primeira linha
     unlink(caminhoFila);
     rename(caminhoFilaTemp, caminhoFila);
     pthread_mutex_unlock(&filaMutex);
@@ -166,18 +167,17 @@ void removerPrimeiroDaFila() {
 
 void preencherMenuBackup() {
     memset(nomes, 0, sizeof(nomes));
-    strcpy(nomes[0], "Selecionar Manualmente");
-    strcpy(nomes[1], "Backup Todos (App.db e Configs)");
-    strcpy(nomes[2], "Backup de Saves (PS4)");
-    strcpy(nomes[3], "Backup do RetroArch");
-    strcpy(nomes[4], "Backup Hyper Neiva Configuracao");
-    strcpy(nomes[5], "Backup do Banco de Dados (App.db)");
-    strcpy(nomes[6], "Backup de Screenshots");
-    strcpy(nomes[7], "Trofeus (Trophy)");
-    strcpy(nomes[8], "Saves Apollo");
-    totalItens = 9;
+
+    strcpy(nomes[0], "Hyper Neiva");
+    strcpy(nomes[1], "Raiz");
+    strcpy(nomes[2], "USB0");
+    strcpy(nomes[3], "USB1");
+    strcpy(nomes[4], "Backup Automatico (Saves, App.db)");
+
+    totalItens = 5;
     menuAtual = MENU_BAIXAR_DROPBOX_BACKUP;
-    sel = 0; off = 0;
+    sel = 0;
+    off = 0;
 }
 
 void acessarDropbox(const char* path) {
@@ -268,9 +268,181 @@ void acessarDropbox(const char* path) {
     menuAtual = MENU_BAIXAR_DROPBOX_LISTA; sel = 0; off = 0;
 }
 
-// =======================================================================
-// O MOTOR DE DOWNLOAD EM SEGUNDO PLANO
-// =======================================================================
+// ====================================================================
+// A MÁGICA: APLICA A MESMA LÓGICA DO EXPLORAR PRA LER O ID E JOGA PRO PS4
+// ====================================================================
+void instalarPkgRemoto(const char* urlDireta, const char* nomeExibicao) {
+    sprintf(msgStatus, "PREPARANDO INSTALACAO DIRETA...");
+    atualizarBarra(0.1f);
+
+    char urlFinal[2048];
+    uint64_t fileSize = 0;
+    char contentId[40];
+    memset(contentId, 0, sizeof(contentId));
+
+    // 1. GERAR LINK DO DROPBOX OU REPOSITÓRIO E PEGAR TAMANHO
+    if (urlDireta[0] == '/') {
+        char token[2048] = { 0 };
+        FILE* fToken = fopen("/data/HyperNeiva/configuracao/dropbox_token.txt", "rb");
+        if (fToken) {
+            fseek(fToken, 0, SEEK_END); long sz = ftell(fToken); fseek(fToken, 0, SEEK_SET);
+            if (sz > 0 && sz < 2047) { fread(token, 1, sz, fToken); token[sz] = '\0'; }
+            fclose(fToken);
+        }
+        for (int i = 0; i < strlen(token); i++) if (token[i] == '\r' || token[i] == '\n') token[i] = '\0';
+
+        int tpl = sceHttpCreateTemplate(httpCtxId, "HyperNeiva/1.0", ORBIS_HTTP_VERSION_1_1, 1);
+        sceHttpsSetSslCallback(tpl, skipSslCallback, NULL);
+
+        const char* apiUrl = "https://api.dropboxapi.com/2/files/get_temporary_link";
+        int conn = sceHttpCreateConnectionWithURL(tpl, apiUrl, 1);
+        int req = sceHttpCreateRequestWithURL(conn, ORBIS_METHOD_POST, apiUrl, 0);
+
+        char authHeader[2048]; sprintf(authHeader, "Bearer %s", token);
+        sceHttpAddRequestHeader(req, "Authorization", authHeader, 1);
+        sceHttpAddRequestHeader(req, "Content-Type", "application/json", 1);
+
+        char postData[1024]; sprintf(postData, "{\"path\": \"%s\"}", urlDireta);
+        sceHttpSetRequestContentLength(req, strlen(postData));
+
+        if (sceHttpSendRequest(req, postData, strlen(postData)) >= 0) {
+            unsigned char buf[32768];
+            int n = sceHttpReadData(req, buf, sizeof(buf) - 1);
+            if (n > 0) {
+                buf[n] = '\0';
+                char* linkPtr = strstr((char*)buf, "\"link\": \"");
+                char* sizePtr = strstr((char*)buf, "\"size\": ");
+                if (linkPtr && sizePtr) {
+                    linkPtr += 9;
+                    char* linkEnd = strchr(linkPtr, '\"');
+                    if (linkEnd) {
+                        int linkLen = linkEnd - linkPtr; strncpy(urlFinal, linkPtr, linkLen); urlFinal[linkLen] = '\0';
+                        char urlClean[2048] = { 0 }; int j = 0;
+                        for (int i = 0; i < strlen(urlFinal); i++) {
+                            if (urlFinal[i] == '\\' && urlFinal[i + 1] == '/') { urlClean[j++] = '/'; i++; }
+                            else { urlClean[j++] = urlFinal[i]; }
+                        }
+                        strcpy(urlFinal, urlClean);
+                    }
+                    sizePtr += 8; sscanf(sizePtr, "%lu", &fileSize);
+                }
+            }
+        }
+        sceHttpDeleteRequest(req); sceHttpDeleteConnection(conn); sceHttpDeleteTemplate(tpl);
+    }
+    else {
+        strcpy(urlFinal, urlDireta);
+        char* dbox = strstr(urlFinal, "dropbox.com");
+        if (dbox) { char* dl0 = strstr(urlFinal, "?dl=0"); if (dl0) dl0[4] = '1'; }
+
+        int tpl = sceHttpCreateTemplate(httpCtxId, "HyperNeiva/1.0", ORBIS_HTTP_VERSION_1_1, 1);
+        sceHttpsSetSslCallback(tpl, skipSslCallback, NULL);
+        int conn = sceHttpCreateConnectionWithURL(tpl, urlFinal, 1);
+        int req = sceHttpCreateRequestWithURL(conn, ORBIS_METHOD_HEAD, urlFinal, 0);
+        if (sceHttpSendRequest(req, NULL, 0) >= 0) {
+            size_t tamanhoTotal = 0; int32_t statusRes = 0;
+            if (sceHttpGetResponseContentLength(req, &statusRes, &tamanhoTotal) == 0) fileSize = (uint64_t)tamanhoTotal;
+        }
+        sceHttpDeleteRequest(req); sceHttpDeleteConnection(conn); sceHttpDeleteTemplate(tpl);
+    }
+
+    if (strlen(urlFinal) < 10 || fileSize == 0) {
+        sprintf(msgStatus, "ERRO AO OBTER LINK DO JOGO!");
+        atualizarBarra(0.0f); msgTimer = 240; return;
+    }
+
+    // 2. BAIXAR UM PEDAÇO DE 1KB E APLICAR A LÓGICA DO EXPLORAR!
+    sprintf(msgStatus, "APLICANDO LOGICA DO EXPLORAR (EXTRAINDO ID)...");
+    atualizarBarra(0.5f);
+
+    int tplId = sceHttpCreateTemplate(httpCtxId, "HyperNeiva/1.0", ORBIS_HTTP_VERSION_1_1, 1);
+    sceHttpsSetSslCallback(tplId, skipSslCallback, NULL);
+    sceHttpSetAutoRedirect();
+
+    int connId = sceHttpCreateConnectionWithURL(tplId, urlFinal, 1);
+    int reqId = sceHttpCreateRequestWithURL(connId, ORBIS_METHOD_GET, urlFinal, 0);
+    sceHttpAddRequestHeader(reqId, "Range", "bytes=0-1024", 1); // Pede só o comecinho
+
+    if (sceHttpSendRequest(reqId, NULL, 0) >= 0) {
+        sceKernelMkdir("/data/HyperNeiva/configuracao/temporario", 0777);
+        FILE* fTemp = fopen("/data/HyperNeiva/configuracao/temporario/temp_id.bin", "wb");
+        if (fTemp) {
+            unsigned char buf[1024];
+            int n = sceHttpReadData(reqId, buf, sizeof(buf));
+            if (n > 0) fwrite(buf, 1, n, fTemp);
+            fclose(fTemp);
+        }
+    }
+    sceHttpDeleteRequest(reqId); sceHttpDeleteConnection(connId); sceHttpDeleteTemplate(tplId);
+
+    // =========================================================
+    // AQUI ENTRA A LÓGICA IDÊNTICA AO CONTROLE_EXPLORAR.CPP!
+    // Usamos o fopen para ler o arquivo como se fosse o HDD local
+    // =========================================================
+    FILE* f = fopen("/data/HyperNeiva/configuracao/temporario/temp_id.bin", "rb");
+    if (f) {
+        fseek(f, 0x40, SEEK_SET);
+        fread(contentId, 1, 36, f);
+        fclose(f);
+    }
+    else {
+        strcpy(contentId, "UP0000-000000000_00-0000000000000000"); // Fallback
+    }
+    contentId[36] = '\0';
+
+    // 3. REGISTRAR DIRETO NO BGFT DA SONY
+    sprintf(msgStatus, "REGISTRANDO NA SONY (ID: %s)...", contentId);
+    atualizarBarra(0.8f);
+
+    sceSysmoduleLoadModuleInternal(ORBIS_SYSMODULE_INTERNAL_APP_INST_UTIL);
+    sceSysmoduleLoadModuleInternal(ORBIS_SYSMODULE_INTERNAL_BGFT);
+
+    static void* bgftHeapWeb = NULL;
+    if (!bgftHeapWeb) {
+        sceAppInstUtilInitialize();
+        OrbisBgftInitParams bgftInit;
+        memset(&bgftInit, 0, sizeof(OrbisBgftInitParams));
+        bgftInit.heapSize = 2 * 1024 * 1024;
+        bgftHeapWeb = memalign(4096, bgftInit.heapSize);
+        bgftInit.heap = bgftHeapWeb;
+        sceBgftServiceIntInit(&bgftInit);
+    }
+
+    OrbisBgftTaskId tarefaAntiga = -1;
+    sceBgftServiceIntDownloadFindActiveTask(contentId, ORBIS_BGFT_TASK_SUB_TYPE_PACKAGE, &tarefaAntiga);
+    if (tarefaAntiga != -1) sceBgftServiceIntDownloadUnregisterTask(tarefaAntiga);
+
+    int32_t userId = 0;
+    sceUserServiceGetInitialUser(&userId);
+
+    OrbisBgftDownloadParam params;
+    memset(&params, 0, sizeof(OrbisBgftDownloadParam));
+    params.userId = userId;
+    params.entitlementType = 5;
+    params.id = contentId;
+    params.contentUrl = urlFinal; // Vai direto pra Sony sem servidor interno!
+    params.contentName = nomeExibicao;
+    params.playgoScenarioId = "0";
+    params.packageSize = fileSize;
+
+    OrbisBgftTaskId taskId = -1;
+    int res = sceBgftServiceIntDebugDownloadRegisterPkg(&params, &taskId);
+
+    if (res == 0 && taskId >= 0) {
+        sceBgftServiceDownloadStartTask(taskId);
+        sprintf(msgStatus, "DOWNLOAD DO DROPBOX INICIADO NO PS4!");
+        atualizarBarra(1.0f);
+    }
+    else {
+        sprintf(msgStatus, "ERRO NO BGFT: 0x%08X", res);
+        atualizarBarra(0.0f);
+    }
+
+    msgTimer = 400;
+}
+// ====================================================================
+
+// O MOTOR DE DOWNLOAD EM SEGUNDO PLANO (MANTIDO INTACTO PARA OUTROS ARQUIVOS)
 void* threadDownloadBackground(void* arg) {
     char urlDownloadBg[1024];
     MenuLevel menuOrigemBg;
@@ -404,6 +576,26 @@ void* threadDownloadBackground(void* arg) {
 void iniciarDownload(const char* url) {
     if (!url || strlen(url) < 2) return;
 
+    char nomeArquivo[128] = "arquivo.bin";
+    char* ref = strrchr(url, '/');
+    if (ref) { strncpy(nomeArquivo, ref + 1, 127); nomeArquivo[127] = '\0'; }
+
+    char* ptrInterrogacao = strchr(nomeArquivo, '?'); if (ptrInterrogacao) *ptrInterrogacao = '\0';
+    char* ptrHash = strchr(nomeArquivo, '#'); if (ptrHash) *ptrHash = '\0';
+
+    char nomeLimpo[128] = { 0 }; int j = 0;
+    for (int i = 0; nomeArquivo[i] != '\0' && j < 127; i++) {
+        if (nomeArquivo[i] == '%' && nomeArquivo[i + 1] == '2' && nomeArquivo[i + 2] == '0') { nomeLimpo[j++] = ' '; i += 2; }
+        else { nomeLimpo[j++] = nomeArquivo[i]; }
+    }
+    strcpy(nomeArquivo, nomeLimpo);
+
+    char* ext = strrchr(nomeArquivo, '.');
+    if (ext && (strcasecmp(ext, ".pkg") == 0 || strcasecmp(ext, ".PKG") == 0)) {
+        instalarPkgRemoto(url, nomeArquivo);
+        return;
+    }
+
     int antes = obterTamanhoFila();
 
     if (!downloadEmSegundoPlano) {
@@ -435,9 +627,7 @@ void iniciarDownload(const char* url) {
     }
 }
 
-// =======================================================================
-// A THREAD QUE ADICIONA MÚLTIPLOS ITENS RÁPIDO E SEM TRAVAR A TELA
-// =======================================================================
+// A THREAD QUE ADICIONA MÚLTIPLOS ITENS
 void* threadAdicionarSelecionados(void* arg) {
     processandoFila = true;
     int countAdicionados = 0;
@@ -445,7 +635,6 @@ void* threadAdicionarSelecionados(void* arg) {
 
     pthread_mutex_lock(&filaMutex);
 
-    // Ler tudo pra RAM (muito rápido)
     char* conteudoFila = NULL;
     FILE* fCheck = fopen(caminhoFila, "r");
     if (fCheck) {
@@ -469,15 +658,11 @@ void* threadAdicionarSelecionados(void* arg) {
             int len = strlen(alvo);
 
             if (len > 0 && alvo[len - 1] == '/') {
-                // Pastas
                 pthread_mutex_unlock(&filaMutex);
                 char limpo[512]; strcpy(limpo, alvo); limpo[len - 1] = '\0';
-                // (Aqui a tela pode piscar pq a func processarDownloadPastaRecursiva roda, mas OK)
-                // O ideal é chamar normal
                 pthread_mutex_lock(&filaMutex);
             }
             else {
-                // Arquivos (Checagem rápida via Memória)
                 bool existe = false;
                 if (conteudoFila && strstr(conteudoFila, alvo) != NULL) {
                     existe = true;
@@ -494,7 +679,7 @@ void* threadAdicionarSelecionados(void* arg) {
                     countRepetidos++;
                 }
             }
-            marcados[i] = false; // Desmarca ao finalizar
+            marcados[i] = false;
         }
     }
 
@@ -540,7 +725,6 @@ void fazerDownloadSelecionados() {
     sprintf(msgStatus, "PROCESSANDO ITENS MARCADOS...");
     msgTimer = 180;
 
-    // Envia a varredura e adição dos itens pra um operário no fundo e libera a tela!
     pthread_t threadId;
     pthread_create(&threadId, NULL, threadAdicionarSelecionados, NULL);
     pthread_detach(threadId);
@@ -556,10 +740,8 @@ void* threadUploadSelecionados(void* arg) {
             int len = strlen(alvo);
             if (len > 0 && alvo[len - 1] == '/') {
                 char limpo[512]; strcpy(limpo, alvo); limpo[len - 1] = '\0';
-                // fazerUploadPastaRecursivo(limpo);
             }
             else {
-                // fazerUploadDropbox(alvo);
             }
             marcados[i] = false;
             count++;
