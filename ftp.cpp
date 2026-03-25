@@ -1,6 +1,7 @@
 #include "ftp.h"
 #include "menu.h"
 #include "network.h"
+#include "explorar.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -15,6 +16,7 @@
 #include <fcntl.h>
 #include <sys/select.h>
 #include <errno.h>
+#include <sys/stat.h>
 
 #include "ImeDialog.h"
 #include "CommonDialog.h"
@@ -28,19 +30,27 @@ extern int sel;
 extern int off;
 extern bool marcados[3000];
 
-extern char currentUploadPath[512];
+extern char nomesEsq[3000][64];
+extern bool marcadosEsq[3000];
+extern int totalItensEsq;
+extern int selEsq;
+extern int offEsq;
+extern char pathExplorarEsq[256];
+extern MenuLevel menuAtualEsq;
+
+extern bool painelDuplo;
+extern int painelAtivo;
+
 extern char msgStatus[128];
 extern int msgTimer;
 extern void atualizarBarra(float progresso);
 extern void instalarPkgLocal(const char* caminhoAbsoluto);
 
-// VARIAVEIS DO EXPLORAR / OPCOES
 extern const char* listaOpcoes[10];
 extern int totalOpcoes;
 extern bool showOpcoes;
 extern int selOpcao;
 
-// VARIAVEIS DO VISUALIZADOR DE MÍDIA
 extern bool visualizandoMidiaImagem;
 extern unsigned char* imgMidia;
 extern int wM, hM;
@@ -56,8 +66,19 @@ FtpServer listaServidoresFTP[100];
 int totalServidoresFTP = 0;
 int servidorAtualFTPIndex = 0;
 bool ftpSelecionandoUpload = false;
+
 char currentFtpPath[1024] = "/";
 char pathSendoRenomeado[1024] = "";
+
+int ftpL2State = 0;
+char currentFtpPathEsq[1024] = "/";
+char linksAtuaisEsq[3000][1024];
+
+char ftpClipPaths[100][1024];
+bool ftpClipIsDir[100];
+int ftpClipCount = 0;
+bool ftpClipIsCut = false;
+int ftpClipSource = 0;
 
 // ==============================================================
 // BASE DE REDE E CONEXÃO
@@ -70,8 +91,7 @@ int send_ftp_cmd(int sock, const char* cmd, char* response) {
         while (idx < 511) { char c; int n = recv(sock, &c, 1, 0); if (n <= 0) break; line[idx++] = c; if (c == '\n') break; }
         strcat(response, line); total += idx;
         if (idx >= 4 && line[3] == ' ' && isdigit(line[0]) && isdigit(line[1]) && isdigit(line[2])) break;
-    }
-    return total;
+    } return total;
 }
 
 int ftp_connect_control(int srvIdx) {
@@ -109,7 +129,6 @@ int ftp_enter_pasv(int ctrl_sock) {
     return data_sock;
 }
 
-// COMANDOS RÁPIDOS DE CONTROLE (DELETAR, CRIAR PASTA)
 int ftp_comando_simples(int srvIdx, const char* cmd) {
     int ctrl_sock = ftp_connect_control(srvIdx); if (ctrl_sock < 0) return -1;
     char resp[2048]; char cmdUser[128], cmdPass[128];
@@ -143,55 +162,180 @@ bool parse_ftp_line(char* line, char* nameOut, bool* isDirOut) {
         if (strstr(line, "<DIR>")) *isDirOut = true; char* p = line; int spaces = 0;
         while (*p && spaces < 3) { if (*p == ' ') { spaces++; while (*(p + 1) == ' ') p++; } p++; }
         if (*p) { strcpy(nameOut, p); return true; }
-    }
-    return false;
+    } return false;
 }
 
 // ==============================================================
-// SISTEMA DE SERVIDORES, EDIÇÃO E TECLADO
+// FILA INTELIGENTE DE UPLOAD / DOWNLOAD
+// ==============================================================
+struct FtpTransfer {
+    char sourcePath[1024];
+    char destPath[1024];
+    bool isUpload;
+    bool isDir;
+};
+
+FtpTransfer ftpFila[5000];
+int ftpFilaCount = 0;
+int ftpFilaCurrent = 0;
+bool ftpFilaRodando = false;
+
+void adicionarFilaFTP(const char* sourcePath, const char* destPath, bool isUpload, bool isDir) {
+    if (ftpFilaCount >= 5000) return;
+    strcpy(ftpFila[ftpFilaCount].sourcePath, sourcePath);
+    strcpy(ftpFila[ftpFilaCount].destPath, destPath);
+    ftpFila[ftpFilaCount].isUpload = isUpload;
+    ftpFila[ftpFilaCount].isDir = isDir;
+    ftpFilaCount++;
+}
+
+void* threadProcessarFilaFTP(void* arg) {
+    ftpFilaRodando = true;
+    int ctrl_sock = ftp_connect_control(servidorAtualFTPIndex);
+    if (ctrl_sock < 0) { ftpFilaRodando = false; return NULL; }
+
+    char resp[2048]; char cmdUser[128], cmdPass[128];
+    sprintf(cmdUser, "USER %s", listaServidoresFTP[servidorAtualFTPIndex].user); send_ftp_cmd(ctrl_sock, cmdUser, resp);
+    if (strlen(listaServidoresFTP[servidorAtualFTPIndex].pass) > 0) sprintf(cmdPass, "PASS %s", listaServidoresFTP[servidorAtualFTPIndex].pass); else sprintf(cmdPass, "PASS hyperneiva@ps4.com"); send_ftp_cmd(ctrl_sock, cmdPass, resp);
+    send_ftp_cmd(ctrl_sock, "TYPE I", resp);
+
+    while (ftpFilaCurrent < ftpFilaCount) {
+        FtpTransfer* t = &ftpFila[ftpFilaCurrent];
+
+        if (t->isDir) {
+            if (t->isUpload) {
+                char cmdMkd[1024]; sprintf(cmdMkd, "MKD %s", t->destPath); send_ftp_cmd(ctrl_sock, cmdMkd, resp);
+                DIR* d = opendir(t->sourcePath);
+                if (d) {
+                    struct dirent* dir;
+                    while ((dir = readdir(d)) != NULL) {
+                        if (strcmp(dir->d_name, ".") == 0 || strcmp(dir->d_name, "..") == 0) continue;
+                        char newSrc[1024], newDst[1024];
+                        sprintf(newSrc, "%s/%s", t->sourcePath, dir->d_name); sprintf(newDst, "%s/%s", t->destPath, dir->d_name);
+                        struct stat st; bool isD = false;
+                        if (dir->d_type == DT_DIR || (dir->d_type == DT_UNKNOWN && stat(newSrc, &st) == 0 && S_ISDIR(st.st_mode))) isD = true;
+                        adicionarFilaFTP(newSrc, newDst, true, isD);
+                    } closedir(d);
+                }
+            }
+            else {
+                sceKernelMkdir(t->destPath, 0777);
+                char cmdCwd[1024]; sprintf(cmdCwd, "CWD %s", t->sourcePath); send_ftp_cmd(ctrl_sock, cmdCwd, resp);
+                int data_sock = ftp_enter_pasv(ctrl_sock);
+                if (data_sock >= 0) {
+                    send_ftp_cmd(ctrl_sock, "LIST", resp);
+                    char* list_data = (char*)malloc(1024 * 1024); int list_len = 0; int n;
+                    while ((n = recv(data_sock, list_data + list_len, 65536, 0)) > 0) { list_len += n; if (list_len >= 1024 * 1024 - 65536) break; }
+                    list_data[list_len] = '\0'; close(data_sock); send_ftp_cmd(ctrl_sock, NULL, resp);
+
+                    char* line = strtok(list_data, "\r\n");
+                    while (line) {
+                        bool isD = false; char filename[256];
+                        if (parse_ftp_line(line, filename, &isD)) {
+                            if (strcmp(filename, ".") != 0 && strcmp(filename, "..") != 0) {
+                                char newSrc[1024], newDst[1024];
+                                sprintf(newSrc, "%s/%s", t->sourcePath, filename); sprintf(newDst, "%s/%s", t->destPath, filename);
+                                adicionarFilaFTP(newSrc, newDst, false, isD);
+                            }
+                        } line = strtok(NULL, "\r\n");
+                    } free(list_data);
+                }
+            }
+        }
+        else {
+            if (t->isUpload) {
+                char* base = strrchr(t->destPath, '/');
+                if (base) {
+                    char pPath[1024]; strcpy(pPath, t->destPath); pPath[base - t->destPath] = '\0';
+                    char cmdCwd[1024]; sprintf(cmdCwd, "CWD %s", pPath); send_ftp_cmd(ctrl_sock, cmdCwd, resp);
+                }
+                int data_sock = ftp_enter_pasv(ctrl_sock);
+                if (data_sock >= 0) {
+                    char* justName = strrchr(t->destPath, '/'); if (justName) justName++; else justName = t->destPath;
+                    char cmdStor[512]; sprintf(cmdStor, "STOR %s", justName); send_ftp_cmd(ctrl_sock, cmdStor, resp);
+                    FILE* f = fopen(t->sourcePath, "rb");
+                    if (f) {
+                        fseek(f, 0, SEEK_END); uint64_t totalSize = ftell(f); fseek(f, 0, SEEK_SET);
+                        unsigned char buf[65536]; int n; uint64_t enviado = 0;
+                        while ((n = fread(buf, 1, sizeof(buf), f)) > 0) {
+                            send(data_sock, buf, n, 0); enviado += n;
+                            if (totalSize > 0) { float prog = (float)enviado / (float)totalSize; sprintf(msgStatus, "UP: %d%% (%d/%d)", (int)(prog * 100), ftpFilaCurrent + 1, ftpFilaCount); atualizarBarra(prog); }
+                        } fclose(f);
+                    } close(data_sock); send_ftp_cmd(ctrl_sock, NULL, resp);
+                }
+            }
+            else {
+                char cmdSize[512]; sprintf(cmdSize, "SIZE %s", t->sourcePath); send_ftp_cmd(ctrl_sock, cmdSize, resp);
+                uint64_t totalSize = 0; if (strncmp(resp, "213", 3) == 0) sscanf(resp + 4, "%lu", &totalSize);
+
+                int data_sock = ftp_enter_pasv(ctrl_sock);
+                if (data_sock >= 0) {
+                    char cmdRetr[512]; sprintf(cmdRetr, "RETR %s", t->sourcePath); send_ftp_cmd(ctrl_sock, cmdRetr, resp);
+                    FILE* f = fopen(t->destPath, "wb");
+                    if (f) {
+                        unsigned char buf[65536]; int n; uint64_t baixado = 0;
+                        while ((n = recv(data_sock, buf, sizeof(buf), 0)) > 0) {
+                            fwrite(buf, 1, n, f); baixado += n;
+                            if (totalSize > 0) { float prog = (float)baixado / (float)totalSize; sprintf(msgStatus, "DOWN: %d%% (%d/%d)", (int)(prog * 100), ftpFilaCurrent + 1, ftpFilaCount); atualizarBarra(prog); }
+                        } fclose(f);
+                    } close(data_sock); send_ftp_cmd(ctrl_sock, NULL, resp);
+                }
+
+                char* ext = strrchr(t->destPath, '.');
+                if (ext && (strcasecmp(ext, ".pkg") == 0 || strcasecmp(ext, ".PKG") == 0)) {
+                    char justName[256]; char* bName = strrchr(t->destPath, '/'); if (bName) strcpy(justName, bName + 1); else strcpy(justName, t->destPath);
+                    sceKernelMkdir("/data/pkg", 0777); char destino[512]; sprintf(destino, "/data/pkg/%s", justName); rename(t->destPath, destino);
+                    sprintf(msgStatus, "INSTALANDO NO PS4..."); msgTimer = 180; instalarPkgLocal(destino);
+                }
+            }
+        }
+        ftpFilaCurrent++;
+    }
+
+    send_ftp_cmd(ctrl_sock, "QUIT", resp); close(ctrl_sock);
+    ftpFilaRodando = false; ftpFilaCount = 0; ftpFilaCurrent = 0;
+    sprintf(msgStatus, "TRANSFERENCIA CONCLUIDA!"); msgTimer = 240;
+
+    if (painelDuplo && painelAtivo == 0 && ftpL2State == 2) listarDiretorioEsq(pathExplorarEsq);
+    else if (painelDuplo && painelAtivo == 0 && ftpL2State == 1) acessarFTPEsq(servidorAtualFTPIndex, currentFtpPathEsq);
+    else acessarFTP(servidorAtualFTPIndex, currentFtpPath);
+
+    return NULL;
+}
+
+void iniciarProcessamentoFilaFTP() {
+    if (ftpFilaRodando || ftpFilaCount == 0) return;
+    pthread_t tId; pthread_create(&tId, NULL, threadProcessarFilaFTP, NULL); pthread_detach(tId);
+}
+
+// ==============================================================
+// SISTEMA DE EDIÇÃO DE TECLADO / NAVEGAÇÃO
 // ==============================================================
 void salvarServidoresFTP() {
     FILE* f = fopen("/data/HyperNeiva/configuracao/ftp_servers_v2.txt", "w");
-    if (f) {
-        for (int i = 0; i < totalServidoresFTP; i++) {
-            fprintf(f, "%s|%s|%d|%s|%s\n", listaServidoresFTP[i].name, listaServidoresFTP[i].ip, listaServidoresFTP[i].port, listaServidoresFTP[i].user, listaServidoresFTP[i].pass);
-        }
-        fclose(f);
-    }
+    if (f) { for (int i = 0; i < totalServidoresFTP; i++) { fprintf(f, "%s|%s|%d|%s|%s\n", listaServidoresFTP[i].name, listaServidoresFTP[i].ip, listaServidoresFTP[i].port, listaServidoresFTP[i].user, listaServidoresFTP[i].pass); } fclose(f); }
 }
-
 void carregarServidoresFTP() {
-    sceKernelMkdir("/data/HyperNeiva", 0777); sceKernelMkdir("/data/HyperNeiva/configuracao", 0777);
-    totalServidoresFTP = 0;
+    sceKernelMkdir("/data/HyperNeiva", 0777); sceKernelMkdir("/data/HyperNeiva/configuracao", 0777); totalServidoresFTP = 0;
     FILE* f = fopen("/data/HyperNeiva/configuracao/ftp_servers_v2.txt", "r");
     if (f) {
         char linha[512];
         while (fgets(linha, sizeof(linha), f) && totalServidoresFTP < 100) {
             linha[strcspn(linha, "\r\n")] = 0; if (strlen(linha) < 5) continue;
-            char* p1 = strchr(linha, '|'); if (!p1) continue; *p1 = '\0';
-            char* p2 = strchr(p1 + 1, '|'); if (!p2) continue; *p2 = '\0';
-            char* p3 = strchr(p2 + 1, '|'); if (!p3) continue; *p3 = '\0';
-            char* p4 = strchr(p3 + 1, '|'); if (p4) *p4 = '\0';
+            char* p1 = strchr(linha, '|'); if (!p1) continue; *p1 = '\0'; char* p2 = strchr(p1 + 1, '|'); if (!p2) continue; *p2 = '\0'; char* p3 = strchr(p2 + 1, '|'); if (!p3) continue; *p3 = '\0'; char* p4 = strchr(p3 + 1, '|'); if (p4) *p4 = '\0';
             strcpy(listaServidoresFTP[totalServidoresFTP].name, linha); strcpy(listaServidoresFTP[totalServidoresFTP].ip, p1 + 1);
             listaServidoresFTP[totalServidoresFTP].port = atoi(p2 + 1); strcpy(listaServidoresFTP[totalServidoresFTP].user, p3 + 1);
-            if (p4) strcpy(listaServidoresFTP[totalServidoresFTP].pass, p4 + 1); else strcpy(listaServidoresFTP[totalServidoresFTP].pass, "");
-            totalServidoresFTP++;
+            if (p4) strcpy(listaServidoresFTP[totalServidoresFTP].pass, p4 + 1); else strcpy(listaServidoresFTP[totalServidoresFTP].pass, ""); totalServidoresFTP++;
         } fclose(f);
     }
-    if (totalServidoresFTP == 0) {
-        strcpy(listaServidoresFTP[0].name, "PC do Marcao"); strcpy(listaServidoresFTP[0].ip, "192.168.0.5"); listaServidoresFTP[0].port = 21;
-        strcpy(listaServidoresFTP[0].user, "anonymous"); strcpy(listaServidoresFTP[0].pass, "");
-        totalServidoresFTP = 1; salvarServidoresFTP();
-    }
+    if (totalServidoresFTP == 0) { strcpy(listaServidoresFTP[0].name, "PC do Marcao"); strcpy(listaServidoresFTP[0].ip, "192.168.0.5"); listaServidoresFTP[0].port = 21; strcpy(listaServidoresFTP[0].user, "anonymous"); strcpy(listaServidoresFTP[0].pass, ""); totalServidoresFTP = 1; salvarServidoresFTP(); }
 }
 
 void preencherMenuFTPServidores(bool isUpload) {
     ftpSelecionandoUpload = isUpload; carregarServidoresFTP();
     memset(nomes, 0, sizeof(nomes)); memset(linksAtuais, 0, sizeof(linksAtuais));
     strcpy(nomes[0], "[+] Adicionar Novo Servidor"); totalItens = 1;
-    for (int i = 0; i < totalServidoresFTP; i++) {
-        sprintf(nomes[totalItens], "%s (%s:%d)", listaServidoresFTP[i].name, listaServidoresFTP[i].ip, listaServidoresFTP[i].port); totalItens++;
-    }
+    for (int i = 0; i < totalServidoresFTP; i++) { sprintf(nomes[totalItens], "%s (%s:%d)", listaServidoresFTP[i].name, listaServidoresFTP[i].ip, listaServidoresFTP[i].port); totalItens++; }
     menuAtual = MENU_BAIXAR_FTP_SERVIDORES; sel = 0; off = 0;
 }
 
@@ -204,41 +348,39 @@ void preencherMenuEditarServidor(int index) {
     totalItens = 7; menuAtual = MENU_BAIXAR_FTP_EDITAR_SERVIDOR; sel = 0; off = 0;
 }
 
-volatile bool esperandoInputFTP = false;
-wchar_t textoTecladoFTP[256] = L"";
-int campoSendoEditado = -1;
+volatile bool esperandoInputFTP = false; wchar_t textoTecladoFTP[256] = L""; int campoSendoEditado = -1;
 
 void* threadPollerIMEFTP(void* arg) {
     while (esperandoInputFTP) {
         int status = (int)sceImeDialogGetStatus();
         if (status != 1 && status != 0) {
-            OrbisDialogResult res; memset(&res, 0, sizeof(res)); sceImeDialogGetResult(&res);
-            int32_t buttonId = *(int32_t*)&res;
-
+            OrbisDialogResult res; memset(&res, 0, sizeof(res)); sceImeDialogGetResult(&res); int32_t buttonId = *(int32_t*)&res;
             if (buttonId == 0) {
-                char txtFinal[256]; memset(txtFinal, 0, sizeof(txtFinal));
-                uint16_t* bufRead = (uint16_t*)textoTecladoFTP; int len = 0;
+                char txtFinal[256]; memset(txtFinal, 0, sizeof(txtFinal)); uint16_t* bufRead = (uint16_t*)textoTecladoFTP; int len = 0;
                 for (int i = 0; i < 255; i++) { if (bufRead[i] == 0x0000) break; txtFinal[len++] = (char)bufRead[i]; } txtFinal[len] = '\0';
-
-                // Lógica Dinâmica baseada no "Campo" aberto
                 if (campoSendoEditado == 0) strcpy(listaServidoresFTP[servidorAtualFTPIndex].name, txtFinal);
                 else if (campoSendoEditado == 1) strcpy(listaServidoresFTP[servidorAtualFTPIndex].ip, txtFinal);
                 else if (campoSendoEditado == 2) listaServidoresFTP[servidorAtualFTPIndex].port = atoi(txtFinal);
                 else if (campoSendoEditado == 3) strcpy(listaServidoresFTP[servidorAtualFTPIndex].user, txtFinal);
                 else if (campoSendoEditado == 4) strcpy(listaServidoresFTP[servidorAtualFTPIndex].pass, txtFinal);
-                else if (campoSendoEditado == 10) { // NOVA PASTA FTP
-                    char cmd[1024]; sprintf(cmd, "MKD %s%s%s", currentFtpPath, strcmp(currentFtpPath, "/") == 0 ? "" : "/", txtFinal);
-                    ftp_comando_simples(servidorAtualFTPIndex, cmd); acessarFTP(servidorAtualFTPIndex, currentFtpPath);
+                else if (campoSendoEditado == 10) {
+                    bool ehEsq = (painelDuplo && painelAtivo == 0);
+                    char pPath[1024]; strcpy(pPath, ehEsq ? currentFtpPathEsq : currentFtpPath);
+                    char cmd[1024]; sprintf(cmd, "MKD %s%s%s", pPath, strcmp(pPath, "/") == 0 ? "" : "/", txtFinal);
+                    ftp_comando_simples(servidorAtualFTPIndex, cmd);
+                    if (ehEsq) acessarFTPEsq(servidorAtualFTPIndex, currentFtpPathEsq); else acessarFTP(servidorAtualFTPIndex, currentFtpPath);
                     sprintf(msgStatus, "PASTA CRIADA NO PC!"); msgTimer = 180;
                 }
-                else if (campoSendoEditado == 11) { // RENOMEAR FTP
-                    char newP[1024]; sprintf(newP, "%s%s%s", currentFtpPath, strcmp(currentFtpPath, "/") == 0 ? "" : "/", txtFinal);
-                    ftp_renomear(servidorAtualFTPIndex, pathSendoRenomeado, newP); acessarFTP(servidorAtualFTPIndex, currentFtpPath);
+                else if (campoSendoEditado == 11) {
+                    bool ehEsq = (painelDuplo && painelAtivo == 0);
+                    char pPath[1024]; strcpy(pPath, ehEsq ? currentFtpPathEsq : currentFtpPath);
+                    char newP[1024]; sprintf(newP, "%s%s%s", pPath, strcmp(pPath, "/") == 0 ? "" : "/", txtFinal);
+                    ftp_renomear(servidorAtualFTPIndex, pathSendoRenomeado, newP);
+                    if (ehEsq) acessarFTPEsq(servidorAtualFTPIndex, currentFtpPathEsq); else acessarFTP(servidorAtualFTPIndex, currentFtpPath);
                     sprintf(msgStatus, "RENOMEADO COM SUCESSO!"); msgTimer = 180;
                 }
                 if (campoSendoEditado <= 4) preencherMenuEditarServidor(servidorAtualFTPIndex);
-            }
-            sceImeDialogTerm(); esperandoInputFTP = false; break;
+            } sceImeDialogTerm(); esperandoInputFTP = false; break;
         } sceKernelUsleep(100 * 1000);
     } return NULL;
 }
@@ -250,16 +392,10 @@ void abrirTecladoEdicaoFTP(int32_t uId, int campo) {
     if (campo == 0) strcpy(atualText, listaServidoresFTP[servidorAtualFTPIndex].name); else if (campo == 1) strcpy(atualText, listaServidoresFTP[servidorAtualFTPIndex].ip);
     else if (campo == 2) sprintf(atualText, "%d", listaServidoresFTP[servidorAtualFTPIndex].port); else if (campo == 3) strcpy(atualText, listaServidoresFTP[servidorAtualFTPIndex].user);
     else if (campo == 4) strcpy(atualText, listaServidoresFTP[servidorAtualFTPIndex].pass);
-
-    // Se for renomear, preenche o nome atual (sem a barra do diretório)
-    if (campo == 11) {
-        char* pt = strrchr(pathSendoRenomeado, '/');
-        if (pt) strcpy(atualText, pt + 1); else strcpy(atualText, pathSendoRenomeado);
-    }
+    if (campo == 11) { char* pt = strrchr(pathSendoRenomeado, '/'); if (pt) strcpy(atualText, pt + 1); else strcpy(atualText, pathSendoRenomeado); }
 
     uint16_t* wPtr = (uint16_t*)textoTecladoFTP; for (int i = 0; atualText[i]; i++) wPtr[i] = atualText[i];
     param.userId = uId; param.maxTextLength = 255; param.inputTextBuffer = textoTecladoFTP;
-
     if (campo == 0) param.title = L"Editar Nome do Servidor"; else if (campo == 1) param.title = L"Editar IP do Computador";
     else if (campo == 2) param.title = L"Editar Porta (Normalmente 21)"; else if (campo == 3) param.title = L"Editar Usuario";
     else if (campo == 4) param.title = L"Editar Senha"; else if (campo == 10) param.title = L"Nome da Nova Pasta";
@@ -269,153 +405,15 @@ void abrirTecladoEdicaoFTP(int32_t uId, int campo) {
     if (sceImeDialogInit(&param, NULL) >= 0) { esperandoInputFTP = true; pthread_t t; pthread_create(&t, NULL, threadPollerIMEFTP, NULL); pthread_detach(t); }
 }
 
-// ==============================================================
-// MENUS DE CONTEXTO E FORMATOS (LOGICA DO EXPLORAR)
-// ==============================================================
-void preencherOpcoesFTP() {
-    listaOpcoes[0] = "baixar selecionados";
-    listaOpcoes[1] = "nova pasta";
-    listaOpcoes[2] = "renomear";
-    listaOpcoes[3] = "deletar";
-    listaOpcoes[4] = "selecionar";
-    listaOpcoes[5] = "selecionar tudo";
-    totalOpcoes = 6;
-    showOpcoes = true;
-    selOpcao = 0;
-}
-
-void deletar_selecionados_ftp() {
-    bool temMarcado = false;
-    for (int i = 0; i < totalItens; i++) if (marcados[i]) { temMarcado = true; break; }
-
-    for (int i = 0; i < totalItens; i++) {
-        if (marcados[i] || (!temMarcado && i == sel)) {
-            char cmd[1024]; char urlSel[1024]; strcpy(urlSel, linksAtuais[i]); int tam = strlen(urlSel);
-            if (tam > 0 && urlSel[tam - 1] == '/') {
-                urlSel[tam - 1] = '\0'; sprintf(cmd, "RMD %s", urlSel); // Deleta diretório
-            }
-            else {
-                sprintf(cmd, "DELE %s", urlSel); // Deleta arquivo
-            }
-            ftp_comando_simples(servidorAtualFTPIndex, cmd);
-        }
-    }
-    acessarFTP(servidorAtualFTPIndex, currentFtpPath); // Recarrega
-    sprintf(msgStatus, "ARQUIVOS DELETADOS!"); msgTimer = 180;
-}
-
-void acaoOpcaoFTP(int idxOpcao, int32_t uId) {
-    if (idxOpcao == 0) { // Baixar Lote
-        bool temMarcado = false;
-        for (int i = 0; i < totalItens; i++) if (marcados[i]) { temMarcado = true; break; }
-        for (int i = 0; i < totalItens; i++) {
-            if (marcados[i] || (!temMarcado && i == sel)) {
-                if (nomes[i][0] != '[') iniciarDownloadFTP(linksAtuais[i]); // Adiciona arquivos na fila
-            }
-        }
-        showOpcoes = false;
-    }
-    else if (idxOpcao == 1) { // Nova Pasta
-        abrirTecladoEdicaoFTP(uId, 10); showOpcoes = false;
-    }
-    else if (idxOpcao == 2) { // Renomear
-        bool temMarcado = false; int alvo = sel;
-        for (int i = 0; i < totalItens; i++) if (marcados[i]) { temMarcado = true; alvo = i; break; }
-        strcpy(pathSendoRenomeado, linksAtuais[alvo]);
-        int tam = strlen(pathSendoRenomeado); if (tam > 0 && pathSendoRenomeado[tam - 1] == '/') pathSendoRenomeado[tam - 1] = '\0';
-        abrirTecladoEdicaoFTP(uId, 11); showOpcoes = false;
-    }
-    else if (idxOpcao == 3) { // Deletar
-        deletar_selecionados_ftp(); showOpcoes = false;
-    }
-    else if (idxOpcao == 4) { // Selecionar
-        marcados[sel] = !marcados[sel];
-    }
-    else if (idxOpcao == 5) { // Selecionar Tudo
-        bool ligar = false; for (int i = 0; i < totalItens; i++) if (!marcados[i]) ligar = true;
-        for (int i = 0; i < totalItens; i++) marcados[i] = ligar;
-    }
-}
-
-// ==============================================================
-// VISUALIZADOR DE MÍDIAS (IMAGEM E TEXTO) VIA FTP
-// ==============================================================
-void* threadPreviewFTP(void* arg) {
-    char* remotePath = (char*)arg; char nomeArquivo[256];
-    char* ref = strrchr(remotePath, '/'); if (ref) strcpy(nomeArquivo, ref + 1); else strcpy(nomeArquivo, remotePath);
-
-    sceKernelMkdir("/data/HyperNeiva/configuracao", 0777);
-    sceKernelMkdir("/data/HyperNeiva/configuracao/temporario", 0777);
-    char localPath[512] = "/data/HyperNeiva/configuracao/temporario/preview_ftp.tmp";
-
-    // Faz o download invisível pro HD Temp do PS4
-    int ctrl_sock = ftp_connect_control(servidorAtualFTPIndex);
-    char resp[2048]; char cmdUser[128], cmdPass[128];
-    sprintf(cmdUser, "USER %s", listaServidoresFTP[servidorAtualFTPIndex].user); send_ftp_cmd(ctrl_sock, cmdUser, resp);
-    if (strlen(listaServidoresFTP[servidorAtualFTPIndex].pass) > 0) sprintf(cmdPass, "PASS %s", listaServidoresFTP[servidorAtualFTPIndex].pass);
-    else sprintf(cmdPass, "PASS hyperneiva@ps4.com"); send_ftp_cmd(ctrl_sock, cmdPass, resp);
-    send_ftp_cmd(ctrl_sock, "TYPE I", resp);
-
-    char cmdSize[512]; sprintf(cmdSize, "SIZE %s", remotePath); send_ftp_cmd(ctrl_sock, cmdSize, resp);
-    uint64_t totalSize = 0; if (strncmp(resp, "213", 3) == 0) sscanf(resp + 4, "%lu", &totalSize);
-
-    int data_sock = ftp_enter_pasv(ctrl_sock);
-    char cmdRetr[512]; sprintf(cmdRetr, "RETR %s", remotePath); send_ftp_cmd(ctrl_sock, cmdRetr, resp);
-
-    FILE* f = fopen(localPath, "wb");
-    if (f) {
-        unsigned char buf[65536]; int n; uint64_t baixado = 0;
-        while ((n = recv(data_sock, buf, sizeof(buf), 0)) > 0) {
-            fwrite(buf, 1, n, f); baixado += n;
-            if (totalSize > 0) { float prog = (float)baixado / (float)totalSize; sprintf(msgStatus, "ABRINDO: %d%%", (int)(prog * 100)); atualizarBarra(prog); }
-        } fclose(f);
-    } close(data_sock); send_ftp_cmd(ctrl_sock, NULL, resp); close(ctrl_sock);
-
-    // O Módulo Identifica a Extensão e Abre a Tela Correta!
-    char* ext = strrchr(nomeArquivo, '.');
-    if (ext && (strcasecmp(ext, ".png") == 0 || strcasecmp(ext, ".jpg") == 0 || strcasecmp(ext, ".jpeg") == 0)) {
-        if (imgMidia) { stbi_image_free(imgMidia); imgMidia = NULL; }
-        int canais; imgMidia = stbi_load(localPath, &wM, &hM, &canais, 4);
-        if (imgMidia) { visualizandoMidiaImagem = true; zoomMidia = 1.0f; fullscreenMidia = false; msgTimer = 0; }
-        else { sprintf(msgStatus, "ERRO AO ABRIR IMAGEM!"); msgTimer = 120; }
-    }
-    else if (ext && (strcasecmp(ext, ".txt") == 0 || strcasecmp(ext, ".ini") == 0 || strcasecmp(ext, ".xml") == 0)) {
-        FILE* fTxt = fopen(localPath, "rb");
-        if (fTxt) {
-            fseek(fTxt, 0, SEEK_END); long sz = ftell(fTxt); fseek(fTxt, 0, SEEK_SET);
-            if (textoMidiaBuffer) free(textoMidiaBuffer); textoMidiaBuffer = (char*)malloc(sz + 1);
-            fread(textoMidiaBuffer, 1, sz, fTxt); textoMidiaBuffer[sz] = '\0'; fclose(fTxt);
-            totalLinhasTexto = 0; char* line = strtok(textoMidiaBuffer, "\n");
-            while (line && totalLinhasTexto < 5000) { linhasTexto[totalLinhasTexto++] = line; line = strtok(NULL, "\n"); }
-            textoMidiaScroll = 0; visualizandoMidiaTexto = true; msgTimer = 0;
-        }
-    }
-    free(arg); return NULL;
-}
-
-void prepararPreviewFTP(const char* remotePath) {
-    sprintf(msgStatus, "PREPARANDO VISUALIZACAO..."); atualizarBarra(0.1f); msgTimer = 180;
-    char* p = strdup(remotePath); pthread_t tId; pthread_create(&tId, NULL, threadPreviewFTP, p); pthread_detach(tId);
-}
-
-// ==============================================================
-// NAVEGAÇÃO FTP COMUM (LIST / DOWNLOAD / UPLOAD)
-// ==============================================================
 void acessarFTP(int index, const char* path) {
-    servidorAtualFTPIndex = index;
-    sprintf(msgStatus, "CONECTANDO AO PC: %s:%d...", listaServidoresFTP[index].ip, listaServidoresFTP[index].port);
-    atualizarBarra(0.1f);
+    servidorAtualFTPIndex = index; sprintf(msgStatus, "CARREGANDO PC: %s...", path); atualizarBarra(0.1f);
     int ctrl_sock = ftp_connect_control(index);
     if (ctrl_sock < 0) { sprintf(msgStatus, "PC NAO ENCONTRADO!"); atualizarBarra(0.0f); msgTimer = 400; return; }
 
     char resp[2048]; char cmdUser[128], cmdPass[128];
     sprintf(cmdUser, "USER %s", listaServidoresFTP[index].user); send_ftp_cmd(ctrl_sock, cmdUser, resp);
-    if (strlen(listaServidoresFTP[index].pass) > 0) sprintf(cmdPass, "PASS %s", listaServidoresFTP[index].pass);
-    else sprintf(cmdPass, "PASS hyperneiva@ps4.com"); send_ftp_cmd(ctrl_sock, cmdPass, resp);
-
-    char cmdCwd[1024]; sprintf(cmdCwd, "CWD %s", path); send_ftp_cmd(ctrl_sock, cmdCwd, resp);
-    strcpy(currentFtpPath, path);
-
+    if (strlen(listaServidoresFTP[index].pass) > 0) sprintf(cmdPass, "PASS %s", listaServidoresFTP[index].pass); else sprintf(cmdPass, "PASS hyperneiva@ps4.com"); send_ftp_cmd(ctrl_sock, cmdPass, resp);
+    char cmdCwd[1024]; sprintf(cmdCwd, "CWD %s", path); send_ftp_cmd(ctrl_sock, cmdCwd, resp); strcpy(currentFtpPath, path);
     int data_sock = ftp_enter_pasv(ctrl_sock);
     if (data_sock < 0) { sprintf(msgStatus, "ERRO PORTA PASV!"); close(ctrl_sock); atualizarBarra(0.0f); msgTimer = 240; return; }
 
@@ -440,85 +438,259 @@ void acessarFTP(int index, const char* path) {
     menuAtual = MENU_BAIXAR_FTP_LISTA; sel = 0; off = 0; sprintf(msgStatus, "PASTA DO COMPUTADOR CARREGADA!"); atualizarBarra(1.0f); msgTimer = 180;
 }
 
-void* threadDownloadFTP(void* arg) {
+void acessarFTPEsq(int index, const char* path) {
+    servidorAtualFTPIndex = index; int ctrl_sock = ftp_connect_control(index); if (ctrl_sock < 0) return;
+    char resp[2048]; char cmdUser[128], cmdPass[128];
+    sprintf(cmdUser, "USER %s", listaServidoresFTP[index].user); send_ftp_cmd(ctrl_sock, cmdUser, resp);
+    if (strlen(listaServidoresFTP[index].pass) > 0) sprintf(cmdPass, "PASS %s", listaServidoresFTP[index].pass); else sprintf(cmdPass, "PASS hyperneiva@ps4.com"); send_ftp_cmd(ctrl_sock, cmdPass, resp);
+    char cmdCwd[1024]; sprintf(cmdCwd, "CWD %s", path); send_ftp_cmd(ctrl_sock, cmdCwd, resp); strcpy(currentFtpPathEsq, path);
+    int data_sock = ftp_enter_pasv(ctrl_sock); if (data_sock < 0) { close(ctrl_sock); return; }
+
+    send_ftp_cmd(ctrl_sock, "LIST", resp);
+    char* list_data = (char*)malloc(1024 * 1024); int list_len = 0; int n;
+    while ((n = recv(data_sock, list_data + list_len, 65536, 0)) > 0) { list_len += n; if (list_len >= 1024 * 1024 - 65536) break; }
+    list_data[list_len] = '\0'; close(data_sock); send_ftp_cmd(ctrl_sock, NULL, resp); close(ctrl_sock);
+
+    memset(nomesEsq, 0, sizeof(nomesEsq)); memset(linksAtuaisEsq, 0, sizeof(linksAtuaisEsq)); memset(marcadosEsq, 0, sizeof(marcadosEsq)); totalItensEsq = 0;
+    char* line = strtok(list_data, "\r\n");
+    while (line && totalItensEsq < 2900) {
+        bool isDir = false; char filename[256];
+        if (parse_ftp_line(line, filename, &isDir)) {
+            if (strcmp(filename, ".") != 0 && strcmp(filename, "..") != 0) {
+                if (isDir) { sprintf(nomesEsq[totalItensEsq], "[%s]", filename); sprintf(linksAtuaisEsq[totalItensEsq], "%s%s%s/", currentFtpPathEsq, strcmp(currentFtpPathEsq, "/") == 0 ? "" : "/", filename); }
+                else { strcpy(nomesEsq[totalItensEsq], filename); sprintf(linksAtuaisEsq[totalItensEsq], "%s%s%s", currentFtpPathEsq, strcmp(currentFtpPathEsq, "/") == 0 ? "" : "/", filename); }
+                totalItensEsq++;
+            }
+        } line = strtok(NULL, "\r\n");
+    } free(list_data);
+    if (totalItensEsq == 0) { strcpy(nomesEsq[0], "Pasta Vazia"); totalItensEsq = 1; }
+    menuAtualEsq = MENU_BAIXAR_FTP_LISTA; selEsq = 0; offEsq = 0;
+}
+
+void acaoL2_FTP() {
+    if (menuAtual == MENU_BAIXAR_FTP_LISTA) {
+        ftpL2State++;
+        if (ftpL2State > 2) ftpL2State = 0;
+
+        if (ftpL2State == 0) {
+            painelDuplo = false; painelAtivo = 1;
+        }
+        else if (ftpL2State == 1) { // FTP x FTP
+            painelDuplo = true; painelAtivo = 0;
+            strcpy(currentFtpPathEsq, currentFtpPath);
+            acessarFTPEsq(servidorAtualFTPIndex, currentFtpPathEsq);
+        }
+        else if (ftpL2State == 2) { // Local PS4 x FTP
+            painelDuplo = true; painelAtivo = 0;
+            memset(nomesEsq, 0, sizeof(nomesEsq));
+            strcpy(nomesEsq[0], "Hyper Neiva");
+            strcpy(nomesEsq[1], "Raiz");
+            strcpy(nomesEsq[2], "USB 0");
+            strcpy(nomesEsq[3], "USB 1");
+            totalItensEsq = 4;
+            selEsq = 0; offEsq = 0;
+            menuAtualEsq = MENU_EXPLORAR_HOME;
+        }
+    }
+}
+
+// ==============================================================
+// OPÇÕES E MÁGICA DA ÁREA DE TRANSFERÊNCIA (ESTILO EXPLORAR)
+// ==============================================================
+void preencherOpcoesFTP() {
+    bool isEsq = (painelDuplo && painelAtivo == 0);
+    bool isLocal = (isEsq && ftpL2State == 2);
+
+    listaOpcoes[0] = isLocal ? "upload para o pc" : "download para o ps4";
+    listaOpcoes[1] = "nova pasta";
+    listaOpcoes[2] = "renomear";
+    listaOpcoes[3] = "deletar";
+    listaOpcoes[4] = "copiar";
+    listaOpcoes[5] = "recortar";
+    listaOpcoes[6] = "colar";
+    listaOpcoes[7] = "selecionar";
+    listaOpcoes[8] = "selecionar tudo";
+    totalOpcoes = 9; showOpcoes = true; selOpcao = 0;
+}
+
+void processar_deletar_ftp() {
+    bool ehEsq = (painelDuplo && painelAtivo == 0);
+    int tItens = ehEsq ? totalItensEsq : totalItens;
+    bool* mItems = ehEsq ? marcadosEsq : marcados;
+    char (*lItems)[1024] = ehEsq ? linksAtuaisEsq : linksAtuais;
+    int sAt = ehEsq ? selEsq : sel;
+
+    bool temMarcado = false;
+    for (int i = 0; i < tItens; i++) if (mItems[i]) { temMarcado = true; break; }
+
+    for (int i = 0; i < tItens; i++) {
+        if (mItems[i] || (!temMarcado && i == sAt)) {
+            char cmd[1024]; char urlSel[1024]; strcpy(urlSel, lItems[i]); int tam = strlen(urlSel);
+            if (tam > 0 && urlSel[tam - 1] == '/') { urlSel[tam - 1] = '\0'; sprintf(cmd, "RMD %s", urlSel); }
+            else { sprintf(cmd, "DELE %s", urlSel); }
+            ftp_comando_simples(servidorAtualFTPIndex, cmd);
+        }
+    }
+    if (ehEsq) acessarFTPEsq(servidorAtualFTPIndex, currentFtpPathEsq); else acessarFTP(servidorAtualFTPIndex, currentFtpPath);
+    sprintf(msgStatus, "ARQUIVOS DELETADOS!"); msgTimer = 180;
+}
+
+void acaoOpcaoFTP(int idxOpcao, int32_t uId) {
+    bool isEsq = (painelDuplo && painelAtivo == 0);
+    bool isLocal = (isEsq && ftpL2State == 2);
+
+    int tItens = isEsq ? totalItensEsq : totalItens;
+    bool* mItems = isEsq ? marcadosEsq : marcados;
+    char (*nItems)[64] = isEsq ? nomesEsq : nomes;
+    char (*lItems)[1024] = isEsq ? linksAtuaisEsq : linksAtuais;
+    int sAt = isEsq ? selEsq : sel;
+
+    if (idxOpcao == 0) {
+        bool temMarcado = false; for (int i = 0; i < tItens; i++) if (mItems[i]) { temMarcado = true; break; }
+        ftpFilaCount = 0; ftpFilaCurrent = 0;
+        for (int i = 0; i < tItens; i++) {
+            if (mItems[i] || (!temMarcado && i == sAt)) {
+                bool isDir = (nItems[i][0] == '['); char nomeLimpo[256];
+                if (isDir) { strncpy(nomeLimpo, &nItems[i][1], strlen(nItems[i]) - 2); nomeLimpo[strlen(nItems[i]) - 2] = '\0'; }
+                else strcpy(nomeLimpo, nItems[i]);
+
+                if (isLocal) {
+                    char src[1024]; sprintf(src, "%s%s%s", pathExplorarEsq, strcmp(pathExplorarEsq, "/") == 0 ? "" : "/", nomeLimpo);
+                    char dst[1024]; char* rPath = isEsq ? currentFtpPathEsq : currentFtpPath; sprintf(dst, "%s%s%s", rPath, strcmp(rPath, "/") == 0 ? "" : "/", nomeLimpo);
+                    adicionarFilaFTP(src, dst, true, isDir);
+                }
+                else {
+                    char src[1024]; strcpy(src, lItems[i]); if (isDir) src[strlen(src) - 1] = '\0';
+                    char dst[1024];
+                    if (painelDuplo && ftpL2State == 2) sprintf(dst, "%s%s%s", pathExplorarEsq, strcmp(pathExplorarEsq, "/") == 0 ? "" : "/", nomeLimpo);
+                    else { sceKernelMkdir("/data/HyperNeiva/baixado", 0777); sceKernelMkdir("/data/HyperNeiva/baixado/ftp", 0777); sprintf(dst, "/data/HyperNeiva/baixado/ftp/%s", nomeLimpo); }
+                    adicionarFilaFTP(src, dst, false, isDir);
+                }
+            }
+        }
+        showOpcoes = false; iniciarProcessamentoFilaFTP();
+    }
+    else if (idxOpcao == 1) {
+        if (!isLocal) abrirTecladoEdicaoFTP(uId, 10); showOpcoes = false;
+    }
+    else if (idxOpcao == 2) {
+        if (!isLocal) {
+            bool temMarcado = false; int alvo = sAt; for (int i = 0; i < tItens; i++) if (mItems[i]) { temMarcado = true; alvo = i; break; }
+            strcpy(pathSendoRenomeado, lItems[alvo]); int tam = strlen(pathSendoRenomeado); if (tam > 0 && pathSendoRenomeado[tam - 1] == '/') pathSendoRenomeado[tam - 1] = '\0';
+            abrirTecladoEdicaoFTP(uId, 11);
+        } showOpcoes = false;
+    }
+    else if (idxOpcao == 3) {
+        if (!isLocal) { processar_deletar_ftp(); } showOpcoes = false;
+    }
+    else if (idxOpcao == 4 || idxOpcao == 5) {
+        ftpClipCount = 0; ftpClipIsCut = (idxOpcao == 5); ftpClipSource = isLocal ? 2 : 1;
+        bool temMarcado = false; for (int i = 0; i < tItens; i++) if (mItems[i]) { temMarcado = true; break; }
+        for (int i = 0; i < tItens; i++) {
+            if (mItems[i] || (!temMarcado && i == sAt)) {
+                bool isDir = (nItems[i][0] == '['); ftpClipIsDir[ftpClipCount] = isDir;
+                if (isLocal) {
+                    char nomeLimpo[256]; if (isDir) { strncpy(nomeLimpo, &nItems[i][1], strlen(nItems[i]) - 2); nomeLimpo[strlen(nItems[i]) - 2] = '\0'; }
+                    else strcpy(nomeLimpo, nItems[i]);
+                    sprintf(ftpClipPaths[ftpClipCount], "%s%s%s", pathExplorarEsq, strcmp(pathExplorarEsq, "/") == 0 ? "" : "/", nomeLimpo);
+                }
+                else {
+                    strcpy(ftpClipPaths[ftpClipCount], lItems[i]); if (isDir) ftpClipPaths[ftpClipCount][strlen(ftpClipPaths[ftpClipCount]) - 1] = '\0';
+                } ftpClipCount++;
+            }
+        } sprintf(msgStatus, idxOpcao == 4 ? "COPIADO PRO CLIPBOARD!" : "RECORTADO PRO CLIPBOARD!"); msgTimer = 180; showOpcoes = false;
+    }
+    else if (idxOpcao == 6) {
+        if (ftpClipCount == 0) { showOpcoes = false; return; }
+        char destFolder[1024]; strcpy(destFolder, isLocal ? pathExplorarEsq : (isEsq ? currentFtpPathEsq : currentFtpPath));
+
+        if (!isLocal && ftpClipSource == 1 && ftpClipIsCut) {
+            for (int i = 0; i < ftpClipCount; i++) {
+                char* nomeBase = strrchr(ftpClipPaths[i], '/'); if (nomeBase) nomeBase++; else nomeBase = ftpClipPaths[i];
+                char dest[1024]; sprintf(dest, "%s%s%s", destFolder, strcmp(destFolder, "/") == 0 ? "" : "/", nomeBase);
+                ftp_renomear(servidorAtualFTPIndex, ftpClipPaths[i], dest);
+            } ftpClipCount = 0; ftpClipIsCut = false;
+            if (painelDuplo) acessarFTPEsq(servidorAtualFTPIndex, currentFtpPathEsq); acessarFTP(servidorAtualFTPIndex, currentFtpPath);
+            sprintf(msgStatus, "ARQUIVOS MOVIDOS NO PC!"); msgTimer = 180;
+        }
+        else {
+            ftpFilaCount = 0; ftpFilaCurrent = 0;
+            for (int i = 0; i < ftpClipCount; i++) {
+                char* nomeBase = strrchr(ftpClipPaths[i], '/'); if (nomeBase) nomeBase++; else nomeBase = ftpClipPaths[i];
+                char dest[1024]; sprintf(dest, "%s%s%s", destFolder, strcmp(destFolder, "/") == 0 ? "" : "/", nomeBase);
+                if (isLocal && ftpClipSource == 1) adicionarFilaFTP(ftpClipPaths[i], dest, false, ftpClipIsDir[i]);
+                else if (!isLocal && ftpClipSource == 2) adicionarFilaFTP(ftpClipPaths[i], dest, true, ftpClipIsDir[i]);
+            }
+            if (ftpClipIsCut) { ftpClipCount = 0; ftpClipIsCut = false; }
+            iniciarProcessamentoFilaFTP();
+        } showOpcoes = false;
+    }
+    else if (idxOpcao == 7) { mItems[sAt] = !mItems[sAt]; }
+    else if (idxOpcao == 8) { bool ligar = false; for (int i = 0; i < tItens; i++) if (!mItems[i]) ligar = true; for (int i = 0; i < tItens; i++) mItems[i] = ligar; }
+}
+
+void* threadPreviewFTP(void* arg) {
     char* remotePath = (char*)arg; char nomeArquivo[256];
     char* ref = strrchr(remotePath, '/'); if (ref) strcpy(nomeArquivo, ref + 1); else strcpy(nomeArquivo, remotePath);
-
-    char localPath[512]; sceKernelMkdir("/data/HyperNeiva/baixado", 0777); sceKernelMkdir("/data/HyperNeiva/baixado/ftp", 0777);
-    sprintf(localPath, "/data/HyperNeiva/baixado/ftp/%s", nomeArquivo);
-
+    sceKernelMkdir("/data/HyperNeiva/configuracao", 0777); sceKernelMkdir("/data/HyperNeiva/configuracao/temporario", 0777);
+    char localPath[512] = "/data/HyperNeiva/configuracao/temporario/preview_ftp.tmp";
     int ctrl_sock = ftp_connect_control(servidorAtualFTPIndex);
     char resp[2048]; char cmdUser[128], cmdPass[128];
     sprintf(cmdUser, "USER %s", listaServidoresFTP[servidorAtualFTPIndex].user); send_ftp_cmd(ctrl_sock, cmdUser, resp);
-    if (strlen(listaServidoresFTP[servidorAtualFTPIndex].pass) > 0) sprintf(cmdPass, "PASS %s", listaServidoresFTP[servidorAtualFTPIndex].pass);
-    else sprintf(cmdPass, "PASS hyperneiva@ps4.com"); send_ftp_cmd(ctrl_sock, cmdPass, resp);
+    if (strlen(listaServidoresFTP[servidorAtualFTPIndex].pass) > 0) sprintf(cmdPass, "PASS %s", listaServidoresFTP[servidorAtualFTPIndex].pass); else sprintf(cmdPass, "PASS hyperneiva@ps4.com"); send_ftp_cmd(ctrl_sock, cmdPass, resp);
     send_ftp_cmd(ctrl_sock, "TYPE I", resp);
-
     char cmdSize[512]; sprintf(cmdSize, "SIZE %s", remotePath); send_ftp_cmd(ctrl_sock, cmdSize, resp);
     uint64_t totalSize = 0; if (strncmp(resp, "213", 3) == 0) sscanf(resp + 4, "%lu", &totalSize);
-
     int data_sock = ftp_enter_pasv(ctrl_sock);
     char cmdRetr[512]; sprintf(cmdRetr, "RETR %s", remotePath); send_ftp_cmd(ctrl_sock, cmdRetr, resp);
-
     FILE* f = fopen(localPath, "wb");
-    if (f) {
-        unsigned char buf[65536]; int n; uint64_t baixado = 0;
-        while ((n = recv(data_sock, buf, sizeof(buf), 0)) > 0) {
-            fwrite(buf, 1, n, f); baixado += n;
-            if (totalSize > 0) { float prog = (float)baixado / (float)totalSize; sprintf(msgStatus, "BAIXANDO DO PC: %d%%", (int)(prog * 100)); atualizarBarra(prog); }
-        } fclose(f);
-    } close(data_sock); send_ftp_cmd(ctrl_sock, NULL, resp); close(ctrl_sock);
-
+    if (f) { unsigned char buf[65536]; int n; uint64_t baixado = 0; while ((n = recv(data_sock, buf, sizeof(buf), 0)) > 0) { fwrite(buf, 1, n, f); baixado += n; if (totalSize > 0) { float prog = (float)baixado / (float)totalSize; sprintf(msgStatus, "ABRINDO: %d%%", (int)(prog * 100)); atualizarBarra(prog); } } fclose(f); } close(data_sock); send_ftp_cmd(ctrl_sock, NULL, resp); close(ctrl_sock);
     char* ext = strrchr(nomeArquivo, '.');
-    if (ext && (strcasecmp(ext, ".pkg") == 0 || strcasecmp(ext, ".PKG") == 0)) {
-        sceKernelMkdir("/data/pkg", 0777); char destino[512]; sprintf(destino, "/data/pkg/%s", nomeArquivo);
-        rename(localPath, destino); sprintf(msgStatus, "INSTALANDO NO PS4..."); msgTimer = 300; instalarPkgLocal(destino);
+    if (ext && (strcasecmp(ext, ".png") == 0 || strcasecmp(ext, ".jpg") == 0 || strcasecmp(ext, ".jpeg") == 0)) {
+        if (imgMidia) { stbi_image_free(imgMidia); imgMidia = NULL; } int canais; imgMidia = stbi_load(localPath, &wM, &hM, &canais, 4);
+        if (imgMidia) { visualizandoMidiaImagem = true; zoomMidia = 1.0f; fullscreenMidia = false; msgTimer = 0; }
+        else { sprintf(msgStatus, "ERRO AO ABRIR IMAGEM!"); msgTimer = 120; }
     }
-    else { sprintf(msgStatus, "ARQUIVO BAIXADO COM SUCESSO!"); msgTimer = 240; }
-    free(arg); return NULL;
+    else if (ext && (strcasecmp(ext, ".txt") == 0 || strcasecmp(ext, ".ini") == 0 || strcasecmp(ext, ".xml") == 0)) {
+        FILE* fTxt = fopen(localPath, "rb");
+        if (fTxt) { fseek(fTxt, 0, SEEK_END); long sz = ftell(fTxt); fseek(fTxt, 0, SEEK_SET); if (textoMidiaBuffer) free(textoMidiaBuffer); textoMidiaBuffer = (char*)malloc(sz + 1); fread(textoMidiaBuffer, 1, sz, fTxt); textoMidiaBuffer[sz] = '\0'; fclose(fTxt); totalLinhasTexto = 0; char* line = strtok(textoMidiaBuffer, "\n"); while (line && totalLinhasTexto < 5000) { linhasTexto[totalLinhasTexto++] = line; line = strtok(NULL, "\n"); } textoMidiaScroll = 0; visualizandoMidiaTexto = true; msgTimer = 0; }
+    } free(arg); return NULL;
 }
+void prepararPreviewFTP(const char* remotePath) { sprintf(msgStatus, "PREPARANDO VISUALIZACAO..."); atualizarBarra(0.1f); msgTimer = 180; char* p = strdup(remotePath); pthread_t tId; pthread_create(&tId, NULL, threadPreviewFTP, p); pthread_detach(tId); }
 
-void iniciarDownloadFTP(const char* remotePath) {
-    sprintf(msgStatus, "INICIANDO DOWNLOAD VIA FTP..."); atualizarBarra(0.1f); msgTimer = 180;
-    char* p = strdup(remotePath); pthread_t tId; pthread_create(&tId, NULL, threadDownloadFTP, p); pthread_detach(tId);
+void* threadDownloadFTP(void* arg) {
+    // Mantido por retrocompatibilidade com chamadas simples, mas o ideal agora é usar a Fila.
+    char* remotePath = (char*)arg; char nomeArquivo[256];
+    char* ref = strrchr(remotePath, '/'); if (ref) strcpy(nomeArquivo, ref + 1); else strcpy(nomeArquivo, remotePath);
+    char localPath[512]; sceKernelMkdir("/data/HyperNeiva/baixado", 0777); sceKernelMkdir("/data/HyperNeiva/baixado/ftp", 0777); sprintf(localPath, "/data/HyperNeiva/baixado/ftp/%s", nomeArquivo);
+    if (painelDuplo && ftpL2State == 2 && painelAtivo == 1) { sprintf(localPath, "%s/%s", pathExplorarEsq, nomeArquivo); }
+    int ctrl_sock = ftp_connect_control(servidorAtualFTPIndex);
+    char resp[2048]; char cmdUser[128], cmdPass[128]; sprintf(cmdUser, "USER %s", listaServidoresFTP[servidorAtualFTPIndex].user); send_ftp_cmd(ctrl_sock, cmdUser, resp);
+    if (strlen(listaServidoresFTP[servidorAtualFTPIndex].pass) > 0) sprintf(cmdPass, "PASS %s", listaServidoresFTP[servidorAtualFTPIndex].pass); else sprintf(cmdPass, "PASS hyperneiva@ps4.com"); send_ftp_cmd(ctrl_sock, cmdPass, resp); send_ftp_cmd(ctrl_sock, "TYPE I", resp);
+    char cmdSize[512]; sprintf(cmdSize, "SIZE %s", remotePath); send_ftp_cmd(ctrl_sock, cmdSize, resp);
+    uint64_t totalSize = 0; if (strncmp(resp, "213", 3) == 0) sscanf(resp + 4, "%lu", &totalSize);
+    int data_sock = ftp_enter_pasv(ctrl_sock);
+    char cmdRetr[512]; sprintf(cmdRetr, "RETR %s", remotePath); send_ftp_cmd(ctrl_sock, cmdRetr, resp);
+    FILE* f = fopen(localPath, "wb");
+    if (f) { unsigned char buf[65536]; int n; uint64_t baixado = 0; while ((n = recv(data_sock, buf, sizeof(buf), 0)) > 0) { fwrite(buf, 1, n, f); baixado += n; if (totalSize > 0) { float prog = (float)baixado / (float)totalSize; sprintf(msgStatus, "BAIXANDO: %d%%", (int)(prog * 100)); atualizarBarra(prog); } } fclose(f); } close(data_sock); send_ftp_cmd(ctrl_sock, NULL, resp); close(ctrl_sock);
+    char* ext = strrchr(nomeArquivo, '.');
+    if (ext && (strcasecmp(ext, ".pkg") == 0 || strcasecmp(ext, ".PKG") == 0)) { sceKernelMkdir("/data/pkg", 0777); char destino[512]; sprintf(destino, "/data/pkg/%s", nomeArquivo); rename(localPath, destino); sprintf(msgStatus, "INSTALANDO NO PS4..."); msgTimer = 300; instalarPkgLocal(destino); }
+    else { sprintf(msgStatus, "ARQUIVO BAIXADO COM SUCESSO!"); msgTimer = 240; if (painelDuplo && ftpL2State == 2) listarDiretorioEsq(pathExplorarEsq); } free(arg); return NULL;
 }
-
-void preencherMenuFTPUploadRaizes() {
-    memset(nomes, 0, sizeof(nomes));
-    strcpy(nomes[0], "Hyper Neiva"); strcpy(nomes[1], "Raiz"); strcpy(nomes[2], "USB0"); strcpy(nomes[3], "USB1");
-    totalItens = 4; menuAtual = MENU_BAIXAR_FTP_UPLOAD_RAIZES; sel = 0; off = 0;
-}
-
-void listarArquivosUploadFTP(const char* dirPath) {
-    memset(nomes, 0, sizeof(nomes)); memset(linksAtuais, 0, sizeof(linksAtuais)); memset(marcados, 0, sizeof(marcados)); totalItens = 0;
-    strcpy(currentUploadPath, dirPath); DIR* d = opendir(dirPath);
-    if (d) { struct dirent* dir; while ((dir = readdir(d)) != NULL) { if (strcmp(dir->d_name, ".") == 0 || strcmp(dir->d_name, "..") == 0) continue; strcpy(nomes[totalItens], dir->d_name); sprintf(linksAtuais[totalItens], "%s/%s", dirPath, dir->d_name); if (dir->d_type == DT_DIR) { strcat(nomes[totalItens], " (Pasta)"); strcat(linksAtuais[totalItens], "/"); } totalItens++; if (totalItens >= 2900) break; } closedir(d); }
-    if (totalItens == 0) { strcpy(nomes[0], "Pasta Vazia / Acesso Negado"); totalItens = 1; }
-    menuAtual = MENU_BAIXAR_FTP_UPLOAD; sel = 0; off = 0; sprintf(msgStatus, "SELECIONE UM ARQUIVO PARA ENVIAR AO PC");
-}
+void iniciarDownloadFTP(const char* remotePath) { sprintf(msgStatus, "INICIANDO DOWNLOAD VIA FTP..."); atualizarBarra(0.1f); msgTimer = 180; char* p = strdup(remotePath); pthread_t tId; pthread_create(&tId, NULL, threadDownloadFTP, p); pthread_detach(tId); }
 
 void* threadUploadFTP(void* arg) {
+    // Mantido por retrocompatibilidade com chamadas simples
     char* localPath = (char*)arg; char nomeArquivo[256];
     char* ref = strrchr(localPath, '/'); if (ref) strcpy(nomeArquivo, ref + 1); else strcpy(nomeArquivo, localPath);
     int ctrl_sock = ftp_connect_control(servidorAtualFTPIndex);
     if (ctrl_sock < 0) { sprintf(msgStatus, "PC NAO ENCONTRADO PARA UPLOAD!"); msgTimer = 240; free(arg); return NULL; }
-    char resp[2048]; char cmdUser[128], cmdPass[128];
-    sprintf(cmdUser, "USER %s", listaServidoresFTP[servidorAtualFTPIndex].user); send_ftp_cmd(ctrl_sock, cmdUser, resp);
-    if (strlen(listaServidoresFTP[servidorAtualFTPIndex].pass) > 0) sprintf(cmdPass, "PASS %s", listaServidoresFTP[servidorAtualFTPIndex].pass);
-    else sprintf(cmdPass, "PASS hyperneiva@ps4.com"); send_ftp_cmd(ctrl_sock, cmdPass, resp);
-    send_ftp_cmd(ctrl_sock, "TYPE I", resp);
-    char cmdCwd[1024]; sprintf(cmdCwd, "CWD %s", currentFtpPath); send_ftp_cmd(ctrl_sock, cmdCwd, resp);
-    int data_sock = ftp_enter_pasv(ctrl_sock);
-    char cmdStor[512]; sprintf(cmdStor, "STOR %s", nomeArquivo); send_ftp_cmd(ctrl_sock, cmdStor, resp);
+    char resp[2048]; char cmdUser[128], cmdPass[128]; sprintf(cmdUser, "USER %s", listaServidoresFTP[servidorAtualFTPIndex].user); send_ftp_cmd(ctrl_sock, cmdUser, resp);
+    if (strlen(listaServidoresFTP[servidorAtualFTPIndex].pass) > 0) sprintf(cmdPass, "PASS %s", listaServidoresFTP[servidorAtualFTPIndex].pass); else sprintf(cmdPass, "PASS hyperneiva@ps4.com"); send_ftp_cmd(ctrl_sock, cmdPass, resp); send_ftp_cmd(ctrl_sock, "TYPE I", resp);
+    char destFolder[1024]; strcpy(destFolder, (painelDuplo && painelAtivo == 0 && ftpL2State == 1) ? currentFtpPathEsq : currentFtpPath); char cmdCwd[1024]; sprintf(cmdCwd, "CWD %s", destFolder); send_ftp_cmd(ctrl_sock, cmdCwd, resp);
+    int data_sock = ftp_enter_pasv(ctrl_sock); char cmdStor[512]; sprintf(cmdStor, "STOR %s", nomeArquivo); send_ftp_cmd(ctrl_sock, cmdStor, resp);
     FILE* f = fopen(localPath, "rb");
-    if (f) {
-        fseek(f, 0, SEEK_END); uint64_t totalSize = ftell(f); fseek(f, 0, SEEK_SET); unsigned char buf[65536]; int n; uint64_t enviado = 0;
-        while ((n = fread(buf, 1, sizeof(buf), f)) > 0) { send(data_sock, buf, n, 0); enviado += n; if (totalSize > 0) { float prog = (float)enviado / (float)totalSize; sprintf(msgStatus, "ENVIANDO AO PC: %d%%", (int)(prog * 100)); atualizarBarra(prog); } } fclose(f);
-    } close(data_sock); send_ftp_cmd(ctrl_sock, NULL, resp); close(ctrl_sock);
-    sprintf(msgStatus, "ENVIO PARA O COMPUTADOR CONCLUIDO!"); msgTimer = 240; atualizarBarra(1.0f); free(arg); return NULL;
+    if (f) { fseek(f, 0, SEEK_END); uint64_t totalSize = ftell(f); fseek(f, 0, SEEK_SET); unsigned char buf[65536]; int n; uint64_t enviado = 0; while ((n = fread(buf, 1, sizeof(buf), f)) > 0) { send(data_sock, buf, n, 0); enviado += n; if (totalSize > 0) { float prog = (float)enviado / (float)totalSize; sprintf(msgStatus, "ENVIANDO: %d%%", (int)(prog * 100)); atualizarBarra(prog); } } fclose(f); } close(data_sock); send_ftp_cmd(ctrl_sock, NULL, resp); close(ctrl_sock);
+    sprintf(msgStatus, "ENVIO PARA O COMPUTADOR CONCLUIDO!"); msgTimer = 240; atualizarBarra(1.0f); if (painelDuplo && painelAtivo == 0 && ftpL2State == 1) acessarFTPEsq(servidorAtualFTPIndex, currentFtpPathEsq); else acessarFTP(servidorAtualFTPIndex, currentFtpPath); free(arg); return NULL;
 }
-
-void fazerUploadFTP(const char* localPath) {
-    sprintf(msgStatus, "PREPARANDO ENVIO AO PC..."); atualizarBarra(0.1f); msgTimer = 180;
-    char* p = strdup(localPath); pthread_t tId; pthread_create(&tId, NULL, threadUploadFTP, p); pthread_detach(tId);
-}
+void fazerUploadFTP(const char* localPath) { sprintf(msgStatus, "PREPARANDO ENVIO AO PC..."); atualizarBarra(0.1f); msgTimer = 180; char* p = strdup(localPath); pthread_t tId; pthread_create(&tId, NULL, threadUploadFTP, p); pthread_detach(tId); }

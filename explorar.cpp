@@ -20,8 +20,9 @@
 
 extern void atualizarBarra(float progresso);
 
+// Variáveis importadas do visualizador de imagens
 extern bool visualizandoMidiaImagem;
-extern char caminhoImagemAberta[512];
+char caminhoImagemAberta[512] = "";
 extern unsigned char* imgMidia;
 extern int wM, hM;
 extern float zoomMidia;
@@ -50,6 +51,10 @@ const char* listaOpcoes[10] = { "", "", "", "", "", "", "", "", "", "" };
 int mapOpcoes[10] = { -1, -1, -1, -1, -1, -1, -1, -1, -1, -1 };
 int totalOpcoes = 0;
 
+// Variáveis para a Mágica dos Avatares PS4
+char caminhoPerfilAlvo[10][64];
+char menuStrDinamico[10][128];
+
 bool esperandoNomePasta = false;
 bool esperandoRenomear = false;
 wchar_t textoTeclado[256] = L"";
@@ -57,57 +62,83 @@ char oldPathParaRenomear[512] = "";
 char oldExtParaRenomear[64] = "";
 bool ehPastaParaRenomear = false;
 
-void preencherOpcoesContexto(const char* nomeArquivo) {
-    for (int i = 0; i < 10; i++) {
-        listaOpcoes[i] = "";
-        mapOpcoes[i] = -1;
+// ====================================================================
+// CONVERSOR DDS INTEGRADO (Cria ficheiros .dds oficiais para a PS4)
+// ====================================================================
+void redimensionarImagem(unsigned char* src, int sw, int sh, unsigned char* dst, int dw, int dh) {
+    for (int y = 0; y < dh; y++) {
+        for (int x = 0; x < dw; x++) {
+            int srcX = (x * sw) / dw;
+            int srcY = (y * sh) / dh;
+            int srcIndex = (srcY * sw + srcX) * 4;
+            int dstIndex = (y * dw + x) * 4;
+            dst[dstIndex] = src[srcIndex];
+            dst[dstIndex + 1] = src[srcIndex + 1];
+            dst[dstIndex + 2] = src[srcIndex + 2];
+            dst[dstIndex + 3] = src[srcIndex + 3];
+        }
     }
+}
+
+void salvarComoDDS(const char* filepath, unsigned char* img, int w, int h) {
+    FILE* f = fopen(filepath, "wb");
+    if (!f) return;
+
+    unsigned int header[32];
+    memset(header, 0, sizeof(header));
+    header[0] = 0x20534444; header[1] = 124; header[2] = 0x100F;
+    header[3] = h; header[4] = w; header[5] = w * 4;
+    header[19] = 32; header[20] = 0x41; header[22] = 32;
+    header[23] = 0x00FF0000; header[24] = 0x0000FF00; header[25] = 0x000000FF;
+    header[26] = 0xFF000000; header[27] = 0x1000;
+
+    fwrite(header, 1, 128, f);
+    int totalPixels = w * h;
+    unsigned char* bgra = (unsigned char*)malloc(totalPixels * 4);
+    if (bgra) {
+        for (int i = 0; i < totalPixels * 4; i += 4) {
+            bgra[i] = img[i + 2];     // Azul
+            bgra[i + 1] = img[i + 1]; // Verde
+            bgra[i + 2] = img[i];     // Vermelho
+            bgra[i + 3] = 255;        // Alpha 255 (Força sólido para não ficar invisível no PS4)
+        }
+        fwrite(bgra, 1, totalPixels * 4, f); free(bgra);
+    } fclose(f);
+}
+// ====================================================================
+
+void preencherOpcoesContexto(const char* nomeArquivo) {
+    for (int i = 0; i < 10; i++) { listaOpcoes[i] = ""; mapOpcoes[i] = -1; }
     totalOpcoes = 0;
 
-    // MENU DO TRIÂNGULO PARA QUANDO A IMAGEM JÁ ESTÁ ABERTA
     if (visualizandoMidiaImagem) {
         listaOpcoes[0] = "usar no perfil ps4"; mapOpcoes[0] = 12;
         listaOpcoes[1] = "plano de fundo do ps4"; mapOpcoes[1] = 11;
         listaOpcoes[2] = "plano de fundo hyper neiva"; mapOpcoes[2] = 10;
-        totalOpcoes = 3;
-        return;
+        totalOpcoes = 3; return;
     }
 
-    // MENU NORMAL DO TRIÂNGULO
-    listaOpcoes[0] = "nova pasta"; mapOpcoes[0] = 0;
-    listaOpcoes[1] = "novo arquivo"; mapOpcoes[1] = 1;
-    listaOpcoes[2] = "copiar"; mapOpcoes[2] = 2;
-    listaOpcoes[3] = "recortar"; mapOpcoes[3] = 3;
-    listaOpcoes[4] = "colar"; mapOpcoes[4] = 4;
-    listaOpcoes[5] = "renomear"; mapOpcoes[5] = 5;
-    listaOpcoes[6] = "deletar"; mapOpcoes[6] = 6;
-    listaOpcoes[7] = "selecionar"; mapOpcoes[7] = 8;
+    listaOpcoes[0] = "nova pasta"; mapOpcoes[0] = 0; listaOpcoes[1] = "novo arquivo"; mapOpcoes[1] = 1;
+    listaOpcoes[2] = "copiar"; mapOpcoes[2] = 2; listaOpcoes[3] = "recortar"; mapOpcoes[3] = 3;
+    listaOpcoes[4] = "colar"; mapOpcoes[4] = 4; listaOpcoes[5] = "renomear"; mapOpcoes[5] = 5;
+    listaOpcoes[6] = "deletar"; mapOpcoes[6] = 6; listaOpcoes[7] = "selecionar"; mapOpcoes[7] = 8;
     listaOpcoes[8] = "selecionar tudo"; mapOpcoes[8] = 9;
 
     bool isZip = false;
     if (nomeArquivo) {
-        char temp[256];
-        strcpy(temp, nomeArquivo);
+        char temp[256]; strcpy(temp, nomeArquivo);
         for (int i = 0; temp[i]; i++) temp[i] = tolower(temp[i]);
-        if (strstr(temp, ".zip") != NULL || strstr(temp, ".xavatar") != NULL) {
-            isZip = true;
-        }
+        if (strstr(temp, ".zip") != NULL || strstr(temp, ".xavatar") != NULL) isZip = true;
     }
 
-    if (isZip) {
-        listaOpcoes[9] = "extrair zip / avatar"; mapOpcoes[9] = 7;
-        totalOpcoes = 10;
-    }
-    else {
-        totalOpcoes = 9;
-    }
+    if (isZip) { listaOpcoes[9] = "extrair zip / avatar"; mapOpcoes[9] = 7; totalOpcoes = 10; }
+    else { totalOpcoes = 9; }
 }
 
 void copiarArquivoReal(const char* origem, const char* destino) {
     FILE* src = fopen(origem, "rb"); if (!src) return;
     FILE* dst = fopen(destino, "wb"); if (!dst) { fclose(src); return; }
-    char buffer[65536]; size_t n;
-    while ((n = fread(buffer, 1, sizeof(buffer), src)) > 0) fwrite(buffer, 1, n, dst);
+    char buffer[65536]; size_t n; while ((n = fread(buffer, 1, sizeof(buffer), src)) > 0) fwrite(buffer, 1, n, dst);
     fclose(src); fclose(dst);
 }
 
@@ -117,13 +148,10 @@ void deletarPastaRecursivamente(const char* path) {
         struct dirent* dir;
         while ((dir = readdir(d)) != NULL) {
             if (strcmp(dir->d_name, ".") != 0 && strcmp(dir->d_name, "..") != 0) {
-                char fullPath[1024];
-                snprintf(fullPath, sizeof(fullPath), "%s/%s", path, dir->d_name);
+                char fullPath[1024]; snprintf(fullPath, sizeof(fullPath), "%s/%s", path, dir->d_name);
                 struct stat st;
-                if (dir->d_type == DT_DIR || (dir->d_type == DT_UNKNOWN && stat(fullPath, &st) == 0 && S_ISDIR(st.st_mode))) {
-                    deletarPastaRecursivamente(fullPath);
-                }
-                else { unlink(fullPath); }
+                if (dir->d_type == DT_DIR || (dir->d_type == DT_UNKNOWN && stat(fullPath, &st) == 0 && S_ISDIR(st.st_mode))) deletarPastaRecursivamente(fullPath);
+                else unlink(fullPath);
             }
         } closedir(d);
     } rmdir(path);
@@ -139,22 +167,14 @@ void criarCaminho(const char* filepath) {
 void extrairZip(const char* zipPath, const char* outPath) {
     mz_zip_archive zip_archive; memset(&zip_archive, 0, sizeof(zip_archive));
     sprintf(msgStatus, "LENDO O ARQUIVO ZIP..."); atualizarBarra(0.01f);
-    if (!mz_zip_reader_init_file(&zip_archive, zipPath, 0)) {
-        sprintf(msgStatus, "ERRO: ARQUIVO ZIP INVALIDO OU CORROMPIDO!"); msgTimer = 180; return;
-    }
+    if (!mz_zip_reader_init_file(&zip_archive, zipPath, 0)) { sprintf(msgStatus, "ERRO: ARQUIVO ZIP INVALIDO OU CORROMPIDO!"); msgTimer = 180; return; }
     int totalArquivos = (int)mz_zip_reader_get_num_files(&zip_archive);
     for (int i = 0; i < totalArquivos; i++) {
-        mz_zip_archive_file_stat file_stat;
-        if (!mz_zip_reader_file_stat(&zip_archive, i, &file_stat)) continue;
+        mz_zip_archive_file_stat file_stat; if (!mz_zip_reader_file_stat(&zip_archive, i, &file_stat)) continue;
         char out_file[1024]; snprintf(out_file, sizeof(out_file), "%s/%s", outPath, file_stat.m_filename);
-        if (mz_zip_reader_is_file_a_directory(&zip_archive, i)) {
-            criarCaminho(out_file); sceKernelMkdir(out_file, 0777);
-        }
-        else {
-            criarCaminho(out_file); mz_zip_reader_extract_to_file(&zip_archive, i, out_file, 0);
-        }
-        float prog = (float)(i + 1) / (float)totalArquivos;
-        sprintf(msgStatus, "EXTRAINDO: %d%%", (int)(prog * 100)); atualizarBarra(prog);
+        if (mz_zip_reader_is_file_a_directory(&zip_archive, i)) { criarCaminho(out_file); sceKernelMkdir(out_file, 0777); }
+        else { criarCaminho(out_file); mz_zip_reader_extract_to_file(&zip_archive, i, out_file, 0); }
+        float prog = (float)(i + 1) / (float)totalArquivos; sprintf(msgStatus, "EXTRAINDO: %d%%", (int)(prog * 100)); atualizarBarra(prog);
     }
     mz_zip_reader_end(&zip_archive); sprintf(msgStatus, "EXTRAIDO COM SUCESSO!"); msgTimer = 180;
 }
@@ -164,8 +184,7 @@ void listarDiretorio(const char* path) {
     if (!d) {
         if (errno == EACCES) sprintf(msgStatus, "ERRO 13: SEM PERMISSAO DE ROOT");
         else if (errno == ENOENT) sprintf(msgStatus, "ERRO 2: INVISIVEL (SANDBOX) - %s", path);
-        else sprintf(msgStatus, "ERRO %d AO ABRIR USB", errno);
-        msgTimer = 240; return;
+        else sprintf(msgStatus, "ERRO %d AO ABRIR USB", errno); msgTimer = 240; return;
     }
     memset(marcados, 0, sizeof(marcados)); memset(nomes, 0, sizeof(nomes));
     ItemLista temp[3000]; int count = 0; struct dirent* dir;
@@ -174,11 +193,9 @@ void listarDiretorio(const char* path) {
         if (strcmp(dir->d_name, ".") == 0 || strcmp(dir->d_name, "..") == 0) continue;
         char cleanName[128]; strcpy(cleanName, dir->d_name); int len = strlen(cleanName);
         while (len > 0 && (cleanName[len - 1] == ' ' || cleanName[len - 1] == '\r' || cleanName[len - 1] == '\n')) { cleanName[len - 1] = '\0'; len--; }
-        strncpy(temp[count].nome, cleanName, 63);
-        char fullPath[1024]; snprintf(fullPath, sizeof(fullPath), "%s/%s", path, cleanName); struct stat st;
+        strncpy(temp[count].nome, cleanName, 63); char fullPath[1024]; snprintf(fullPath, sizeof(fullPath), "%s/%s", path, cleanName); struct stat st;
         if (dir->d_type == DT_DIR || (dir->d_type == DT_UNKNOWN && stat(fullPath, &st) == 0 && S_ISDIR(st.st_mode))) temp[count].ehPasta = true;
-        else temp[count].ehPasta = false;
-        count++;
+        else temp[count].ehPasta = false; count++;
     } closedir(d);
 
     for (int i = 0; i < count - 1; i++) for (int j = 0; j < count - i - 1; j++) {
@@ -187,9 +204,7 @@ void listarDiretorio(const char* path) {
         else if (temp[j].ehPasta == temp[j + 1].ehPasta && strcasecmp(temp[j].nome, temp[j + 1].nome) > 0) trocar = true;
         if (trocar) { ItemLista aux = temp[j]; temp[j] = temp[j + 1]; temp[j + 1] = aux; }
     }
-    for (int i = 0; i < count; i++) {
-        if (temp[i].ehPasta) sprintf(nomes[i], "[%s]", temp[i].nome); else strcpy(nomes[i], temp[i].nome);
-    }
+    for (int i = 0; i < count; i++) { if (temp[i].ehPasta) sprintf(nomes[i], "[%s]", temp[i].nome); else strcpy(nomes[i], temp[i].nome); }
     totalItens = count; strcpy(pathExplorar, path); menuAtual = MENU_EXPLORAR; sel = 0;
 }
 
@@ -198,8 +213,7 @@ void listarDiretorioEsq(const char* path) {
     if (!d) {
         if (errno == EACCES) sprintf(msgStatus, "ERRO 13: SEM PERMISSAO DE ROOT");
         else if (errno == ENOENT) sprintf(msgStatus, "ERRO 2: INVISIVEL (SANDBOX) - %s", path);
-        else sprintf(msgStatus, "ERRO %d AO ABRIR USB", errno);
-        msgTimer = 240; return;
+        else sprintf(msgStatus, "ERRO %d AO ABRIR USB", errno); msgTimer = 240; return;
     }
     memset(marcadosEsq, 0, sizeof(marcadosEsq)); memset(nomesEsq, 0, sizeof(nomesEsq));
     ItemLista temp[3000]; int count = 0; struct dirent* dir;
@@ -208,11 +222,9 @@ void listarDiretorioEsq(const char* path) {
         if (strcmp(dir->d_name, ".") == 0 || strcmp(dir->d_name, "..") == 0) continue;
         char cleanName[128]; strcpy(cleanName, dir->d_name); int len = strlen(cleanName);
         while (len > 0 && (cleanName[len - 1] == ' ' || cleanName[len - 1] == '\r' || cleanName[len - 1] == '\n')) { cleanName[len - 1] = '\0'; len--; }
-        strncpy(temp[count].nome, cleanName, 63);
-        char fullPath[1024]; snprintf(fullPath, sizeof(fullPath), "%s/%s", path, cleanName); struct stat st;
+        strncpy(temp[count].nome, cleanName, 63); char fullPath[1024]; snprintf(fullPath, sizeof(fullPath), "%s/%s", path, cleanName); struct stat st;
         if (dir->d_type == DT_DIR || (dir->d_type == DT_UNKNOWN && stat(fullPath, &st) == 0 && S_ISDIR(st.st_mode))) temp[count].ehPasta = true;
-        else temp[count].ehPasta = false;
-        count++;
+        else temp[count].ehPasta = false; count++;
     } closedir(d);
 
     for (int i = 0; i < count - 1; i++) for (int j = 0; j < count - i - 1; j++) {
@@ -221,23 +233,19 @@ void listarDiretorioEsq(const char* path) {
         else if (temp[j].ehPasta == temp[j + 1].ehPasta && strcasecmp(temp[j].nome, temp[j + 1].nome) > 0) trocar = true;
         if (trocar) { ItemLista aux = temp[j]; temp[j] = temp[j + 1]; temp[j + 1] = aux; }
     }
-    for (int i = 0; i < count; i++) {
-        if (temp[i].ehPasta) sprintf(nomesEsq[i], "[%s]", temp[i].nome); else strcpy(nomesEsq[i], temp[i].nome);
-    }
+    for (int i = 0; i < count; i++) { if (temp[i].ehPasta) sprintf(nomesEsq[i], "[%s]", temp[i].nome); else strcpy(nomesEsq[i], temp[i].nome); }
     totalItensEsq = count; strcpy(pathExplorarEsq, path); menuAtualEsq = MENU_EXPLORAR; selEsq = 0;
 }
 
 void acaoArquivo(int idxOpcao) {
     if (idxOpcao < 0 || idxOpcao >= 10) return;
-    int op = mapOpcoes[idxOpcao];
-    if (op == -1) return;
+    int op = mapOpcoes[idxOpcao]; if (op == -1) return;
 
     bool ehEsq = (painelDuplo && painelAtivo == 0);
-    int tItens = ehEsq ? totalItensEsq : totalItens;
-    bool* mItems = ehEsq ? marcadosEsq : marcados;
-    char (*nItems)[64] = ehEsq ? nomesEsq : nomes;
-    char* pExplorar = ehEsq ? pathExplorarEsq : pathExplorar;
+    int tItens = ehEsq ? totalItensEsq : totalItens; bool* mItems = ehEsq ? marcadosEsq : marcados;
+    char (*nItems)[64] = ehEsq ? nomesEsq : nomes; char* pExplorar = ehEsq ? pathExplorarEsq : pathExplorar;
     int sAtual = ehEsq ? selEsq : sel;
+
     bool temMarcado = false;
     for (int i = 0; i < tItens; i++) if (mItems[i]) { temMarcado = true; break; }
 
@@ -260,8 +268,7 @@ void acaoArquivo(int idxOpcao) {
                 if (nItems[i][0] == '[') clipboardPaths[clipboardCount][strlen(clipboardPaths[clipboardCount]) - 1] = '\0';
                 clipboardCount++;
             }
-        }
-        sprintf(msgStatus, op == 2 ? "ARQUIVO(S) COPIADO(S)" : "ARQUIVO(S) RECORTADO(S)"); msgTimer = 90; break;
+        } sprintf(msgStatus, op == 2 ? "ARQUIVO(S) COPIADO(S)" : "ARQUIVO(S) RECORTADO(S)"); msgTimer = 90; break;
     }
     case 4: {
         for (int i = 0; i < clipboardCount; i++) {
@@ -299,14 +306,11 @@ void acaoArquivo(int idxOpcao) {
                 if (nItems[i][0] == '[') { f[strlen(f) - 1] = '\0'; deletarPastaRecursivamente(f); }
                 else { unlink(f); }
             }
-        }
-        if (ehEsq) listarDiretorioEsq(pExplorar); else listarDiretorio(pExplorar); break;
+        } if (ehEsq) listarDiretorioEsq(pExplorar); else listarDiretorio(pExplorar); break;
     }
     case 7: {
         int alvo = sAtual; for (int i = 0; i < tItens; i++) if (mItems[i]) { alvo = i; break; }
-        char* nomeReal = nItems[alvo];
-        if (nomeReal[0] == '[') { sprintf(msgStatus, "SELECIONE UM ARQUIVO .ZIP"); msgTimer = 120; break; }
-
+        char* nomeReal = nItems[alvo]; if (nomeReal[0] == '[') { sprintf(msgStatus, "SELECIONE UM ARQUIVO .ZIP"); msgTimer = 120; break; }
         char pathFinal[512]; sprintf(pathFinal, "%s/%s", pExplorar, nomeReal);
         char temp[512]; strcpy(temp, pathFinal); for (int i = 0; temp[i]; i++) temp[i] = tolower(temp[i]);
 
@@ -317,45 +321,64 @@ void acaoArquivo(int idxOpcao) {
     case 8: { mItems[sAtual] = !mItems[sAtual]; break; }
     case 9: { bool ligar = false; for (int i = 0; i < tItens; i++) if (!mItems[i]) ligar = true; for (int i = 0; i < tItens; i++) mItems[i] = ligar; break; }
 
-          // =========================================================
-          // AÇÕES DE IMAGENS E FUNDOS DE TELA
-          // =========================================================
-    case 10: { // Fundo Hyper Neiva
-        remove("/data/HyperNeiva/configuracao/imagens/0_Defalt_Background.png");
-        remove("/data/HyperNeiva/configuracao/imagens/0_Defalt_Background.jpg");
+    case 10: {
+        remove("/data/HyperNeiva/configuracao/imagens/0_Defalt_Background.png"); remove("/data/HyperNeiva/configuracao/imagens/0_Defalt_Background.jpg");
+        char caminhoCopia[512]; char* extCheck = strrchr(caminhoImagemAberta, '.');
+        if (extCheck && strcasecmp(extCheck, ".xavatar") == 0) strcpy(caminhoCopia, "/data/HyperNeiva/configuracao/temporario/temp_avatar.png");
+        else strcpy(caminhoCopia, caminhoImagemAberta);
 
-        FILE* src = fopen(caminhoImagemAberta, "rb");
+        FILE* src = fopen(caminhoCopia, "rb");
         if (src) {
-            char* ext = strrchr(caminhoImagemAberta, '.'); char dest[512];
-            if (ext && (strcasecmp(ext, ".jpg") == 0 || strcasecmp(ext, ".jpeg") == 0)) strcpy(dest, "/data/HyperNeiva/configuracao/imagens/0_Defalt_Background.jpg");
+            char dest[512];
+            if (extCheck && (strcasecmp(extCheck, ".jpg") == 0 || strcasecmp(extCheck, ".jpeg") == 0)) strcpy(dest, "/data/HyperNeiva/configuracao/imagens/0_Defalt_Background.jpg");
             else strcpy(dest, "/data/HyperNeiva/configuracao/imagens/0_Defalt_Background.png");
-
             FILE* dst = fopen(dest, "wb");
             if (dst) {
                 char buf[8192]; size_t bytes;
                 while ((bytes = fread(buf, 1, sizeof(buf), src)) > 0) fwrite(buf, 1, bytes, dst);
-                fclose(dst); sprintf(msgStatus, "PLANO DE FUNDO HYPER NEIVA APLICADO!");
+                fclose(dst); sprintf(msgStatus, "PLANO DE FUNDO APLICADO COM SUCESSO!");
             }
             else { sprintf(msgStatus, "ERRO AO SALVAR PLANO DE FUNDO"); }
             fclose(src); msgTimer = 180;
-        }
-        visualizandoMidiaImagem = false; if (imgMidia) { stbi_image_free(imgMidia); imgMidia = NULL; } break;
+        } visualizandoMidiaImagem = false; if (imgMidia) { stbi_image_free(imgMidia); imgMidia = NULL; } break;
     }
-    case 11: { // Fundo PS4
-        sprintf(msgStatus, "A Aplicar Fundo PS4..."); msgTimer = 120;
-        // Lógica do Fundo PS4 aqui (Ex: Conversor DDS futuro)
-        visualizandoMidiaImagem = false; if (imgMidia) { stbi_image_free(imgMidia); imgMidia = NULL; } break;
-    }
-    case 12: { // Perfil PS4
-        sprintf(msgStatus, "A Aplicar Perfil PS4..."); msgTimer = 120;
-        // A sua lógica de perfil PS4 aqui 
-        visualizandoMidiaImagem = false; if (imgMidia) { stbi_image_free(imgMidia); imgMidia = NULL; } break;
-    }
-    case 13: { // Visualizar Xavatar
-        int alvo = sAtual; for (int i = 0; i < tItens; i++) if (mItems[i]) { alvo = i; break; }
-        char* nomeReal = nItems[alvo];
-        if (nomeReal[0] == '[') break;
+    case 11: { sprintf(msgStatus, "Funcao Fundo PS4 em breve!"); msgTimer = 120; visualizandoMidiaImagem = false; if (imgMidia) { stbi_image_free(imgMidia); imgMidia = NULL; } break; }
 
+    case 12: {
+        DIR* d = opendir("/system_data/priv/cache/profile");
+        if (d) {
+            int pCount = 0; struct dirent* dir;
+            while ((dir = readdir(d)) != NULL && pCount < 10) {
+                if (dir->d_name[0] == '0' && dir->d_name[1] == 'x') {
+                    char onlineJsonPath[512]; sprintf(onlineJsonPath, "/system_data/priv/cache/profile/%s/online.json", dir->d_name);
+                    char profileName[64] = "Desconhecido"; FILE* f = fopen(onlineJsonPath, "r");
+                    if (f) {
+                        char buf[1024]; size_t bytes = fread(buf, 1, sizeof(buf) - 1, f); buf[bytes] = '\0'; fclose(f);
+                        char* ptr = strstr(buf, "\"firstName\":\"");
+                        if (ptr) {
+                            ptr += 13; char* end = strchr(ptr, '\"');
+                            if (end && (end - ptr) < 63) { strncpy(profileName, ptr, end - ptr); profileName[end - ptr] = '\0'; }
+                        }
+                    }
+                    sprintf(menuStrDinamico[pCount], "Aplicar a: %s (%s)", profileName, dir->d_name);
+                    strcpy(caminhoPerfilAlvo[pCount], dir->d_name);
+                    listaOpcoes[pCount] = menuStrDinamico[pCount]; mapOpcoes[pCount] = 20 + pCount; pCount++;
+                }
+            } closedir(d);
+
+            if (pCount > 0) {
+                for (int k = pCount; k < 10; k++) { listaOpcoes[k] = ""; mapOpcoes[k] = -1; }
+                totalOpcoes = pCount; showOpcoes = true; selOpcao = 0; return;
+            }
+            else { sprintf(msgStatus, "NENHUM PERFIL ENCONTRADO!"); msgTimer = 180; }
+        }
+        else { sprintf(msgStatus, "ERRO AO LER PASTA DE PERFIS!"); msgTimer = 180; }
+        visualizandoMidiaImagem = false; if (imgMidia) { stbi_image_free(imgMidia); imgMidia = NULL; } break;
+    }
+
+    case 13: {
+        int alvo = sAtual; for (int i = 0; i < tItens; i++) if (mItems[i]) { alvo = i; break; }
+        char* nomeReal = nItems[alvo]; if (nomeReal[0] == '[') break;
         char caminhoArquivo[512]; sprintf(caminhoArquivo, "%s/%s", pExplorar, nomeReal);
 
         if (imgMidia) { stbi_image_free(imgMidia); imgMidia = NULL; }
@@ -367,10 +390,8 @@ void acaoArquivo(int idxOpcao) {
                 mz_zip_archive_file_stat file_stat;
                 if (!mz_zip_reader_file_stat(&zip_archive, i, &file_stat)) continue;
                 if (mz_zip_reader_is_file_a_directory(&zip_archive, i)) continue;
-
                 char tempExtZip[256]; strcpy(tempExtZip, file_stat.m_filename);
                 for (int k = 0; tempExtZip[k]; k++) tempExtZip[k] = tolower(tempExtZip[k]);
-
                 if (strstr(tempExtZip, ".png") || strstr(tempExtZip, ".jpg") || strstr(tempExtZip, ".jpeg")) {
                     if (mz_zip_reader_extract_to_file(&zip_archive, i, tempPath, 0)) { extraiu = true; break; }
                 }
@@ -383,15 +404,92 @@ void acaoArquivo(int idxOpcao) {
             else { sprintf(msgStatus, "AVATAR INVALIDO"); msgTimer = 120; }
             mz_zip_reader_end(&zip_archive);
         }
-        else { sprintf(msgStatus, "FALHA AO ABRIR O ARQUIVO .xavatar"); msgTimer = 120; }
-        break;
+        else { sprintf(msgStatus, "FALHA AO ABRIR O ARQUIVO .xavatar"); msgTimer = 120; } break;
     }
-    case 14: { // Visualizar Imagem Normal
+
+    case 14: {
         if (imgMidia) { stbi_image_free(imgMidia); imgMidia = NULL; }
         int canais; imgMidia = stbi_load(caminhoImagemAberta, &wM, &hM, &canais, 4);
         if (imgMidia) { visualizandoMidiaImagem = true; zoomMidia = 1.0f; fullscreenMidia = false; }
-        else { sprintf(msgStatus, "ERRO AO CARREGAR IMAGEM"); msgTimer = 90; }
-        break;
+        else { sprintf(msgStatus, "ERRO AO CARREGAR IMAGEM"); msgTimer = 90; } break;
+    }
+
+    case 20: case 21: case 22: case 23: case 24: case 25: case 26: case 27: case 28: case 29: {
+        int pIdx = op - 20; char profileDir[512]; sprintf(profileDir, "/system_data/priv/cache/profile/%s", caminhoPerfilAlvo[pIdx]);
+
+        DIR* d = opendir(profileDir);
+        if (d) {
+            struct dirent* dir;
+            while ((dir = readdir(d)) != NULL) {
+                if (strcmp(dir->d_name, ".") != 0 && strcmp(dir->d_name, "..") != 0) {
+                    char delPath[1024]; sprintf(delPath, "%s/%s", profileDir, dir->d_name); unlink(delPath);
+                }
+            } closedir(d);
+        }
+
+        char* extCheck = strrchr(caminhoImagemAberta, '.');
+        if (extCheck && strcasecmp(extCheck, ".xavatar") == 0) {
+            mz_zip_archive zip_archive; memset(&zip_archive, 0, sizeof(zip_archive));
+            if (mz_zip_reader_init_file(&zip_archive, caminhoImagemAberta, 0)) {
+                mz_uint num_files = mz_zip_reader_get_num_files(&zip_archive);
+                for (mz_uint i = 0; i < num_files; i++) {
+                    mz_zip_archive_file_stat file_stat;
+                    if (!mz_zip_reader_file_stat(&zip_archive, i, &file_stat)) continue;
+                    if (mz_zip_reader_is_file_a_directory(&zip_archive, i)) continue;
+                    char extPath[1024]; sprintf(extPath, "%s/%s", profileDir, file_stat.m_filename);
+                    mz_zip_reader_extract_to_file(&zip_archive, i, extPath, 0);
+                }
+                mz_zip_reader_end(&zip_archive);
+            }
+        }
+        else {
+            // COPIA APENAS A IMAGEM BASE PNG
+            char destPng[1024];
+            sprintf(destPng, "%s/avatar.png", profileDir); copiarArquivoReal(caminhoImagemAberta, destPng);
+
+            // GERA OS 4 FICHEIROS DDS REDIMENSIONADOS E COM OPACIDADE FORÇADA
+            int tw, th, tc;
+            unsigned char* tempImg = stbi_load(caminhoImagemAberta, &tw, &th, &tc, 4);
+            if (tempImg) {
+                char ddsPath[1024];
+
+                unsigned char* img64 = (unsigned char*)malloc(64 * 64 * 4);
+                redimensionarImagem(tempImg, tw, th, img64, 64, 64);
+                sprintf(ddsPath, "%s/avatar64.dds", profileDir); salvarComoDDS(ddsPath, img64, 64, 64);
+                free(img64);
+
+                unsigned char* img128 = (unsigned char*)malloc(128 * 128 * 4);
+                redimensionarImagem(tempImg, tw, th, img128, 128, 128);
+                sprintf(ddsPath, "%s/avatar128.dds", profileDir); salvarComoDDS(ddsPath, img128, 128, 128);
+                free(img128);
+
+                unsigned char* img260 = (unsigned char*)malloc(260 * 260 * 4);
+                redimensionarImagem(tempImg, tw, th, img260, 260, 260);
+                sprintf(ddsPath, "%s/avatar260.dds", profileDir); salvarComoDDS(ddsPath, img260, 260, 260);
+                free(img260);
+
+                unsigned char* img440 = (unsigned char*)malloc(440 * 440 * 4);
+                redimensionarImagem(tempImg, tw, th, img440, 440, 440);
+                sprintf(ddsPath, "%s/avatar440.dds", profileDir); salvarComoDDS(ddsPath, img440, 440, 440);
+                free(img440);
+
+                stbi_image_free(tempImg);
+            }
+
+            char vJson[1024]; sprintf(vJson, "%s/version.json", profileDir);
+            FILE* fV = fopen(vJson, "w");
+            if (fV) { fprintf(fV, "{\"cacheVersion\":\"5\"}"); fclose(fV); }
+
+            char oJson[1024]; sprintf(oJson, "%s/online.json", profileDir);
+            FILE* fO = fopen(oJson, "w");
+            if (fO) {
+                fprintf(fO, "{\"avatarUrl\":\"http:\\/\\/static-resource.np.community.playstation.net\\/avatar_xl\\/WWS_E\\/E2096_xl.png\",\"firstName\":\"vamosjogarr\",\"lastName\":\"agora\",\"trophySummary\":\"{\\\"level\\\":1,\\\"progress\\\":25,\\\"earnedTrophies\\\":{\\\"platinum\\\":0,\\\"gold\\\":0,\\\"silver\\\":0,\\\"bronze\\\":1}}\",\"isOfficiallyVerified\":\"false\"}");
+                fclose(fO);
+            }
+        }
+
+        sprintf(msgStatus, "PERFIL APLICADO! REINICIE O PS4."); msgTimer = 240;
+        visualizandoMidiaImagem = false; if (imgMidia) { stbi_image_free(imgMidia); imgMidia = NULL; } break;
     }
     }
 
