@@ -1,4 +1,3 @@
-// 1. Bibliotecas Padrão C/C++
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -14,12 +13,10 @@
 #endif
 #endif
 
-// 3. Headers do SDK do PS4
 #include <orbis/libkernel.h>
 #include <orbis/AudioOut.h>
 #include <orbis/UserService.h>
 
-// 4. Headers Locais do Projeto
 #include "audio.h"
 #include "explorar.h" 
 #include "elementos_sonoros.h" 
@@ -37,22 +34,18 @@ static bool sistemaAudioIniciado = false;
 static volatile bool comandoTrocar = false;
 volatile bool comandoPausar = false;
 
-// 0=Linear, 1=Repetir Faixa, 2=Repetir Pasta, 3=Aleatorio Pasta, 4=Aleatorio Todas
 volatile int modoReproducao = 0;
 
 volatile int comandoBuscarSegundos = 0;
 int volumeGeral = 100;
 char musicaAtual[256] = "PARADO";
-char ultimaMusicaTocada[256] = ""; // <-- A MEMÓRIA GUARDA A ÚLTIMA AQUI
+char ultimaMusicaTocada[256] = "";
 
 char caminhosMusicasMenu[3000][256];
 char caminhoNavegacaoMusicas[512] = "/data/HyperNeiva/Musicas";
 
 enum AudioType { AUDIO_NONE, AUDIO_WAV, AUDIO_MP3 };
 
-// ==========================================
-// FUNÇÕES DE CONTROLE DE TEMPO / VOLUME / SAVE
-// ==========================================
 void adiantarAudio() { comandoBuscarSegundos = 10; }
 void retrocederAudio() { comandoBuscarSegundos = -10; }
 
@@ -75,7 +68,12 @@ void salvarConfiguracaoAudio() {
         fwrite(&volumeGeral, 1, sizeof(int), f);
         int modoSalvar = (int)modoReproducao;
         fwrite(&modoSalvar, 1, sizeof(int), f);
-        fwrite(ultimaMusicaTocada, 1, sizeof(ultimaMusicaTocada), f); // Salva a memória no HD
+        fwrite(ultimaMusicaTocada, 1, sizeof(ultimaMusicaTocada), f);
+
+        // SALVA O STATUS DA PAUSA NO HD!
+        int pausado = comandoPausar ? 1 : 0;
+        fwrite(&pausado, 1, sizeof(int), f);
+
         fclose(f);
     }
 }
@@ -90,10 +88,18 @@ void carregarConfiguracaoAudio() {
         if (fread(&modoLido, 1, sizeof(int), f) > 0) modoReproducao = modoLido;
         else modoReproducao = 0;
 
-        // Tenta ler a memória antiga. Se não tiver, copia a atual.
         if (fread(ultimaMusicaTocada, 1, sizeof(ultimaMusicaTocada), f) <= 0) {
             strcpy(ultimaMusicaTocada, "");
             if (strcmp(musicaAtual, "PARADO") != 0) strcpy(ultimaMusicaTocada, musicaAtual);
+        }
+
+        // CARREGA O STATUS DA PAUSA DO HD!
+        int pausado = 0;
+        if (fread(&pausado, 1, sizeof(int), f) > 0) {
+            comandoPausar = (pausado == 1);
+        }
+        else {
+            comandoPausar = false;
         }
 
         fclose(f);
@@ -102,12 +108,10 @@ void carregarConfiguracaoAudio() {
         volumeGeral = 100;
         modoReproducao = 0;
         strcpy(ultimaMusicaTocada, "");
+        comandoPausar = false;
     }
 }
 
-// ======================================================================
-// BUSCA DE MÚSICAS: RECURSIVA (TODAS) OU APENAS NA PASTA ATUAL
-// ======================================================================
 #define MAX_PLAYLIST 2000
 
 void scanPlaylistRecursivo(const char* basePath, char (*lista)[256], int* total) {
@@ -116,20 +120,15 @@ void scanPlaylistRecursivo(const char* basePath, char (*lista)[256], int* total)
     struct dirent* dir;
     while ((dir = readdir(d)) != NULL && *total < MAX_PLAYLIST) {
         if (strcmp(dir->d_name, ".") == 0 || strcmp(dir->d_name, "..") == 0) continue;
-
         char fullPath[512];
         snprintf(fullPath, sizeof(fullPath), "%s/%s", basePath, dir->d_name);
-
         struct stat st;
         if (dir->d_type == DT_DIR || (dir->d_type == DT_UNKNOWN && stat(fullPath, &st) == 0 && S_ISDIR(st.st_mode))) {
             scanPlaylistRecursivo(fullPath, lista, total);
         }
         else {
-            if (strstr(dir->d_name, ".wav") || strstr(dir->d_name, ".WAV") ||
-                strstr(dir->d_name, ".mp3") || strstr(dir->d_name, ".MP3")) {
-                strncpy(lista[*total], fullPath, 255);
-                lista[*total][255] = '\0';
-                (*total)++;
+            if (strstr(dir->d_name, ".wav") || strstr(dir->d_name, ".WAV") || strstr(dir->d_name, ".mp3") || strstr(dir->d_name, ".MP3")) {
+                strncpy(lista[*total], fullPath, 255); lista[*total][255] = '\0'; (*total)++;
             }
         }
     }
@@ -144,14 +143,10 @@ void scanPastaSimples(const char* basePath, char (*lista)[256], int* total) {
         if (strcmp(dir->d_name, ".") == 0 || strcmp(dir->d_name, "..") == 0) continue;
         char fullPath[512];
         snprintf(fullPath, sizeof(fullPath), "%s/%s", basePath, dir->d_name);
-
         struct stat st;
         if (dir->d_type != DT_DIR && (dir->d_type != DT_UNKNOWN || (stat(fullPath, &st) == 0 && !S_ISDIR(st.st_mode)))) {
-            if (strstr(dir->d_name, ".wav") || strstr(dir->d_name, ".WAV") ||
-                strstr(dir->d_name, ".mp3") || strstr(dir->d_name, ".MP3")) {
-                strncpy(lista[*total], fullPath, 255);
-                lista[*total][255] = '\0';
-                (*total)++;
+            if (strstr(dir->d_name, ".wav") || strstr(dir->d_name, ".WAV") || strstr(dir->d_name, ".mp3") || strstr(dir->d_name, ".MP3")) {
+                strncpy(lista[*total], fullPath, 255); lista[*total][255] = '\0'; (*total)++;
             }
         }
     }
@@ -161,30 +156,17 @@ void scanPastaSimples(const char* basePath, char (*lista)[256], int* total) {
 static bool obterProximaMusica(char* proximaMusicaPath) {
     char (*listaAudios)[256] = (char (*)[256])malloc(MAX_PLAYLIST * 256);
     if (!listaAudios) return false;
-
     int totalAudios = 0;
-
     if (modoReproducao == 2 || modoReproducao == 3) {
-        char pastaAtual[512];
-        strcpy(pastaAtual, musicaAtual);
+        char pastaAtual[512]; strcpy(pastaAtual, musicaAtual);
         char* lastSlash = strrchr(pastaAtual, '/');
-        if (lastSlash) {
-            *lastSlash = '\0';
-            scanPastaSimples(pastaAtual, listaAudios, &totalAudios);
-        }
+        if (lastSlash) { *lastSlash = '\0'; scanPastaSimples(pastaAtual, listaAudios, &totalAudios); }
     }
-
-    if (totalAudios == 0) {
-        scanPlaylistRecursivo("/data/HyperNeiva/Musicas", listaAudios, &totalAudios);
-    }
-
+    if (totalAudios == 0) scanPlaylistRecursivo("/data/HyperNeiva/Musicas", listaAudios, &totalAudios);
     if (totalAudios == 0) { free(listaAudios); return false; }
-
     if (modoReproducao == 3 || modoReproducao == 4) {
         int r = rand() % totalAudios;
-        if (totalAudios > 1 && strcmp(listaAudios[r], musicaAtual) == 0) {
-            r = (r + 1) % totalAudios;
-        }
+        if (totalAudios > 1 && strcmp(listaAudios[r], musicaAtual) == 0) r = (r + 1) % totalAudios;
         strcpy(proximaMusicaPath, listaAudios[r]);
     }
     else {
@@ -196,36 +178,24 @@ static bool obterProximaMusica(char* proximaMusicaPath) {
             }
         }
         int idx = -1;
-        for (int i = 0; i < totalAudios; i++) {
-            if (strcmp(listaAudios[i], musicaAtual) == 0) { idx = i; break; }
-        }
-
+        for (int i = 0; i < totalAudios; i++) { if (strcmp(listaAudios[i], musicaAtual) == 0) { idx = i; break; } }
         if (idx != -1 && idx + 1 < totalAudios) strcpy(proximaMusicaPath, listaAudios[idx + 1]);
         else strcpy(proximaMusicaPath, listaAudios[0]);
     }
-
     free(listaAudios); return true;
 }
 
 static bool obterMusicaAnterior(char* musicaAnteriorPath) {
     char (*listaAudios)[256] = (char (*)[256])malloc(MAX_PLAYLIST * 256);
     if (!listaAudios) return false;
-
     int totalAudios = 0;
-
     if (modoReproducao == 2 || modoReproducao == 3) {
-        char pastaAtual[512];
-        strcpy(pastaAtual, musicaAtual);
+        char pastaAtual[512]; strcpy(pastaAtual, musicaAtual);
         char* lastSlash = strrchr(pastaAtual, '/');
         if (lastSlash) { *lastSlash = '\0'; scanPastaSimples(pastaAtual, listaAudios, &totalAudios); }
     }
-
-    if (totalAudios == 0) {
-        scanPlaylistRecursivo("/data/HyperNeiva/Musicas", listaAudios, &totalAudios);
-    }
-
+    if (totalAudios == 0) scanPlaylistRecursivo("/data/HyperNeiva/Musicas", listaAudios, &totalAudios);
     if (totalAudios == 0) { free(listaAudios); return false; }
-
     if (modoReproducao == 3 || modoReproducao == 4) {
         int r = rand() % totalAudios;
         if (totalAudios > 1 && strcmp(listaAudios[r], musicaAtual) == 0) { r = (r + 1) % totalAudios; }
@@ -240,14 +210,10 @@ static bool obterMusicaAnterior(char* musicaAnteriorPath) {
             }
         }
         int idx = -1;
-        for (int i = 0; i < totalAudios; i++) {
-            if (strcmp(listaAudios[i], musicaAtual) == 0) { idx = i; break; }
-        }
-
+        for (int i = 0; i < totalAudios; i++) { if (strcmp(listaAudios[i], musicaAtual) == 0) { idx = i; break; } }
         if (idx != -1 && idx - 1 >= 0) strcpy(musicaAnteriorPath, listaAudios[idx - 1]);
         else strcpy(musicaAnteriorPath, listaAudios[totalAudios - 1]);
     }
-
     free(listaAudios); return true;
 }
 
@@ -425,7 +391,10 @@ void inicializarAudio() {
     sceKernelMkdir("/data/HyperNeiva/Musicas", 0777);
     carregarConfiguracaoAudio();
     audioRodando = true;
-    if (strcmp(musicaAtual, "PARADO") == 0) comandoPausar = true; else comandoPausar = false;
+
+    // MÁGICA DE CONTINUIDADE: Respeita o status da PAUSA do último save!
+    if (strcmp(musicaAtual, "PARADO") == 0) comandoPausar = true;
+
     comandoTrocar = false;
     if (pthread_create(&audioThreadId, NULL, audioThreadFunc, NULL) != 0) audioRodando = false;
 }
@@ -438,14 +407,14 @@ void pararAudio() {
 
 void tocarMusicaNova(const char* path) {
     if (strcmp(path, "PARADO") == 0) {
-        strcpy(musicaAtual, "PARADO"); // Só desliga a atual, mas não apaga a memória!
+        strcpy(musicaAtual, "PARADO");
         salvarConfiguracaoAudio();
         comandoPausar = true;
         comandoTrocar = false;
         return;
     }
     strcpy(musicaAtual, path);
-    strcpy(ultimaMusicaTocada, path); // <-- GRAVA NA MEMÓRIA AQUI!
+    strcpy(ultimaMusicaTocada, path);
     salvarConfiguracaoAudio();
     comandoPausar = false;
     comandoTrocar = true;
@@ -455,7 +424,7 @@ void tocarProximaMusica() {
     bool estavaParado = false;
     if (strcmp(musicaAtual, "PARADO") == 0) {
         if (strlen(ultimaMusicaTocada) == 0) return;
-        strcpy(musicaAtual, ultimaMusicaTocada); // Restaura temporário pra ele achar a pasta
+        strcpy(musicaAtual, ultimaMusicaTocada);
         estavaParado = true;
     }
 
@@ -464,7 +433,7 @@ void tocarProximaMusica() {
         tocarMusicaNova(proxima);
     }
     else if (estavaParado) {
-        strcpy(musicaAtual, "PARADO"); // Devolve pro Stop se não achar nada
+        strcpy(musicaAtual, "PARADO");
     }
 }
 
@@ -472,7 +441,7 @@ void tocarMusicaAnterior() {
     bool estavaParado = false;
     if (strcmp(musicaAtual, "PARADO") == 0) {
         if (strlen(ultimaMusicaTocada) == 0) return;
-        strcpy(musicaAtual, ultimaMusicaTocada); // Restaura temporário pra ele achar a pasta
+        strcpy(musicaAtual, ultimaMusicaTocada);
         estavaParado = true;
     }
 

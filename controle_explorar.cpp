@@ -34,6 +34,8 @@
 #include "miniz.h" 
 
 extern void preencherOpcoesContexto(const char* nomeArquivo);
+extern void acaoArquivo(int idxOpcao);
+
 extern bool visualizandoMidiaImagem;
 extern unsigned char* imgMidia;
 extern int wM, hM;
@@ -55,7 +57,7 @@ static char caminhoMusicaTocando[512] = "";
 extern int offEsq;
 extern int off;
 
-char caminhoImagemAberta[512] = "";
+extern char caminhoImagemAberta[512]; // CHAMA A VARIÁVEL GLOBAL DO EXPLORAR.CPP
 
 extern unsigned char* imgPreview;
 extern int wP, hP, cP;
@@ -205,9 +207,6 @@ void acaoCross_Explorar() {
                 for (int k = 1; k < 10; k++) { listaOpcoes[k] = ""; mapOpcoes[k] = -1; }
                 totalOpcoes = 1; showOpcoes = true; selOpcao = 0;
             }
-            // ========================================================
-            // MENU DO X: AS 4 OPÇÕES! (Visualizar, Usar, Fundos...)
-            // ========================================================
             else if (strstr(nomeBlindado, ".png") || strstr(nomeBlindado, ".jpg") || strstr(nomeBlindado, ".jpeg") || strstr(nomeBlindado, ".bmp") || strstr(nomeBlindado, ".xavatar")) {
                 strcpy(caminhoImagemAberta, caminhoArquivo);
 
@@ -240,6 +239,7 @@ void acaoCross_Explorar() {
                 else { tocarMusicaNova(caminhoArquivo); strcpy(caminhoMusicaTocando, caminhoArquivo); sprintf(msgStatus, "Reproduzindo Audio"); msgTimer = 90; }
             }
             else if (strstr(nomeBlindado, ".txt") || strstr(nomeBlindado, ".xml") || strstr(nomeBlindado, ".json") || strstr(nomeBlindado, ".ini") || strstr(nomeBlindado, ".cfg") || strstr(nomeBlindado, ".log")) {
+                extern void editarArquivoExistente(const char* pPasta, const char* nArquivo);
                 editarArquivoExistente(pExplorar, nItems[sAtual]);
                 if (ehEsq) menuAtualEsq = MENU_NOTEPAD; else menuAtual = MENU_NOTEPAD;
             }

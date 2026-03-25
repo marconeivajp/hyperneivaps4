@@ -90,7 +90,7 @@ void tratarSelecaoAudio(int op) {
     case 0:
         if (strcmp(musicaAtual, "PARADO") == 0) {
             if (strlen(ultimaMusicaTocada) > 0) {
-                tocarMusicaNova(ultimaMusicaTocada); // TOCA DA MEMÓRIA!
+                tocarMusicaNova(ultimaMusicaTocada);
                 sprintf(msgStatus, "REPRODUZINDO");
                 msgTimer = 90;
             }
@@ -101,6 +101,7 @@ void tratarSelecaoAudio(int op) {
         }
         else {
             comandoPausar = !comandoPausar;
+            salvarConfiguracaoAudio(); // SALVA O STATUS DE PAUSE NO HD!
             sprintf(msgStatus, comandoPausar ? "MUSICA PAUSADA" : "REPRODUZINDO");
             msgTimer = 90;
         }

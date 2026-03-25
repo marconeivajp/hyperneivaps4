@@ -15,6 +15,16 @@ extern int totalServidoresFTP;
 extern int servidorAtualFTPIndex;
 extern bool ftpSelecionandoUpload;
 
+extern int ftpL2State;
+extern char currentFtpPathEsq[1024];
+extern char linksAtuaisEsq[3000][1024];
+
+extern char ftpClipPaths[100][1024];
+extern bool ftpClipIsDir[100];
+extern int ftpClipCount;
+extern bool ftpClipIsCut;
+extern int ftpClipSource;
+
 void carregarServidoresFTP();
 void salvarServidoresFTP();
 void preencherMenuFTPServidores(bool isUpload);
@@ -22,12 +32,13 @@ void preencherMenuEditarServidor(int index);
 void abrirTecladoEdicaoFTP(int32_t uId, int campo);
 
 void acessarFTP(int index, const char* path);
-void iniciarDownloadFTP(const char* remotePath);
-void preencherMenuFTPUploadRaizes();
-void listarArquivosUploadFTP(const char* dirPath);
-void fazerUploadFTP(const char* localPath);
+void acessarFTPEsq(int index, const char* path);
 
-// --- NOVAS FUNCOES DO EXPLORAR REMOTO ---
+// O NOVO MOTOR DE FILA INTELIGENTE (COPIA PASTAS E ARQUIVOS)
+void adicionarFilaFTP(const char* sourcePath, const char* destPath, bool isUpload, bool isDir);
+void iniciarProcessamentoFilaFTP();
+
+void acaoL2_FTP();
 void preencherOpcoesFTP();
 void acaoOpcaoFTP(int idxOpcao, int32_t uId);
 void prepararPreviewFTP(const char* remotePath);
