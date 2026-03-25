@@ -50,9 +50,14 @@ extern void acaoCross_Notepad(int32_t uId, OrbisImeDialogSetting* imeSetting, ui
 extern void acaoCross_Baixar(int32_t uId, OrbisImeDialogSetting* imeSetting, uint16_t* imeTitle);
 extern void acaoCircle_Baixar(); extern void acaoTriangle_Baixar(); extern void acaoL2_Explorar();
 extern void abrirMenuAudioOpcoes();
+
 MenuLevel menuAntesDoAudio = ROOT; bool veioDeOutroMenuParaAudio = false;
 
 int globalUserId = -1;
+
+extern void carregarCapaLoja(int index);
+extern void carregarPreviewArquivo(const char* caminhoAbsoluto);
+int timeToLoadCapa = 0;
 
 void processarNavegacaoDPad(uint32_t botoes) {
     if (visualizandoMidiaImagem) { if (botoes & (ORBIS_PAD_BUTTON_DOWN | ORBIS_PAD_BUTTON_UP)) { if (cd <= 0) { if (botoes & ORBIS_PAD_BUTTON_UP) { fullscreenMidia = false; zoomMidia += 0.5f; } else if (botoes & ORBIS_PAD_BUTTON_DOWN) { fullscreenMidia = false; zoomMidia -= 0.5f; if (zoomMidia < 0.1f) zoomMidia = 0.1f; } cd = 2; } } else cd = 0; if (cd > 0) cd--; return; }
@@ -65,8 +70,6 @@ void processarNavegacaoDPad(uint32_t botoes) {
 
     if (botoes & (btnNext | btnPrev)) {
         if (cd <= 0) {
-
-            // SFX NAVEGACAO:
             if (botoes & btnNext) tocarSom(SFX_DOWN);
             else if (botoes & btnPrev) tocarSom(SFX_UP);
 
@@ -79,13 +82,45 @@ void processarNavegacaoDPad(uint32_t botoes) {
             else {
                 bool ehEsq = (painelDuplo && painelAtivo == 0 && (menuAtual == MENU_EXPLORAR || menuAtual == MENU_EXPLORAR_HOME));
                 int* sAtual = ehEsq ? &selEsq : &sel; int* oAtual = ehEsq ? &offEsq : &off; int tItens = ehEsq ? totalItensEsq : totalItens;
+
                 if (botoes & btnNext) { if (*sAtual < (tItens - 1)) { (*sAtual)++; if (*sAtual >= (*oAtual + 6)) (*oAtual)++; } else if (tItens > 0) { *sAtual = 0; *oAtual = 0; } }
                 else if (botoes & btnPrev) { if (*sAtual > 0) { (*sAtual)--; if (*sAtual < *oAtual) (*oAtual)--; } else if (tItens > 0) { *sAtual = tItens - 1; *oAtual = tItens - 6; if (*oAtual < 0) *oAtual = 0; } }
+
+                timeToLoadCapa = 10;
             } cd = 10;
         }
     }
     else if (!(botoes & (ORBIS_PAD_BUTTON_LEFT | ORBIS_PAD_BUTTON_RIGHT | ORBIS_PAD_BUTTON_UP | ORBIS_PAD_BUTTON_DOWN))) { cd = 0; }
     if (cd > 0) cd--;
+
+    if (timeToLoadCapa > 0) {
+        timeToLoadCapa--;
+        if (timeToLoadCapa == 0) {
+            bool ehEsq = (painelDuplo && painelAtivo == 0);
+
+            if (menuAtual == MENU_BAIXAR_DROPBOX_LISTA && !ehEsq) {
+                carregarCapaLoja(sel);
+            }
+            else if (menuAtual == MENU_EXPLORAR || (painelDuplo && menuAtualEsq == MENU_EXPLORAR)) {
+                MenuLevel mAtual = ehEsq ? menuAtualEsq : menuAtual;
+                if (mAtual == MENU_EXPLORAR) {
+                    int sAtual = ehEsq ? selEsq : sel;
+                    char (*nItems)[64] = ehEsq ? nomesEsq : nomes;
+                    char* pExplorar = ehEsq ? pathExplorarEsq : pathExplorar;
+
+                    if (nItems[sAtual][0] != '[') {
+                        char caminhoAbs[512];
+                        sprintf(caminhoAbs, "%s/%s", pExplorar, nItems[sAtual]);
+                        carregarPreviewArquivo(caminhoAbs);
+                    }
+                    else {
+                        extern unsigned char* imgPreview;
+                        if (imgPreview) { stbi_image_free(imgPreview); imgPreview = NULL; }
+                    }
+                }
+            }
+        }
+    }
 }
 
 void processarControles(uint32_t botoes, int32_t uId, OrbisImeDialogSetting* imeSetting, uint16_t* imeTitle) {
@@ -107,7 +142,6 @@ void processarControles(uint32_t botoes, int32_t uId, OrbisImeDialogSetting* ime
 
     if (botoes & ORBIS_PAD_BUTTON_CROSS) {
         if (!pCross) {
-            // SFX CROSS:
             tocarSom(SFX_CROSS);
 
             if (showUploadOpcoes && (menuAtual == MENU_BAIXAR_DROPBOX_UPLOAD || menuAtual == MENU_BAIXAR_DROPBOX_LISTA)) acaoCross_MenuUpload();
@@ -117,7 +151,6 @@ void processarControles(uint32_t botoes, int32_t uId, OrbisImeDialogSetting* ime
             else if (menuAtual == MENU_NOTEPAD) { if (!notepadSomenteLeitura) { if (estadoNotepad == 0) acaoCross_Notepad(uId, imeSetting, imeTitle, linhasNotepad[linhaSelecionada]); else if (estadoNotepad == 1) acaoCross_Notepad(uId, imeSetting, imeTitle, nomeArquivo); } }
             else if (menuAtual == MENU_EXPLORAR || menuAtual == MENU_EXPLORAR_HOME) acaoCross_Explorar();
             else if (menuAtual == MENU_EDITAR || menuAtual == MENU_EDIT_TARGET) acaoCross_Editar();
-            // AQUI EST� A CORRE플O (ADICIONADO MENU_LOJAS)
             else if (menuAtual == MENU_BAIXAR || menuAtual == MENU_LOJAS || menuAtual == MENU_BAIXAR_REPOS || menuAtual == MENU_BAIXAR_GAMES_XMLS || menuAtual == MENU_BAIXAR_GAMES_LIST || menuAtual == MENU_BAIXAR_LINKS || menuAtual == MENU_BAIXAR_LINK_DIRETO || menuAtual == MENU_BAIXAR_DROPBOX_LISTA || menuAtual == MENU_BAIXAR_DROPBOX_UPLOAD || menuAtual == MENU_BAIXAR_DROPBOX_BACKUP || menuAtual == MENU_CAPAS || menuAtual == MENU_CONSOLES || menuAtual == SCRAPER_LIST) acaoCross_Baixar(uId, imeSetting, imeTitle);
             pCross = true;
         }
@@ -126,7 +159,6 @@ void processarControles(uint32_t botoes, int32_t uId, OrbisImeDialogSetting* ime
 
     if (botoes & ORBIS_PAD_BUTTON_CIRCLE) {
         if (!pCircle) {
-            // SFX CIRCLE:
             tocarSom(SFX_CIRCLE);
 
             if (showUploadOpcoes && (menuAtual == MENU_BAIXAR_DROPBOX_UPLOAD || menuAtual == MENU_BAIXAR_DROPBOX_LISTA)) acaoCircle_MenuUpload();
@@ -138,7 +170,6 @@ void processarControles(uint32_t botoes, int32_t uId, OrbisImeDialogSetting* ime
                 else if (menuAtual == MENU_MUSICAS || menuAtual == MENU_AUDIO_OPCOES) acaoCircle_Musicas();
                 else if (menuAtual == MENU_EXPLORAR || menuAtual == MENU_EXPLORAR_HOME) acaoCircle_Explorar();
                 else if (menuAtual == MENU_EDITAR || menuAtual == MENU_EDIT_TARGET) acaoCircle_Editar();
-                // AQUI EST� A CORRE플O (ADICIONADO MENU_LOJAS)
                 else if (menuAtual == MENU_BAIXAR || menuAtual == MENU_LOJAS || menuAtual == MENU_BAIXAR_REPOS || menuAtual == MENU_BAIXAR_GAMES_XMLS || menuAtual == MENU_BAIXAR_GAMES_LIST || menuAtual == MENU_BAIXAR_LINKS || menuAtual == MENU_BAIXAR_LINK_DIRETO || menuAtual == MENU_BAIXAR_DROPBOX_LISTA || menuAtual == MENU_BAIXAR_DROPBOX_UPLOAD || menuAtual == MENU_BAIXAR_DROPBOX_BACKUP || menuAtual == MENU_CAPAS || menuAtual == MENU_CONSOLES || menuAtual == SCRAPER_LIST) acaoCircle_Baixar();
             }
             pCircle = true;

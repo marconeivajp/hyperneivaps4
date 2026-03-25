@@ -5,29 +5,31 @@
 #include <dirent.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#include <ctype.h> 
 #include <orbis/libkernel.h>
 #include "ImeDialog.h"
 #include "CommonDialog.h"
 #include "bloco_de_notas.h" 
-#include <errno.h> // ADICIONADO PARA LER ERROS DO SISTEMA
+#include <errno.h> 
 
-// A NOSSA NOVA BIBLIOTECA DE EXTRAÇÃO ZIP
 #include "miniz.h" 
+#include "stb_image.h" 
 
 #define IME_STATUS_RUNNING 1
 #define IME_STATUS_FINISHED 2
 
-// Função de progresso importada do baixar.cpp para mostrar a barra na tela
 extern void atualizarBarra(float progresso);
 
-// Instanciamento das variáveis do Painel Direito (SEM DUPLICADAS)
+extern bool visualizandoMidiaImagem;
+extern char caminhoImagemAberta[512];
+extern unsigned char* imgMidia;
+
 char pathExplorar[256] = "";
 char baseRaiz[256] = "";
 bool marcados[3000];
 
-// Instanciamento das variáveis do Painel Esquerdo e Controle de Foco
 bool painelDuplo = false;
-int painelAtivo = 1; // Começa no painel direito (padrão)
+int painelAtivo = 1;
 char pathExplorarEsq[256] = "";
 char nomesEsq[3000][64];
 bool marcadosEsq[3000];
@@ -35,66 +37,71 @@ int totalItensEsq = 0;
 int selEsq = 0;
 MenuLevel menuAtualEsq = MENU_EXPLORAR_HOME;
 
-// Área de transferência
 char clipboardPaths[100][256];
 int clipboardCount = 0;
 bool clipboardIsCut = false;
 bool showOpcoes = false;
 int selOpcao = 0;
 
-// ========================================================
-// NOVO SISTEMA DE MENU DE CONTEXTO DINÂMICO
-// ========================================================
 const char* listaOpcoes[10] = { "", "", "", "", "", "", "", "", "", "" };
 int mapOpcoes[10] = { -1, -1, -1, -1, -1, -1, -1, -1, -1, -1 };
 int totalOpcoes = 0;
 
-void preencherOpcoesContexto(const char* nomeArquivo) {
-    // Limpa o menu
-    for (int i = 0; i < 10; i++) {
-        listaOpcoes[i] = "";
-        mapOpcoes[i] = -1;
-    }
-    totalOpcoes = 0;
-
-    // Checa se o item é um arquivo ZIP
-    bool isZip = false;
-    if (nomeArquivo) {
-        const char* ext = strrchr(nomeArquivo, '.');
-        if (ext && (strcasecmp(ext, ".zip") == 0 || strcasecmp(ext, ".ZIP") == 0)) {
-            isZip = true;
-        }
-    }
-
-    // Monta o menu baseado na extensão
-    if (isZip) {
-        listaOpcoes[0] = "extrair zip";
-        mapOpcoes[0] = 7;
-        totalOpcoes = 1;
-    }
-    else {
-        listaOpcoes[0] = "nova pasta"; mapOpcoes[0] = 0;
-        listaOpcoes[1] = "novo arquivo"; mapOpcoes[1] = 1;
-        listaOpcoes[2] = "copiar"; mapOpcoes[2] = 2;
-        listaOpcoes[3] = "recortar"; mapOpcoes[3] = 3;
-        listaOpcoes[4] = "colar"; mapOpcoes[4] = 4;
-        listaOpcoes[5] = "renomear"; mapOpcoes[5] = 5;
-        listaOpcoes[6] = "deletar"; mapOpcoes[6] = 6;
-        listaOpcoes[7] = "selecionar"; mapOpcoes[7] = 8;
-        listaOpcoes[8] = "selecionar tudo"; mapOpcoes[8] = 9;
-        totalOpcoes = 9;
-    }
-}
-// ========================================================
-
-
-// Variáveis do Teclado e Renomeação
 bool esperandoNomePasta = false;
 bool esperandoRenomear = false;
 wchar_t textoTeclado[256] = L"";
 char oldPathParaRenomear[512] = "";
 char oldExtParaRenomear[64] = "";
 bool ehPastaParaRenomear = false;
+
+void preencherOpcoesContexto(const char* nomeArquivo) {
+    for (int i = 0; i < 10; i++) {
+        listaOpcoes[i] = "";
+        mapOpcoes[i] = -1;
+    }
+    totalOpcoes = 0;
+
+    // Menu de Fundo para Imagens Abertas
+    if (visualizandoMidiaImagem) {
+        listaOpcoes[0] = "definir fundo hyper neiva"; mapOpcoes[0] = 10;
+        listaOpcoes[1] = "definir fundo ps4 (em breve)"; mapOpcoes[1] = 11;
+        listaOpcoes[2] = "definir avatar ps4 (em breve)"; mapOpcoes[2] = 12;
+        totalOpcoes = 3;
+        return;
+    }
+
+    // ========================================================
+    // MENU COMPLETO NORMAL (Mostra sempre no Triângulo!)
+    // ========================================================
+    listaOpcoes[0] = "nova pasta"; mapOpcoes[0] = 0;
+    listaOpcoes[1] = "novo arquivo"; mapOpcoes[1] = 1;
+    listaOpcoes[2] = "copiar"; mapOpcoes[2] = 2;
+    listaOpcoes[3] = "recortar"; mapOpcoes[3] = 3;
+    listaOpcoes[4] = "colar"; mapOpcoes[4] = 4;
+    listaOpcoes[5] = "renomear"; mapOpcoes[5] = 5;
+    listaOpcoes[6] = "deletar"; mapOpcoes[6] = 6;
+    listaOpcoes[7] = "selecionar"; mapOpcoes[7] = 8;
+    listaOpcoes[8] = "selecionar tudo"; mapOpcoes[8] = 9;
+
+    // Se for ZIP, adiciona o Extrair no final da lista do Triângulo!
+    bool isZip = false;
+    if (nomeArquivo) {
+        char temp[256];
+        strcpy(temp, nomeArquivo);
+        for (int i = 0; temp[i]; i++) temp[i] = tolower(temp[i]);
+        if (strstr(temp, ".zip") != NULL || strstr(temp, ".xavatar") != NULL) {
+            isZip = true;
+        }
+    }
+
+    if (isZip) {
+        listaOpcoes[9] = "extrair zip / avatar"; mapOpcoes[9] = 7;
+        totalOpcoes = 10;
+    }
+    else {
+        totalOpcoes = 9;
+    }
+}
 
 void copiarArquivoReal(const char* origem, const char* destino) {
     FILE* src = fopen(origem, "rb"); if (!src) return;
@@ -127,9 +134,6 @@ void deletarPastaRecursivamente(const char* path) {
     rmdir(path);
 }
 
-// ========================================================
-// LÓGICA DE EXTRAÇÃO DE ARQUIVOS ZIP
-// ========================================================
 void criarCaminho(const char* filepath) {
     char tmp[1024];
     strncpy(tmp, filepath, sizeof(tmp));
@@ -171,7 +175,6 @@ void extrairZip(const char* zipPath, const char* outPath) {
             mz_zip_reader_extract_to_file(&zip_archive, i, out_file, 0);
         }
 
-        // Atualiza a barra de loading na tela para o PS4 não travar!
         float prog = (float)(i + 1) / (float)totalArquivos;
         sprintf(msgStatus, "EXTRAINDO: %d%%", (int)(prog * 100));
         atualizarBarra(prog);
@@ -181,22 +184,13 @@ void extrairZip(const char* zipPath, const char* outPath) {
     sprintf(msgStatus, "EXTRAIDO COM SUCESSO!");
     msgTimer = 180;
 }
-// ========================================================
 
-// Lista diretório do PAINEL DIREITO
 void listarDiretorio(const char* path) {
     DIR* d = opendir(path);
     if (!d) {
-        // VAMOS IMPRIMIR O NUMERO DO ERRO (errno) NA TELA!
-        if (errno == EACCES) {
-            sprintf(msgStatus, "ERRO 13: SEM PERMISSAO DE ROOT");
-        }
-        else if (errno == ENOENT) {
-            sprintf(msgStatus, "ERRO 2: INVISIVEL (SANDBOX) - %s", path);
-        }
-        else {
-            sprintf(msgStatus, "ERRO %d AO ABRIR USB", errno);
-        }
+        if (errno == EACCES) sprintf(msgStatus, "ERRO 13: SEM PERMISSAO DE ROOT");
+        else if (errno == ENOENT) sprintf(msgStatus, "ERRO 2: INVISIVEL (SANDBOX) - %s", path);
+        else sprintf(msgStatus, "ERRO %d AO ABRIR USB", errno);
         msgTimer = 240;
         return;
     }
@@ -207,8 +201,26 @@ void listarDiretorio(const char* path) {
 
     while ((dir = readdir(d)) != NULL && count < 3000) {
         if (strcmp(dir->d_name, ".") == 0 || strcmp(dir->d_name, "..") == 0) continue;
-        strncpy(temp[count].nome, dir->d_name, 63);
-        temp[count].ehPasta = (dir->d_type == DT_DIR);
+
+        char cleanName[128];
+        strcpy(cleanName, dir->d_name);
+        int len = strlen(cleanName);
+        while (len > 0 && (cleanName[len - 1] == ' ' || cleanName[len - 1] == '\r' || cleanName[len - 1] == '\n')) {
+            cleanName[len - 1] = '\0';
+            len--;
+        }
+
+        strncpy(temp[count].nome, cleanName, 63);
+
+        char fullPath[1024];
+        snprintf(fullPath, sizeof(fullPath), "%s/%s", path, cleanName);
+        struct stat st;
+        if (dir->d_type == DT_DIR || (dir->d_type == DT_UNKNOWN && stat(fullPath, &st) == 0 && S_ISDIR(st.st_mode))) {
+            temp[count].ehPasta = true;
+        }
+        else {
+            temp[count].ehPasta = false;
+        }
         count++;
     }
     closedir(d);
@@ -227,20 +239,12 @@ void listarDiretorio(const char* path) {
     sel = 0;
 }
 
-// Lista diretório do PAINEL ESQUERDO
 void listarDiretorioEsq(const char* path) {
     DIR* d = opendir(path);
     if (!d) {
-        // VAMOS IMPRIMIR O NUMERO DO ERRO (errno) NA TELA!
-        if (errno == EACCES) {
-            sprintf(msgStatus, "ERRO 13: SEM PERMISSAO DE ROOT");
-        }
-        else if (errno == ENOENT) {
-            sprintf(msgStatus, "ERRO 2: INVISIVEL (SANDBOX) - %s", path);
-        }
-        else {
-            sprintf(msgStatus, "ERRO %d AO ABRIR USB", errno);
-        }
+        if (errno == EACCES) sprintf(msgStatus, "ERRO 13: SEM PERMISSAO DE ROOT");
+        else if (errno == ENOENT) sprintf(msgStatus, "ERRO 2: INVISIVEL (SANDBOX) - %s", path);
+        else sprintf(msgStatus, "ERRO %d AO ABRIR USB", errno);
         msgTimer = 240;
         return;
     }
@@ -251,8 +255,26 @@ void listarDiretorioEsq(const char* path) {
 
     while ((dir = readdir(d)) != NULL && count < 3000) {
         if (strcmp(dir->d_name, ".") == 0 || strcmp(dir->d_name, "..") == 0) continue;
-        strncpy(temp[count].nome, dir->d_name, 63);
-        temp[count].ehPasta = (dir->d_type == DT_DIR);
+
+        char cleanName[128];
+        strcpy(cleanName, dir->d_name);
+        int len = strlen(cleanName);
+        while (len > 0 && (cleanName[len - 1] == ' ' || cleanName[len - 1] == '\r' || cleanName[len - 1] == '\n')) {
+            cleanName[len - 1] = '\0';
+            len--;
+        }
+
+        strncpy(temp[count].nome, cleanName, 63);
+
+        char fullPath[1024];
+        snprintf(fullPath, sizeof(fullPath), "%s/%s", path, cleanName);
+        struct stat st;
+        if (dir->d_type == DT_DIR || (dir->d_type == DT_UNKNOWN && stat(fullPath, &st) == 0 && S_ISDIR(st.st_mode))) {
+            temp[count].ehPasta = true;
+        }
+        else {
+            temp[count].ehPasta = false;
+        }
         count++;
     }
     closedir(d);
@@ -271,11 +293,8 @@ void listarDiretorioEsq(const char* path) {
     selEsq = 0;
 }
 
-// AGORA O MENU ROTEIA AS OPÇÕES PELO NOVO SISTEMA INTELIGENTE
 void acaoArquivo(int idxOpcao) {
     if (idxOpcao < 0 || idxOpcao >= 10) return;
-
-    // Traduz o índice visual para a ação correta
     int op = mapOpcoes[idxOpcao];
     if (op == -1) return;
 
@@ -290,7 +309,7 @@ void acaoArquivo(int idxOpcao) {
     for (int i = 0; i < tItens; i++) if (mItems[i]) { temMarcado = true; break; }
 
     switch (op) {
-    case 0: { // Nova Pasta com Teclado
+    case 0: { // Nova Pasta
         OrbisImeDialogSetting param;
         memset(&param, 0, sizeof(param));
         memset(textoTeclado, 0, sizeof(textoTeclado));
@@ -432,7 +451,10 @@ void acaoArquivo(int idxOpcao) {
         char pathFinal[512];
         sprintf(pathFinal, "%s/%s", pExplorar, nomeReal);
 
-        if (strstr(pathFinal, ".zip") || strstr(pathFinal, ".ZIP")) {
+        char temp[512]; strcpy(temp, pathFinal);
+        for (int i = 0; temp[i]; i++) temp[i] = tolower(temp[i]);
+
+        if (strstr(temp, ".zip") != NULL || strstr(temp, ".xavatar") != NULL) {
             extrairZip(pathFinal, pExplorar);
         }
         else {
@@ -450,6 +472,53 @@ void acaoArquivo(int idxOpcao) {
     case 9: { // Selecionar tudo
         bool ligar = false; for (int i = 0; i < tItens; i++) if (!mItems[i]) ligar = true;
         for (int i = 0; i < tItens; i++) mItems[i] = ligar;
+        break;
+    }
+
+          // =========================================================
+          // AÇÕES DO FUNDO DE TELA
+          // =========================================================
+    case 10: {
+        remove("/data/HyperNeiva/configuracao/imagens/0_Defalt_Background.png");
+        remove("/data/HyperNeiva/configuracao/imagens/0_Defalt_Background.jpg");
+
+        FILE* src = fopen(caminhoImagemAberta, "rb");
+        if (src) {
+            char* ext = strrchr(caminhoImagemAberta, '.');
+            char dest[512];
+            if (ext && (strcasecmp(ext, ".jpg") == 0 || strcasecmp(ext, ".jpeg") == 0)) {
+                strcpy(dest, "/data/HyperNeiva/configuracao/imagens/0_Defalt_Background.jpg");
+            }
+            else {
+                strcpy(dest, "/data/HyperNeiva/configuracao/imagens/0_Defalt_Background.png");
+            }
+            FILE* dst = fopen(dest, "wb");
+            if (dst) {
+                char buf[8192]; size_t bytes;
+                while ((bytes = fread(buf, 1, sizeof(buf), src)) > 0) fwrite(buf, 1, bytes, dst);
+                fclose(dst);
+                sprintf(msgStatus, "PLANO DE FUNDO APLICADO COM SUCESSO!");
+            }
+            else {
+                sprintf(msgStatus, "ERRO AO SALVAR PLANO DE FUNDO");
+            }
+            fclose(src);
+            msgTimer = 180;
+        }
+        visualizandoMidiaImagem = false;
+        if (imgMidia) { stbi_image_free(imgMidia); imgMidia = NULL; }
+        break;
+    }
+    case 11: {
+        sprintf(msgStatus, "Funcao Fundo PS4 em breve!"); msgTimer = 120;
+        visualizandoMidiaImagem = false;
+        if (imgMidia) { stbi_image_free(imgMidia); imgMidia = NULL; }
+        break;
+    }
+    case 12: {
+        sprintf(msgStatus, "Funcao Avatar PS4 em breve!"); msgTimer = 120;
+        visualizandoMidiaImagem = false;
+        if (imgMidia) { stbi_image_free(imgMidia); imgMidia = NULL; }
         break;
     }
     }

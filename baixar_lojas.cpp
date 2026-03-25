@@ -6,7 +6,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
-#include <stdint.h> // Necessário para o conversor das capas
+#include <stdint.h> 
 
 #include <orbis/libkernel.h>
 #include <orbis/Http.h>
@@ -15,7 +15,7 @@
 #include "menu.h"
 #include "network.h"
 #include "baixar.h" 
-#include "stb_image.h" // Necessário para carregar a capa
+#include "stb_image.h"
 
 extern void atualizarBarra(float progresso);
 extern char nomes[3000][64];
@@ -33,14 +33,16 @@ extern char currentApolloUrl[1024];
 extern unsigned char* imgPreview;
 extern int wP, hP, cP;
 
-char iconesAtuais[3000][1024]; // Guarda as URLs das capas
+char iconesAtuais[3000][1024];
 
-// Declarações antecipadas
+// =======================================================================
+// CACHE DAS LOJAS 
+// =======================================================================
 void lerCacheHBStore();
 void atualizarHBStore();
 
 // =======================================================================
-// MOTOR DE CAPAS (SALVA PERMANENTEMENTE NA PASTA IMAGENS)
+// CARREGAR A CAPA E SALVAR EM DEFINITIVO
 // =======================================================================
 void carregarCapaLoja(int index) {
     if (strlen(iconesAtuais[index]) < 10) {
@@ -48,14 +50,11 @@ void carregarCapaLoja(int index) {
         return;
     }
 
-    // Gera um ID único para a imagem baseado no URL
+    // Gera nome unico
     uint32_t hash = 0;
-    for (int i = 0; iconesAtuais[index][i] != '\0'; i++) {
-        hash = hash * 31 + iconesAtuais[index][i];
-    }
+    for (int i = 0; iconesAtuais[index][i] != '\0'; i++) hash = hash * 31 + iconesAtuais[index][i];
 
     char localPath[256];
-    // Salva exatamente onde pediste para ficar definitivo
     sprintf(localPath, "/data/HyperNeiva/configuracao/imagens/capa_%u.png", hash);
 
     FILE* check = fopen(localPath, "rb");
@@ -63,10 +62,10 @@ void carregarCapaLoja(int index) {
         fclose(check);
         if (imgPreview) { stbi_image_free(imgPreview); imgPreview = NULL; }
         imgPreview = stbi_load(localPath, &wP, &hP, &cP, 4);
-        return; // Já existe no HD, abre instantaneamente!
+        return;
     }
 
-    // Se não existir, baixa da net e salva para sempre
+    // Se não existir, baixa da net (Carrega Sequencialmente)
     int tpl = sceHttpCreateTemplate(httpCtxId, "HyperNeiva/1.0", ORBIS_HTTP_VERSION_1_1, 1);
     sceHttpsSetSslCallback(tpl, skipSslCallback, NULL); sceHttpSetAutoRedirect();
     int conn = sceHttpCreateConnectionWithURL(tpl, iconesAtuais[index], 1);
@@ -86,28 +85,21 @@ void carregarCapaLoja(int index) {
     sceHttpDeleteRequest(req); sceHttpDeleteConnection(conn); sceHttpDeleteTemplate(tpl);
 }
 
+
 // =======================================================================
-// MOTOR DA HB-STORE (COM CORREÇÃO DE NOMES E ÍCONES)
+// MOTOR DA HB-STORE (NOMES + ICONES + PAGINAÇÃO)
 // =======================================================================
 void lerCacheHBStore() {
     FILE* f = fopen("/data/HyperNeiva/configuracao/hbstore_cache.txt", "r");
-    if (!f) {
-        atualizarHBStore();
-        return;
-    }
+    if (!f) { atualizarHBStore(); return; }
 
     char magic[128];
     if (!fgets(magic, sizeof(magic), f) || strncmp(magic, "V2", 2) != 0) {
-        fclose(f);
-        atualizarHBStore();
-        return;
+        fclose(f); atualizarHBStore(); return;
     }
 
-    memset(nomes, 0, sizeof(nomes));
-    memset(linksAtuais, 0, sizeof(linksAtuais));
-    memset(iconesAtuais, 0, sizeof(iconesAtuais));
-    memset(marcados, 0, sizeof(marcados));
-    totalItens = 0;
+    memset(nomes, 0, sizeof(nomes)); memset(linksAtuais, 0, sizeof(linksAtuais));
+    memset(iconesAtuais, 0, sizeof(iconesAtuais)); memset(marcados, 0, sizeof(marcados)); totalItens = 0;
 
     strcpy(nomes[totalItens], "[ ATUALIZAR LOJA ]");
     strcpy(linksAtuais[totalItens], "UPDATE_HB_STORE");
@@ -202,7 +194,6 @@ void atualizarHBStore() {
                                             char* limiteBusca = aspasFim + 600;
                                             bool achouNome = false;
 
-                                            // 1. OBTÉM A CAPA E O NOME REAL (INFALÍVEL PELA TAG DA IMAGEM)
                                             char imgUrl[512] = "";
                                             char* tagImg = strstr(aspasFim, "<img");
                                             if (tagImg && tagImg < limiteBusca) {
@@ -219,20 +210,16 @@ void atualizarHBStore() {
                                                         }
                                                     }
                                                 }
-                                                // Pesca o Nome Verdadeiro pelo ALT
                                                 char* tagAlt = strstr(tagImg, "alt=\"");
                                                 if (tagAlt && tagAlt < limiteBusca) {
                                                     char* startAlt = tagAlt + 5; char* endAlt = strchr(startAlt, '\"');
                                                     if (endAlt && (endAlt - startAlt) > 2) {
                                                         strncpy(nomeTelaBruto, startAlt, endAlt - startAlt); nomeTelaBruto[endAlt - startAlt] = '\0';
-                                                        if (strcasecmp(nomeTelaBruto, "icon") != 0 && strcasecmp(nomeTelaBruto, "image") != 0) {
-                                                            achouNome = true;
-                                                        }
+                                                        if (strcasecmp(nomeTelaBruto, "icon") != 0 && strcasecmp(nomeTelaBruto, "image") != 0) achouNome = true;
                                                     }
                                                 }
                                             }
 
-                                            // Fallback se não tiver ALT na imagem
                                             if (!achouNome) {
                                                 char* tagTitle = strstr(aspasFim, "card-title");
                                                 if (!tagTitle || tagTitle > limiteBusca) tagTitle = strstr(aspasFim, "<h5");
@@ -328,7 +315,15 @@ void acessarHBStore() {
 }
 
 // =======================================================================
-// MOTOR DO GITHUB (APOLLO SAVES COM CORREÇÃO DEFINITIVA DOS NOMES _00)
+// ESTRUTURA PARA DICIONÁRIO DE JOGOS DO APOLLO
+// =======================================================================
+typedef struct {
+    char id[64];
+    char nome[128];
+} JogoApollo;
+
+// =======================================================================
+// MOTOR DO APOLLO SAVES (NOME DO JOGO DEFINITIVO)
 // =======================================================================
 void acessarApolloSaves(const char* url) {
     strcpy(currentApolloUrl, url);
@@ -350,8 +345,7 @@ void acessarApolloSaves(const char* url) {
     if (ptr) {
         ptr += 11;
         char temp[512];
-        strncpy(temp, ptr, 511);
-        temp[511] = '\0';
+        strncpy(temp, ptr, 511); temp[511] = '\0';
 
         if (strlen(temp) > 0 && temp[strlen(temp) - 1] == '/') temp[strlen(temp) - 1] = '\0';
 
@@ -359,15 +353,11 @@ void acessarApolloSaves(const char* url) {
         if (!treePos) treePos = strstr(temp, "/blob/");
 
         if (treePos) {
-            *treePos = '\0';
-            strcpy(repo, temp);
-
+            *treePos = '\0'; strcpy(repo, temp);
             char* afterTree = treePos + 6;
             char* slashPos = strchr(afterTree, '/');
             if (slashPos) {
-                *slashPos = '\0';
-                strcpy(branch, afterTree);
-                strcpy(path, slashPos + 1);
+                *slashPos = '\0'; strcpy(branch, afterTree); strcpy(path, slashPos + 1);
             }
             else {
                 strcpy(branch, afterTree);
@@ -388,55 +378,93 @@ void acessarApolloSaves(const char* url) {
         sprintf(apiUrl, "https://api.github.com/repos/%s/contents?ref=%s", repo, branch);
     }
 
-    char* bufMap = (char*)malloc(256 * 1024);
-    bool hasMap = false;
+    JogoApollo* dictJogos = (JogoApollo*)malloc(5000 * sizeof(JogoApollo));
+    int totalDict = 0;
 
-    if (bufMap && strlen(path) > 0) {
-        memset(bufMap, 0, 256 * 1024);
+    if (dictJogos && strlen(path) > 0) {
         char rawUrl[512];
-
         int tplRaw = sceHttpCreateTemplate(httpCtxId, "Mozilla/5.0", ORBIS_HTTP_VERSION_1_1, 1);
         sceHttpsSetSslCallback(tplRaw, skipSslCallback, NULL);
         sceHttpSetAutoRedirect();
 
-        sprintf(rawUrl, "https://raw.githubusercontent.com/%s/%s/%s/saves.txt", repo, branch, path);
+        // 1º Tenta baixar o arquivo games.txt da pasta raiz do PS4/PS3/PS2
+        sprintf(rawUrl, "https://raw.githubusercontent.com/%s/%s/%s/games.txt", repo, branch, path);
         int connRaw = sceHttpCreateConnectionWithURL(tplRaw, rawUrl, 1);
         int reqRaw = sceHttpCreateRequestWithURL(connRaw, ORBIS_METHOD_GET, rawUrl, 0);
 
-        if (sceHttpSendRequest(reqRaw, NULL, 0) >= 0) {
-            int code = 0; sceHttpGetStatusCode(reqRaw, &code);
-            if (code == 200) {
-                int nRaw = 0, totalRaw = 0;
-                while ((nRaw = sceHttpReadData(reqRaw, (unsigned char*)(bufMap + totalRaw), 256 * 1024 - totalRaw - 1)) > 0) {
-                    totalRaw += nRaw;
-                    if (totalRaw >= 256 * 1024 - 1) break;
-                }
-                if (totalRaw > 0) hasMap = true;
-            }
-        }
-        sceHttpDeleteRequest(reqRaw); sceHttpDeleteConnection(connRaw);
-
-        if (!hasMap) {
-            sprintf(rawUrl, "https://raw.githubusercontent.com/%s/%s/%s/games.txt", repo, branch, path);
-            connRaw = sceHttpCreateConnectionWithURL(tplRaw, rawUrl, 1);
-            reqRaw = sceHttpCreateRequestWithURL(connRaw, ORBIS_METHOD_GET, rawUrl, 0);
-
+        char* bufTxt = (char*)malloc(512 * 1024);
+        if (bufTxt) {
+            memset(bufTxt, 0, 512 * 1024);
             if (sceHttpSendRequest(reqRaw, NULL, 0) >= 0) {
                 int code = 0; sceHttpGetStatusCode(reqRaw, &code);
                 if (code == 200) {
                     int nRaw = 0, totalRaw = 0;
-                    while ((nRaw = sceHttpReadData(reqRaw, (unsigned char*)(bufMap + totalRaw), 256 * 1024 - totalRaw - 1)) > 0) {
-                        totalRaw += nRaw;
-                        if (totalRaw >= 256 * 1024 - 1) break;
+                    while ((nRaw = sceHttpReadData(reqRaw, (unsigned char*)(bufTxt + totalRaw), 512 * 1024 - totalRaw - 1)) > 0) {
+                        totalRaw += nRaw; if (totalRaw >= 512 * 1024 - 1) break;
                     }
-                    if (totalRaw > 0) hasMap = true;
                 }
             }
             sceHttpDeleteRequest(reqRaw); sceHttpDeleteConnection(connRaw);
+
+            // 2º Se não encontrou games.txt, tenta baixar saves.txt dentro do arquivo
+            if (strlen(bufTxt) < 10) {
+                sprintf(rawUrl, "https://raw.githubusercontent.com/%s/%s/%s/saves.txt", repo, branch, path);
+                connRaw = sceHttpCreateConnectionWithURL(tplRaw, rawUrl, 1);
+                reqRaw = sceHttpCreateRequestWithURL(connRaw, ORBIS_METHOD_GET, rawUrl, 0);
+
+                if (sceHttpSendRequest(reqRaw, NULL, 0) >= 0) {
+                    int code = 0; sceHttpGetStatusCode(reqRaw, &code);
+                    if (code == 200) {
+                        int nRaw = 0, totalRaw = 0;
+                        while ((nRaw = sceHttpReadData(reqRaw, (unsigned char*)(bufTxt + totalRaw), 512 * 1024 - totalRaw - 1)) > 0) {
+                            totalRaw += nRaw; if (totalRaw >= 512 * 1024 - 1) break;
+                        }
+                    }
+                }
+                sceHttpDeleteRequest(reqRaw); sceHttpDeleteConnection(connRaw);
+            }
+
+            // MÁGICA: MONTA O DICIONÁRIO DE NOMES DO APOLLO
+            if (strlen(bufTxt) > 10) {
+                char* linha = strtok(bufTxt, "\n");
+                while (linha != NULL && totalDict < 5000) {
+                    // O Apollo usa = ou espaço para separar o ID do Nome.
+                    char* separator = strchr(linha, '=');
+                    if (!separator) separator = strchr(linha, ' ');
+
+                    if (separator) {
+                        *separator = '\0';
+                        char* idRaw = linha;
+                        char* nomeRaw = separator + 1;
+
+                        // Limpa os espaços e _00 do ID Original
+                        while (*idRaw == ' ' || *idRaw == '\t') idRaw++;
+                        char* uscore = strchr(idRaw, '_'); if (uscore) *uscore = '\0'; // Limpa PS4 _00
+                        char* cr = strchr(idRaw, '\r'); if (cr) *cr = '\0';
+
+                        // Limpa os espaços, hifens e aspas do Nome Original
+                        while (*nomeRaw == ' ' || *nomeRaw == '\t' || *nomeRaw == '-' || *nomeRaw == '=' || *nomeRaw == '\"') nomeRaw++;
+                        char* cleanR = strchr(nomeRaw, '\r'); if (cleanR) *cleanR = '\0';
+
+                        // Remove a aspa do fim do nome
+                        int lenNome = strlen(nomeRaw);
+                        if (lenNome > 0 && nomeRaw[lenNome - 1] == '\"') nomeRaw[lenNome - 1] = '\0';
+
+                        if (strlen(idRaw) > 0 && strlen(nomeRaw) > 0) {
+                            strncpy(dictJogos[totalDict].id, idRaw, 63); dictJogos[totalDict].id[63] = '\0';
+                            strncpy(dictJogos[totalDict].nome, nomeRaw, 127); dictJogos[totalDict].nome[127] = '\0';
+                            totalDict++;
+                        }
+                    }
+                    linha = strtok(NULL, "\n");
+                }
+            }
+            free(bufTxt);
         }
         sceHttpDeleteTemplate(tplRaw);
     }
 
+    // CARREGA A PASTA DO APOLLO PELA API
     int tpl = sceHttpCreateTemplate(httpCtxId, "Mozilla/5.0 (Windows NT 10.0; Win64; x64)", ORBIS_HTTP_VERSION_1_1, 1);
     sceHttpsSetSslCallback(tpl, skipSslCallback, NULL);
     sceHttpSetAutoRedirect();
@@ -479,42 +507,27 @@ void acessarApolloSaves(const char* url) {
                                     itemName[len] = '\0';
 
                                     char translatedName[128];
-                                    strncpy(translatedName, itemName, 127);
-                                    translatedName[127] = '\0';
+                                    strncpy(translatedName, itemName, 127); translatedName[127] = '\0';
                                     bool isTranslated = false;
 
-                                    if (hasMap) {
-                                        // 1. CORREÇÃO MAGNÍFICA DO APOLLO:
-                                        // O PS4 tem pastas com sufixos _00 (ex: CUSA12345_00) mas o games.txt só tem "CUSA12345".
-                                        // Isto tira o _00 para o código encontrar o nome certo!
+                                    // =========================================================
+                                    // APLICA A TRADUÇÃO USANDO O DICIONÁRIO NO JOGO
+                                    // =========================================================
+                                    if (totalDict > 0) {
                                         char searchId[128];
                                         strncpy(searchId, itemName, 127); searchId[127] = '\0';
+
+                                        // Limpa o ID da listagem da mesma forma para encontrar
                                         char* uscore = strchr(searchId, '_');
-                                        if (uscore) *uscore = '\0'; // Corta tudo a partir do '_'
+                                        if (uscore) *uscore = '\0';
+                                        char* dot = strchr(searchId, '.'); // tira o .zip
+                                        if (dot) *dot = '\0';
 
-                                        char* found = strstr(bufMap, searchId);
-                                        while (found) {
-                                            if (found == bufMap || *(found - 1) == '\n' || *(found - 1) == '\r') break;
-                                            found = strstr(found + 1, searchId);
-                                        }
-
-                                        if (found) {
-                                            char* linePtr = found + strlen(searchId);
-                                            while (*linePtr == ' ' || *linePtr == '\t' || *linePtr == '-' || *linePtr == '=' || *linePtr == ':' || *linePtr == '\"') {
-                                                linePtr++;
-                                            }
-                                            char* lineEnd = linePtr;
-                                            while (*lineEnd != '\r' && *lineEnd != '\n' && *lineEnd != '\0') {
-                                                lineEnd++;
-                                            }
-                                            if (lineEnd > linePtr && *(lineEnd - 1) == '\"') {
-                                                lineEnd--;
-                                            }
-                                            int nameLen = lineEnd - linePtr;
-                                            if (nameLen > 0 && nameLen < 120) {
-                                                strncpy(translatedName, linePtr, nameLen);
-                                                translatedName[nameLen] = '\0';
+                                        for (int i = 0; i < totalDict; i++) {
+                                            if (strcasecmp(searchId, dictJogos[i].id) == 0) {
+                                                strcpy(translatedName, dictJogos[i].nome);
                                                 isTranslated = true;
+                                                break;
                                             }
                                         }
                                     }
@@ -556,16 +569,10 @@ void acessarApolloSaves(const char* url) {
                                         if (itemName[0] != '.' && strcmp(itemName, "README.md") != 0 && strcmp(itemName, "LICENSE") != 0 && strcmp(itemName, "_config.yml") != 0 && strcmp(itemName, "gen_markdown.c") != 0 && strcmp(itemName, "games.txt") != 0 && strcmp(itemName, "saves.txt") != 0) {
 
                                             char displayStr[128];
-                                            if (isTranslated) {
-                                                sprintf(displayStr, "%s (%s)", translatedName, itemName);
-                                            }
-                                            else {
-                                                strcpy(displayStr, itemName);
-                                            }
+                                            if (isTranslated) sprintf(displayStr, "%s (%s)", translatedName, itemName);
+                                            else strcpy(displayStr, itemName);
 
-                                            if (strlen(displayStr) > 58) {
-                                                displayStr[58] = '\0';
-                                            }
+                                            if (strlen(displayStr) > 58) displayStr[58] = '\0';
 
                                             char nomeFormatado[128];
                                             if (isDir) sprintf(nomeFormatado, "[ %s ]", displayStr);
@@ -625,7 +632,7 @@ void acessarApolloSaves(const char* url) {
     }
 
     sceHttpDeleteRequest(req); sceHttpDeleteConnection(conn); sceHttpDeleteTemplate(tpl);
-    if (bufMap) free(bufMap);
+    if (dictJogos) free(dictJogos);
 
     atualizarBarra(1.0f); msgTimer = 180;
     menuAtual = MENU_BAIXAR_DROPBOX_LISTA;
