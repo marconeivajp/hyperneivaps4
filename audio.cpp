@@ -6,7 +6,7 @@
 #include <sys/stat.h>
 #include <pthread.h>
 #include <stdarg.h>
-#include <time.h> // ADICIONADO PARA O MODO ALEATÓRIO
+#include <time.h> 
 
 #ifdef __INTELLISENSE__
 #ifndef __builtin_va_list
@@ -43,6 +43,7 @@ volatile int modoReproducao = 0;
 volatile int comandoBuscarSegundos = 0;
 int volumeGeral = 100;
 char musicaAtual[256] = "PARADO";
+char ultimaMusicaTocada[256] = ""; // <-- A MEMÓRIA GUARDA A ÚLTIMA AQUI
 
 char caminhosMusicasMenu[3000][256];
 char caminhoNavegacaoMusicas[512] = "/data/HyperNeiva/Musicas";
@@ -72,8 +73,9 @@ void salvarConfiguracaoAudio() {
     if (f) {
         fwrite(musicaAtual, 1, sizeof(musicaAtual), f);
         fwrite(&volumeGeral, 1, sizeof(int), f);
-        int modoSalvar = (int)modoReproducao; // Remove o volatile para salvar
+        int modoSalvar = (int)modoReproducao;
         fwrite(&modoSalvar, 1, sizeof(int), f);
+        fwrite(ultimaMusicaTocada, 1, sizeof(ultimaMusicaTocada), f); // Salva a memória no HD
         fclose(f);
     }
 }
@@ -88,11 +90,18 @@ void carregarConfiguracaoAudio() {
         if (fread(&modoLido, 1, sizeof(int), f) > 0) modoReproducao = modoLido;
         else modoReproducao = 0;
 
+        // Tenta ler a memória antiga. Se não tiver, copia a atual.
+        if (fread(ultimaMusicaTocada, 1, sizeof(ultimaMusicaTocada), f) <= 0) {
+            strcpy(ultimaMusicaTocada, "");
+            if (strcmp(musicaAtual, "PARADO") != 0) strcpy(ultimaMusicaTocada, musicaAtual);
+        }
+
         fclose(f);
     }
     else {
         volumeGeral = 100;
         modoReproducao = 0;
+        strcpy(ultimaMusicaTocada, "");
     }
 }
 
@@ -155,7 +164,6 @@ static bool obterProximaMusica(char* proximaMusicaPath) {
 
     int totalAudios = 0;
 
-    // Se for modo de PASTA, busca apenas no diretório da música atual
     if (modoReproducao == 2 || modoReproducao == 3) {
         char pastaAtual[512];
         strcpy(pastaAtual, musicaAtual);
@@ -166,22 +174,19 @@ static bool obterProximaMusica(char* proximaMusicaPath) {
         }
     }
 
-    // Se a busca de pasta falhar ou for modo GLOBAL (Linear/Aleatorio Todas), varre tudo
     if (totalAudios == 0) {
         scanPlaylistRecursivo("/data/HyperNeiva/Musicas", listaAudios, &totalAudios);
     }
 
     if (totalAudios == 0) { free(listaAudios); return false; }
 
-    // Lógica Aleatória
     if (modoReproducao == 3 || modoReproducao == 4) {
         int r = rand() % totalAudios;
         if (totalAudios > 1 && strcmp(listaAudios[r], musicaAtual) == 0) {
-            r = (r + 1) % totalAudios; // Impede que repita a mesma se sortear igual
+            r = (r + 1) % totalAudios;
         }
         strcpy(proximaMusicaPath, listaAudios[r]);
     }
-    // Lógica Linear / Pasta em Ordem
     else {
         for (int i = 0; i < totalAudios - 1; i++) {
             for (int j = i + 1; j < totalAudios; j++) {
@@ -196,7 +201,7 @@ static bool obterProximaMusica(char* proximaMusicaPath) {
         }
 
         if (idx != -1 && idx + 1 < totalAudios) strcpy(proximaMusicaPath, listaAudios[idx + 1]);
-        else strcpy(proximaMusicaPath, listaAudios[0]); // Se chegar ao fim, volta pra primeira
+        else strcpy(proximaMusicaPath, listaAudios[0]);
     }
 
     free(listaAudios); return true;
@@ -240,7 +245,7 @@ static bool obterMusicaAnterior(char* musicaAnteriorPath) {
         }
 
         if (idx != -1 && idx - 1 >= 0) strcpy(musicaAnteriorPath, listaAudios[idx - 1]);
-        else strcpy(musicaAnteriorPath, listaAudios[totalAudios - 1]); // Se for a primeira, toca a última
+        else strcpy(musicaAnteriorPath, listaAudios[totalAudios - 1]);
     }
 
     free(listaAudios); return true;
@@ -355,15 +360,12 @@ static void* audioThreadFunc(void* argp) {
 
         currentFrame += framesLidos;
 
-        // FIM DA MÚSICA (Acabou os frames)
         if (framesLidos == 0) {
-            // MODO 1: Repetir exatamente a mesma música
             if (modoReproducao == 1) {
                 if (currentAudioType == AUDIO_WAV) drwav_seek_to_pcm_frame(&wav, 0);
                 else if (currentAudioType == AUDIO_MP3) drmp3_seek_to_pcm_frame(&mp3, 0);
                 currentFrame = 0;
             }
-            // MODOS 0, 2, 3, 4: Passa para a próxima música controlada pelo algoritmo
             else if (strstr(musicaAtual, "/data/HyperNeiva/Musicas/") != NULL) {
                 char proxima[256];
                 if (obterProximaMusica(proxima)) {
@@ -418,7 +420,7 @@ static void* audioThreadFunc(void* argp) {
 
 void inicializarAudio() {
     if (audioRodando) return;
-    srand(time(NULL)); // PREPARA O SORTEIO DE NÚMEROS DO MODO ALEATÓRIO
+    srand(time(NULL));
 
     sceKernelMkdir("/data/HyperNeiva/Musicas", 0777);
     carregarConfiguracaoAudio();
@@ -436,31 +438,50 @@ void pararAudio() {
 
 void tocarMusicaNova(const char* path) {
     if (strcmp(path, "PARADO") == 0) {
-        strcpy(musicaAtual, "PARADO");
+        strcpy(musicaAtual, "PARADO"); // Só desliga a atual, mas não apaga a memória!
         salvarConfiguracaoAudio();
         comandoPausar = true;
         comandoTrocar = false;
         return;
     }
     strcpy(musicaAtual, path);
+    strcpy(ultimaMusicaTocada, path); // <-- GRAVA NA MEMÓRIA AQUI!
     salvarConfiguracaoAudio();
     comandoPausar = false;
     comandoTrocar = true;
 }
 
 void tocarProximaMusica() {
-    if (strcmp(musicaAtual, "PARADO") == 0 || strlen(musicaAtual) == 0) return;
+    bool estavaParado = false;
+    if (strcmp(musicaAtual, "PARADO") == 0) {
+        if (strlen(ultimaMusicaTocada) == 0) return;
+        strcpy(musicaAtual, ultimaMusicaTocada); // Restaura temporário pra ele achar a pasta
+        estavaParado = true;
+    }
+
     char proxima[256];
     if (obterProximaMusica(proxima)) {
         tocarMusicaNova(proxima);
     }
+    else if (estavaParado) {
+        strcpy(musicaAtual, "PARADO"); // Devolve pro Stop se não achar nada
+    }
 }
 
 void tocarMusicaAnterior() {
-    if (strcmp(musicaAtual, "PARADO") == 0 || strlen(musicaAtual) == 0) return;
+    bool estavaParado = false;
+    if (strcmp(musicaAtual, "PARADO") == 0) {
+        if (strlen(ultimaMusicaTocada) == 0) return;
+        strcpy(musicaAtual, ultimaMusicaTocada); // Restaura temporário pra ele achar a pasta
+        estavaParado = true;
+    }
+
     char anterior[256];
     if (obterMusicaAnterior(anterior)) {
         tocarMusicaNova(anterior);
+    }
+    else if (estavaParado) {
+        strcpy(musicaAtual, "PARADO");
     }
 }
 

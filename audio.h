@@ -5,8 +5,9 @@
 #include "menu.h"
 
 extern char musicaAtual[256];
+extern char ultimaMusicaTocada[256]; // <-- A NOSSA MEMÓRIA FOTOGRÁFICA
 extern volatile bool comandoPausar;
-extern volatile int modoReproducao; // NOVA VARIÁVEL DOS 5 MODOS
+extern volatile int modoReproducao;
 extern int volumeGeral;
 
 extern char caminhosMusicasMenu[3000][256];
