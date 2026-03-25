@@ -51,7 +51,6 @@ const char* listaOpcoes[10] = { "", "", "", "", "", "", "", "", "", "" };
 int mapOpcoes[10] = { -1, -1, -1, -1, -1, -1, -1, -1, -1, -1 };
 int totalOpcoes = 0;
 
-// Variáveis para a Mágica dos Avatares PS4
 char caminhoPerfilAlvo[10][64];
 char menuStrDinamico[10][128];
 
@@ -63,7 +62,7 @@ char oldExtParaRenomear[64] = "";
 bool ehPastaParaRenomear = false;
 
 // ====================================================================
-// CONVERSOR DDS INTEGRADO (Cria ficheiros .dds oficiais para a PS4)
+// MOTOR DE COMPRESSÃO DXT1 NATIVO PARA AVATARES PS4
 // ====================================================================
 void redimensionarImagem(unsigned char* src, int sw, int sh, unsigned char* dst, int dw, int dh) {
     for (int y = 0; y < dh; y++) {
@@ -75,35 +74,96 @@ void redimensionarImagem(unsigned char* src, int sw, int sh, unsigned char* dst,
             dst[dstIndex] = src[srcIndex];
             dst[dstIndex + 1] = src[srcIndex + 1];
             dst[dstIndex + 2] = src[srcIndex + 2];
-            dst[dstIndex + 3] = src[srcIndex + 3];
+            dst[dstIndex + 3] = 255;
         }
     }
 }
 
-void salvarComoDDS(const char* filepath, unsigned char* img, int w, int h) {
+unsigned short colorTo565(int r, int g, int b) {
+    return (unsigned short)(((r >> 3) << 11) | ((g >> 2) << 5) | (b >> 3));
+}
+
+int colorDistance(int r1, int g1, int b1, int r2, int g2, int b2) {
+    return (r1 - r2) * (r1 - r2) + (g1 - g2) * (g1 - g2) + (b1 - b2) * (b1 - b2);
+}
+
+void salvarComoDDS_DXT1(const char* filepath, unsigned char* img, int w, int h) {
     FILE* f = fopen(filepath, "wb");
     if (!f) return;
 
     unsigned int header[32];
     memset(header, 0, sizeof(header));
-    header[0] = 0x20534444; header[1] = 124; header[2] = 0x100F;
-    header[3] = h; header[4] = w; header[5] = w * 4;
-    header[19] = 32; header[20] = 0x41; header[22] = 32;
-    header[23] = 0x00FF0000; header[24] = 0x0000FF00; header[25] = 0x000000FF;
-    header[26] = 0xFF000000; header[27] = 0x1000;
+    header[0] = 0x20534444; // Magia "DDS "
+    header[1] = 124;        // Tamanho do Header
+    header[2] = 0x00081007; // Flags
+    header[3] = h;          // Altura
+    header[4] = w;          // Largura
+    header[5] = (w > 4 ? w : 4) * (h > 4 ? h : 4) / 2; // LinearSize para DXT1
+    header[19] = 32;        // Tamanho do PixelFormat
+    header[20] = 0x00000004; // DDPF_FOURCC
+    header[21] = 0x31545844; // Assinatura "DXT1" (Requisito estrito da PS4)
+    header[27] = 0x1000;    // Caps
 
     fwrite(header, 1, 128, f);
-    int totalPixels = w * h;
-    unsigned char* bgra = (unsigned char*)malloc(totalPixels * 4);
-    if (bgra) {
-        for (int i = 0; i < totalPixels * 4; i += 4) {
-            bgra[i] = img[i + 2];     // Azul
-            bgra[i + 1] = img[i + 1]; // Verde
-            bgra[i + 2] = img[i];     // Vermelho
-            bgra[i + 3] = 255;        // Alpha 255 (Força sólido para não ficar invisível no PS4)
+
+    // Compressão de Blocos DXT1
+    for (int by = 0; by < h / 4; by++) {
+        for (int bx = 0; bx < w / 4; bx++) {
+            int minR = 255, minG = 255, minB = 255;
+            int maxR = 0, maxG = 0, maxB = 0;
+            unsigned char block[16][3];
+
+            for (int y = 0; y < 4; y++) {
+                for (int x = 0; x < 4; x++) {
+                    int px = bx * 4 + x;
+                    int py = by * 4 + y;
+                    int idx = (py * w + px) * 4;
+                    unsigned char r = img[idx];
+                    unsigned char g = img[idx + 1];
+                    unsigned char b = img[idx + 2];
+                    block[y * 4 + x][0] = r;
+                    block[y * 4 + x][1] = g;
+                    block[y * 4 + x][2] = b;
+
+                    if (r < minR) minR = r; if (g < minG) minG = g; if (b < minB) minB = b;
+                    if (r > maxR) maxR = r; if (g > maxG) maxG = g; if (b > maxB) maxB = b;
+                }
+            }
+
+            unsigned short c0 = colorTo565(maxR, maxG, maxB);
+            unsigned short c1 = colorTo565(minR, minG, minB);
+
+            // Garantir que c0 > c1 para forçar o modo OPACO no DXT1
+            if (c0 < c1) {
+                unsigned short temp = c0; c0 = c1; c1 = temp;
+                int tr = maxR, tg = maxG, tb = maxB;
+                maxR = minR; maxG = minG; maxB = minB;
+                minR = tr; minG = tg; minB = tb;
+            }
+            else if (c0 == c1) {
+                if (c0 > 0) c1 = c0 - 1; else c0 = 1;
+            }
+
+            unsigned int indices = 0;
+            for (int i = 0; i < 16; i++) {
+                int d0 = colorDistance(block[i][0], block[i][1], block[i][2], maxR, maxG, maxB);
+                int d1 = colorDistance(block[i][0], block[i][1], block[i][2], minR, minG, minB);
+                int d2 = colorDistance(block[i][0], block[i][1], block[i][2], (2 * maxR + minR) / 3, (2 * maxG + minG) / 3, (2 * maxB + minB) / 3);
+                int d3 = colorDistance(block[i][0], block[i][1], block[i][2], (maxR + 2 * minR) / 3, (maxG + 2 * minG) / 3, (maxB + 2 * minB) / 3);
+
+                unsigned int idx = 0; int minD = d0;
+                if (d1 < minD) { minD = d1; idx = 1; }
+                if (d2 < minD) { minD = d2; idx = 2; }
+                if (d3 < minD) { minD = d3; idx = 3; }
+                indices |= (idx << (i * 2));
+            }
+
+            fwrite(&c0, 2, 1, f);
+            fwrite(&c1, 2, 1, f);
+            fwrite(&indices, 4, 1, f);
         }
-        fwrite(bgra, 1, totalPixels * 4, f); free(bgra);
-    } fclose(f);
+    }
+    fclose(f);
 }
 // ====================================================================
 
@@ -443,34 +503,35 @@ void acaoArquivo(int idxOpcao) {
             }
         }
         else {
-            // COPIA APENAS A IMAGEM BASE PNG
+            // COPIA O ÚNICO PNG BASE
             char destPng[1024];
             sprintf(destPng, "%s/avatar.png", profileDir); copiarArquivoReal(caminhoImagemAberta, destPng);
 
-            // GERA OS 4 FICHEIROS DDS REDIMENSIONADOS E COM OPACIDADE FORÇADA
             int tw, th, tc;
             unsigned char* tempImg = stbi_load(caminhoImagemAberta, &tw, &th, &tc, 4);
             if (tempImg) {
                 char ddsPath[1024];
 
+                // AGORA USAMOS O COMPRESSOR DXT1 VERDADEIRO!
                 unsigned char* img64 = (unsigned char*)malloc(64 * 64 * 4);
                 redimensionarImagem(tempImg, tw, th, img64, 64, 64);
-                sprintf(ddsPath, "%s/avatar64.dds", profileDir); salvarComoDDS(ddsPath, img64, 64, 64);
+                sprintf(ddsPath, "%s/avatar64.dds", profileDir); salvarComoDDS_DXT1(ddsPath, img64, 64, 64);
                 free(img64);
 
                 unsigned char* img128 = (unsigned char*)malloc(128 * 128 * 4);
                 redimensionarImagem(tempImg, tw, th, img128, 128, 128);
-                sprintf(ddsPath, "%s/avatar128.dds", profileDir); salvarComoDDS(ddsPath, img128, 128, 128);
+                sprintf(ddsPath, "%s/avatar128.dds", profileDir); salvarComoDDS_DXT1(ddsPath, img128, 128, 128);
                 free(img128);
 
                 unsigned char* img260 = (unsigned char*)malloc(260 * 260 * 4);
                 redimensionarImagem(tempImg, tw, th, img260, 260, 260);
-                sprintf(ddsPath, "%s/avatar260.dds", profileDir); salvarComoDDS(ddsPath, img260, 260, 260);
+                sprintf(ddsPath, "%s/avatar.dds", profileDir); salvarComoDDS_DXT1(ddsPath, img260, 260, 260);
+                sprintf(ddsPath, "%s/avatar260.dds", profileDir); salvarComoDDS_DXT1(ddsPath, img260, 260, 260);
                 free(img260);
 
                 unsigned char* img440 = (unsigned char*)malloc(440 * 440 * 4);
                 redimensionarImagem(tempImg, tw, th, img440, 440, 440);
-                sprintf(ddsPath, "%s/avatar440.dds", profileDir); salvarComoDDS(ddsPath, img440, 440, 440);
+                sprintf(ddsPath, "%s/avatar440.dds", profileDir); salvarComoDDS_DXT1(ddsPath, img440, 440, 440);
                 free(img440);
 
                 stbi_image_free(tempImg);

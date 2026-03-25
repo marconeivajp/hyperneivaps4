@@ -38,6 +38,10 @@ void acessarFTPEsq(int index, const char* path);
 void adicionarFilaFTP(const char* sourcePath, const char* destPath, bool isUpload, bool isDir);
 void iniciarProcessamentoFilaFTP();
 
+// FUNÇÕES DO MODO CLÁSSICO DE DOWNLOAD/UPLOAD (BOTÃO X)
+void iniciarDownloadFTP(const char* remotePath);
+void fazerUploadFTP(const char* localPath);
+
 void acaoL2_FTP();
 void preencherOpcoesFTP();
 void acaoOpcaoFTP(int idxOpcao, int32_t uId);
