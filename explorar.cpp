@@ -1,3 +1,10 @@
+
+#ifndef __builtin_va_list
+#define __builtin_va_list char*
+#endif
+
+
+
 #include "explorar.h"
 #include <stdio.h>
 #include <string.h>
@@ -51,6 +58,10 @@ const char* listaOpcoes[10] = { "", "", "", "", "", "", "", "", "", "" };
 int mapOpcoes[10] = { -1, -1, -1, -1, -1, -1, -1, -1, -1, -1 };
 int totalOpcoes = 0;
 
+// Variáveis para o Sistema de Avatar do PS4
+char caminhoPerfilAlvo[10][64];
+char menuStrDinamico[10][128];
+
 bool esperandoNomePasta = false;
 bool esperandoRenomear = false;
 wchar_t textoTeclado[256] = L"";
@@ -69,7 +80,7 @@ void preencherOpcoesContexto(const char* nomeArquivo) {
     if (visualizandoMidiaImagem) {
         listaOpcoes[0] = "definir fundo hyper neiva"; mapOpcoes[0] = 10;
         listaOpcoes[1] = "definir fundo ps4 (em breve)"; mapOpcoes[1] = 11;
-        listaOpcoes[2] = "definir avatar ps4 (em breve)"; mapOpcoes[2] = 12;
+        listaOpcoes[2] = "definir avatar ps4"; mapOpcoes[2] = 12;
         totalOpcoes = 3;
         return;
     }
@@ -379,7 +390,7 @@ void acaoArquivo(int idxOpcao) {
         if (ehEsq) listarDiretorioEsq(pExplorar); else listarDiretorio(pExplorar);
         break;
     }
-    case 7: { // EXTRAIR ZIP
+    case 7: { // EXTRAIR ZIP / AVATAR
         int alvo = sAtual; for (int i = 0; i < tItens; i++) if (mItems[i]) { alvo = i; break; }
         char* nomeReal = nItems[alvo];
         if (nomeReal[0] == '[') { sprintf(msgStatus, "SELECIONE UM ARQUIVO .ZIP"); msgTimer = 120; break; }
@@ -388,25 +399,35 @@ void acaoArquivo(int idxOpcao) {
         char temp[512]; strcpy(temp, pathFinal); for (int i = 0; temp[i]; i++) temp[i] = tolower(temp[i]);
 
         if (strstr(temp, ".zip") != NULL || strstr(temp, ".xavatar") != NULL) extrairZip(pathFinal, pExplorar);
-        else { sprintf(msgStatus, "SOMENTE ARQUIVOS .ZIP SAO SUPORTADOS"); msgTimer = 120; }
+        else { sprintf(msgStatus, "SOMENTE ARQUIVOS .ZIP OU .XAVATAR SAO SUPORTADOS"); msgTimer = 120; }
 
         if (ehEsq) listarDiretorioEsq(pExplorar); else listarDiretorio(pExplorar);
         break;
     }
     case 8: { mItems[sAtual] = !mItems[sAtual]; break; } // Selecionar
-    case 9: { bool ligar = false; for (int i = 0; i < tItens; i++) if (!mItems[i]) ligar = true; for (int i = 0; i < tItens; i++) mItems[i] = ligar; break; } // Selecionar tudo
+    case 9: { bool ligar = false; for (int i = 0; i < tItens; i++) if (!mItems[i]) ligar = true; for (int i = 0; i < tItens; i++) mItems[i] = ligar; break; }
 
           // =========================================================
           // AÇÕES DE IMAGENS E FUNDOS DE TELA
           // =========================================================
-    case 10: {
+    case 10: { // Definir Fundo Hyper Neiva
         remove("/data/HyperNeiva/configuracao/imagens/0_Defalt_Background.png");
         remove("/data/HyperNeiva/configuracao/imagens/0_Defalt_Background.jpg");
 
-        FILE* src = fopen(caminhoImagemAberta, "rb");
+        // Blindagem: Se for Xavatar, ele vai copiar a imagem temporária e não o ficheiro zip!
+        char caminhoCopia[512];
+        char* extCheck = strrchr(caminhoImagemAberta, '.');
+        if (extCheck && strcasecmp(extCheck, ".xavatar") == 0) {
+            strcpy(caminhoCopia, "/data/HyperNeiva/configuracao/temporario/temp_avatar.png");
+        }
+        else {
+            strcpy(caminhoCopia, caminhoImagemAberta);
+        }
+
+        FILE* src = fopen(caminhoCopia, "rb");
         if (src) {
-            char* ext = strrchr(caminhoImagemAberta, '.'); char dest[512];
-            if (ext && (strcasecmp(ext, ".jpg") == 0 || strcasecmp(ext, ".jpeg") == 0)) strcpy(dest, "/data/HyperNeiva/configuracao/imagens/0_Defalt_Background.jpg");
+            char dest[512];
+            if (extCheck && (strcasecmp(extCheck, ".jpg") == 0 || strcasecmp(extCheck, ".jpeg") == 0)) strcpy(dest, "/data/HyperNeiva/configuracao/imagens/0_Defalt_Background.jpg");
             else strcpy(dest, "/data/HyperNeiva/configuracao/imagens/0_Defalt_Background.png");
 
             FILE* dst = fopen(dest, "wb");
@@ -422,10 +443,71 @@ void acaoArquivo(int idxOpcao) {
         break;
     }
     case 11: { sprintf(msgStatus, "Funcao Fundo PS4 em breve!"); msgTimer = 120; visualizandoMidiaImagem = false; if (imgMidia) { stbi_image_free(imgMidia); imgMidia = NULL; } break; }
-    case 12: { sprintf(msgStatus, "Funcao Avatar PS4 em breve!"); msgTimer = 120; visualizandoMidiaImagem = false; if (imgMidia) { stbi_image_free(imgMidia); imgMidia = NULL; } break; }
 
            // ====================================================================
-           // AÇÃO 13: VISUALIZAR O XAVATAR EXTRAÍDO
+           // AÇÃO 12: LISTAR OS PERFIS PS4 (MÁGICA DOS AVATARES!)
+           // ====================================================================
+    case 12: {
+        DIR* d = opendir("/system_data/priv/cache/profile");
+        if (d) {
+            int pCount = 0;
+            struct dirent* dir;
+            while ((dir = readdir(d)) != NULL && pCount < 10) {
+                // Pastas de perfis começam por '0x'
+                if (dir->d_name[0] == '0' && dir->d_name[1] == 'x') {
+                    char onlineJsonPath[512];
+                    sprintf(onlineJsonPath, "/system_data/priv/cache/profile/%s/online.json", dir->d_name);
+
+                    char profileName[64] = "Desconhecido";
+                    FILE* f = fopen(onlineJsonPath, "r");
+                    if (f) {
+                        char buf[1024];
+                        size_t bytes = fread(buf, 1, sizeof(buf) - 1, f);
+                        buf[bytes] = '\0';
+                        fclose(f);
+
+                        // Extrai o firstName do JSON
+                        char* ptr = strstr(buf, "\"firstName\":\"");
+                        if (ptr) {
+                            ptr += 13;
+                            char* end = strchr(ptr, '\"');
+                            if (end && (end - ptr) < 63) {
+                                strncpy(profileName, ptr, end - ptr);
+                                profileName[end - ptr] = '\0';
+                            }
+                        }
+                    }
+
+                    sprintf(menuStrDinamico[pCount], "Aplicar a: %s (%s)", profileName, dir->d_name);
+                    strcpy(caminhoPerfilAlvo[pCount], dir->d_name);
+
+                    listaOpcoes[pCount] = menuStrDinamico[pCount];
+                    mapOpcoes[pCount] = 20 + pCount; // Mapeia para as opções 20, 21, etc.
+                    pCount++;
+                }
+            }
+            closedir(d);
+
+            if (pCount > 0) {
+                for (int k = pCount; k < 10; k++) { listaOpcoes[k] = ""; mapOpcoes[k] = -1; }
+                totalOpcoes = pCount;
+                showOpcoes = true;
+                selOpcao = 0;
+                return; // INTERROMPE! Não deixa o menu fechar, mostra os perfis.
+            }
+            else {
+                sprintf(msgStatus, "NENHUM PERFIL ENCONTRADO NO PS4!"); msgTimer = 180;
+            }
+        }
+        else {
+            sprintf(msgStatus, "ERRO AO LER PASTA DE PERFIS!"); msgTimer = 180;
+        }
+        visualizandoMidiaImagem = false; if (imgMidia) { stbi_image_free(imgMidia); imgMidia = NULL; }
+        break;
+    }
+
+           // ====================================================================
+           // AÇÃO 13: VISUALIZAR O XAVATAR 
            // ====================================================================
     case 13: {
         int alvo = sAtual; for (int i = 0; i < tItens; i++) if (mItems[i]) { alvo = i; break; }
@@ -454,7 +536,7 @@ void acaoArquivo(int idxOpcao) {
             if (extraiu) {
                 int canais; imgMidia = stbi_load(tempPath, &wM, &hM, &canais, 4);
                 if (imgMidia) {
-                    visualizandoMidiaImagem = true; zoomMidia = 1.0f; fullscreenMidia = false; strcpy(caminhoImagemAberta, tempPath);
+                    visualizandoMidiaImagem = true; zoomMidia = 1.0f; fullscreenMidia = false; strcpy(caminhoImagemAberta, caminhoArquivo);
                 }
                 else { sprintf(msgStatus, "ERRO AO PROCESSAR A IMAGEM"); msgTimer = 120; }
             }
@@ -466,7 +548,7 @@ void acaoArquivo(int idxOpcao) {
     }
 
            // ====================================================================
-           // NOVA AÇÃO 14: VISUALIZAR IMAGEM NORMAL (.PNG, .JPG)
+           // AÇÃO 14: VISUALIZAR IMAGEM NORMAL (.PNG, .JPG)
            // ====================================================================
     case 14: {
         if (imgMidia) { stbi_image_free(imgMidia); imgMidia = NULL; }
@@ -479,7 +561,80 @@ void acaoArquivo(int idxOpcao) {
         }
         break;
     }
+
+           // ====================================================================
+           // AÇÕES 20 A 29: INJEÇÃO DIRETA NO PERFIL PS4 ESCOLHIDO
+           // ====================================================================
+    case 20: case 21: case 22: case 23: case 24: case 25: case 26: case 27: case 28: case 29: {
+        int pIdx = op - 20;
+        char profileDir[512];
+        sprintf(profileDir, "/system_data/priv/cache/profile/%s", caminhoPerfilAlvo[pIdx]);
+
+        // 1. Apagar imagens antigas e jsons
+        DIR* d = opendir(profileDir);
+        if (d) {
+            struct dirent* dir;
+            while ((dir = readdir(d)) != NULL) {
+                if (strstr(dir->d_name, ".png") || strstr(dir->d_name, ".jpg") || strstr(dir->d_name, ".jpeg") || strstr(dir->d_name, ".json")) {
+                    char delPath[1024];
+                    sprintf(delPath, "%s/%s", profileDir, dir->d_name);
+                    unlink(delPath);
+                }
+            }
+            closedir(d);
+        }
+
+        // 2. Extrair o novo avatar
+        char* ext = strrchr(caminhoImagemAberta, '.');
+        if (ext && strcasecmp(ext, ".xavatar") == 0) {
+            mz_zip_archive zip_archive; memset(&zip_archive, 0, sizeof(zip_archive));
+            if (mz_zip_reader_init_file(&zip_archive, caminhoImagemAberta, 0)) {
+                mz_uint num_files = mz_zip_reader_get_num_files(&zip_archive);
+                for (mz_uint i = 0; i < num_files; i++) {
+                    mz_zip_archive_file_stat file_stat;
+                    if (!mz_zip_reader_file_stat(&zip_archive, i, &file_stat)) continue;
+                    if (mz_zip_reader_is_file_a_directory(&zip_archive, i)) continue;
+
+                    char extPath[1024];
+                    sprintf(extPath, "%s/%s", profileDir, file_stat.m_filename);
+                    mz_zip_reader_extract_to_file(&zip_archive, i, extPath, 0);
+
+                    // Clona o icon0.png como avatar.png (padrão base PS4)
+                    char nomeLower[128]; strcpy(nomeLower, file_stat.m_filename);
+                    for (int k = 0; nomeLower[k]; k++) nomeLower[k] = tolower(nomeLower[k]);
+                    if (strstr(nomeLower, "icon0.png") != NULL) {
+                        char dupPath[1024];
+                        sprintf(dupPath, "%s/avatar.png", profileDir); copiarArquivoReal(extPath, dupPath);
+                        sprintf(dupPath, "%s/avatar_xl.png", profileDir); copiarArquivoReal(extPath, dupPath);
+                    }
+                }
+                mz_zip_reader_end(&zip_archive);
+            }
+        }
+        else {
+            // Se não for Xavatar (imagem normal), clona para os nomes oficiais
+            char destPath[1024];
+            sprintf(destPath, "%s/avatar.png", profileDir); copiarArquivoReal(caminhoImagemAberta, destPath);
+            sprintf(destPath, "%s/avatar_xl.png", profileDir); copiarArquivoReal(caminhoImagemAberta, destPath);
+        }
+
+        // 3. Criar os JSONs blindados
+        char vJson[1024]; sprintf(vJson, "%s/version.json", profileDir);
+        FILE* fV = fopen(vJson, "w");
+        if (fV) { fprintf(fV, "{\"cacheVersion\":\"5\"}"); fclose(fV); }
+
+        char oJson[1024]; sprintf(oJson, "%s/online.json", profileDir);
+        FILE* fO = fopen(oJson, "w");
+        if (fO) {
+            fprintf(fO, "{\"avatarUrl\":\"http:\\/\\/static-resource.np.community.playstation.net\\/avatar_xl\\/WWS_E\\/E2096_xl.png\",\"firstName\":\"vamosjogarr\",\"lastName\":\"agora\",\"trophySummary\":\"{\\\"level\\\":1,\\\"progress\\\":25,\\\"earnedTrophies\\\":{\\\"platinum\\\":0,\\\"gold\\\":0,\\\"silver\\\":0,\\\"bronze\\\":1}}\",\"isOfficiallyVerified\":\"false\"}");
+            fclose(fO);
+        }
+
+        sprintf(msgStatus, "AVATAR APLICADO! REINICIE O SEU PS4."); msgTimer = 240;
+        visualizandoMidiaImagem = false; if (imgMidia) { stbi_image_free(imgMidia); imgMidia = NULL; }
+        break;
     }
+    } // Fim Switch
 
     if (!esperandoNomePasta && !esperandoRenomear && menuAtual != MENU_NOTEPAD && menuAtualEsq != MENU_NOTEPAD) {
         showOpcoes = false; msgTimer = 120;

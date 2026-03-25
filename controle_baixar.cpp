@@ -15,20 +15,30 @@
 #include "baixar_repositorio.h"
 #include "baixar_dropbox_download.h"
 #include "baixar_lojas.h" 
+#include "ftp.h" 
 
 extern void acaoCross_Notepad(int32_t uId, OrbisImeDialogSetting* imeSetting, uint16_t* imeTitle, const char* textoInicial);
 
 extern bool emSubmenuDropbox;
+extern bool emSubmenuFTP;
 extern void preencherMenuDropbox();
+extern void preencherMenuFTP();
 extern void atualizarHBStore();
+
+extern char currentFtpPath[1024];
 
 void acaoCross_Baixar(int32_t uId, OrbisImeDialogSetting* imeSetting, uint16_t* imeTitle) {
     if (menuAtual == MENU_BAIXAR) {
-        if (!emSubmenuLojas && !emSubmenuDropbox) {
+        if (!emSubmenuLojas && !emSubmenuDropbox && !emSubmenuFTP) {
             if (sel == 0) preencherMenuRepositorios();
             else if (sel == 1) { menuAtual = MENU_BAIXAR_LINK_DIRETO; acaoCross_Notepad(uId, imeSetting, imeTitle, ""); }
             else if (sel == 2) { preencherMenuDropbox(); }
             else if (sel == 3) { preencherMenuLojas(); }
+            else if (sel == 4) { preencherMenuFTP(); }
+        }
+        else if (emSubmenuFTP) {
+            if (sel == 0) { preencherMenuFTPServidores(false); } // Vai para Lista de Servidores (Download)
+            else if (sel == 1) { preencherMenuFTPServidores(true); } // Vai para Lista de Servidores (Upload)
         }
         else if (emSubmenuDropbox) {
             if (sel == 0) { acessarDropbox(""); }
@@ -51,8 +61,51 @@ void acaoCross_Baixar(int32_t uId, OrbisImeDialogSetting* imeSetting, uint16_t* 
             }
         }
     }
+    // ==========================================
+    // LOGICAS DO FTP
+    // ==========================================
+    else if (menuAtual == MENU_BAIXAR_FTP_SERVIDORES) {
+        if (sel == 0) {
+            abrirTecladoNovoFTP(uId); // Abre o teclado virtual do PS4!
+        }
+        else {
+            setFtpConfigFromLink(linksAtuais[sel]);
+            if (ftpSelecionandoUpload) {
+                preencherMenuFTPUploadRaizes();
+            }
+            else {
+                acessarFTP("/"); // Conecta no IP selecionado!
+            }
+        }
+    }
+    else if (menuAtual == MENU_BAIXAR_FTP_UPLOAD_RAIZES) {
+        if (sel == 0) listarArquivosUploadFTP("/data/HyperNeiva");
+        else if (sel == 1) listarArquivosUploadFTP("/");
+        else if (sel == 2) listarArquivosUploadFTP("/mnt/usb0");
+        else if (sel == 3) listarArquivosUploadFTP("/mnt/usb1");
+    }
+    else if (menuAtual == MENU_BAIXAR_FTP_LISTA) {
+        char urlSel[1024]; strcpy(urlSel, linksAtuais[sel]); int tam = strlen(urlSel);
+        if (tam > 0 && urlSel[tam - 1] == '/') {
+            urlSel[tam - 1] = '\0';
+            acessarFTP(urlSel);
+        }
+        else {
+            iniciarDownloadFTP(urlSel);
+        }
+    }
+    else if (menuAtual == MENU_BAIXAR_FTP_UPLOAD) {
+        char urlSel[1024]; strcpy(urlSel, linksAtuais[sel]); int tam = strlen(urlSel);
+        if (tam > 0 && urlSel[tam - 1] == '/') {
+            urlSel[tam - 1] = '\0';
+            listarArquivosUploadFTP(urlSel);
+        }
+        else {
+            fazerUploadFTP(urlSel);
+        }
+    }
+    // ==========================================
     else if (menuAtual == MENU_BAIXAR_DROPBOX_BACKUP) {
-        // LÓGICA DO EXPLORER APLICADA AO UPLOAD!
         if (sel == 0) listarArquivosUpload("/data/HyperNeiva");
         else if (sel == 1) listarArquivosUpload("/");
         else if (sel == 2) listarArquivosUpload("/mnt/usb0");
@@ -105,9 +158,57 @@ void acaoCross_Baixar(int32_t uId, OrbisImeDialogSetting* imeSetting, uint16_t* 
 
 void acaoCircle_Baixar() {
     if (menuAtual == MENU_BAIXAR) {
-        if (emSubmenuLojas || emSubmenuDropbox) { preencherMenuBaixar(); }
+        if (emSubmenuLojas || emSubmenuDropbox || emSubmenuFTP) { preencherMenuBaixar(); }
         else { preencherRoot(); }
     }
+    // ==========================================
+    // LOGICAS DO FTP CIRCLE (Voltar Pastas)
+    // ==========================================
+    else if (menuAtual == MENU_BAIXAR_FTP_SERVIDORES) {
+        preencherMenuFTP(); // Volta para opções "Download / Upload"
+    }
+    else if (menuAtual == MENU_BAIXAR_FTP_UPLOAD_RAIZES) {
+        preencherMenuFTPServidores(true); // Volta para a lista de Servidores
+    }
+    else if (menuAtual == MENU_BAIXAR_FTP_LISTA) {
+        if (strlen(currentFtpPath) == 0 || strcmp(currentFtpPath, "/") == 0) {
+            preencherMenuFTPServidores(false); // Volta pra lista de servidores
+        }
+        else {
+            char* ultimaBarra = strrchr(currentFtpPath, '/');
+            if (ultimaBarra != NULL) {
+                if (ultimaBarra == currentFtpPath) strcpy(currentFtpPath, "/");
+                else *ultimaBarra = '\0';
+                acessarFTP(currentFtpPath);
+            }
+            else {
+                strcpy(currentFtpPath, "/");
+                acessarFTP(currentFtpPath);
+            }
+        }
+    }
+    else if (menuAtual == MENU_BAIXAR_FTP_UPLOAD) {
+        if (strcmp(currentUploadPath, "/") == 0 || strcmp(currentUploadPath, "/data/HyperNeiva") == 0 || strcmp(currentUploadPath, "/mnt/usb0") == 0 || strcmp(currentUploadPath, "/mnt/usb1") == 0 || strlen(currentUploadPath) == 0) {
+            preencherMenuFTPUploadRaizes();
+        }
+        else {
+            char* ultimaBarra = strrchr(currentUploadPath, '/');
+            if (ultimaBarra != NULL) {
+                if (ultimaBarra == currentUploadPath) {
+                    strcpy(currentUploadPath, "/");
+                    listarArquivosUploadFTP(currentUploadPath);
+                }
+                else {
+                    *ultimaBarra = '\0';
+                    listarArquivosUploadFTP(currentUploadPath);
+                }
+            }
+            else {
+                preencherMenuFTPUploadRaizes();
+            }
+        }
+    }
+    // ==========================================
     else if (menuAtual == MENU_BAIXAR_DROPBOX_BACKUP) { preencherMenuDropbox(); }
     else if (menuAtual == MENU_BAIXAR_DROPBOX_LISTA) {
         if (emApolloSaves) {
@@ -148,9 +249,8 @@ void acaoCircle_Baixar() {
         }
     }
     else if (menuAtual == MENU_BAIXAR_DROPBOX_UPLOAD) {
-        // Lógica ultra-inteligente para o Círculo no Explorador de Upload
         if (strcmp(currentUploadPath, "/") == 0 || strcmp(currentUploadPath, "/data/HyperNeiva") == 0 || strcmp(currentUploadPath, "/mnt/usb0") == 0 || strcmp(currentUploadPath, "/mnt/usb1") == 0 || strlen(currentUploadPath) == 0) {
-            preencherMenuBackup(); // Se estiver numa das 4 raízes, volta para o Menu Base
+            preencherMenuBackup();
         }
         else {
             char* ultimaBarra = strrchr(currentUploadPath, '/');

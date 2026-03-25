@@ -50,7 +50,8 @@ char currentDropboxPath[512] = "";
 char currentUploadPath[512] = "";
 
 bool emSubmenuLojas = false;
-bool emSubmenuDropbox = false; // <-- Nova flag para a pasta Dropbox
+bool emSubmenuDropbox = false;
+bool emSubmenuFTP = false; // <-- Nova flag para a pasta FTP
 bool emApolloSaves = false;
 char currentApolloUrl[1024] = "";
 
@@ -173,14 +174,30 @@ void acaoRede(const char* jogo, bool buscarLista, bool salvarNoHD) {
 
 void preencherMenuBaixar() {
     emSubmenuLojas = false;
-    emSubmenuDropbox = false; // Reset da pasta Dropbox
+    emSubmenuDropbox = false;
+    emSubmenuFTP = false; // Reset da pasta FTP
     emApolloSaves = false;
     memset(nomes, 0, sizeof(nomes));
     strcpy(nomes[0], "Repositorios");
     strcpy(nomes[1], "LINK DIRETO");
-    strcpy(nomes[2], "Dropbox"); // <-- Pasta Dropbox criada
+    strcpy(nomes[2], "Dropbox");
     strcpy(nomes[3], "Lojas");
-    totalItens = 4;
+    strcpy(nomes[4], "FTP (PC / Android)"); // <-- FTP Adicionado aqui!
+    totalItens = 5;
+    menuAtual = MENU_BAIXAR;
+    sel = 0;
+    off = 0;
+}
+
+void preencherMenuFTP() {
+    emSubmenuLojas = false;
+    emSubmenuDropbox = false;
+    emSubmenuFTP = true; // Ativa a pasta FTP
+    emApolloSaves = false;
+    memset(nomes, 0, sizeof(nomes));
+    strcpy(nomes[0], "Download (Do PC pro PS4)");
+    strcpy(nomes[1], "Upload (Do PS4 pro PC)");
+    totalItens = 2;
     menuAtual = MENU_BAIXAR;
     sel = 0;
     off = 0;
@@ -188,7 +205,8 @@ void preencherMenuBaixar() {
 
 void preencherMenuDropbox() {
     emSubmenuLojas = false;
-    emSubmenuDropbox = true; // Ativa a pasta Dropbox
+    emSubmenuDropbox = true;
+    emSubmenuFTP = false;
     emApolloSaves = false;
     memset(nomes, 0, sizeof(nomes));
     strcpy(nomes[0], "Download");
@@ -202,6 +220,7 @@ void preencherMenuDropbox() {
 void preencherMenuLojas() {
     emSubmenuLojas = true;
     emSubmenuDropbox = false;
+    emSubmenuFTP = false;
     emApolloSaves = false;
     memset(nomes, 0, sizeof(nomes));
     strcpy(nomes[0], "HB Store");

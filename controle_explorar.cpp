@@ -38,7 +38,6 @@ extern bool visualizandoMidiaImagem;
 extern unsigned char* imgMidia;
 extern int wM, hM;
 
-// VARIÁVEIS DO MENU 
 extern const char* listaOpcoes[10];
 extern int mapOpcoes[10];
 extern int totalOpcoes;
@@ -200,26 +199,19 @@ void acaoCross_Explorar() {
             if (strstr(nomeBlindado, ".pkg")) {
                 instalarPkgLocal(caminhoArquivo);
             }
-            // ========================================================
-            // MENU DO X PARA .ZIP (Apenas Extrair)
-            // ========================================================
             else if (strstr(nomeBlindado, ".zip")) {
                 listaOpcoes[0] = "extrair zip";
                 mapOpcoes[0] = 7;
                 for (int k = 1; k < 10; k++) { listaOpcoes[k] = ""; mapOpcoes[k] = -1; }
-                totalOpcoes = 1;
-                showOpcoes = true;
-                selOpcao = 0;
+                totalOpcoes = 1; showOpcoes = true; selOpcao = 0;
             }
             // ========================================================
-            // MENU DO X PARA .XAVATAR E IMAGENS NORMAIS!
+            // MENU DO 'X' PARA IMAGENS E AVATARES (AS 4 OPÇÕES)
             // ========================================================
             else if (strstr(nomeBlindado, ".png") || strstr(nomeBlindado, ".jpg") || strstr(nomeBlindado, ".jpeg") || strstr(nomeBlindado, ".bmp") || strstr(nomeBlindado, ".xavatar")) {
-                strcpy(caminhoImagemAberta, caminhoArquivo); // Guarda o caminho do ficheiro selecionado
+                strcpy(caminhoImagemAberta, caminhoArquivo);
 
                 listaOpcoes[0] = "visualizar";
-
-                // Se for xavatar usa a lógica 13 de visualizar (que extrai), senão a 14 (carrega direto)
                 if (strstr(nomeBlindado, ".xavatar")) mapOpcoes[0] = 13; else mapOpcoes[0] = 14;
 
                 listaOpcoes[1] = "definir como perfil ps4";
@@ -267,7 +259,6 @@ void acaoCircle_Explorar() {
 void acaoTriangle_Explorar() {
     if (esperandoNomePasta || esperandoRenomear) return;
     bool ehEsq = (painelDuplo && painelAtivo == 0); MenuLevel mAtual = ehEsq ? menuAtualEsq : menuAtual;
-
     if (mAtual == MENU_EXPLORAR) {
         if (!showOpcoes) {
             int sAtual = ehEsq ? selEsq : sel; char (*nItems)[64] = ehEsq ? nomesEsq : nomes;
