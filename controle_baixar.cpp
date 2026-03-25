@@ -24,6 +24,8 @@ extern bool emSubmenuFTP;
 extern void preencherMenuDropbox();
 extern void preencherMenuFTP();
 extern void atualizarHBStore();
+extern bool showOpcoes;
+extern int selOpcao;
 
 extern char currentFtpPath[1024];
 
@@ -62,7 +64,7 @@ void acaoCross_Baixar(int32_t uId, OrbisImeDialogSetting* imeSetting, uint16_t* 
         }
     }
     // ==========================================
-    // LOGICAS DO FTP
+    // LOGICAS DO FTP E EXPLORADOR
     // ==========================================
     else if (menuAtual == MENU_BAIXAR_FTP_SERVIDORES) {
         if (sel == 0) {
@@ -107,13 +109,25 @@ void acaoCross_Baixar(int32_t uId, OrbisImeDialogSetting* imeSetting, uint16_t* 
         else if (sel == 3) listarArquivosUploadFTP("/mnt/usb1");
     }
     else if (menuAtual == MENU_BAIXAR_FTP_LISTA) {
-        char urlSel[1024]; strcpy(urlSel, linksAtuais[sel]); int tam = strlen(urlSel);
-        if (tam > 0 && urlSel[tam - 1] == '/') {
-            urlSel[tam - 1] = '\0';
-            acessarFTP(servidorAtualFTPIndex, urlSel);
+        if (showOpcoes) {
+            acaoOpcaoFTP(selOpcao, uId);
         }
         else {
-            iniciarDownloadFTP(urlSel);
+            char urlSel[1024]; strcpy(urlSel, linksAtuais[sel]); int tam = strlen(urlSel);
+            if (tam > 0 && urlSel[tam - 1] == '/') { // É Pasta
+                urlSel[tam - 1] = '\0';
+                acessarFTP(servidorAtualFTPIndex, urlSel);
+            }
+            else { // É Arquivo
+                char* ext = strrchr(urlSel, '.');
+                // Se for mídia/texto, visualiza! Se não, faz download pro PS4!
+                if (ext && (strcasecmp(ext, ".png") == 0 || strcasecmp(ext, ".jpg") == 0 || strcasecmp(ext, ".jpeg") == 0 || strcasecmp(ext, ".txt") == 0 || strcasecmp(ext, ".ini") == 0 || strcasecmp(ext, ".xml") == 0)) {
+                    prepararPreviewFTP(urlSel);
+                }
+                else {
+                    iniciarDownloadFTP(urlSel);
+                }
+            }
         }
     }
     else if (menuAtual == MENU_BAIXAR_FTP_UPLOAD) {
@@ -163,9 +177,6 @@ void acaoCircle_Baixar() {
         if (emSubmenuLojas || emSubmenuDropbox || emSubmenuFTP) { preencherMenuBaixar(); }
         else { preencherRoot(); }
     }
-    // ==========================================
-    // LOGICAS DO FTP CIRCLE 
-    // ==========================================
     else if (menuAtual == MENU_BAIXAR_FTP_SERVIDORES) {
         preencherMenuFTP();
     }
@@ -267,5 +278,8 @@ void acaoTriangle_Baixar() {
             servidorAtualFTPIndex = sel - 1;
             preencherMenuEditarServidor(servidorAtualFTPIndex);
         }
+    }
+    else if (menuAtual == MENU_BAIXAR_FTP_LISTA) {
+        preencherOpcoesFTP(); // Abre o Menu Lateral de Opções (Nova Pasta, Deletar...)!
     }
 }
