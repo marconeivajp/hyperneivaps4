@@ -111,6 +111,7 @@ echo Tentando enviar para o PS4 via FTP...
 curl -T "Hyper Neiva.pkg" ftp://192.168.0.4:2121/data/pkg/ --connect-timeout 3
 if %errorlevel% equ 0 (
     echo Envio via FTP concluido com sucesso!
+    powershell -c "[console]::beep(400,300)"
 ) else (
     echo PS4 offline ou sem conexao FTP no momento.
 )
