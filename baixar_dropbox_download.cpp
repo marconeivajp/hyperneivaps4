@@ -28,6 +28,9 @@
 extern "C" int sceHttpSetRequestContentLength(int reqId, uint64_t contentLength);
 extern void atualizarBarra(float progresso);
 
+// IMPORTA A FUNÇÃO INFALÍVEL DO EXPLORAR!
+extern void instalarPkgLocal(const char* caminhoAbsoluto);
+
 extern char nomes[3000][64];
 extern char linksAtuais[3000][1024];
 extern int totalItens;
@@ -269,130 +272,62 @@ void acessarDropbox(const char* path) {
 }
 
 // ====================================================================
-// A MÁGICA: APLICA A MESMA LÓGICA DO EXPLORAR PRA LER O ID E JOGA PRO PS4
+// FUNÇÃO QUE SÓ TENTA O BGFT, SE FALHAR RETORNA FALSO PARA O DOWNLODER
 // ====================================================================
-void instalarPkgRemoto(const char* urlDireta, const char* nomeExibicao) {
-    sprintf(msgStatus, "PREPARANDO INSTALACAO DIRETA...");
-    atualizarBarra(0.1f);
+bool tentarBgft(const char* urlFinal, const char* nomeExibicao) {
+    sprintf(msgStatus, "TENTANDO BGFT DO PS4...");
+    atualizarBarra(0.2f);
 
-    char urlFinal[2048];
     uint64_t fileSize = 0;
-    char contentId[40];
-    memset(contentId, 0, sizeof(contentId));
+    char contentId[40] = { 0 };
 
-    // 1. GERAR LINK DO DROPBOX OU REPOSITÓRIO E PEGAR TAMANHO
-    if (urlDireta[0] == '/') {
-        char token[2048] = { 0 };
-        FILE* fToken = fopen("/data/HyperNeiva/configuracao/dropbox_token.txt", "rb");
-        if (fToken) {
-            fseek(fToken, 0, SEEK_END); long sz = ftell(fToken); fseek(fToken, 0, SEEK_SET);
-            if (sz > 0 && sz < 2047) { fread(token, 1, sz, fToken); token[sz] = '\0'; }
-            fclose(fToken);
-        }
-        for (int i = 0; i < strlen(token); i++) if (token[i] == '\r' || token[i] == '\n') token[i] = '\0';
-
-        int tpl = sceHttpCreateTemplate(httpCtxId, "HyperNeiva/1.0", ORBIS_HTTP_VERSION_1_1, 1);
-        sceHttpsSetSslCallback(tpl, skipSslCallback, NULL);
-
-        const char* apiUrl = "https://api.dropboxapi.com/2/files/get_temporary_link";
-        int conn = sceHttpCreateConnectionWithURL(tpl, apiUrl, 1);
-        int req = sceHttpCreateRequestWithURL(conn, ORBIS_METHOD_POST, apiUrl, 0);
-
-        char authHeader[2048]; sprintf(authHeader, "Bearer %s", token);
-        sceHttpAddRequestHeader(req, "Authorization", authHeader, 1);
-        sceHttpAddRequestHeader(req, "Content-Type", "application/json", 1);
-
-        char postData[1024]; sprintf(postData, "{\"path\": \"%s\"}", urlDireta);
-        sceHttpSetRequestContentLength(req, strlen(postData));
-
-        if (sceHttpSendRequest(req, postData, strlen(postData)) >= 0) {
-            unsigned char buf[32768];
-            int n = sceHttpReadData(req, buf, sizeof(buf) - 1);
-            if (n > 0) {
-                buf[n] = '\0';
-                char* linkPtr = strstr((char*)buf, "\"link\": \"");
-                char* sizePtr = strstr((char*)buf, "\"size\": ");
-                if (linkPtr && sizePtr) {
-                    linkPtr += 9;
-                    char* linkEnd = strchr(linkPtr, '\"');
-                    if (linkEnd) {
-                        int linkLen = linkEnd - linkPtr; strncpy(urlFinal, linkPtr, linkLen); urlFinal[linkLen] = '\0';
-                        char urlClean[2048] = { 0 }; int j = 0;
-                        for (int i = 0; i < strlen(urlFinal); i++) {
-                            if (urlFinal[i] == '\\' && urlFinal[i + 1] == '/') { urlClean[j++] = '/'; i++; }
-                            else { urlClean[j++] = urlFinal[i]; }
-                        }
-                        strcpy(urlFinal, urlClean);
-                    }
-                    sizePtr += 8; sscanf(sizePtr, "%lu", &fileSize);
-                }
-            }
-        }
-        sceHttpDeleteRequest(req); sceHttpDeleteConnection(conn); sceHttpDeleteTemplate(tpl);
-    }
-    else {
-        strcpy(urlFinal, urlDireta);
-        char* dbox = strstr(urlFinal, "dropbox.com");
-        if (dbox) { char* dl0 = strstr(urlFinal, "?dl=0"); if (dl0) dl0[4] = '1'; }
-
-        int tpl = sceHttpCreateTemplate(httpCtxId, "HyperNeiva/1.0", ORBIS_HTTP_VERSION_1_1, 1);
-        sceHttpsSetSslCallback(tpl, skipSslCallback, NULL);
-        int conn = sceHttpCreateConnectionWithURL(tpl, urlFinal, 1);
-        int req = sceHttpCreateRequestWithURL(conn, ORBIS_METHOD_HEAD, urlFinal, 0);
-        if (sceHttpSendRequest(req, NULL, 0) >= 0) {
-            size_t tamanhoTotal = 0; int32_t statusRes = 0;
-            if (sceHttpGetResponseContentLength(req, &statusRes, &tamanhoTotal) == 0) fileSize = (uint64_t)tamanhoTotal;
-        }
-        sceHttpDeleteRequest(req); sceHttpDeleteConnection(conn); sceHttpDeleteTemplate(tpl);
-    }
-
-    if (strlen(urlFinal) < 10 || fileSize == 0) {
-        sprintf(msgStatus, "ERRO AO OBTER LINK DO JOGO!");
-        atualizarBarra(0.0f); msgTimer = 240; return;
-    }
-
-    // 2. BAIXAR UM PEDAÇO DE 1KB E APLICAR A LÓGICA DO EXPLORAR!
-    sprintf(msgStatus, "APLICANDO LOGICA DO EXPLORAR (EXTRAINDO ID)...");
-    atualizarBarra(0.5f);
-
-    int tplId = sceHttpCreateTemplate(httpCtxId, "HyperNeiva/1.0", ORBIS_HTTP_VERSION_1_1, 1);
-    sceHttpsSetSslCallback(tplId, skipSslCallback, NULL);
+    int tpl = sceHttpCreateTemplate(httpCtxId, "Mozilla/5.0 (PlayStation 4 9.00)", ORBIS_HTTP_VERSION_1_1, 1);
+    sceHttpsSetSslCallback(tpl, skipSslCallback, NULL);
     sceHttpSetAutoRedirect();
 
-    int connId = sceHttpCreateConnectionWithURL(tplId, urlFinal, 1);
-    int reqId = sceHttpCreateRequestWithURL(connId, ORBIS_METHOD_GET, urlFinal, 0);
-    sceHttpAddRequestHeader(reqId, "Range", "bytes=0-1024", 1); // Pede só o comecinho
+    int conn = sceHttpCreateConnectionWithURL(tpl, urlFinal, 1);
+    int req = sceHttpCreateRequestWithURL(conn, ORBIS_METHOD_GET, urlFinal, 0);
+    sceHttpAddRequestHeader(req, "Range", "bytes=0-16383", 1);
 
-    if (sceHttpSendRequest(reqId, NULL, 0) >= 0) {
-        sceKernelMkdir("/data/HyperNeiva/configuracao/temporario", 0777);
-        FILE* fTemp = fopen("/data/HyperNeiva/configuracao/temporario/temp_id.bin", "wb");
-        if (fTemp) {
-            unsigned char buf[1024];
-            int n = sceHttpReadData(reqId, buf, sizeof(buf));
-            if (n > 0) fwrite(buf, 1, n, fTemp);
-            fclose(fTemp);
+    if (sceHttpSendRequest(req, NULL, 0) >= 0) {
+        unsigned char headerBuf[16384];
+        memset(headerBuf, 0, sizeof(headerBuf));
+        int totalRead = 0;
+
+        while (totalRead < 0x200) {
+            int n = sceHttpReadData(req, headerBuf + totalRead, sizeof(headerBuf) - totalRead);
+            if (n <= 0) break;
+            totalRead += n;
+        }
+
+        if (totalRead >= 0x80 && headerBuf[0] == 0x7F && headerBuf[1] == 'C' && headerBuf[2] == 'N' && headerBuf[3] == 'T') {
+            memcpy(contentId, headerBuf + 0x40, 36);
+            contentId[36] = '\0';
+
+            for (int i = 0; i < 36; i++) {
+                if (contentId[i] < 32 || contentId[i] > 126) contentId[i] = '0';
+            }
+
+            uint64_t sizePkg = 0;
+            sizePkg |= ((uint64_t)headerBuf[0x18] << 56); sizePkg |= ((uint64_t)headerBuf[0x19] << 48);
+            sizePkg |= ((uint64_t)headerBuf[0x1A] << 40); sizePkg |= ((uint64_t)headerBuf[0x1B] << 32);
+            sizePkg |= ((uint64_t)headerBuf[0x1C] << 24); sizePkg |= ((uint64_t)headerBuf[0x1D] << 16);
+            sizePkg |= ((uint64_t)headerBuf[0x1E] << 8);  sizePkg |= ((uint64_t)headerBuf[0x1F]);
+            fileSize = sizePkg;
+        }
+        else {
+            sceHttpDeleteRequest(req); sceHttpDeleteConnection(conn); sceHttpDeleteTemplate(tpl);
+            return false;
         }
     }
-    sceHttpDeleteRequest(reqId); sceHttpDeleteConnection(connId); sceHttpDeleteTemplate(tplId);
-
-    // =========================================================
-    // AQUI ENTRA A LÓGICA IDÊNTICA AO CONTROLE_EXPLORAR.CPP!
-    // Usamos o fopen para ler o arquivo como se fosse o HDD local
-    // =========================================================
-    FILE* f = fopen("/data/HyperNeiva/configuracao/temporario/temp_id.bin", "rb");
-    if (f) {
-        fseek(f, 0x40, SEEK_SET);
-        fread(contentId, 1, 36, f);
-        fclose(f);
-    }
     else {
-        strcpy(contentId, "UP0000-000000000_00-0000000000000000"); // Fallback
+        sceHttpDeleteRequest(req); sceHttpDeleteConnection(conn); sceHttpDeleteTemplate(tpl);
+        return false;
     }
-    contentId[36] = '\0';
+    sceHttpDeleteRequest(req); sceHttpDeleteConnection(conn); sceHttpDeleteTemplate(tpl);
 
-    // 3. REGISTRAR DIRETO NO BGFT DA SONY
-    sprintf(msgStatus, "REGISTRANDO NA SONY (ID: %s)...", contentId);
-    atualizarBarra(0.8f);
+    bool idValido = (strlen(contentId) == 36);
+    if (!idValido) return false;
 
     sceSysmoduleLoadModuleInternal(ORBIS_SYSMODULE_INTERNAL_APP_INST_UTIL);
     sceSysmoduleLoadModuleInternal(ORBIS_SYSMODULE_INTERNAL_BGFT);
@@ -420,29 +355,25 @@ void instalarPkgRemoto(const char* urlDireta, const char* nomeExibicao) {
     params.userId = userId;
     params.entitlementType = 5;
     params.id = contentId;
-    params.contentUrl = urlFinal; // Vai direto pra Sony sem servidor interno!
+    params.contentUrl = urlFinal;
     params.contentName = nomeExibicao;
     params.playgoScenarioId = "0";
     params.packageSize = fileSize;
 
     OrbisBgftTaskId taskId = -1;
-    int res = sceBgftServiceIntDebugDownloadRegisterPkg(&params, &taskId);
-
-    if (res == 0 && taskId >= 0) {
+    if (sceBgftServiceIntDebugDownloadRegisterPkg(&params, &taskId) == 0 && taskId >= 0) {
         sceBgftServiceDownloadStartTask(taskId);
-        sprintf(msgStatus, "DOWNLOAD DO DROPBOX INICIADO NO PS4!");
+        sprintf(msgStatus, "DOWNLOAD DA WEB INICIADO!");
         atualizarBarra(1.0f);
+        msgTimer = 400;
+        return true;
     }
-    else {
-        sprintf(msgStatus, "ERRO NO BGFT: 0x%08X", res);
-        atualizarBarra(0.0f);
-    }
-
-    msgTimer = 400;
+    return false;
 }
-// ====================================================================
 
-// O MOTOR DE DOWNLOAD EM SEGUNDO PLANO (MANTIDO INTACTO PARA OUTROS ARQUIVOS)
+// ====================================================================
+// O MOTOR DE DOWNLOAD INTERNO DO HYPER NEIVA (INFALÍVEL)
+// ====================================================================
 void* threadDownloadBackground(void* arg) {
     char urlDownloadBg[1024];
     MenuLevel menuOrigemBg;
@@ -467,7 +398,13 @@ void* threadDownloadBackground(void* arg) {
         char pathPasta[512];
         sceKernelMkdir("/data/HyperNeiva/baixado", 0777);
 
-        if (menuOrigemBg == MENU_BAIXAR_DROPBOX_LISTA || menuOrigemBg == MENU_BAIXAR_DROPBOX_BACKUP) {
+        // Se for PKG, não importa de onde veio, vai pra pasta pkg!
+        char* ext = strrchr(nomeArquivo, '.');
+        if (ext && (strcasecmp(ext, ".pkg") == 0 || strcasecmp(ext, ".PKG") == 0)) {
+            sceKernelMkdir("/data/pkg", 0777);
+            sprintf(pathPasta, "/data/pkg");
+        }
+        else if (menuOrigemBg == MENU_BAIXAR_DROPBOX_LISTA || menuOrigemBg == MENU_BAIXAR_DROPBOX_BACKUP) {
             sceKernelMkdir("/data/HyperNeiva/baixado/dropbox", 0777);
             sprintf(pathPasta, "/data/HyperNeiva/baixado/dropbox");
         }
@@ -511,7 +448,11 @@ void* threadDownloadBackground(void* arg) {
             sceHttpAddRequestHeader(req, "Dropbox-API-Arg", apiArg, 1);
         }
         else {
-            conn = sceHttpCreateConnectionWithURL(tpl, urlDownloadBg, 1); req = sceHttpCreateRequestWithURL(conn, ORBIS_METHOD_GET, urlDownloadBg, 0);
+            char urlTratada[1024];
+            strcpy(urlTratada, urlDownloadBg);
+            char* dbox = strstr(urlTratada, "dropbox.com");
+            if (dbox) { char* dl0 = strstr(urlTratada, "?dl=0"); if (dl0) dl0[4] = '1'; }
+            conn = sceHttpCreateConnectionWithURL(tpl, urlTratada, 1); req = sceHttpCreateRequestWithURL(conn, ORBIS_METHOD_GET, urlTratada, 0);
         }
 
         if (sceHttpSendRequest(req, NULL, 0) >= 0) {
@@ -541,13 +482,11 @@ void* threadDownloadBackground(void* arg) {
                 }
                 fclose(f);
 
-                if (strstr(nomeArquivo, ".pkg") != NULL || strstr(nomeArquivo, ".PKG") != NULL) {
-                    sceKernelMkdir("/data/pkg", 0777);
-                    char destino[512]; sprintf(destino, "/data/pkg/%s", nomeArquivo);
-                    int resMove = rename(pathFinal, destino);
-                    if (resMove == 0) { sprintf(msgStatus, "PKG PREPARADO! Va em GoldHEN"); }
-                    else { sprintf(msgStatus, "BAIXADO, MAS ERRO AO MOVER!"); }
-                    msgTimer = 400;
+                // SE FOI UM PKG, ELE BATE NO METODO INFALIVEL DE INSTALACAO (O Servidor Local)
+                if (ext && (strcasecmp(ext, ".pkg") == 0 || strcasecmp(ext, ".PKG") == 0)) {
+                    sprintf(msgStatus, "DOWNLOAD CONCLUIDO! INSTALANDO...");
+                    msgTimer = 300;
+                    instalarPkgLocal(pathFinal);
                 }
                 else {
                     sprintf(msgStatus, "ARQUIVO CONCLUIDO!");
@@ -572,7 +511,9 @@ void* threadDownloadBackground(void* arg) {
     return NULL;
 }
 
-// INICIADOR DO DOWNLOAD SINGLE
+// ====================================================================
+// O CÉREBRO: DECIDE SE TENTA O BGFT OU VAI PRO DOWNLOADER INTERNO
+// ====================================================================
 void iniciarDownload(const char* url) {
     if (!url || strlen(url) < 2) return;
 
@@ -592,8 +533,27 @@ void iniciarDownload(const char* url) {
 
     char* ext = strrchr(nomeArquivo, '.');
     if (ext && (strcasecmp(ext, ".pkg") == 0 || strcasecmp(ext, ".PKG") == 0)) {
-        instalarPkgRemoto(url, nomeArquivo);
-        return;
+
+        bool usarBgft = true;
+
+        // Se for Dropbox (onde o BGFT falha com SSL/080990033), já pula fora e joga pro método infalível!
+        if (url[0] == '/' || strstr(url, "dropbox.com") != NULL) {
+            usarBgft = false;
+        }
+
+        if (usarBgft) {
+            if (tentarBgft(url, nomeArquivo)) {
+                return; // Sucesso Absoluto! O PS4 puxou.
+            }
+            // BGFT rejeitou? Não tem problema, o Hyper Neiva faz o trabalho sujo!
+            sprintf(msgStatus, "BGFT FALHOU. USANDO DOWNLOADER INTERNO...");
+            msgTimer = 180;
+            sceKernelUsleep(1000 * 1000);
+        }
+        else {
+            sprintf(msgStatus, "LINK DROPBOX: USANDO DOWNLOADER INTERNO...");
+            msgTimer = 180;
+        }
     }
 
     int antes = obterTamanhoFila();

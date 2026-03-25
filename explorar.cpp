@@ -20,9 +20,13 @@
 
 extern void atualizarBarra(float progresso);
 
+// Variáveis importadas do visualizador de imagens
 extern bool visualizandoMidiaImagem;
 extern char caminhoImagemAberta[512];
 extern unsigned char* imgMidia;
+extern int wM, hM;
+extern float zoomMidia;
+extern bool fullscreenMidia;
 
 char pathExplorar[256] = "";
 char baseRaiz[256] = "";
@@ -70,9 +74,6 @@ void preencherOpcoesContexto(const char* nomeArquivo) {
         return;
     }
 
-    // ========================================================
-    // MENU COMPLETO NORMAL (Mostra sempre no Triângulo!)
-    // ========================================================
     listaOpcoes[0] = "nova pasta"; mapOpcoes[0] = 0;
     listaOpcoes[1] = "novo arquivo"; mapOpcoes[1] = 1;
     listaOpcoes[2] = "copiar"; mapOpcoes[2] = 2;
@@ -83,7 +84,6 @@ void preencherOpcoesContexto(const char* nomeArquivo) {
     listaOpcoes[7] = "selecionar"; mapOpcoes[7] = 8;
     listaOpcoes[8] = "selecionar tudo"; mapOpcoes[8] = 9;
 
-    // Se for ZIP, adiciona o Extrair no final da lista do Triângulo!
     bool isZip = false;
     if (nomeArquivo) {
         char temp[256];
@@ -310,32 +310,18 @@ void acaoArquivo(int idxOpcao) {
 
     switch (op) {
     case 0: { // Nova Pasta
-        OrbisImeDialogSetting param;
-        memset(&param, 0, sizeof(param));
-        memset(textoTeclado, 0, sizeof(textoTeclado));
-
-        param.maxTextLength = 255;
-        param.inputTextBuffer = textoTeclado;
-        param.title = L"Nome da Nova Pasta";
-        param.type = (OrbisImeType)0;
-
-        if (sceImeDialogInit(&param, NULL) >= 0) {
-            esperandoNomePasta = true;
-            showOpcoes = false;
-        }
+        OrbisImeDialogSetting param; memset(&param, 0, sizeof(param)); memset(textoTeclado, 0, sizeof(textoTeclado));
+        param.maxTextLength = 255; param.inputTextBuffer = textoTeclado; param.title = L"Nome da Nova Pasta"; param.type = (OrbisImeType)0;
+        if (sceImeDialogInit(&param, NULL) >= 0) { esperandoNomePasta = true; showOpcoes = false; }
         break;
     }
     case 1: { // NOVO ARQUIVO
-        inicializarNotepad();
-        strcpy(pastaDestinoFinal, pExplorar);
+        inicializarNotepad(); strcpy(pastaDestinoFinal, pExplorar);
         if (ehEsq) menuAtualEsq = MENU_NOTEPAD; else menuAtual = MENU_NOTEPAD;
-        showOpcoes = false;
-        break;
+        showOpcoes = false; break;
     }
-    case 2: // Copiar
-    case 3: { // Recortar
-        clipboardCount = 0;
-        clipboardIsCut = (op == 3);
+    case 2: case 3: { // Copiar / Recortar
+        clipboardCount = 0; clipboardIsCut = (op == 3);
         for (int i = 0; i < tItens; i++) {
             if (temMarcado ? mItems[i] : (i == sAtual)) {
                 char* l = (nItems[i][0] == '[') ? &nItems[i][1] : nItems[i];
@@ -344,139 +330,74 @@ void acaoArquivo(int idxOpcao) {
                 clipboardCount++;
             }
         }
-        sprintf(msgStatus, op == 2 ? "ARQUIVO(S) COPIADO(S)" : "ARQUIVO(S) RECORTADO(S)");
-        msgTimer = 90;
+        sprintf(msgStatus, op == 2 ? "ARQUIVO(S) COPIADO(S)" : "ARQUIVO(S) RECORTADO(S)"); msgTimer = 90;
         break;
     }
     case 4: { // Colar
         for (int i = 0; i < clipboardCount; i++) {
-            char* baseName = strrchr(clipboardPaths[i], '/');
-            if (baseName) baseName++; else baseName = clipboardPaths[i];
-            char dest[512];
-            sprintf(dest, "%s/%s", pExplorar, baseName);
-
+            char* baseName = strrchr(clipboardPaths[i], '/'); if (baseName) baseName++; else baseName = clipboardPaths[i];
+            char dest[512]; sprintf(dest, "%s/%s", pExplorar, baseName);
             copiarArquivoReal(clipboardPaths[i], dest);
 
             if (clipboardIsCut) {
-                struct stat path_stat;
-                stat(clipboardPaths[i], &path_stat);
-                if (S_ISDIR(path_stat.st_mode)) {
-                    deletarPastaRecursivamente(clipboardPaths[i]);
-                }
-                else {
-                    unlink(clipboardPaths[i]);
-                }
+                struct stat path_stat; stat(clipboardPaths[i], &path_stat);
+                if (S_ISDIR(path_stat.st_mode)) deletarPastaRecursivamente(clipboardPaths[i]); else unlink(clipboardPaths[i]);
             }
         }
         if (ehEsq) listarDiretorioEsq(pathExplorarEsq); else listarDiretorio(pathExplorar);
         if (clipboardIsCut) { clipboardCount = 0; clipboardIsCut = false; }
-
-        sprintf(msgStatus, "ARQUIVO(S) COLADO(S)");
-        msgTimer = 90;
-        break;
+        sprintf(msgStatus, "ARQUIVO(S) COLADO(S)"); msgTimer = 90; break;
     }
     case 5: { // Renomear
-        int alvo = sAtual;
-        for (int i = 0; i < tItens; i++) if (mItems[i]) { alvo = i; break; }
-
-        char* nomeReal = nItems[alvo];
-        ehPastaParaRenomear = (nomeReal[0] == '[') ? true : false;
+        int alvo = sAtual; for (int i = 0; i < tItens; i++) if (mItems[i]) { alvo = i; break; }
+        char* nomeReal = nItems[alvo]; ehPastaParaRenomear = (nomeReal[0] == '[') ? true : false;
 
         char nomeLimpo[256];
-        if (ehPastaParaRenomear) {
-            strncpy(nomeLimpo, &nomeReal[1], strlen(nomeReal) - 2);
-            nomeLimpo[strlen(nomeReal) - 2] = '\0';
-        }
-        else {
-            strcpy(nomeLimpo, nomeReal);
-        }
+        if (ehPastaParaRenomear) { strncpy(nomeLimpo, &nomeReal[1], strlen(nomeReal) - 2); nomeLimpo[strlen(nomeReal) - 2] = '\0'; }
+        else { strcpy(nomeLimpo, nomeReal); }
 
         sprintf(oldPathParaRenomear, "%s/%s", pExplorar, nomeLimpo);
-
         memset(oldExtParaRenomear, 0, sizeof(oldExtParaRenomear));
-        if (!ehPastaParaRenomear) {
-            char* dot = strrchr(nomeLimpo, '.');
-            if (dot) strcpy(oldExtParaRenomear, dot);
-        }
+        if (!ehPastaParaRenomear) { char* dot = strrchr(nomeLimpo, '.'); if (dot) strcpy(oldExtParaRenomear, dot); }
 
-        OrbisImeDialogSetting param;
-        memset(&param, 0, sizeof(param));
-        memset(textoTeclado, 0, sizeof(textoTeclado));
-
+        OrbisImeDialogSetting param; memset(&param, 0, sizeof(param)); memset(textoTeclado, 0, sizeof(textoTeclado));
         uint16_t* bufWrite = (uint16_t*)textoTeclado;
-        for (int i = 0; nomeLimpo[i] != '\0' && i < 255; i++) {
-            bufWrite[i] = (uint16_t)nomeLimpo[i];
-        }
+        for (int i = 0; nomeLimpo[i] != '\0' && i < 255; i++) bufWrite[i] = (uint16_t)nomeLimpo[i];
+        param.maxTextLength = 255; param.inputTextBuffer = textoTeclado; param.title = L"Renomear Arquivo/Pasta"; param.type = (OrbisImeType)0;
 
-        param.maxTextLength = 255;
-        param.inputTextBuffer = textoTeclado;
-        param.title = L"Renomear Arquivo/Pasta";
-        param.type = (OrbisImeType)0;
-
-        if (sceImeDialogInit(&param, NULL) >= 0) {
-            esperandoRenomear = true;
-            showOpcoes = false;
-        }
-        break;
+        if (sceImeDialogInit(&param, NULL) >= 0) { esperandoRenomear = true; showOpcoes = false; } break;
     }
     case 6: { // Deletar
         for (int i = 0; i < tItens; i++) {
             if (temMarcado ? mItems[i] : (i == sAtual)) {
                 char f[512]; char* l = (nItems[i][0] == '[') ? &nItems[i][1] : nItems[i];
                 sprintf(f, "%s/%s", pExplorar, l);
-
-                if (nItems[i][0] == '[') {
-                    f[strlen(f) - 1] = '\0';
-                    deletarPastaRecursivamente(f);
-                }
-                else {
-                    unlink(f);
-                }
+                if (nItems[i][0] == '[') { f[strlen(f) - 1] = '\0'; deletarPastaRecursivamente(f); }
+                else { unlink(f); }
             }
         }
         if (ehEsq) listarDiretorioEsq(pExplorar); else listarDiretorio(pExplorar);
         break;
     }
     case 7: { // EXTRAIR ZIP
-        int alvo = sAtual;
-        for (int i = 0; i < tItens; i++) if (mItems[i]) { alvo = i; break; }
-
+        int alvo = sAtual; for (int i = 0; i < tItens; i++) if (mItems[i]) { alvo = i; break; }
         char* nomeReal = nItems[alvo];
-        if (nomeReal[0] == '[') {
-            sprintf(msgStatus, "SELECIONE UM ARQUIVO .ZIP");
-            msgTimer = 120;
-            break;
-        }
+        if (nomeReal[0] == '[') { sprintf(msgStatus, "SELECIONE UM ARQUIVO .ZIP"); msgTimer = 120; break; }
 
-        char pathFinal[512];
-        sprintf(pathFinal, "%s/%s", pExplorar, nomeReal);
+        char pathFinal[512]; sprintf(pathFinal, "%s/%s", pExplorar, nomeReal);
+        char temp[512]; strcpy(temp, pathFinal); for (int i = 0; temp[i]; i++) temp[i] = tolower(temp[i]);
 
-        char temp[512]; strcpy(temp, pathFinal);
-        for (int i = 0; temp[i]; i++) temp[i] = tolower(temp[i]);
-
-        if (strstr(temp, ".zip") != NULL || strstr(temp, ".xavatar") != NULL) {
-            extrairZip(pathFinal, pExplorar);
-        }
-        else {
-            sprintf(msgStatus, "SOMENTE ARQUIVOS .ZIP SAO SUPORTADOS");
-            msgTimer = 120;
-        }
+        if (strstr(temp, ".zip") != NULL || strstr(temp, ".xavatar") != NULL) extrairZip(pathFinal, pExplorar);
+        else { sprintf(msgStatus, "SOMENTE ARQUIVOS .ZIP SAO SUPORTADOS"); msgTimer = 120; }
 
         if (ehEsq) listarDiretorioEsq(pExplorar); else listarDiretorio(pExplorar);
         break;
     }
-    case 8: { // Selecionar
-        mItems[sAtual] = !mItems[sAtual];
-        break;
-    }
-    case 9: { // Selecionar tudo
-        bool ligar = false; for (int i = 0; i < tItens; i++) if (!mItems[i]) ligar = true;
-        for (int i = 0; i < tItens; i++) mItems[i] = ligar;
-        break;
-    }
+    case 8: { mItems[sAtual] = !mItems[sAtual]; break; } // Selecionar
+    case 9: { bool ligar = false; for (int i = 0; i < tItens; i++) if (!mItems[i]) ligar = true; for (int i = 0; i < tItens; i++) mItems[i] = ligar; break; } // Selecionar tudo
 
           // =========================================================
-          // AÇÕES DO FUNDO DE TELA
+          // AÇÕES DE IMAGENS E FUNDOS DE TELA
           // =========================================================
     case 10: {
         remove("/data/HyperNeiva/configuracao/imagens/0_Defalt_Background.png");
@@ -484,48 +405,84 @@ void acaoArquivo(int idxOpcao) {
 
         FILE* src = fopen(caminhoImagemAberta, "rb");
         if (src) {
-            char* ext = strrchr(caminhoImagemAberta, '.');
-            char dest[512];
-            if (ext && (strcasecmp(ext, ".jpg") == 0 || strcasecmp(ext, ".jpeg") == 0)) {
-                strcpy(dest, "/data/HyperNeiva/configuracao/imagens/0_Defalt_Background.jpg");
-            }
-            else {
-                strcpy(dest, "/data/HyperNeiva/configuracao/imagens/0_Defalt_Background.png");
-            }
+            char* ext = strrchr(caminhoImagemAberta, '.'); char dest[512];
+            if (ext && (strcasecmp(ext, ".jpg") == 0 || strcasecmp(ext, ".jpeg") == 0)) strcpy(dest, "/data/HyperNeiva/configuracao/imagens/0_Defalt_Background.jpg");
+            else strcpy(dest, "/data/HyperNeiva/configuracao/imagens/0_Defalt_Background.png");
+
             FILE* dst = fopen(dest, "wb");
             if (dst) {
                 char buf[8192]; size_t bytes;
                 while ((bytes = fread(buf, 1, sizeof(buf), src)) > 0) fwrite(buf, 1, bytes, dst);
-                fclose(dst);
-                sprintf(msgStatus, "PLANO DE FUNDO APLICADO COM SUCESSO!");
+                fclose(dst); sprintf(msgStatus, "PLANO DE FUNDO APLICADO COM SUCESSO!");
             }
-            else {
-                sprintf(msgStatus, "ERRO AO SALVAR PLANO DE FUNDO");
-            }
-            fclose(src);
-            msgTimer = 180;
+            else { sprintf(msgStatus, "ERRO AO SALVAR PLANO DE FUNDO"); }
+            fclose(src); msgTimer = 180;
         }
-        visualizandoMidiaImagem = false;
-        if (imgMidia) { stbi_image_free(imgMidia); imgMidia = NULL; }
+        visualizandoMidiaImagem = false; if (imgMidia) { stbi_image_free(imgMidia); imgMidia = NULL; }
         break;
     }
-    case 11: {
-        sprintf(msgStatus, "Funcao Fundo PS4 em breve!"); msgTimer = 120;
-        visualizandoMidiaImagem = false;
+    case 11: { sprintf(msgStatus, "Funcao Fundo PS4 em breve!"); msgTimer = 120; visualizandoMidiaImagem = false; if (imgMidia) { stbi_image_free(imgMidia); imgMidia = NULL; } break; }
+    case 12: { sprintf(msgStatus, "Funcao Avatar PS4 em breve!"); msgTimer = 120; visualizandoMidiaImagem = false; if (imgMidia) { stbi_image_free(imgMidia); imgMidia = NULL; } break; }
+
+           // ====================================================================
+           // AÇÃO 13: VISUALIZAR O XAVATAR EXTRAÍDO
+           // ====================================================================
+    case 13: {
+        int alvo = sAtual; for (int i = 0; i < tItens; i++) if (mItems[i]) { alvo = i; break; }
+        char* nomeReal = nItems[alvo];
+        if (nomeReal[0] == '[') break; // É pasta, ignora
+
+        char caminhoArquivo[512]; sprintf(caminhoArquivo, "%s/%s", pExplorar, nomeReal);
+
         if (imgMidia) { stbi_image_free(imgMidia); imgMidia = NULL; }
+        mz_zip_archive zip_archive; memset(&zip_archive, 0, sizeof(zip_archive));
+        if (mz_zip_reader_init_file(&zip_archive, caminhoArquivo, 0)) {
+            const char* tempPath = "/data/HyperNeiva/configuracao/temporario/temp_avatar.png"; bool extraiu = false;
+            mz_uint num_files = mz_zip_reader_get_num_files(&zip_archive);
+            for (mz_uint i = 0; i < num_files; i++) {
+                mz_zip_archive_file_stat file_stat;
+                if (!mz_zip_reader_file_stat(&zip_archive, i, &file_stat)) continue;
+                if (mz_zip_reader_is_file_a_directory(&zip_archive, i)) continue;
+
+                char tempExtZip[256]; strcpy(tempExtZip, file_stat.m_filename);
+                for (int k = 0; tempExtZip[k]; k++) tempExtZip[k] = tolower(tempExtZip[k]);
+
+                if (strstr(tempExtZip, ".png") || strstr(tempExtZip, ".jpg") || strstr(tempExtZip, ".jpeg")) {
+                    if (mz_zip_reader_extract_to_file(&zip_archive, i, tempPath, 0)) { extraiu = true; break; }
+                }
+            }
+            if (extraiu) {
+                int canais; imgMidia = stbi_load(tempPath, &wM, &hM, &canais, 4);
+                if (imgMidia) {
+                    visualizandoMidiaImagem = true; zoomMidia = 1.0f; fullscreenMidia = false; strcpy(caminhoImagemAberta, tempPath);
+                }
+                else { sprintf(msgStatus, "ERRO AO PROCESSAR A IMAGEM"); msgTimer = 120; }
+            }
+            else { sprintf(msgStatus, "AVATAR INVALIDO"); msgTimer = 120; }
+            mz_zip_reader_end(&zip_archive);
+        }
+        else { sprintf(msgStatus, "FALHA AO ABRIR O ARQUIVO .xavatar"); msgTimer = 120; }
         break;
     }
-    case 12: {
-        sprintf(msgStatus, "Funcao Avatar PS4 em breve!"); msgTimer = 120;
-        visualizandoMidiaImagem = false;
+
+           // ====================================================================
+           // NOVA AÇÃO 14: VISUALIZAR IMAGEM NORMAL (.PNG, .JPG)
+           // ====================================================================
+    case 14: {
         if (imgMidia) { stbi_image_free(imgMidia); imgMidia = NULL; }
+        int canais; imgMidia = stbi_load(caminhoImagemAberta, &wM, &hM, &canais, 4);
+        if (imgMidia) {
+            visualizandoMidiaImagem = true; zoomMidia = 1.0f; fullscreenMidia = false;
+        }
+        else {
+            sprintf(msgStatus, "ERRO AO CARREGAR IMAGEM"); msgTimer = 90;
+        }
         break;
     }
     }
 
     if (!esperandoNomePasta && !esperandoRenomear && menuAtual != MENU_NOTEPAD && menuAtualEsq != MENU_NOTEPAD) {
-        showOpcoes = false;
-        msgTimer = 120;
+        showOpcoes = false; msgTimer = 120;
     }
 }
 
@@ -534,57 +491,28 @@ void atualizarImePasta() {
 
     int status = (int)sceImeDialogGetStatus();
     if (status != IME_STATUS_RUNNING && status != 0) {
-        OrbisDialogResult res;
-        memset(&res, 0, sizeof(res));
-        sceImeDialogGetResult(&res);
-
+        OrbisDialogResult res; memset(&res, 0, sizeof(res)); sceImeDialogGetResult(&res);
         int32_t buttonId = *(int32_t*)&res;
 
         if (buttonId == 0) {
-            char nomeFinal[256];
-            memset(nomeFinal, 0, sizeof(nomeFinal));
-
-            uint16_t* bufRead = (uint16_t*)textoTeclado;
-            int len = 0;
-
-            for (int i = 0; i < 255; i++) {
-                if (bufRead[i] == 0x0000) {
-                    break;
-                }
-                nomeFinal[len] = (char)bufRead[i];
-                len++;
-            }
+            char nomeFinal[256]; memset(nomeFinal, 0, sizeof(nomeFinal));
+            uint16_t* bufRead = (uint16_t*)textoTeclado; int len = 0;
+            for (int i = 0; i < 255; i++) { if (bufRead[i] == 0x0000) break; nomeFinal[len] = (char)bufRead[i]; len++; }
             nomeFinal[len] = '\0';
-
-            bool ehEsq = (painelDuplo && painelAtivo == 0);
-            char* pExplorar = ehEsq ? pathExplorarEsq : pathExplorar;
+            bool ehEsq = (painelDuplo && painelAtivo == 0); char* pExplorar = ehEsq ? pathExplorarEsq : pathExplorar;
 
             if (strlen(nomeFinal) > 0) {
                 char nPath[512];
-
                 if (esperandoNomePasta) {
-                    sprintf(nPath, "%s/%s", pExplorar, nomeFinal);
-                    sceKernelMkdir(nPath, 0777);
-                    sprintf(msgStatus, "PASTA CRIADA!");
+                    sprintf(nPath, "%s/%s", pExplorar, nomeFinal); sceKernelMkdir(nPath, 0777); sprintf(msgStatus, "PASTA CRIADA!");
                 }
                 else if (esperandoRenomear) {
-                    if (!ehPastaParaRenomear && strlen(oldExtParaRenomear) > 0) {
-                        if (strrchr(nomeFinal, '.') == NULL) {
-                            strcat(nomeFinal, oldExtParaRenomear);
-                        }
-                    }
-                    sprintf(nPath, "%s/%s", pExplorar, nomeFinal);
-                    rename(oldPathParaRenomear, nPath);
-                    sprintf(msgStatus, "RENOMEADO COM SUCESSO!");
+                    if (!ehPastaParaRenomear && strlen(oldExtParaRenomear) > 0) { if (strrchr(nomeFinal, '.') == NULL) strcat(nomeFinal, oldExtParaRenomear); }
+                    sprintf(nPath, "%s/%s", pExplorar, nomeFinal); rename(oldPathParaRenomear, nPath); sprintf(msgStatus, "RENOMEADO COM SUCESSO!");
                 }
-
                 if (ehEsq) listarDiretorioEsq(pExplorar); else listarDiretorio(pExplorar);
             }
         }
-
-        sceImeDialogTerm();
-        esperandoNomePasta = false;
-        esperandoRenomear = false;
-        msgTimer = 120;
+        sceImeDialogTerm(); esperandoNomePasta = false; esperandoRenomear = false; msgTimer = 120;
     }
 }
