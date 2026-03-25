@@ -38,7 +38,7 @@ extern bool visualizandoMidiaImagem;
 extern unsigned char* imgMidia;
 extern int wM, hM;
 
-// VARIÁVEIS EXTERNAS DO MENU (Para a Mágica do Atalho X)
+// VARIÁVEIS DO MENU 
 extern const char* listaOpcoes[10];
 extern int mapOpcoes[10];
 extern int totalOpcoes;
@@ -201,25 +201,51 @@ void acaoCross_Explorar() {
                 instalarPkgLocal(caminhoArquivo);
             }
             // ========================================================
-            // A MÁGICA: SE APERTAR X NO ZIP, MOSTRA SÓ "EXTRAIR"
+            // MENU DO X PARA .ZIP (Apenas Extrair)
             // ========================================================
-            else if (strstr(nomeBlindado, ".zip") || strstr(nomeBlindado, ".xavatar")) {
-                listaOpcoes[0] = "extrair zip / avatar";
+            else if (strstr(nomeBlindado, ".zip")) {
+                listaOpcoes[0] = "extrair zip";
                 mapOpcoes[0] = 7;
                 for (int k = 1; k < 10; k++) { listaOpcoes[k] = ""; mapOpcoes[k] = -1; }
                 totalOpcoes = 1;
                 showOpcoes = true;
                 selOpcao = 0;
             }
+            // ========================================================
+            // MENU DO X PARA .XAVATAR E IMAGENS NORMAIS!
+            // ========================================================
+            else if (strstr(nomeBlindado, ".png") || strstr(nomeBlindado, ".jpg") || strstr(nomeBlindado, ".jpeg") || strstr(nomeBlindado, ".bmp") || strstr(nomeBlindado, ".xavatar")) {
+                strcpy(caminhoImagemAberta, caminhoArquivo); // Guarda o caminho do ficheiro selecionado
+
+                listaOpcoes[0] = "visualizar";
+
+                // Se for xavatar usa a lógica 13 de visualizar (que extrai), senão a 14 (carrega direto)
+                if (strstr(nomeBlindado, ".xavatar")) mapOpcoes[0] = 13; else mapOpcoes[0] = 14;
+
+                listaOpcoes[1] = "definir como perfil ps4";
+                mapOpcoes[1] = 12;
+                listaOpcoes[2] = "definir como plano de fundo ps4";
+                mapOpcoes[2] = 11;
+                listaOpcoes[3] = "definir fundo hyper neiva";
+                mapOpcoes[3] = 10;
+
+                if (strstr(nomeBlindado, ".xavatar")) {
+                    listaOpcoes[4] = "extrair zip / avatar";
+                    mapOpcoes[4] = 7;
+                    for (int k = 5; k < 10; k++) { listaOpcoes[k] = ""; mapOpcoes[k] = -1; }
+                    totalOpcoes = 5;
+                }
+                else {
+                    for (int k = 4; k < 10; k++) { listaOpcoes[k] = ""; mapOpcoes[k] = -1; }
+                    totalOpcoes = 4;
+                }
+
+                showOpcoes = true;
+                selOpcao = 0;
+            }
             else if (strstr(nomeBlindado, ".mp3") || strstr(nomeBlindado, ".wav")) {
                 if (strcmp(caminhoMusicaTocando, caminhoArquivo) == 0) { tocarMusicaNova("PARADO"); strcpy(caminhoMusicaTocando, ""); sprintf(msgStatus, "Musica Parada"); msgTimer = 90; }
                 else { tocarMusicaNova(caminhoArquivo); strcpy(caminhoMusicaTocando, caminhoArquivo); sprintf(msgStatus, "Reproduzindo Audio"); msgTimer = 90; }
-            }
-            else if (strstr(nomeBlindado, ".png") || strstr(nomeBlindado, ".jpg") || strstr(nomeBlindado, ".jpeg") || strstr(nomeBlindado, ".bmp")) {
-                if (imgMidia) { stbi_image_free(imgMidia); imgMidia = NULL; }
-                int canais; imgMidia = stbi_load(caminhoArquivo, &wM, &hM, &canais, 4);
-                if (imgMidia) { visualizandoMidiaImagem = true; zoomMidia = 1.0f; fullscreenMidia = false; strcpy(caminhoImagemAberta, caminhoArquivo); }
-                else { sprintf(msgStatus, "ERRO AO CARREGAR IMAGEM"); msgTimer = 90; }
             }
             else if (strstr(nomeBlindado, ".txt") || strstr(nomeBlindado, ".xml") || strstr(nomeBlindado, ".json") || strstr(nomeBlindado, ".ini") || strstr(nomeBlindado, ".cfg") || strstr(nomeBlindado, ".log")) {
                 editarArquivoExistente(pExplorar, nItems[sAtual]);
@@ -245,7 +271,6 @@ void acaoTriangle_Explorar() {
     if (mAtual == MENU_EXPLORAR) {
         if (!showOpcoes) {
             int sAtual = ehEsq ? selEsq : sel; char (*nItems)[64] = ehEsq ? nomesEsq : nomes;
-            // O TRIÂNGULO CARREGA SEMPRE O MENU COMPLETO NORMAL
             preencherOpcoesContexto(nItems[sAtual]);
         } showOpcoes = !showOpcoes; selOpcao = 0;
     }
