@@ -77,6 +77,7 @@
     <ClCompile Include="elementos.cpp" />
     <ClCompile Include="elementos_sonoros.cpp" />
     <ClCompile Include="explorar.cpp" />
+    <ClCompile Include="ftp.cpp" />
     <ClCompile Include="gestor_de_saves.cpp" />
     <ClCompile Include="graphics.cpp" />
     <ClCompile Include="jogar.cpp" />
@@ -129,6 +130,7 @@
     <ClInclude Include="elementos.h" />
     <ClInclude Include="elementos_sonoros.h" />
     <ClInclude Include="explorar.h" />
+    <ClInclude Include="ftp.h" />
     <ClInclude Include="graphics.h" />
     <ClInclude Include="jogar.h" />
     <ClInclude Include="menu.h" />
