@@ -129,8 +129,10 @@ void acaoCross_Baixar(int32_t uId, OrbisImeDialogSetting* imeSetting, uint16_t* 
                         char tempP[512]; sprintf(tempP, "%s%s%s", pathExplorarEsq, strcmp(pathExplorarEsq, "/") == 0 ? "" : "/", &nItems[sAt][1]); tempP[strlen(tempP) - 1] = '\0';
                         listarDiretorioEsq(tempP);
                     }
-                    else { // ARQUIVO - AGORA ABRE MENU (IGUAL EXPLORAR)
-                        preencherOpcoesFTP();
+                    else {
+                        // MODO CLÁSSICO UPLOAD: Clicou, upou!
+                        char absPath[512]; sprintf(absPath, "%s/%s", pathExplorarEsq, nItems[sAt]);
+                        fazerUploadFTP(absPath);
                     }
                 }
             }
@@ -140,13 +142,14 @@ void acaoCross_Baixar(int32_t uId, OrbisImeDialogSetting* imeSetting, uint16_t* 
                     urlSel[tam - 1] = '\0';
                     if (isEsq) acessarFTPEsq(servidorAtualFTPIndex, urlSel); else acessarFTP(servidorAtualFTPIndex, urlSel);
                 }
-                else { // Arquivo FTP
+                else {
+                    // MODO CLÁSSICO DOWNLOAD: Verifica imagem, se não, baixa direto PKG ou ROM
                     char* ext = strrchr(urlSel, '.');
                     if (ext && (strcasecmp(ext, ".png") == 0 || strcasecmp(ext, ".jpg") == 0 || strcasecmp(ext, ".txt") == 0 || strcasecmp(ext, ".ini") == 0 || strcasecmp(ext, ".xml") == 0)) {
-                        prepararPreviewFTP(urlSel); // Abre midia na hora!
+                        prepararPreviewFTP(urlSel);
                     }
                     else {
-                        preencherOpcoesFTP(); // ARQUIVO - AGORA ABRE MENU (IGUAL EXPLORAR)
+                        iniciarDownloadFTP(urlSel); // VOLTOU AO MODO CLÁSSICO!
                     }
                 }
             }
@@ -214,6 +217,6 @@ void acaoTriangle_Baixar() {
         if (sel > 0) { servidorAtualFTPIndex = sel - 1; preencherMenuEditarServidor(servidorAtualFTPIndex); }
     }
     else if (menuAtual == MENU_BAIXAR_FTP_LISTA) {
-        preencherOpcoesFTP();
+        preencherOpcoesFTP(); // AS OPÇÕES FICAM SÓ NO TRIÂNGULO AGORA!
     }
 }
