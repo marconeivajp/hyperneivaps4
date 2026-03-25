@@ -45,6 +45,9 @@ extern volatile int baixadosFilaSessao;
 
 extern int totalOpcoes;
 
+// --- PUXANDO O IP LOCAL GERADO LÁ NO BAIXAR.CPP ---
+extern char ipDoPS4[64];
+
 uint32_t getSysColor(int index) {
     uint32_t sysColors[] = { 0xAA222222, 0xAA000000, 0xAA000044, 0xAA440000, 0xAA004400, 0x00000000, 0xFF444444, 0xFF00D83A, 0xAAFFFF99, 0xFF00FF00, 0xFF00AAFF, 0xAA999933, 0xFFFFFFFF, 0xFFFF0000, 0xFF0000FF };
     if (index < 0 || index > 14) return sysColors[0];
@@ -154,7 +157,6 @@ void desenharInterface(uint32_t* p) {
         else { char breadEsq[300]; sprintf(breadEsq, "ESQ: %s", pathExplorarEsq); desenharTexto(p, breadEsq, 25, capaX, 1020, (painelAtivo == 0) ? 0xFF00AAFF : 0xFFAAAAAA); char breadDir[300]; sprintf(breadDir, "DIR: %s", pathExplorar); int cX = (listOri == 0) ? listXV : listXH; desenharTexto(p, breadDir, 25, cX, 1020, (painelAtivo == 1) ? 0xFF00AAFF : 0xFFAAAAAA); }
     }
     else {
-        // === AQUI A MÁGICA ACONTECE (Adicionado o preview do EXPLORAR target 9) ===
         bool isEditingBar = ((menuAtual == MENU_EDIT_TARGET || editMode) && editTarget == 4);
         bool isEditingAudio = ((menuAtual == MENU_EDIT_TARGET || editMode) && editTarget == 5);
         bool isEditingUp = ((menuAtual == MENU_EDIT_TARGET || editMode) && (editTarget == 6 || editTarget == 9));
@@ -171,11 +173,9 @@ void desenharInterface(uint32_t* p) {
             if (maxV > 0) desenharTextoAlinhado(p, "PLAY / PAUSE", fontTam, audioX, audioY + 50, audioW, 0xFFFFFF00); if (maxV > 1) desenharTextoAlinhado(p, "PARAR", fontTam, audioX, audioY + 95, audioW, 0xFFFFFFFF);
         }
         else if (isEditingUp) {
-            // Desenha a caixa de visualização das opções
             for (int my = 0; my < upH; my++) { for (int mx = 0; mx < upW; mx++) { int pxX = upX + mx; int pyY = upY + my; if (pxX >= 0 && pxX < 1920 && pyY >= 0 && pyY < 1080) p[pyY * 1920 + pxX] = getSysColor(upBg); } }
             int maxV = (upH - 50) / 45; if (maxV < 1) maxV = 1;
 
-            // Textos visuais diferentes dependendo se é o UPLOAD (6) ou o EXPLORAR (9)
             if (editTarget == 9) {
                 if (maxV > 0) desenharTextoAlinhado(p, "Copiar", fontTam, upX, upY + 50, upW, getSysColor(upTextSel));
                 if (maxV > 1) desenharTextoAlinhado(p, "Colar", fontTam, upX, upY + 95, upW, getSysColor(upTextNorm));
@@ -204,7 +204,7 @@ void desenharInterface(uint32_t* p) {
         else if (editTarget == 3) { tX = &backX; tY = &backY; tW = &backW; tH = &backH; }
         else if (editTarget == 4) { tX = &barX; tY = &barY; tW = &barW; tH = &barH; }
         else if (editTarget == 5) { tX = &audioX; tY = &audioY; tW = &audioW; tH = &audioH; }
-        else if (editTarget == 6 || editTarget == 9) { tX = &upX; tY = &upY; tW = &upW; tH = &upH; } // Serve para os dois agora!
+        else if (editTarget == 6 || editTarget == 9) { tX = &upX; tY = &upY; tW = &upW; tH = &upH; }
         else if (editTarget == 8) { tX = &msgX; tY = &msgY; tW = &msgTam; tH = &msgTam; }
         else if (editTarget == 10) { tX = &elem1X; tY = &elem1Y; tW = &elem1W; tH = &elem1H; }
         else if (editTarget == 11) { tX = &ctrl1X; tY = &ctrl1Y; tW = &ctrl1W; tH = &ctrl1H; }
@@ -221,7 +221,6 @@ void desenharInterface(uint32_t* p) {
         else if (editType == 12) { int stat = 0; if (editTarget == 10) stat = elem1On; else if (editTarget == 11) stat = ctrl1On; else if (editTarget == 12) stat = pont1On; sprintf(txtPos, "MODO EDICAO - LIGADO: %s (USE SETAS ESQ/DIR)", stat ? "SIM" : "NAO"); }
         else if (editType == 13) sprintf(txtPos, "MODO EDICAO - MODO PONTEIRO: %s (USE SETAS ESQ/DIR)", pont1Modo == 0 ? "ACOMPANHA" : "ESTATICO");
         else if (editType == 14) { const char* lds[] = { "ESQUERDA", "DIREITA", "CIMA", "BAIXO" }; sprintf(txtPos, "MODO EDICAO - LADO PONTEIRO: %s (USE SETAS)", lds[pont1Lado]); }
-        // TEXTOS VISUAIS PARA O MENU SOM E PARA AS CORES DO EXPLORAR
         else if (editType == 15) sprintf(txtPos, "MODO EDICAO - EFEITOS SONOROS: %s (USE SETAS)", sfxLigado ? "LIGADO" : "DESLIGADO");
         else if (editType == 16) sprintf(txtPos, "MODO EDICAO - VOLUME EFEITOS: %d%% (USE SETAS)", sfxVolume);
         else if (editType == 17) sprintf(txtPos, "MODO EDICAO - MENU OPCOES POSICAO: X:%d Y:%d", upX, upY);
@@ -239,11 +238,7 @@ void desenharInterface(uint32_t* p) {
         desenharTexto(p, txtPos, 25, 50, 1045, 0xFF00FF00);
     }
 
-    // ==============================================================
-    // MENU OPÇÕES DO EXPLORAR (COM CORES AGORA CUSTOMIZÁVEIS)
-    // ==============================================================
     if (showOpcoes && menuAtual != MENU_AUDIO_OPCOES) {
-
         if (selOpcao >= totalOpcoes) selOpcao = 0;
         if (selOpcao < 0) selOpcao = totalOpcoes - 1;
 
@@ -334,5 +329,12 @@ void desenharInterface(uint32_t* p) {
         char textoFila[128];
         snprintf(textoFila, sizeof(textoFila), "%d%%   -   %d / %d", porcentagem, baixadosFilaSessao + 1, totalFilaSessao);
         desenharTexto(p, textoFila, 25, bX + bW + 20, bY - 2, 0xFFFFFFFF);
+    }
+
+    // --- ADICIONADO AQUI! MOSTRAR IP NA TELA ---
+    if (menuAtual == MENU_BAIXAR || menuAtual == MENU_BAIXAR_FTP_SERVIDORES || menuAtual == MENU_BAIXAR_FTP_LISTA || menuAtual == MENU_BAIXAR_FTP_UPLOAD || menuAtual == MENU_BAIXAR_FTP_UPLOAD_RAIZES || menuAtual == MENU_BAIXAR_FTP_EDITAR_SERVIDOR) {
+        char textoIP[128];
+        sprintf(textoIP, "IP DO PS4: %s", ipDoPS4);
+        desenharTexto(p, textoIP, 25, 1550, 1020, 0xFF00FF00);
     }
 }
