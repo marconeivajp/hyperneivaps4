@@ -14,6 +14,11 @@
 #include <orbis/Http.h>
 #include <orbis/Ssl.h>
 
+// --- BIBLIOTECAS DE REDE (PARA PEGAR O IP LOCAL) ---
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+
 #include "baixar.h"
 #include "network.h"
 #include "menu.h"
@@ -29,6 +34,8 @@ extern void submeterTela();
 
 extern unsigned char* backImg;
 extern int wB, hB;
+
+char ipDoPS4[64] = "Calculando IP..."; // <-- NOVA VARIÁVEL QUE GUARDA O IP
 
 Console listaConsoles[5] = {
     {"Sony - PlayStation", "Sony%20-%20PlayStation"},
@@ -51,7 +58,7 @@ char currentUploadPath[512] = "";
 
 bool emSubmenuLojas = false;
 bool emSubmenuDropbox = false;
-bool emSubmenuFTP = false; // <-- Nova flag para a pasta FTP
+bool emSubmenuFTP = false;
 bool emApolloSaves = false;
 char currentApolloUrl[1024] = "";
 
@@ -71,11 +78,8 @@ void atualizarBarra(float progresso) {
 
 void atualizarBarra(float progresso, int arquivoAtual, int totalArquivos) {
     uint32_t* p = obterBufferVideo();
-
     for (int i = 0; i < 1920 * 1080; i++) p[i] = 0xFF121212;
-
     if (backImg) desenharRedimensionado(p, backImg, wB, hB, 1920, 1080, 0, 0);
-
     desenharInterface(p);
 
     int bX = barX; int bY = barY; int bW = barW; int bH = barH;
@@ -172,17 +176,41 @@ void acaoRede(const char* jogo, bool buscarLista, bool salvarNoHD) {
     sceHttpDeleteRequest(req); sceHttpDeleteConnection(conn); sceHttpDeleteTemplate(tpl);
 }
 
+// --- FUNÇÃO NINJA PARA PEGAR O IP LOCAL DO PS4 ---
+void pegarIPLocalPS4() {
+    int sock = socket(AF_INET, SOCK_DGRAM, 0);
+    if (sock < 0) return;
+
+    struct sockaddr_in serv;
+    memset(&serv, 0, sizeof(serv));
+    serv.sin_family = AF_INET;
+    serv.sin_addr.s_addr = inet_addr("8.8.8.8");
+    serv.sin_port = htons(53);
+
+    if (connect(sock, (const struct sockaddr*)&serv, sizeof(serv)) == 0) {
+        struct sockaddr_in name;
+        socklen_t namelen = sizeof(name);
+        if (getsockname(sock, (struct sockaddr*)&name, &namelen) == 0) {
+            const char* ipStr = inet_ntoa(name.sin_addr);
+            if (ipStr) strcpy(ipDoPS4, ipStr);
+        }
+    }
+    close(sock);
+}
+
 void preencherMenuBaixar() {
+    pegarIPLocalPS4(); // <-- AQUI! ELE PEGA O IP EXATAMENTE QUANDO VOCÊ CLICA NO MENU "BAIXAR"
+
     emSubmenuLojas = false;
     emSubmenuDropbox = false;
-    emSubmenuFTP = false; // Reset da pasta FTP
+    emSubmenuFTP = false;
     emApolloSaves = false;
     memset(nomes, 0, sizeof(nomes));
     strcpy(nomes[0], "Repositorios");
     strcpy(nomes[1], "LINK DIRETO");
     strcpy(nomes[2], "Dropbox");
     strcpy(nomes[3], "Lojas");
-    strcpy(nomes[4], "FTP (PC / Android)"); // <-- FTP Adicionado aqui!
+    strcpy(nomes[4], "FTP (PC / Android)");
     totalItens = 5;
     menuAtual = MENU_BAIXAR;
     sel = 0;
@@ -192,7 +220,7 @@ void preencherMenuBaixar() {
 void preencherMenuFTP() {
     emSubmenuLojas = false;
     emSubmenuDropbox = false;
-    emSubmenuFTP = true; // Ativa a pasta FTP
+    emSubmenuFTP = true;
     emApolloSaves = false;
     memset(nomes, 0, sizeof(nomes));
     strcpy(nomes[0], "Download (Do PC pro PS4)");
