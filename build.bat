@@ -101,12 +101,26 @@ if exist "UP0001-MARC00001_00-0000000000000000.pkg" (
     ren "UP0001-MARC00001_00-0000000000000000.pkg" "Hyper Neiva.pkg"
 )
 
-if exist E:\ (
+if exist "E:\" (
+    echo Copiando para o Pendrive E:\ ...
     copy /y "Hyper Neiva.pkg" "E:\Hyper Neiva.pkg"
 )
+
+echo.
+echo Tentando enviar para o PS4 via FTP...
+curl -T "Hyper Neiva.pkg" ftp://192.168.0.4:2121/data/pkg/ --connect-timeout 3
+if %errorlevel% equ 0 (
+    echo Envio via FTP concluido com sucesso!
+) else (
+    echo PS4 offline ou sem conexao FTP no momento.
+)
+
+:: Zera o erro do curl para o Visual Studio nao achar que a compilacao falhou
+cmd /c exit 0
 
 echo.
 echo ==========================================
 echo         COMPILADO COM SUCESSO!
 echo ==========================================
 pause
+exit /b 0
