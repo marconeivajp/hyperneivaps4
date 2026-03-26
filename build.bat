@@ -5,7 +5,6 @@ echo ==========================================
 echo        BUILD HYPER NEIVA (PS4)
 echo ==========================================
 echo.
-
 echo [1/7] Limpando arquivos antigos...
 del *.o 2>nul
 del teste3.elf 2>nul
@@ -14,7 +13,6 @@ del eboot.bin 2>nul
 del *.pkg 2>nul
 
 echo.
-
 echo [2/7] Compilando TODOS os modulos C++
 "C:\Program Files\LLVM\bin\clang.exe" --target=x86_64-pc-freebsd12-elf -fPIC -funwind-tables -I"C:\OpenOrbis\include" -I"C:\OpenOrbis\include\c++\v1" -I"C:\OpenOrbis\include\orbis" -c kernelrw.c -o kernelrw.o
 "C:\Program Files\LLVM\bin\clang.exe" --target=x86_64-pc-freebsd12-elf -fPIC -funwind-tables -I"C:\OpenOrbis\include" -I"C:\OpenOrbis\include\c++\v1" -I"C:\OpenOrbis\include\orbis" -c jailbreak.c -o jailbreak.o
@@ -53,10 +51,22 @@ echo [2/7] Compilando TODOS os modulos C++
 "C:\Program Files\LLVM\bin\clang++.exe" --target=x86_64-pc-freebsd12-elf -fPIC -funwind-tables -I"C:\OpenOrbis\include" -I"C:\OpenOrbis\include\c++\v1" -I"C:\OpenOrbis\include\orbis" -c controle_elementos.cpp -o controle_elementos.o
 "C:\Program Files\LLVM\bin\clang++.exe" --target=x86_64-pc-freebsd12-elf -fPIC -funwind-tables -I"C:\OpenOrbis\include" -I"C:\OpenOrbis\include\c++\v1" -I"C:\OpenOrbis\include\orbis" -c elementos_sonoros.cpp -o elementos_sonoros.o
 "C:\Program Files\LLVM\bin\clang++.exe" --target=x86_64-pc-freebsd12-elf -fPIC -funwind-tables -I"C:\OpenOrbis\include" -I"C:\OpenOrbis\include\c++\v1" -I"C:\OpenOrbis\include\orbis" -c ftp.cpp -o ftp.o
+"C:\Program Files\LLVM\bin\clang++.exe" --target=x86_64-pc-freebsd12-elf -fPIC -funwind-tables -I"C:\OpenOrbis\include" -I"C:\OpenOrbis\include\c++\v1" -I"C:\OpenOrbis\include\orbis" -c elementos_animados_sprite_sheet.cpp -o elementos_animados_sprite_sheet.o
 
 echo.
 echo [3/7] Linkando...
-"C:\Program Files\LLVM\bin\ld.lld.exe" -m elf_x86_64 -pie --script "C:\OpenOrbis\link.x" --eh-frame-hdr -o teste3.elf "-LC:\OpenOrbis\lib" -lc -lm -lkernel -lc++ -lSceVideoOut -lSceAudioOut -lSceUserService -lSceSysmodule -lSceSysUtil -lScePad -lSceNet -lSceHttp -lSceSsl -lSceImeDialog -lSceCommonDialog -lSceBgft -lSceAppInstUtil "C:\OpenOrbis\lib\crt1.o" kernelrw.o jailbreak.o miniz.o main.o explorar.o editar.o network.o baixar.o graphics.o jogar.o audio.o controle.o menu.o menu_audio.o menu_imagens.o menu_video.o menu_grafico.o controle_virtual.o pesquisar.o bloco_de_notas.o video.o teclado.o criar_pastas.o controle_musicas.o controle_explorar.o controle_editar.o controle_baixar.o controle_root.o baixar_repositorio.o baixar_dropbox_download.o baixar_lojas.o dowload_sistema.o menu_upload.o elementos.o controle_elementos.o elementos_sonoros.o ftp.o
+"C:\Program Files\LLVM\bin\ld.lld.exe" -m elf_x86_64 -pie --script "C:\OpenOrbis\link.x" --eh-frame-hdr -o teste3.elf "-LC:\OpenOrbis\lib" -lc -lm -lkernel -lc++ -lSceVideoOut -lSceAudioOut -lSceUserService -lSceSysmodule -lSceSysUtil -lScePad -lSceNet -lSceHttp -lSceSsl -lSceImeDialog -lSceCommonDialog -lSceBgft -lSceAppInstUtil "C:\OpenOrbis\lib\crt1.o" kernelrw.o jailbreak.o miniz.o main.o explorar.o editar.o network.o baixar.o graphics.o jogar.o audio.o controle.o menu.o menu_audio.o menu_imagens.o menu_video.o menu_grafico.o controle_virtual.o pesquisar.o bloco_de_notas.o video.o teclado.o criar_pastas.o controle_musicas.o controle_explorar.o controle_editar.o controle_baixar.o controle_root.o baixar_repositorio.o baixar_dropbox_download.o baixar_lojas.o dowload_sistema.o menu_upload.o elementos.o controle_elementos.o elementos_sonoros.o ftp.o elementos_animados_sprite_sheet.o
+
+:: ==========================================
+:: TRAVA DE SEGURANCA ADICIONADA AQUI!
+:: ==========================================
+if not exist teste3.elf (
+    echo.
+    echo [ERRO FATAL] A compilacao C++ falhou! Verifique os erros acima.
+    echo O pacote PKG nao sera gerado nem enviado.
+    pause
+    exit /b 1
+)
 
 echo.
 echo [4/7] Criando FSELF (Com flag de memoria do PS4)...
@@ -79,7 +89,6 @@ echo [5/7] Gerando o SFO do Hyper Neiva...
 
 echo.
 echo [6/7] Coletando Assets (Imagens e Fontes)...
-
 set asset_images_files=
 for %%f in (assets\images\*) do set asset_images_files=!asset_images_files! assets/images/%%~nxf
 
@@ -92,7 +101,6 @@ for %%f in (assets\audio\*) do set asset_audio_files=!asset_audio_files! assets/
 echo.
 echo [7/7] Criacao do GP4 e Build do PKG...
 "C:\OpenOrbis\bin\windows\create-gp4.exe" -out pkg.gp4 --content-id=UP0001-MARC00001_00-0000000000000000 --files "eboot.bin sce_sys/param.sfo sce_sys/icon0.png sce_module/libc.prx sce_module/libSceFios2.prx assets/lista.xml assets/sp.xml assets/Sega_Master_System.xml assets/dropbox_token.txt !asset_images_files! !asset_fonts_files! !asset_audio_files!"
-
 "C:\OpenOrbis\bin\windows\PkgTool.Core.exe" pkg_build pkg.gp4 .
 
 echo.
@@ -114,9 +122,9 @@ if %errorlevel% equ 0 (
     powershell -c "[console]::beep(400,300)"
 ) else (
     echo PS4 offline ou sem conexao FTP no momento.
+    powershell -c "[console]::beep(300,150); Start-Sleep -Milliseconds 100; [console]::beep(250,400)"
 )
 
-:: Zera o erro do curl para o Visual Studio nao achar que a compilacao falhou
 cmd /c exit 0
 
 echo.

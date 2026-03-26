@@ -25,6 +25,11 @@ extern int ftpClipCount;
 extern bool ftpClipIsCut;
 extern int ftpClipSource;
 
+// VARIÁVEIS DO EXPLORADOR NO PAINEL DIREITO
+extern char pathExplorarDireita[512];
+extern bool homeDireitaFTP;
+void listarDiretorioDireitaFTP(const char* dirPath);
+
 void carregarServidoresFTP();
 void salvarServidoresFTP();
 void preencherMenuFTPServidores(bool isUpload);
@@ -34,11 +39,9 @@ void abrirTecladoEdicaoFTP(int32_t uId, int campo);
 void acessarFTP(int index, const char* path);
 void acessarFTPEsq(int index, const char* path);
 
-// O NOVO MOTOR DE FILA INTELIGENTE (COPIA PASTAS E ARQUIVOS)
 void adicionarFilaFTP(const char* sourcePath, const char* destPath, bool isUpload, bool isDir);
 void iniciarProcessamentoFilaFTP();
 
-// FUNÇÕES DO MODO CLÁSSICO DE DOWNLOAD/UPLOAD (BOTÃO X)
 void iniciarDownloadFTP(const char* remotePath);
 void fazerUploadFTP(const char* localPath);
 

@@ -3,7 +3,7 @@
 	<volume>
 		<volume_type>pkg_ps4_app</volume_type>
 		<volume_id>PS4VOLUME</volume_id>
-		<volume_ts>2026-03-25 15:04:31</volume_ts>
+		<volume_ts>2026-03-26 09:12:35</volume_ts>
 		<package content_id="UP0001-MARC00001_00-0000000000000000" passcode="00000000000000000000000000000000"
 			storage_type="digital50" app_type="full" />
 		<chunk_info chunk_count="1" scenario_count="1">
@@ -39,6 +39,7 @@
 		<file targ_path="assets/images/disco1.png" orig_path="assets/images/disco1.png" />
 		<file targ_path="assets/images/disco2.png" orig_path="assets/images/disco2.png" />
 		<file targ_path="assets/images/disco3.png" orig_path="assets/images/disco3.png" />
+		<file targ_path="assets/images/elementos_animados_sprite_sheet.png" orig_path="assets/images/elementos_animados_sprite_sheet.png" />
 		<file targ_path="assets/images/nome1.png" orig_path="assets/images/nome1.png" />
 		<file targ_path="assets/images/nome2.png" orig_path="assets/images/nome2.png" />
 		<file targ_path="assets/images/nome3.png" orig_path="assets/images/nome3.png" />

@@ -40,8 +40,8 @@ extern bool visualizandoMidiaImagem;
 extern unsigned char* imgMidia;
 extern int wM, hM;
 
-extern const char* listaOpcoes[10];
-extern int mapOpcoes[10];
+extern const char* listaOpcoes[150];
+extern int mapOpcoes[150];
 extern int totalOpcoes;
 
 extern int cd;
@@ -57,20 +57,15 @@ static char caminhoMusicaTocando[512] = "";
 extern int offEsq;
 extern int off;
 
-extern char caminhoImagemAberta[512]; // CHAMA A VARIÁVEL GLOBAL DO EXPLORAR.CPP
+extern char caminhoImagemAberta[512];
 
 extern unsigned char* imgPreview;
 extern int wP, hP, cP;
 
 void carregarPreviewArquivo(const char* caminhoAbsoluto) {
     if (imgPreview) { stbi_image_free(imgPreview); imgPreview = NULL; }
-
-    char tempPathAbs[512];
-    strcpy(tempPathAbs, caminhoAbsoluto);
-    for (int i = 0; tempPathAbs[i]; i++) {
-        tempPathAbs[i] = tolower(tempPathAbs[i]);
-    }
-
+    char tempPathAbs[512]; strcpy(tempPathAbs, caminhoAbsoluto);
+    for (int i = 0; tempPathAbs[i]; i++) { tempPathAbs[i] = tolower(tempPathAbs[i]); }
     if (strstr(tempPathAbs, ".png") || strstr(tempPathAbs, ".jpg") || strstr(tempPathAbs, ".jpeg") || strstr(tempPathAbs, ".bmp")) {
         imgPreview = stbi_load(caminhoAbsoluto, &wP, &hP, &cP, 4);
     }
@@ -84,10 +79,8 @@ void carregarPreviewArquivo(const char* caminhoAbsoluto) {
                 mz_zip_archive_file_stat file_stat;
                 if (!mz_zip_reader_file_stat(&zip_archive, i, &file_stat)) continue;
                 if (mz_zip_reader_is_file_a_directory(&zip_archive, i)) continue;
-
                 char tempExtZip[256]; strcpy(tempExtZip, file_stat.m_filename);
                 for (int k = 0; tempExtZip[k]; k++) tempExtZip[k] = tolower(tempExtZip[k]);
-
                 if (strstr(tempExtZip, ".png") || strstr(tempExtZip, ".jpg") || strstr(tempExtZip, ".jpeg")) {
                     if (mz_zip_reader_extract_to_file(&zip_archive, i, tempPath, 0)) { extraiu = true; break; }
                 }
@@ -98,15 +91,12 @@ void carregarPreviewArquivo(const char* caminhoAbsoluto) {
     }
 }
 
-char caminhoPkgAtual[512] = "";
-bool servidorRodando = false;
-
+char caminhoPkgAtual[512] = ""; bool servidorRodando = false;
 void* handle_client(void* arg) {
     int client_fd = *(int*)arg; free(arg); int set = 1;
     setsockopt(client_fd, SOL_SOCKET, SO_NOSIGPIPE, (void*)&set, sizeof(int));
     char buffer_req[2048]; memset(buffer_req, 0, sizeof(buffer_req));
     recv(client_fd, buffer_req, sizeof(buffer_req) - 1, 0);
-
     if (strlen(caminhoPkgAtual) > 0 && strlen(buffer_req) > 0) {
         bool is_head_request = (strncmp(buffer_req, "HEAD", 4) == 0);
         FILE* f = fopen(caminhoPkgAtual, "rb");
@@ -119,19 +109,14 @@ void* handle_client(void* arg) {
                 sprintf(header, "HTTP/1.1 206 Partial Content\r\nContent-Type: application/octet-stream\r\nAccept-Ranges: bytes\r\nContent-Range: bytes %zu-%zu/%zu\r\nContent-Length: %zu\r\nConnection: close\r\n\r\n", start_range, fsize - 1, fsize, fsize - start_range);
                 fseek(f, start_range, SEEK_SET);
             }
-            else {
-                sprintf(header, "HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nAccept-Ranges: bytes\r\nContent-Length: %zu\r\nConnection: close\r\n\r\n", fsize);
-            }
+            else { sprintf(header, "HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nAccept-Ranges: bytes\r\nContent-Length: %zu\r\nConnection: close\r\n\r\n", fsize); }
             send(client_fd, header, strlen(header), 0);
             if (!is_head_request) {
                 size_t bytes_read; char* file_buffer = (char*)malloc(65536);
-                while ((bytes_read = fread(file_buffer, 1, 65536, f)) > 0) { if (send(client_fd, file_buffer, bytes_read, 0) < 0) break; }
-                free(file_buffer);
+                while ((bytes_read = fread(file_buffer, 1, 65536, f)) > 0) { if (send(client_fd, file_buffer, bytes_read, 0) < 0) break; } free(file_buffer);
             } fclose(f);
         }
-        else {
-            char* not_found = (char*)"HTTP/1.1 404 Not Found\r\n\r\n"; send(client_fd, not_found, strlen(not_found), 0);
-        }
+        else { char* not_found = (char*)"HTTP/1.1 404 Not Found\r\n\r\n"; send(client_fd, not_found, strlen(not_found), 0); }
     } close(client_fd); return NULL;
 }
 
@@ -171,8 +156,7 @@ void alternarPainelAtivo() { if (visualizandoMidiaImagem) return; if (painelDupl
 
 void acaoCross_Explorar() {
     if (esperandoNomePasta || esperandoRenomear) return;
-    bool ehEsq = (painelDuplo && painelAtivo == 0);
-    MenuLevel mAtual = ehEsq ? menuAtualEsq : menuAtual;
+    bool ehEsq = (painelDuplo && painelAtivo == 0); MenuLevel mAtual = ehEsq ? menuAtualEsq : menuAtual;
 
     if ((mAtual == MENU_EXPLORAR || visualizandoMidiaImagem) && showOpcoes) { acaoArquivo(selOpcao); return; }
     if (visualizandoMidiaImagem) { fullscreenMidia = !fullscreenMidia; return; }
@@ -192,19 +176,13 @@ void acaoCross_Explorar() {
         }
         else {
             char caminhoArquivo[512]; sprintf(caminhoArquivo, "%s/%s", pExplorar, nItems[sAtual]);
-
             char nomeBlindado[256]; strcpy(nomeBlindado, nItems[sAtual]);
-            for (int i = 0; nomeBlindado[i]; i++) {
-                nomeBlindado[i] = tolower(nomeBlindado[i]);
-            }
+            for (int i = 0; nomeBlindado[i]; i++) { nomeBlindado[i] = tolower(nomeBlindado[i]); }
 
-            if (strstr(nomeBlindado, ".pkg")) {
-                instalarPkgLocal(caminhoArquivo);
-            }
+            if (strstr(nomeBlindado, ".pkg")) { instalarPkgLocal(caminhoArquivo); }
             else if (strstr(nomeBlindado, ".zip")) {
-                listaOpcoes[0] = "extrair zip";
-                mapOpcoes[0] = 7;
-                for (int k = 1; k < 10; k++) { listaOpcoes[k] = ""; mapOpcoes[k] = -1; }
+                listaOpcoes[0] = "extrair zip"; mapOpcoes[0] = 7;
+                for (int k = 1; k < 150; k++) { listaOpcoes[k] = ""; mapOpcoes[k] = -1; }
                 totalOpcoes = 1; showOpcoes = true; selOpcao = 0;
             }
             else if (strstr(nomeBlindado, ".png") || strstr(nomeBlindado, ".jpg") || strstr(nomeBlindado, ".jpeg") || strstr(nomeBlindado, ".bmp") || strstr(nomeBlindado, ".xavatar")) {
@@ -213,26 +191,21 @@ void acaoCross_Explorar() {
                 listaOpcoes[0] = "visualizar";
                 if (strstr(nomeBlindado, ".xavatar")) mapOpcoes[0] = 13; else mapOpcoes[0] = 14;
 
-                listaOpcoes[1] = "usar no perfil ps4";
-                mapOpcoes[1] = 12;
-                listaOpcoes[2] = "plano de fundo do ps4";
-                mapOpcoes[2] = 11;
-                listaOpcoes[3] = "plano de fundo hyper neiva";
-                mapOpcoes[3] = 10;
+                listaOpcoes[1] = "personalizar jogo (appmeta)"; mapOpcoes[1] = 30; // NOVO MENU INJETADO
+                listaOpcoes[2] = "usar no perfil ps4"; mapOpcoes[2] = 12;
+                listaOpcoes[3] = "plano de fundo do ps4"; mapOpcoes[3] = 11;
+                listaOpcoes[4] = "plano de fundo hyper neiva"; mapOpcoes[4] = 10;
 
                 if (strstr(nomeBlindado, ".xavatar")) {
-                    listaOpcoes[4] = "extrair zip / avatar";
-                    mapOpcoes[4] = 7;
-                    for (int k = 5; k < 10; k++) { listaOpcoes[k] = ""; mapOpcoes[k] = -1; }
-                    totalOpcoes = 5;
+                    listaOpcoes[5] = "extrair zip / avatar"; mapOpcoes[5] = 7;
+                    for (int k = 6; k < 150; k++) { listaOpcoes[k] = ""; mapOpcoes[k] = -1; }
+                    totalOpcoes = 6;
                 }
                 else {
-                    for (int k = 4; k < 10; k++) { listaOpcoes[k] = ""; mapOpcoes[k] = -1; }
-                    totalOpcoes = 4;
+                    for (int k = 5; k < 150; k++) { listaOpcoes[k] = ""; mapOpcoes[k] = -1; }
+                    totalOpcoes = 5;
                 }
-
-                showOpcoes = true;
-                selOpcao = 0;
+                showOpcoes = true; selOpcao = 0;
             }
             else if (strstr(nomeBlindado, ".mp3") || strstr(nomeBlindado, ".wav")) {
                 if (strcmp(caminhoMusicaTocando, caminhoArquivo) == 0) { tocarMusicaNova("PARADO"); strcpy(caminhoMusicaTocando, ""); sprintf(msgStatus, "Musica Parada"); msgTimer = 90; }
@@ -259,7 +232,6 @@ void acaoCircle_Explorar() {
 void acaoTriangle_Explorar() {
     if (esperandoNomePasta || esperandoRenomear) return;
     bool ehEsq = (painelDuplo && painelAtivo == 0); MenuLevel mAtual = ehEsq ? menuAtualEsq : menuAtual;
-
     if (mAtual == MENU_EXPLORAR) {
         if (!showOpcoes) {
             int sAtual = ehEsq ? selEsq : sel; char (*nItems)[64] = ehEsq ? nomesEsq : nomes;

@@ -13,7 +13,10 @@
 #include <dirent.h>
 #include "stb_image.h"
 
-extern bool editMode; extern int editTarget; extern int editType; extern bool showOpcoes; extern int selOpcao; extern char pathExplorar[256]; extern bool marcados[3000]; extern const char* listaOpcoes[10]; extern char bufferTecladoC[128]; extern unsigned char* imgPreview;
+// INCLUI O MOTOR DE ANIMAÇÃO AQUI!
+#include "elementos_animados_sprite_sheet.h"
+
+extern bool editMode; extern int editTarget; extern int editType; extern bool showOpcoes; extern int selOpcao; extern char pathExplorar[256]; extern bool marcados[3000]; extern const char* listaOpcoes[150]; extern char bufferTecladoC[128]; extern unsigned char* imgPreview;
 extern unsigned char* defaultArtwork1; extern unsigned char* defaultArtwork2; extern int wDef1, hDef1; extern int wDef2, hDef2;
 
 extern int listXV, listYV, listSpcV, listXH, listYH, listSpcH;
@@ -44,8 +47,6 @@ extern volatile int totalFilaSessao;
 extern volatile int baixadosFilaSessao;
 
 extern int totalOpcoes;
-
-// --- PUXANDO O IP LOCAL GERADO LÁ NO BAIXAR.CPP ---
 extern char ipDoPS4[64];
 
 uint32_t getSysColor(int index) {
@@ -103,6 +104,10 @@ void desenharInterface(uint32_t* p) {
     }
 
     if (menuAtual != MENU_NOTEPAD && imgBgDinamico) { desenharRedimensionado(p, imgBgDinamico, dynBgW, dynBgH, 1920, 1080, 0, 0); }
+
+    if (menuAtual != MENU_NOTEPAD && !visualizandoMidiaImagem && !visualizandoMidiaTexto) {
+        desenharElementoAnimado(p);
+    }
 
     if (visualizandoMidiaTexto && textoMidiaBuffer) {
         for (int i = 0; i < 1920 * 1080; i++) p[i] = 0xFF151515; for (int by = 0; by < 80; by++) for (int bx = 0; bx < 1920; bx++) p[by * 1920 + bx] = 0xFF303030; desenharTexto(p, "LEITOR DE ARQUIVOS", 35, 50, 25, 0xFF00AAFF);
@@ -190,9 +195,9 @@ void desenharInterface(uint32_t* p) {
         }
         else {
             if (imgCapaDinamica) { desenharRedimensionado(p, imgCapaDinamica, dynCapaW, dynCapaH, capaW, capaH, capaX, capaY); }
-            else if (menuAtual == JOGAR_XML || (editMode && editTarget != 4 && editTarget != 5 && editTarget != 6 && editTarget != 9 && editTarget != 10 && editTarget != 11 && editTarget != 12)) { if (defaultArtwork1) desenharRedimensionado(p, defaultArtwork1, wDef1, hDef1, capaW, capaH, capaX, capaY); }
+            else if (menuAtual == JOGAR_XML || (editMode && editTarget != 4 && editTarget != 5 && editTarget != 6 && editTarget != 9 && editTarget != 10 && editTarget != 11 && editTarget != 12 && editTarget != 14)) { if (defaultArtwork1) desenharRedimensionado(p, defaultArtwork1, wDef1, hDef1, capaW, capaH, capaX, capaY); }
             if (imgDiscoDinamico) { desenharDiscoRedondo(p, imgDiscoDinamico, dynDiscoW, dynDiscoH, discoW, discoH, discoX, discoY); }
-            else if (menuAtual == JOGAR_XML || (editMode && editTarget != 4 && editTarget != 5 && editTarget != 6 && editTarget != 9 && editTarget != 10 && editTarget != 11 && editTarget != 12)) { if (defaultArtwork2) desenharDiscoRedondo(p, defaultArtwork2, wDef2, hDef2, discoW, discoH, discoX, discoY); }
+            else if (menuAtual == JOGAR_XML || (editMode && editTarget != 4 && editTarget != 5 && editTarget != 6 && editTarget != 9 && editTarget != 10 && editTarget != 11 && editTarget != 12 && editTarget != 14)) { if (defaultArtwork2) desenharDiscoRedondo(p, defaultArtwork2, wDef2, hDef2, discoW, discoH, discoX, discoY); }
         }
     }
 
@@ -209,6 +214,7 @@ void desenharInterface(uint32_t* p) {
         else if (editTarget == 10) { tX = &elem1X; tY = &elem1Y; tW = &elem1W; tH = &elem1H; }
         else if (editTarget == 11) { tX = &ctrl1X; tY = &ctrl1Y; tW = &ctrl1W; tH = &ctrl1H; }
         else if (editTarget == 12) { tX = &pont1X; tY = &pont1Y; tW = &pont1W; tH = &pont1H; }
+        else if (editTarget == 14) { tX = &anim_posX; tY = &anim_posY; tW = &anim_colunas; tH = &anim_linhas; }
         else { tX = &fontTam; tY = &fontTam; tW = &fontTam; tH = &fontTam; }
 
         if (editTarget == 9 && editType == 0) sprintf(txtPos, "MODO EDICAO - CORES DO EXPLORAR (USE SETAS ESQ/DIR)");
@@ -229,6 +235,31 @@ void desenharInterface(uint32_t* p) {
         else if (editType == 20) sprintf(txtPos, "MODO EDICAO - MENU OPCOES COR FUNDO (USE SETAS)");
         else if (editType == 21) sprintf(txtPos, "MODO EDICAO - MENU OPCOES COR DO TEXTO (USE SETAS)");
         else if (editType == 22) sprintf(txtPos, "MODO EDICAO - MENU OPCOES COR TEXTO SELECIONADO (USE SETAS)");
+
+        else if (editType == 23) sprintf(txtPos, "MODO EDICAO - ANIMACAO: POSICAO X:%d Y:%d (USE SETAS)", anim_posX, anim_posY);
+        else if (editType == 24) sprintf(txtPos, "MODO EDICAO - ANIMACAO: ESCALA: %.1f (USE CIMA/BAIXO)", anim_escala);
+        else if (editType == 25) sprintf(txtPos, "MODO EDICAO - ANIMACAO: VELOCIDADE: %d (USE SETAS)", anim_velocidade);
+        else if (editType == 26) sprintf(txtPos, "MODO EDICAO - ANIMACAO GRADE: COLUNAS:%d LINHAS:%d (USE SETAS)", anim_colunas, anim_linhas);
+        else if (editType == 27) sprintf(txtPos, "MODO EDICAO - ANIMACAO: DESLOCAMENTO GLOBAL DA GRADE X:%d Y:%d (SETAS)", anim_offsetX, anim_offsetY);
+
+        else if (editType == 28) sprintf(txtPos, "MODO EDICAO - ANIMACAO: LOOP - INICIO [%d] FIM [%d] (USE ESQ/DIR/UP/DOWN)", anim_frameInicial, anim_frameFinal);
+
+        // MODO TESTE (PIVOT DA UNITY!) AGORA COM INSTRUÇÕES PRECISAS
+        else if (editType == 29) sprintf(txtPos, "MODO TESTE UNITY - FRAME [%d] | OFFSET X:%d Y:%d | L1/R1: Muda Frame | SETAS: Move | TRIANGULO: Auto-Centro", anim_frameAtual, anim_frameOffsetX[anim_frameAtual], anim_frameOffsetY[anim_frameAtual]);
+
+        else if (editType == 30) sprintf(txtPos, "MODO EDICAO - ANIMACAO CONTINUA ATIVADA! (APERTE O PARA VOLTAR)");
+        else if (editType == 31) sprintf(txtPos, "MODO EDICAO - ANIMACAO: VISUAL LIGADO: %s", anim_ativo ? "SIM" : "NAO");
+        else if (editType == 32) sprintf(txtPos, "MODO EDICAO - CHROMA KEY 1: RED (VERMELHO): %d", anim_keyR);
+        else if (editType == 33) sprintf(txtPos, "MODO EDICAO - CHROMA KEY 1: GREEN (VERDE): %d", anim_keyG);
+        else if (editType == 34) sprintf(txtPos, "MODO EDICAO - CHROMA KEY 1: BLUE (AZUL): %d", anim_keyB);
+        else if (editType == 36) sprintf(txtPos, "MODO EDICAO - CHROMA KEY 2: LIGADO: %s", anim_usarColorKey2 ? "SIM" : "NAO");
+        else if (editType == 37) sprintf(txtPos, "MODO EDICAO - CHROMA KEY 2: RED (VERMELHO): %d", anim_keyR2);
+        else if (editType == 38) sprintf(txtPos, "MODO EDICAO - CHROMA KEY 2: GREEN (VERDE): %d", anim_keyG2);
+        else if (editType == 39) sprintf(txtPos, "MODO EDICAO - CHROMA KEY 2: BLUE (AZUL): %d", anim_keyB2);
+
+        // FALTAVA ESTE TEXTO!
+        else if (editType == 40) sprintf(txtPos, "MODO EDICAO - AUTO-CENTRO GLOBAL (SEMPRE LIGADO): %s", anim_autoCenter ? "LIGADO" : "DESLIGADO");
+
         else if (editTarget == 11) sprintf(txtPos, "EDICAO CTRL - POSICAO ATUAL: X:%d Y:%d", ctrl1X, ctrl1Y);
         else if (editTarget == 7) sprintf(txtPos, "MODO EDICAO - TAMANHO DA FONTE: %d", fontTam);
         else if (editTarget == 8) sprintf(txtPos, "MODO EDICAO - NOTIFICACOES: X: %d  |  Y: %d  |  TAMANHO: %d", msgX, msgY, msgTam);
@@ -331,7 +362,6 @@ void desenharInterface(uint32_t* p) {
         desenharTexto(p, textoFila, 25, bX + bW + 20, bY - 2, 0xFFFFFFFF);
     }
 
-    // --- ADICIONADO AQUI! MOSTRAR IP NA TELA ---
     if (menuAtual == MENU_BAIXAR || menuAtual == MENU_BAIXAR_FTP_SERVIDORES || menuAtual == MENU_BAIXAR_FTP_LISTA || menuAtual == MENU_BAIXAR_FTP_UPLOAD || menuAtual == MENU_BAIXAR_FTP_UPLOAD_RAIZES || menuAtual == MENU_BAIXAR_FTP_EDITAR_SERVIDOR) {
         char textoIP[128];
         sprintf(textoIP, "IP DO PS4: %s", ipDoPS4);
