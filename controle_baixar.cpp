@@ -28,7 +28,6 @@ extern void atualizarHBStore();
 extern bool showOpcoes;
 extern int selOpcao;
 
-extern char currentFtpPath[1024];
 extern bool painelDuplo;
 extern int painelAtivo;
 
@@ -41,6 +40,12 @@ extern int offEsq;
 extern int totalItensEsq;
 extern char pathExplorarEsq[256];
 extern MenuLevel menuAtualEsq;
+
+extern bool visualizandoMidiaImagem;
+extern unsigned char* imgMidia;
+extern bool visualizandoMidiaTexto;
+
+extern "C" void stbi_image_free(void*);
 
 void acaoCross_Baixar(int32_t uId, OrbisImeDialogSetting* imeSetting, uint16_t* imeTitle) {
     if (menuAtual == MENU_BAIXAR) {
@@ -69,10 +74,7 @@ void acaoCross_Baixar(int32_t uId, OrbisImeDialogSetting* imeSetting, uint16_t* 
                 strcpy(nomes[2], "Nintendo - Super Nintendo Entertainment System");
                 strcpy(nomes[3], "Sega - Mega Drive - Genesis");
                 strcpy(nomes[4], "Nintendo - Nintendo Entertainment System");
-                totalItens = 5;
-                menuAtual = MENU_CONSOLES;
-                sel = 0;
-                off = 0;
+                totalItens = 5; menuAtual = MENU_CONSOLES; sel = 0; off = 0;
             }
         }
     }
@@ -111,45 +113,47 @@ void acaoCross_Baixar(int32_t uId, OrbisImeDialogSetting* imeSetting, uint16_t* 
         }
         else {
             bool isEsq = (painelDuplo && painelAtivo == 0);
-            bool isLocal = (isEsq && ftpL2State == 2);
+            bool isLocal = false;
+            if (isEsq) { if (ftpL2State == 1) isLocal = true; }
+            else { isLocal = true; }
 
             char (*lItems)[1024] = isEsq ? linksAtuaisEsq : linksAtuais;
             char (*nItems)[64] = isEsq ? nomesEsq : nomes;
             int sAt = isEsq ? selEsq : sel;
 
-            if (isLocal) { // CLIQUE DO LADO LOCAL PS4
-                if (menuAtualEsq == MENU_EXPLORAR_HOME) {
-                    if (sAt == 0) listarDiretorioEsq("/data/HyperNeiva");
-                    else if (sAt == 1) listarDiretorioEsq("/");
-                    else if (sAt == 2) listarDiretorioEsq("/mnt/usb0");
-                    else if (sAt == 3) listarDiretorioEsq("/mnt/usb1");
+            if (isLocal) {
+                if ((isEsq && menuAtualEsq == MENU_EXPLORAR_HOME) || (!isEsq && homeDireitaFTP)) {
+                    if (sAt == 0) { if (isEsq) listarDiretorioEsq("/data/HyperNeiva"); else listarDiretorioDireitaFTP("/data/HyperNeiva"); }
+                    else if (sAt == 1) { if (isEsq) listarDiretorioEsq("/"); else listarDiretorioDireitaFTP("/"); }
+                    else if (sAt == 2) { if (isEsq) listarDiretorioEsq("/mnt/usb0"); else listarDiretorioDireitaFTP("/mnt/usb0"); }
+                    else if (sAt == 3) { if (isEsq) listarDiretorioEsq("/mnt/usb1"); else listarDiretorioDireitaFTP("/mnt/usb1"); }
                 }
                 else {
-                    if (nItems[sAt][0] == '[') { // Entrar na Pasta
-                        char tempP[512]; sprintf(tempP, "%s%s%s", pathExplorarEsq, strcmp(pathExplorarEsq, "/") == 0 ? "" : "/", &nItems[sAt][1]); tempP[strlen(tempP) - 1] = '\0';
-                        listarDiretorioEsq(tempP);
+                    if (nItems[sAt][0] == '[') {
+                        char* pPath = isEsq ? pathExplorarEsq : pathExplorarDireita;
+                        char tempP[512]; sprintf(tempP, "%s%s%s", pPath, strcmp(pPath, "/") == 0 ? "" : "/", &nItems[sAt][1]); tempP[strlen(tempP) - 1] = '\0';
+                        if (isEsq) listarDiretorioEsq(tempP); else listarDiretorioDireitaFTP(tempP);
                     }
                     else {
-                        // MODO CLÁSSICO UPLOAD: Clicou, upou!
-                        char absPath[512]; sprintf(absPath, "%s/%s", pathExplorarEsq, nItems[sAt]);
+                        char* pPath = isEsq ? pathExplorarEsq : pathExplorarDireita;
+                        char absPath[512]; sprintf(absPath, "%s/%s", pPath, nItems[sAt]);
                         fazerUploadFTP(absPath);
                     }
                 }
             }
-            else { // CLIQUE DO LADO FTP PC
+            else {
                 char urlSel[1024]; strcpy(urlSel, lItems[sAt]); int tam = strlen(urlSel);
-                if (tam > 0 && urlSel[tam - 1] == '/') { // Pasta FTP
+                if (tam > 0 && urlSel[tam - 1] == '/') {
                     urlSel[tam - 1] = '\0';
-                    if (isEsq) acessarFTPEsq(servidorAtualFTPIndex, urlSel); else acessarFTP(servidorAtualFTPIndex, urlSel);
+                    acessarFTPEsq(servidorAtualFTPIndex, urlSel);
                 }
                 else {
-                    // MODO CLÁSSICO DOWNLOAD: Verifica imagem, se não, baixa direto PKG ou ROM
                     char* ext = strrchr(urlSel, '.');
                     if (ext && (strcasecmp(ext, ".png") == 0 || strcasecmp(ext, ".jpg") == 0 || strcasecmp(ext, ".txt") == 0 || strcasecmp(ext, ".ini") == 0 || strcasecmp(ext, ".xml") == 0)) {
                         prepararPreviewFTP(urlSel);
                     }
                     else {
-                        iniciarDownloadFTP(urlSel); // VOLTOU AO MODO CLÁSSICO!
+                        iniciarDownloadFTP(urlSel);
                     }
                 }
             }
@@ -167,38 +171,44 @@ void acaoCross_Baixar(int32_t uId, OrbisImeDialogSetting* imeSetting, uint16_t* 
 }
 
 void acaoCircle_Baixar() {
+    if (visualizandoMidiaImagem) { visualizandoMidiaImagem = false; if (imgMidia) { stbi_image_free(imgMidia); imgMidia = NULL; } return; }
+    if (visualizandoMidiaTexto) { visualizandoMidiaTexto = false; return; }
+
     if (menuAtual == MENU_BAIXAR) { if (emSubmenuLojas || emSubmenuDropbox || emSubmenuFTP) preencherMenuBaixar(); else preencherRoot(); }
     else if (menuAtual == MENU_BAIXAR_FTP_SERVIDORES) preencherMenuFTP();
     else if (menuAtual == MENU_BAIXAR_FTP_EDITAR_SERVIDOR) { carregarServidoresFTP(); preencherMenuFTPServidores(ftpSelecionandoUpload); }
     else if (menuAtual == MENU_BAIXAR_FTP_LISTA) {
         bool isEsq = (painelDuplo && painelAtivo == 0);
-        bool isLocal = (isEsq && ftpL2State == 2);
+        bool isLocal = false;
+        if (isEsq) { if (ftpL2State == 1) isLocal = true; }
+        else { isLocal = true; }
 
         if (isLocal) {
-            if (menuAtualEsq == MENU_EXPLORAR_HOME) {
-                // Não faz nada
-            }
-            else if (strcmp(pathExplorarEsq, "/") == 0 || strcmp(pathExplorarEsq, "/data/HyperNeiva") == 0 || strcmp(pathExplorarEsq, "/mnt/usb0") == 0 || strcmp(pathExplorarEsq, "/mnt/usb1") == 0) {
-                memset(nomesEsq, 0, sizeof(nomesEsq));
-                strcpy(nomesEsq[0], "Hyper Neiva"); strcpy(nomesEsq[1], "Raiz"); strcpy(nomesEsq[2], "USB 0"); strcpy(nomesEsq[3], "USB 1");
-                totalItensEsq = 4; selEsq = 0; offEsq = 0; menuAtualEsq = MENU_EXPLORAR_HOME;
+            if (isEsq) {
+                if (menuAtualEsq == MENU_EXPLORAR_HOME) {}
+                else if (strcmp(pathExplorarEsq, "/") == 0 || strcmp(pathExplorarEsq, "/data/HyperNeiva") == 0 || strcmp(pathExplorarEsq, "/mnt/usb0") == 0 || strcmp(pathExplorarEsq, "/mnt/usb1") == 0) {
+                    memset(nomesEsq, 0, sizeof(nomesEsq)); strcpy(nomesEsq[0], "Hyper Neiva"); strcpy(nomesEsq[1], "Raiz"); strcpy(nomesEsq[2], "USB 0"); strcpy(nomesEsq[3], "USB 1"); totalItensEsq = 4; selEsq = 0; offEsq = 0; menuAtualEsq = MENU_EXPLORAR_HOME;
+                }
+                else {
+                    char* ultima = strrchr(pathExplorarEsq, '/'); if (ultima && ultima != pathExplorarEsq) *ultima = '\0'; else strcpy(pathExplorarEsq, "/"); listarDiretorioEsq(pathExplorarEsq);
+                }
             }
             else {
-                char* ultima = strrchr(pathExplorarEsq, '/');
-                if (ultima && ultima != pathExplorarEsq) *ultima = '\0'; else strcpy(pathExplorarEsq, "/");
-                listarDiretorioEsq(pathExplorarEsq);
+                if (homeDireitaFTP) {
+                    if (!painelDuplo) preencherMenuFTPServidores(false);
+                }
+                else if (strcmp(pathExplorarDireita, "/") == 0 || strcmp(pathExplorarDireita, "/data/HyperNeiva") == 0 || strcmp(pathExplorarDireita, "/mnt/usb0") == 0 || strcmp(pathExplorarDireita, "/mnt/usb1") == 0) {
+                    listarDiretorioDireitaFTP("HOME");
+                }
+                else {
+                    char* ultima = strrchr(pathExplorarDireita, '/'); if (ultima && ultima != pathExplorarDireita) *ultima = '\0'; else strcpy(pathExplorarDireita, "/"); listarDiretorioDireitaFTP(pathExplorarDireita);
+                }
             }
         }
         else {
-            char pPath[1024]; strcpy(pPath, isEsq ? currentFtpPathEsq : currentFtpPath);
-            if (strlen(pPath) == 0 || strcmp(pPath, "/") == 0) {
-                if (!painelDuplo) preencherMenuFTPServidores(false);
-            }
-            else {
-                char* ultima = strrchr(pPath, '/');
-                if (ultima && ultima != pPath) *ultima = '\0'; else strcpy(pPath, "/");
-                if (isEsq) acessarFTPEsq(servidorAtualFTPIndex, pPath); else acessarFTP(servidorAtualFTPIndex, pPath);
-            }
+            char pPath[1024]; strcpy(pPath, currentFtpPathEsq);
+            if (strlen(pPath) == 0 || strcmp(pPath, "/") == 0) {}
+            else { char* ultima = strrchr(pPath, '/'); if (ultima && ultima != pPath) *ultima = '\0'; else strcpy(pPath, "/"); acessarFTPEsq(servidorAtualFTPIndex, pPath); }
         }
     }
     else if (menuAtual == MENU_BAIXAR_DROPBOX_BACKUP) { preencherMenuDropbox(); }
@@ -207,9 +217,9 @@ void acaoCircle_Baixar() {
     else if (menuAtual == MENU_BAIXAR_REPOS) preencherMenuBaixar();
     else if (menuAtual == MENU_BAIXAR_GAMES_XMLS) preencherMenuRepositorios();
     else if (menuAtual == MENU_BAIXAR_GAMES_LIST) listarXMLsRepositorio();
-    else if (menuAtual == MENU_BAIXAR_LINKS) { char nomeXML[256]; char* ultimaBarra = strrchr(caminhoXMLAtual, '/'); if (ultimaBarra) strcpy(nomeXML, ultimaBarra + 1); abrirXMLRepositorio(nomeXML); }
-    else if (menuAtual == MENU_CONSOLES) { preencherMenuLojas(); }
-    else if (menuAtual == SCRAPER_LIST) { memset(nomes, 0, sizeof(nomes)); strcpy(nomes[0], "Sony - PlayStation"); strcpy(nomes[1], "Sony - PlayStation Portable"); strcpy(nomes[2], "Nintendo - Super Nintendo Entertainment System"); strcpy(nomes[3], "Sega - Mega Drive - Genesis"); strcpy(nomes[4], "Nintendo - Nintendo Entertainment System"); totalItens = 5; menuAtual = MENU_CONSOLES; sel = 0; off = 0; }
+    else if (menuAtual == MENU_BAIXAR_LINKS) iniciarDownload(linksAtuais[sel]);
+    else if (menuAtual == MENU_CONSOLES) { consoleAtual = sel; acaoRede(NULL, true, false); }
+    else if (menuAtual == SCRAPER_LIST) { acaoRede(nomes[sel], false, true); }
 }
 
 void acaoTriangle_Baixar() {
@@ -217,6 +227,6 @@ void acaoTriangle_Baixar() {
         if (sel > 0) { servidorAtualFTPIndex = sel - 1; preencherMenuEditarServidor(servidorAtualFTPIndex); }
     }
     else if (menuAtual == MENU_BAIXAR_FTP_LISTA) {
-        preencherOpcoesFTP(); // AS OPÇÕES FICAM SÓ NO TRIÂNGULO AGORA!
+        preencherOpcoesFTP();
     }
 }

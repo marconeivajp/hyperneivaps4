@@ -33,12 +33,15 @@ extern int clipboardCount;
 extern bool clipboardIsCut;
 extern bool showOpcoes;
 extern int selOpcao;
-extern const char* listaOpcoes[10];
+
+// AQUI ESTÁ A CORREÇÃO: Aumentado para 150 para suportar a lista de jogos!
+extern const char* listaOpcoes[150];
+extern int mapOpcoes[150];
 
 // --- VARIÁVEIS DO TECLADO E RENOMEAÇÃO ---
 extern bool esperandoNomePasta;
 extern bool esperandoRenomear;
-extern wchar_t textoTeclado[256]; // CORREÇÃO: Limite expandido para 256
+extern wchar_t textoTeclado[256];
 extern char oldPathParaRenomear[512];
 extern char oldExtParaRenomear[64];
 extern bool ehPastaParaRenomear;
@@ -50,7 +53,7 @@ extern int msgTimer;
 // Funções Públicas
 void copiarArquivoReal(const char* origem, const char* destino);
 void listarDiretorio(const char* path);
-void listarDiretorioEsq(const char* path); // Nova função pro painel esquerdo
+void listarDiretorioEsq(const char* path);
 void acaoArquivo(int op);
 void atualizarImePasta();
 

@@ -30,7 +30,7 @@
 #include "audio.h"
 #include "graphics.h"
 #include "bloco_de_notas.h"
-#include "ftp.h" // O SEU FTP MANTIDO AQUI
+#include "ftp.h" 
 
 int cd = 0;
 bool pCross = false, pCircle = false, pTri = false, pSquare = false, pL1 = false, pR1 = false, pL2 = false;
@@ -60,35 +60,23 @@ int timeToLoadCapa = 0;
 
 extern unsigned char* imgPreview;
 extern int wP, hP, cP;
-
 extern int ftpL2State;
 extern void acaoL2_FTP();
 
-// ====================================================================
-// MOTOR DE PILHA DE NAVEGAÇÃO (Pára o bug das posições e "slots invisíveis")
-// ====================================================================
+extern int totalOpcoes; // CHAMA A VARIÁVEL DE LIMITE DINÂMICO
+
 #define MAX_NAV_STACK 100
 struct EstadoNavegacao {
-    MenuLevel menu;
-    char path[256];
-    int sel;
-    int off;
-    MenuLevel menuEsq;
-    char pathEsq[256];
-    int selEsq;
-    int offEsq;
+    MenuLevel menu; char path[256]; int sel; int off;
+    MenuLevel menuEsq; char pathEsq[256]; int selEsq; int offEsq;
 };
-EstadoNavegacao pilhaNav[MAX_NAV_STACK];
-int navTopo = 0;
-// ====================================================================
+EstadoNavegacao pilhaNav[MAX_NAV_STACK]; int navTopo = 0;
 
 void carregarPreviewLocal(const char* caminhoAbsoluto) {
     if (imgPreview) { stbi_image_free(imgPreview); imgPreview = NULL; }
     char temp[512]; strcpy(temp, caminhoAbsoluto);
     for (int i = 0; temp[i]; i++) temp[i] = tolower(temp[i]);
-    if (strstr(temp, ".png") || strstr(temp, ".jpg") || strstr(temp, ".jpeg") || strstr(temp, ".bmp")) {
-        imgPreview = stbi_load(caminhoAbsoluto, &wP, &hP, &cP, 4);
-    }
+    if (strstr(temp, ".png") || strstr(temp, ".jpg") || strstr(temp, ".jpeg") || strstr(temp, ".bmp")) { imgPreview = stbi_load(caminhoAbsoluto, &wP, &hP, &cP, 4); }
 }
 
 void processarNavegacaoDPad(uint32_t botoes) {
@@ -98,7 +86,6 @@ void processarNavegacaoDPad(uint32_t botoes) {
     bool isHoriz = (listOri == 1 && !showOpcoes && !showUploadOpcoes && menuAtual != MENU_NOTEPAD && menuAtual != MENU_AUDIO_OPCOES);
     int btnNext = isHoriz ? ORBIS_PAD_BUTTON_RIGHT : ORBIS_PAD_BUTTON_DOWN; int btnPrev = isHoriz ? ORBIS_PAD_BUTTON_LEFT : ORBIS_PAD_BUTTON_UP; int btnPanNext = isHoriz ? ORBIS_PAD_BUTTON_DOWN : ORBIS_PAD_BUTTON_RIGHT; int btnPanPrev = isHoriz ? ORBIS_PAD_BUTTON_UP : ORBIS_PAD_BUTTON_LEFT;
 
-    // PERMITE PULAR DE PAINEL NO FTP E NO EXPLORADOR
     if (painelDuplo && !showOpcoes && (menuAtual == MENU_EXPLORAR || menuAtual == MENU_EXPLORAR_HOME || menuAtual == MENU_BAIXAR_FTP_LISTA)) { if (botoes & (btnPanNext | btnPanPrev)) { if (cd <= 0) { painelAtivo = (painelAtivo == 0) ? 1 : 0; cd = 10; } return; } }
 
     if (botoes & (btnNext | btnPrev)) {
@@ -108,7 +95,11 @@ void processarNavegacaoDPad(uint32_t botoes) {
             else if (showUploadOpcoes && (menuAtual == MENU_BAIXAR_DROPBOX_UPLOAD || menuAtual == MENU_BAIXAR_DROPBOX_LISTA)) { int maxV = (upH - 50) / 45; if (maxV < 1) maxV = 1; if (botoes & btnNext) { if (selUploadOpcao < 2) { selUploadOpcao++; if (selUploadOpcao >= offUploadOpcao + maxV) offUploadOpcao++; } else { selUploadOpcao = 0; offUploadOpcao = 0; } } else if (botoes & btnPrev) { if (selUploadOpcao > 0) { selUploadOpcao--; if (selUploadOpcao < offUploadOpcao) offUploadOpcao--; } else { selUploadOpcao = 2; offUploadOpcao = 3 - maxV; if (offUploadOpcao < 0) offUploadOpcao = 0; } } }
             else if (showOpcoes) {
                 if (menuAtual == MENU_AUDIO_OPCOES) { int maxV = (audioH - 50) / 45; if (maxV < 1) maxV = 1; if (botoes & btnNext) { if (selAudioOpcao < 10) { selAudioOpcao++; if (selAudioOpcao >= offAudioOpcao + maxV) offAudioOpcao++; } else { selAudioOpcao = 0; offAudioOpcao = 0; } } else if (botoes & btnPrev) { if (selAudioOpcao > 0) { selAudioOpcao--; if (selAudioOpcao < offAudioOpcao) offAudioOpcao--; } else { selAudioOpcao = 10; offAudioOpcao = 11 - maxV; if (offAudioOpcao < 0) offAudioOpcao = 0; } } }
-                else { int maxV = (discoH - 80) / 45; if (maxV < 1) maxV = 1; if (botoes & btnNext) { if (selOpcao < 9) { selOpcao++; if (selOpcao >= offOpcao + maxV) offOpcao++; } else { selOpcao = 0; offOpcao = 0; } } else if (botoes & btnPrev) { if (selOpcao > 0) { selOpcao--; if (selOpcao < offOpcao) offOpcao--; } else { selOpcao = 9; offOpcao = 10 - maxV; if (offOpcao < 0) offOpcao = 0; } } }
+                else {
+                    int maxV = (discoH - 80) / 45; if (maxV < 1) maxV = 1;
+                    if (botoes & btnNext) { if (selOpcao < totalOpcoes - 1) { selOpcao++; if (selOpcao >= offOpcao + maxV) offOpcao++; } else { selOpcao = 0; offOpcao = 0; } }
+                    else if (botoes & btnPrev) { if (selOpcao > 0) { selOpcao--; if (selOpcao < offOpcao) offOpcao--; } else { selOpcao = totalOpcoes - 1; offOpcao = totalOpcoes - maxV; if (offOpcao < 0) offOpcao = 0; } }
+                }
             }
             else {
                 bool ehEsq = (painelDuplo && painelAtivo == 0 && (menuAtual == MENU_EXPLORAR || menuAtual == MENU_EXPLORAR_HOME || menuAtual == MENU_BAIXAR_FTP_LISTA));
@@ -137,9 +128,7 @@ void processarNavegacaoDPad(uint32_t botoes) {
                         char caminhoAbs[512]; sprintf(caminhoAbs, "%s/%s", pExplorar, nItems[sAtual]);
                         carregarPreviewLocal(caminhoAbs);
                     }
-                    else {
-                        if (imgPreview) { stbi_image_free(imgPreview); imgPreview = NULL; }
-                    }
+                    else { if (imgPreview) { stbi_image_free(imgPreview); imgPreview = NULL; } }
                 }
             }
         }
@@ -155,30 +144,17 @@ void processarControles(uint32_t botoes, int32_t uId, OrbisImeDialogSetting* ime
     if (editMode && menuAtual != MENU_NOTEPAD) { processarControlesEdicao(botoes); return; }
     processarNavegacaoDPad(botoes);
 
-    // Variável para saber se estamos no explorador ou não (em qualquer painel)
     bool inExplorar = (menuAtual == MENU_EXPLORAR || menuAtual == MENU_EXPLORAR_HOME || (painelDuplo && (menuAtualEsq == MENU_EXPLORAR || menuAtualEsq == MENU_EXPLORAR_HOME)));
 
-    if (botoes & ORBIS_PAD_BUTTON_L2) {
-        if (!pL2) {
-            if (inExplorar) acaoL2_Explorar();
-            else if (menuAtual == MENU_BAIXAR_FTP_LISTA) acaoL2_FTP();
-            pL2 = true;
-        }
-    }
+    if (botoes & ORBIS_PAD_BUTTON_L2) { if (!pL2) { if (inExplorar) acaoL2_Explorar(); else if (menuAtual == MENU_BAIXAR_FTP_LISTA) acaoL2_FTP(); pL2 = true; } }
     else pL2 = false;
-
-    // L1 REMOVIDO DA SELEÇÃO (Apenas anota o botão, mas não marca nada)
-    if (botoes & ORBIS_PAD_BUTTON_L1) {
-        if (!pL1) { pL1 = true; }
-    }
+    if (botoes & ORBIS_PAD_BUTTON_L1) { if (!pL1) { pL1 = true; } }
     else pL1 = false;
 
-    // R1 É O ÚNICO QUE SELECIONA!
     if (botoes & ORBIS_PAD_BUTTON_R1) {
         if (!pR1) {
             if (menuAtual == MENU_BAIXAR_DROPBOX_LISTA || menuAtual == MENU_BAIXAR_DROPBOX_UPLOAD || menuAtual == MENU_BAIXAR_FTP_LISTA) marcados[sel] = !marcados[sel];
-            else if (inExplorar) acaoR1_Explorar();
-            pR1 = true;
+            else if (inExplorar) acaoR1_Explorar(); pR1 = true;
         }
     }
     else pR1 = false;
@@ -191,8 +167,7 @@ void processarControles(uint32_t botoes, int32_t uId, OrbisImeDialogSetting* ime
             extern char pathExplorar[256]; extern char pathExplorarEsq[256];
             char pAntes[256]; strcpy(pAntes, pathExplorar);
             char pEsqAntes[256]; strcpy(pEsqAntes, pathExplorarEsq);
-            int sAntes = sel; int oAntes = off;
-            int sEsqAntes = selEsq; int oEsqAntes = offEsq;
+            int sAntes = sel; int oAntes = off; int sEsqAntes = selEsq; int oEsqAntes = offEsq;
 
             if (showUploadOpcoes && (menuAtual == MENU_BAIXAR_DROPBOX_UPLOAD || menuAtual == MENU_BAIXAR_DROPBOX_LISTA)) acaoCross_MenuUpload();
             else if (menuAtual == MENU_AUDIO_OPCOES && veioDeOutroMenuParaAudio && selAudioOpcao == 10) { menuAtual = menuAntesDoAudio; showOpcoes = false; veioDeOutroMenuParaAudio = false; }
@@ -203,20 +178,15 @@ void processarControles(uint32_t botoes, int32_t uId, OrbisImeDialogSetting* ime
             else if (menuAtual == MENU_EDITAR || menuAtual == MENU_EDIT_TARGET) acaoCross_Editar();
             else if (menuAtual == MENU_BAIXAR || menuAtual == MENU_LOJAS || menuAtual == MENU_BAIXAR_REPOS || menuAtual == MENU_BAIXAR_GAMES_XMLS || menuAtual == MENU_BAIXAR_GAMES_LIST || menuAtual == MENU_BAIXAR_LINKS || menuAtual == MENU_BAIXAR_LINK_DIRETO || menuAtual == MENU_BAIXAR_DROPBOX_LISTA || menuAtual == MENU_BAIXAR_DROPBOX_UPLOAD || menuAtual == MENU_BAIXAR_DROPBOX_BACKUP || menuAtual == MENU_BAIXAR_FTP_SERVIDORES || menuAtual == MENU_BAIXAR_FTP_EDITAR_SERVIDOR || menuAtual == MENU_BAIXAR_FTP_LISTA || menuAtual == MENU_BAIXAR_FTP_UPLOAD_RAIZES || menuAtual == MENU_BAIXAR_FTP_UPLOAD || menuAtual == MENU_CAPAS || menuAtual == MENU_CONSOLES || menuAtual == SCRAPER_LIST) acaoCross_Baixar(uId, imeSetting, imeTitle);
 
-            // Grava a navegação se mudar de aba/pasta e zera as listas!
             if (menuAtual != mAntes || strcmp(pathExplorar, pAntes) != 0 || menuAtualEsq != mEsqAntes || strcmp(pathExplorarEsq, pEsqAntes) != 0) {
                 if (navTopo < MAX_NAV_STACK) {
-                    pilhaNav[navTopo].menu = mAntes; strcpy(pilhaNav[navTopo].path, pAntes);
-                    pilhaNav[navTopo].sel = sAntes; pilhaNav[navTopo].off = oAntes;
-                    pilhaNav[navTopo].menuEsq = mEsqAntes; strcpy(pilhaNav[navTopo].pathEsq, pEsqAntes);
-                    pilhaNav[navTopo].selEsq = sEsqAntes; pilhaNav[navTopo].offEsq = oEsqAntes;
+                    pilhaNav[navTopo].menu = mAntes; strcpy(pilhaNav[navTopo].path, pAntes); pilhaNav[navTopo].sel = sAntes; pilhaNav[navTopo].off = oAntes;
+                    pilhaNav[navTopo].menuEsq = mEsqAntes; strcpy(pilhaNav[navTopo].pathEsq, pEsqAntes); pilhaNav[navTopo].selEsq = sEsqAntes; pilhaNav[navTopo].offEsq = oEsqAntes;
                     navTopo++;
                 }
                 if (menuAtual != mAntes || strcmp(pathExplorar, pAntes) != 0) { sel = 0; off = 0; }
                 if (menuAtualEsq != mEsqAntes || strcmp(pathExplorarEsq, pEsqAntes) != 0) { selEsq = 0; offEsq = 0; }
-            }
-
-            pCross = true;
+            } pCross = true;
         }
     }
     else pCross = false;
@@ -241,20 +211,14 @@ void processarControles(uint32_t botoes, int32_t uId, OrbisImeDialogSetting* ime
                 else if (menuAtual == MENU_EDITAR || menuAtual == MENU_EDIT_TARGET) acaoCircle_Editar();
                 else if (menuAtual == MENU_BAIXAR || menuAtual == MENU_LOJAS || menuAtual == MENU_BAIXAR_REPOS || menuAtual == MENU_BAIXAR_GAMES_XMLS || menuAtual == MENU_BAIXAR_GAMES_LIST || menuAtual == MENU_BAIXAR_LINKS || menuAtual == MENU_BAIXAR_LINK_DIRETO || menuAtual == MENU_BAIXAR_DROPBOX_LISTA || menuAtual == MENU_BAIXAR_DROPBOX_UPLOAD || menuAtual == MENU_BAIXAR_DROPBOX_BACKUP || menuAtual == MENU_BAIXAR_FTP_SERVIDORES || menuAtual == MENU_BAIXAR_FTP_EDITAR_SERVIDOR || menuAtual == MENU_BAIXAR_FTP_LISTA || menuAtual == MENU_BAIXAR_FTP_UPLOAD_RAIZES || menuAtual == MENU_BAIXAR_FTP_UPLOAD || menuAtual == MENU_CAPAS || menuAtual == MENU_CONSOLES || menuAtual == SCRAPER_LIST) acaoCircle_Baixar();
             }
-
-            // Restaura as posições quando usamos o Circle!
             if (menuAtual != mAntes || strcmp(pathExplorar, pAntes) != 0 || menuAtualEsq != mEsqAntes || strcmp(pathExplorarEsq, pEsqAntes) != 0) {
                 if (navTopo > 0) {
                     navTopo--;
                     if (menuAtual != mAntes || strcmp(pathExplorar, pAntes) != 0) { sel = pilhaNav[navTopo].sel; off = pilhaNav[navTopo].off; }
                     if (menuAtualEsq != mEsqAntes || strcmp(pathExplorarEsq, pEsqAntes) != 0) { selEsq = pilhaNav[navTopo].selEsq; offEsq = pilhaNav[navTopo].offEsq; }
                 }
-                else {
-                    sel = 0; off = 0; selEsq = 0; offEsq = 0;
-                }
-            }
-
-            pCircle = true;
+                else { sel = 0; off = 0; selEsq = 0; offEsq = 0; }
+            } pCircle = true;
         }
     }
     else pCircle = false;
@@ -264,11 +228,10 @@ void processarControles(uint32_t botoes, int32_t uId, OrbisImeDialogSetting* ime
             if (botoes & ORBIS_PAD_BUTTON_L2) { if (menuAtual != MENU_AUDIO_OPCOES) { menuAntesDoAudio = menuAtual; veioDeOutroMenuParaAudio = true; abrirMenuAudioOpcoes(); } else if (veioDeOutroMenuParaAudio) { menuAtual = menuAntesDoAudio; showOpcoes = false; veioDeOutroMenuParaAudio = false; } }
             else {
                 if (menuAtual == MENU_MUSICAS) acaoTriangle_Musicas();
-                else if (inExplorar) acaoTriangle_Explorar(); // CORREÇÃO: Abre o menu em QUALQUER aba do explorador!
+                else if (inExplorar) acaoTriangle_Explorar();
                 else if (menuAtual == MENU_BAIXAR_DROPBOX_UPLOAD || menuAtual == MENU_BAIXAR_DROPBOX_LISTA) acaoTriangle_MenuUpload();
                 else if (menuAtual == MENU_BAIXAR_FTP_SERVIDORES || menuAtual == MENU_BAIXAR_FTP_LISTA || menuAtual == MENU_BAIXAR_FTP_UPLOAD) acaoTriangle_Baixar();
-            }
-            pTri = true;
+            } pTri = true;
         }
     }
     else pTri = false;
