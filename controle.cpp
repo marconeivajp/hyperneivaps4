@@ -63,7 +63,11 @@ extern int wP, hP, cP;
 extern int ftpL2State;
 extern void acaoL2_FTP();
 
-extern int totalOpcoes; // CHAMA A VARIÁVEL DE LIMITE DINÂMICO
+extern int totalOpcoes;
+
+// VARIÁVEIS GLOBAIS DO PIC1 (IMAGEM DE FUNDO DO JOGO)
+unsigned char* imgPic1 = NULL;
+int wPic1 = 0, hPic1 = 0, cPic1 = 0;
 
 #define MAX_NAV_STACK 100
 struct EstadoNavegacao {
@@ -118,6 +122,32 @@ void processarNavegacaoDPad(uint32_t botoes) {
         if (timeToLoadCapa == 0) {
             bool ehEsq = (painelDuplo && painelAtivo == 0);
             if (menuAtual == MENU_BAIXAR_DROPBOX_LISTA && !ehEsq) carregarCapaLoja(sel);
+
+            else if (menuAtual == MENU_JOGAR_PS4) {
+                extern char linksAtuais[3000][1024];
+                if (strlen(linksAtuais[sel]) > 0) {
+                    char iconPath[512]; char picPath[512];
+
+                    sprintf(iconPath, "/user/appmeta/%s/icon0.png", linksAtuais[sel]);
+                    FILE* f = fopen(iconPath, "rb");
+                    if (f) { fclose(f); carregarPreviewLocal(iconPath); }
+                    else { if (imgPreview) { stbi_image_free(imgPreview); imgPreview = NULL; } }
+
+                    sprintf(picPath, "/user/appmeta/%s/pic1.png", linksAtuais[sel]);
+                    FILE* fp = fopen(picPath, "rb");
+                    if (fp) {
+                        fclose(fp);
+                        if (imgPic1) stbi_image_free(imgPic1);
+                        imgPic1 = stbi_load(picPath, &wPic1, &hPic1, &cPic1, 4);
+                    }
+                    else { if (imgPic1) { stbi_image_free(imgPic1); imgPic1 = NULL; } }
+                }
+                else {
+                    if (imgPreview) { stbi_image_free(imgPreview); imgPreview = NULL; }
+                    if (imgPic1) { stbi_image_free(imgPic1); imgPic1 = NULL; }
+                }
+            }
+
             else if (menuAtual == MENU_EXPLORAR || (painelDuplo && (menuAtualEsq == MENU_EXPLORAR || ftpL2State == 2))) {
                 MenuLevel mAtual = ehEsq ? menuAtualEsq : menuAtual;
                 if (mAtual == MENU_EXPLORAR) {
@@ -126,7 +156,30 @@ void processarNavegacaoDPad(uint32_t botoes) {
                     char* pExplorar = ehEsq ? pathExplorarEsq : pathExplorar;
                     if (nItems[sAtual][0] != '[') {
                         char caminhoAbs[512]; sprintf(caminhoAbs, "%s/%s", pExplorar, nItems[sAtual]);
-                        carregarPreviewLocal(caminhoAbs);
+
+                        // ========================================================
+                        // MÁGICA: PUXAR ICONE DE DENTRO DA PASTA DO APOLLO SAVES!
+                        // ========================================================
+                        extern bool emApolloSaves;
+                        if (emApolloSaves) {
+                            char saveIcon[512];
+                            sprintf(saveIcon, "%s/sce_sys/icon0.png", caminhoAbs);
+                            FILE* fs = fopen(saveIcon, "rb");
+                            if (!fs) {
+                                sprintf(saveIcon, "%s/icon0.png", caminhoAbs);
+                                fs = fopen(saveIcon, "rb");
+                            }
+                            if (fs) {
+                                fclose(fs);
+                                carregarPreviewLocal(saveIcon);
+                            }
+                            else {
+                                carregarPreviewLocal(caminhoAbs); // Fallback padrão
+                            }
+                        }
+                        else {
+                            carregarPreviewLocal(caminhoAbs);
+                        }
                     }
                     else { if (imgPreview) { stbi_image_free(imgPreview); imgPreview = NULL; } }
                 }
@@ -171,7 +224,7 @@ void processarControles(uint32_t botoes, int32_t uId, OrbisImeDialogSetting* ime
 
             if (showUploadOpcoes && (menuAtual == MENU_BAIXAR_DROPBOX_UPLOAD || menuAtual == MENU_BAIXAR_DROPBOX_LISTA)) acaoCross_MenuUpload();
             else if (menuAtual == MENU_AUDIO_OPCOES && veioDeOutroMenuParaAudio && selAudioOpcao == 10) { menuAtual = menuAntesDoAudio; showOpcoes = false; veioDeOutroMenuParaAudio = false; }
-            else if (menuAtual == ROOT || menuAtual == JOGAR_XML || menuAtual == MENU_MIDIA) acaoCross_Root();
+            else if (menuAtual == ROOT || menuAtual == MENU_TIPO_JOGO || menuAtual == MENU_JOGAR_PS4 || menuAtual == JOGAR_XML || menuAtual == MENU_MIDIA) acaoCross_Root();
             else if (menuAtual == MENU_MUSICAS || menuAtual == MENU_AUDIO_OPCOES) acaoCross_Musicas();
             else if (menuAtual == MENU_NOTEPAD) { if (!notepadSomenteLeitura) { if (estadoNotepad == 0) acaoCross_Notepad(uId, imeSetting, imeTitle, linhasNotepad[linhaSelecionada]); else if (estadoNotepad == 1) acaoCross_Notepad(uId, imeSetting, imeTitle, nomeArquivo); } }
             else if (inExplorar) acaoCross_Explorar();
@@ -205,7 +258,7 @@ void processarControles(uint32_t botoes, int32_t uId, OrbisImeDialogSetting* ime
             else if (showOpcoes && menuAtual != MENU_AUDIO_OPCOES) showOpcoes = false;
             else {
                 if (menuAtual == MENU_NOTEPAD) { if (notepadSomenteLeitura) menuAtual = MENU_MIDIA; else { if (estadoNotepad == 1) estadoNotepad = 0; else { menuAtual = MENU_EXPLORAR; if (painelDuplo && painelAtivo == 0) { extern void listarDiretorioEsq(const char*); listarDiretorioEsq(pathExplorarEsq); } else { extern void listarDiretorio(const char*); listarDiretorio(pathExplorar); } } } }
-                else if (menuAtual == JOGAR_XML || menuAtual == MENU_MIDIA) acaoCircle_Root();
+                else if (menuAtual == JOGAR_XML || menuAtual == MENU_MIDIA || menuAtual == MENU_TIPO_JOGO || menuAtual == MENU_JOGAR_PS4) acaoCircle_Root();
                 else if (menuAtual == MENU_MUSICAS || menuAtual == MENU_AUDIO_OPCOES) acaoCircle_Musicas();
                 else if (inExplorar) acaoCircle_Explorar();
                 else if (menuAtual == MENU_EDITAR || menuAtual == MENU_EDIT_TARGET) acaoCircle_Editar();
