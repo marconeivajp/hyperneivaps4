@@ -26,6 +26,7 @@ extern int barBg, barFill, listMark, listHoverMark, backX, backY, backW, backH; 
 extern int fontAlign, fontScroll;
 
 extern int picX, picY, picW, picH;
+extern int vidX, vidY, vidW, vidH;
 
 extern unsigned char* imgPic1;
 extern int wPic1, hPic1, cPic1;
@@ -43,6 +44,7 @@ int frameContadorGlobal = 0;
 extern bool visualizandoMidiaImagem; extern unsigned char* imgMidia; extern int wM, hM; extern float zoomMidia; extern bool fullscreenMidia;
 extern bool visualizandoMidiaTexto; extern char* textoMidiaBuffer; extern char* linhasTexto[5000]; extern int totalLinhasTexto; extern int textoMidiaScroll;
 extern bool painelDuplo; extern int painelAtivo; extern char nomesEsq[3000][64]; extern bool marcadosEsq[3000]; extern char pathExplorarEsq[256]; extern int selEsq; extern int totalItensEsq; extern MenuLevel menuAtualEsq; extern int offEsq;
+extern bool emApolloSaves;
 
 extern volatile bool downloadEmSegundoPlano;
 extern volatile float progressoAtualDownload;
@@ -63,58 +65,82 @@ uint32_t getSysColor(int index) {
     return sysColors[index];
 }
 
+// =========================================================================
+// MÁGICA UTF-8: Avança o texto sem quebrar os acentos do nosso Português!
+// =========================================================================
+static int advance_utf8(const char* str, int num_chars) {
+    int idx = 0;
+    for (int i = 0; i < num_chars; i++) {
+        if (str[idx] == '\0') break;
+        idx++;
+        // Pula os bytes de continuação de acentos
+        while (str[idx] != '\0' && (str[idx] & 0xC0) == 0x80) {
+            idx++;
+        }
+    }
+    return idx;
+}
+
 static bool isTextoAnimado = false;
 
 void desenharTextoAlinhado(uint32_t* p, const char* textoOriginal, int fTam, int xBase, int y, int maxW, uint32_t cor) {
     int maxChars = (maxW - 40) / (fTam * 0.55f);
     if (maxChars < 1) maxChars = 1;
 
-    int len = strlen(textoOriginal); char txtFinal[512];
+    // Conta quantos caracteres reais existem (ignorando bytes invisíveis de acento)
+    int lenChars = 0;
+    for (int i = 0; textoOriginal[i] != '\0'; i++) {
+        if ((textoOriginal[i] & 0xC0) != 0x80) lenChars++;
+    }
 
-    if (len > maxChars) {
-        if (isTextoAnimado && fontScroll == 1) {
-            static char ultimoTextoAnimado[512] = "";
-            static int frameInicioAnim = 0;
+    char txtFinal[512];
 
-            if (strcmp(ultimoTextoAnimado, textoOriginal) != 0) {
-                strcpy(ultimoTextoAnimado, textoOriginal);
-                frameInicioAnim = frameContadorGlobal;
-            }
+    if (lenChars > maxChars) {
+        if (isTextoAnimado) {
+            int delayInicio = 60; // 1 segundo travado no início (60 frames)
+            int vel = 6;          // Velocidade de rolagem (menor = mais rápido)
+            int delayFim = 60;    // 1 segundo travado no final
 
-            int framesAtivos = frameContadorGlobal - frameInicioAnim;
-            int delayInicio = 90;
-            int vel = 6;
-            int delayFim = 30;
-
-            int excess = len - maxChars;
+            int excess = lenChars - maxChars;
             int tempoAndando = excess * vel;
             int cicloTotal = delayInicio + tempoAndando + delayFim;
 
-            int pos = framesAtivos % cicloTotal;
+            int pos = frameContadorGlobal % cicloTotal;
             int shift = 0;
 
             if (pos < delayInicio) { shift = 0; }
             else if (pos < delayInicio + tempoAndando) { shift = (pos - delayInicio) / vel; }
             else { shift = excess; }
 
-            if (shift < 0) shift = 0;
-            if (shift > excess) shift = excess;
+            int byteShift = advance_utf8(textoOriginal, shift);
+            int bytesToCopy = advance_utf8(textoOriginal + byteShift, maxChars);
 
-            strncpy(txtFinal, textoOriginal + shift, maxChars);
-            txtFinal[maxChars] = '\0';
+            if (bytesToCopy > 510) bytesToCopy = 510;
+            strncpy(txtFinal, textoOriginal + byteShift, bytesToCopy);
+            txtFinal[bytesToCopy] = '\0';
         }
         else {
-            if (maxChars > 3) { strncpy(txtFinal, textoOriginal, maxChars - 3); txtFinal[maxChars - 3] = '\0'; strcat(txtFinal, "..."); }
-            else { strncpy(txtFinal, textoOriginal, maxChars); txtFinal[maxChars] = '\0'; }
+            int bytesToCopy = advance_utf8(textoOriginal, maxChars - 3);
+            strncpy(txtFinal, textoOriginal, bytesToCopy);
+            txtFinal[bytesToCopy] = '\0';
+            strcat(txtFinal, "...");
         }
     }
     else { strcpy(txtFinal, textoOriginal); }
 
-    int lenFinal = strlen(txtFinal); int pxWidth = lenFinal * (fTam * 0.55f);
-    int posX = xBase + 20; if (fontAlign == 1) posX = xBase + (maxW / 2) - (pxWidth / 2); else if (fontAlign == 2) posX = xBase + maxW - pxWidth - 20;
+    int numCharsFinal = 0;
+    for (int i = 0; txtFinal[i] != '\0'; i++) {
+        if ((txtFinal[i] & 0xC0) != 0x80) numCharsFinal++;
+    }
+
+    int pxWidth = numCharsFinal * (fTam * 0.55f);
+    int posX = xBase + 20;
+    if (fontAlign == 1) posX = xBase + (maxW / 2) - (pxWidth / 2);
+    else if (fontAlign == 2) posX = xBase + maxW - pxWidth - 20;
+
     desenharTexto(p, txtFinal, fTam, posX, y, cor);
 
-    isTextoAnimado = false;
+    isTextoAnimado = false; // Reseta para o próximo item da lista
 }
 
 unsigned char* carregarMediaCaseInsensitive(const char* pastaPath, const char* nomeProcurado, int* w, int* h, int* c) {
@@ -211,7 +237,7 @@ void desenharInterface(uint32_t* p) {
                     if (isPainelAtivo) {
                         if (isMarcado) corFundo = getSysColor(listHoverMark); else corFundo = getSysColor(10);
                         corTexto = 0xFF000000;
-                        isTextoAnimado = true;
+                        isTextoAnimado = true; // ATIVA A ANIMAÇÃO DO TEXTO AQUI!
                     }
                     else corFundo = 0xAA555555;
                 }
@@ -224,9 +250,6 @@ void desenharInterface(uint32_t* p) {
 
     if (menuAtual == MENU_NOTEPAD || menuAtualEsq == MENU_NOTEPAD) renderizarNotepad(p);
 
-    // =========================================================
-    // DESENHISTA INTELIGENTE DE SAVES
-    // =========================================================
     bool isSavePath = false;
     if (menuAtual == MENU_EXPLORAR || (painelDuplo && menuAtualEsq == MENU_EXPLORAR)) {
         char* pRef = (painelDuplo && painelAtivo == 0) ? pathExplorarEsq : pathExplorar;
