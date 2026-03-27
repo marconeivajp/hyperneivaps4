@@ -2,9 +2,12 @@
 #include "stb_image.h"
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 extern void desenharTexto(uint32_t* p, const char* texto, int tamanho, int x, int y, uint32_t cor);
 extern bool editMode;
+extern int editTarget;
+extern int editType;
 
 bool anim_ativo = true;
 int anim_posX = 445;
@@ -19,6 +22,7 @@ bool anim_usarColorKey = true;
 uint8_t anim_keyR = 55;
 uint8_t anim_keyG = 39;
 uint8_t anim_keyB = 130;
+int anim_tolerancia = 100;
 
 bool anim_usarColorKey2 = false;
 uint8_t anim_keyR2 = 0;
@@ -31,10 +35,6 @@ int anim_frameInicial = 0;
 int anim_frameFinal = 7;
 
 bool anim_modoTeste = false;
-
-// ==========================================
-// DEFINIÇÃO DO AUTO-CENTRO (É isto que resolve o erro)
-// ==========================================
 bool anim_autoCenter = false;
 
 int anim_frameOffsetX[MAX_ANIM_FRAMES] = { 0 };
@@ -44,6 +44,52 @@ unsigned char* imgSpriteSheet = NULL;
 int wSprite, hSprite, cSprite;
 int anim_frameAtual = 0;
 int anim_timer = 0;
+
+int anim_cursorX = 960;
+int anim_cursorY = 540;
+bool anim_mostrarCruz = false;
+bool anim_editandoPivoVisual = false;
+int anim_pivoCursorX = 0;
+int anim_pivoCursorY = 0;
+
+void pegarCorNoCursor(bool setColor2) {
+    if (!imgSpriteSheet || anim_colunas <= 0 || anim_linhas <= 0) return;
+
+    int frameW = wSprite / anim_colunas;
+    int frameH = hSprite / anim_linhas;
+
+    int srcX = (anim_cursorX - anim_posX) / anim_escala;
+    int srcY = (anim_cursorY - anim_posY) / anim_escala;
+
+    if (srcX < 0 || srcX >= frameW || srcY < 0 || srcY >= frameH) return;
+
+    int frameCol = anim_frameAtual % anim_colunas;
+    int frameRow = (anim_frameAtual / anim_colunas) % anim_linhas;
+    int frameX = anim_offsetX + (frameCol * frameW) + anim_frameOffsetX[anim_frameAtual];
+    int frameY = anim_offsetY + (frameRow * frameH) + anim_frameOffsetY[anim_frameAtual];
+
+    int imgX = frameX + srcX;
+    int imgY = frameY + srcY;
+
+    if (imgX < 0 || imgX >= wSprite || imgY < 0 || imgY >= hSprite) return;
+
+    int idx = (imgY * wSprite + imgX) * 4;
+    uint8_t r = imgSpriteSheet[idx + 0];
+    uint8_t g = imgSpriteSheet[idx + 1];
+    uint8_t b = imgSpriteSheet[idx + 2];
+    uint8_t a = imgSpriteSheet[idx + 3];
+
+    if (a == 0) return;
+
+    if (setColor2) {
+        anim_keyR2 = r; anim_keyG2 = g; anim_keyB2 = b;
+        anim_usarColorKey2 = true;
+    }
+    else {
+        anim_keyR = r; anim_keyG = g; anim_keyB = b;
+        anim_usarColorKey = true;
+    }
+}
 
 void carregarSpriteSheetAnimada() {
     if (!imgSpriteSheet) {
@@ -83,9 +129,10 @@ void autoCentralizarFrameAtual() {
             if (a == 0) continue;
 
             bool isBg = false;
+
             if (anim_usarColorKey) {
                 int dist = (r - anim_keyR) * (r - anim_keyR) + (g - anim_keyG) * (g - anim_keyG) + (b - anim_keyB) * (b - anim_keyB);
-                if (dist < 6000) isBg = true;
+                if (dist <= anim_tolerancia) isBg = true;
             }
             if (!isBg && anim_usarColorKey2) {
                 int dist2 = (r - anim_keyR2) * (r - anim_keyR2) + (g - anim_keyG2) * (g - anim_keyG2) + (b - anim_keyB2) * (b - anim_keyB2);
@@ -120,14 +167,7 @@ void desenharElementoAnimado(uint32_t* buffer) {
         return;
     }
 
-    if (editMode) {
-        for (int i = -5; i < 5; i++) {
-            for (int j = -5; j < 5; j++) {
-                int px = anim_posX + i; int py = anim_posY + j;
-                if (px >= 0 && px < 1920 && py >= 0 && py < 1080) buffer[py * 1920 + px] = 0xFFFF0000;
-            }
-        }
-
+    if (editMode && editTarget == 14) {
         if (anim_colunas > 0 && anim_linhas > 0) {
             int drawW = (int)((wSprite / anim_colunas) * anim_escala);
             int drawH = (int)((hSprite / anim_linhas) * anim_escala);
@@ -155,6 +195,99 @@ void desenharElementoAnimado(uint32_t* buffer) {
     if (anim_modoTeste) {
         if (anim_frameAtual < anim_frameInicial || anim_frameAtual > anim_frameFinal) {
             anim_frameAtual = anim_frameInicial;
+        }
+
+        // TUDO AQUI PARA BAIXO SÓ RENDERIZA SE ESTIVER NA ABA DA ANIMAÇÃO E NO MODO DE TESTE
+        if (editMode && editTarget == 14) {
+            int fw = wSprite / (anim_colunas > 0 ? anim_colunas : 1);
+            int fh = hSprite / (anim_linhas > 0 ? anim_linhas : 1);
+            int centroBoxX = anim_posX + (int)((fw * anim_escala) / 2.0f);
+            int centroBoxY = anim_posY + (int)((fh * anim_escala) / 2.0f);
+
+            // CRUZ GIGANTE VERDE DA TELA
+            if (anim_mostrarCruz) {
+                for (int i = 0; i < 1920; i++) {
+                    if (centroBoxY >= 0 && centroBoxY < 1080) buffer[centroBoxY * 1920 + i] = 0xFF00FF00;
+                }
+                for (int j = 0; j < 1080; j++) {
+                    if (centroBoxX >= 0 && centroBoxX < 1920) buffer[j * 1920 + centroBoxX] = 0xFF00FF00;
+                }
+            }
+
+            // BOLINHA VERDE DO PIVÔ (SEMPRE VISÍVEL)
+            for (int i = -5; i <= 5; i++) {
+                for (int j = -5; j <= 5; j++) {
+                    if (i * i + j * j <= 25) {
+                        int px = centroBoxX + i;
+                        int py = centroBoxY + j;
+                        if (px >= 0 && px < 1920 && py >= 0 && py < 1080) buffer[py * 1920 + px] = 0xFF00FF00;
+                    }
+                }
+            }
+
+            // MODO 29: DEFINIR PIVÔ (MIRA MÓVEL)
+            if (editType == 29 && anim_editandoPivoVisual) {
+                for (int i = -5; i <= 5; i++) {
+                    for (int j = -5; j <= 5; j++) {
+                        if (i * i + j * j <= 25) {
+                            int px = anim_pivoCursorX + i; int py = anim_pivoCursorY + j;
+                            if (px >= 0 && px < 1920 && py >= 0 && py < 1080) buffer[py * 1920 + px] = 0xFF00FF00;
+                        }
+                    }
+                }
+                char txt[64];
+                sprintf(txt, "NOVO PIVO: X:%d  Y:%d", anim_pivoCursorX - centroBoxX, anim_pivoCursorY - centroBoxY);
+                desenharTexto(buffer, txt, 25, anim_pivoCursorX + 15, anim_pivoCursorY - 20, 0xFFFFFFFF);
+            }
+
+            // MODO 44: SELETOR DE COR PARA EXCLUIR (QUADRADO CHEIO VERDE)
+            if (editType == 44) {
+                for (int i = -6; i <= 6; i++) {
+                    for (int j = -6; j <= 6; j++) {
+                        int px = anim_cursorX + i; int py = anim_cursorY + j;
+                        if (px >= 0 && px < 1920 && py >= 0 && py < 1080) buffer[py * 1920 + px] = 0xFF00FF00;
+                    }
+                }
+                char txt[64];
+                sprintf(txt, "POS: X:%d  Y:%d", anim_cursorX - anim_posX, anim_cursorY - anim_posY);
+                desenharTexto(buffer, txt, 25, anim_cursorX + 15, anim_cursorY - 20, 0xFFFFFFFF);
+            }
+
+            // TIMELINE
+            int startX = 50;
+            int startY = 920;
+            int size = 80;
+            int numFrames = anim_frameFinal - anim_frameInicial + 1;
+
+            if (numFrames > 0 && anim_colunas > 0 && anim_linhas > 0) {
+                for (int i = 0; i < numFrames; i++) {
+                    int frameReal = anim_frameInicial + i;
+                    int pX = startX + (i * (size + 15));
+
+                    if (pX + size > 1900) break;
+
+                    uint32_t corBorda = (frameReal == anim_frameAtual) ? 0xFF00FFFF : 0xFF888888;
+                    for (int bx = -4; bx <= size + 4; bx++) {
+                        for (int by = -4; by <= size + 4; by++) {
+                            int dx = pX + bx; int dy = startY + by;
+                            if (dx >= 0 && dx < 1920 && dy >= 0 && dy < 1080) {
+                                if (bx < 0 || bx > size || by < 0 || by > size) buffer[dy * 1920 + dx] = corBorda;
+                            }
+                        }
+                    }
+
+                    int fW = wSprite / anim_colunas; int fH = hSprite / anim_linhas;
+                    if (fW == 0) fW = 1; if (fH == 0) fH = 1;
+                    float escalaThumb = (float)size / (fW > fH ? fW : fH);
+
+                    desenharAnimacaoGrid(buffer, imgSpriteSheet, wSprite, hSprite,
+                        anim_colunas, anim_linhas, frameReal,
+                        pX, startY, escalaThumb,
+                        anim_keyR, anim_keyG, anim_keyB, anim_usarColorKey,
+                        anim_keyR2, anim_keyG2, anim_keyB2, anim_usarColorKey2,
+                        anim_offsetX, anim_offsetY);
+                }
+            }
         }
     }
     else {
@@ -199,10 +332,11 @@ void desenharSpriteFrameEscala(uint32_t* pixels, unsigned char* img, int imgW, i
                 int idx = (oY * imgW + oX) * 4;
                 uint8_t r = img[idx + 0]; uint8_t g = img[idx + 1]; uint8_t b = img[idx + 2]; uint8_t a = img[idx + 3];
                 if (a == 0) continue;
+
                 bool isBackground = false;
                 if (usarColorKey) {
-                    int dist1 = (r - keyR) * (r - keyR) + (g - keyG) * (g - keyG) + (b - keyB) * (b - keyB);
-                    if (dist1 < 6000) isBackground = true;
+                    int dist = (r - keyR) * (r - keyR) + (g - keyG) * (g - keyG) + (b - keyB) * (b - keyB);
+                    if (dist <= anim_tolerancia) isBackground = true;
                 }
                 if (!isBackground && usarColorKey2) {
                     int dist2 = (r - keyR2) * (r - keyR2) + (g - keyG2) * (g - keyG2) + (b - keyB2) * (b - keyB2);
@@ -248,7 +382,7 @@ void desenharSpriteFrameEscala(uint32_t* pixels, unsigned char* img, int imgW, i
 
             if (usarColorKey) {
                 int dist = (r - keyR) * (r - keyR) + (g - keyG) * (g - keyG) + (b - keyB) * (b - keyB);
-                if (dist < 6000) continue;
+                if (dist <= anim_tolerancia) continue;
             }
             if (usarColorKey2) {
                 int dist2 = (r - keyR2) * (r - keyR2) + (g - keyG2) * (g - keyG2) + (b - keyB2) * (b - keyB2);

@@ -51,6 +51,7 @@ extern void preencherMenuMusicas();
 extern void preencherRoot();
 extern void preencherMenuMidia();
 extern void abrirPastaMidia(const char* caminho);
+extern void chamarJogo(const char* titleId, const char* romPath); // NOSSO LANÇADOR DE JOGOS!
 
 void acaoCross_Root() {
     if (visualizandoMidiaImagem) {
@@ -61,16 +62,52 @@ void acaoCross_Root() {
 
     if (visualizandoMidiaTexto) return;
 
+    // TELA INICIAL (ROOT)
     if (menuAtual == ROOT) {
-        if (sel == 0) { carregarXML("/app0/assets/lista.xml"); }
+        if (sel == 0) {
+            // Clicou em "Jogar" -> Abre o submenu de escolhas
+            memset(nomes, 0, sizeof(nomes));
+            strcpy(nomes[0], "Jogos de PS4 Nativo");
+            strcpy(nomes[1], "Listas XML (Retro)");
+            totalItens = 2;
+            sel = 0; off = 0;
+            menuAtual = MENU_TIPO_JOGO;
+        }
         else if (sel == 1) { preencherMenuMidia(); sel = 0; off = 0; }
         else if (sel == 2) { preencherMenuBaixar(); sel = 0; off = 0; }
         else if (sel == 3) { preencherMenuEditar(); sel = 0; off = 0; }
         else if (sel == 4) { preencherExplorerHome(); sel = 0; off = 0; }
     }
+
+    // SUBMENU DE ESCOLHA DO TIPO DE JOGO
+    else if (menuAtual == MENU_TIPO_JOGO) {
+        if (sel == 0) {
+            // Clicou em Jogos de PS4
+            memset(nomes, 0, sizeof(nomes));
+            strcpy(nomes[0], "Crash Bandicoot (CUSA07399)");
+            strcpy(nomes[1], "RetroArch (SSNE10000)");
+            totalItens = 2;
+            sel = 0; off = 0;
+            menuAtual = MENU_JOGAR_PS4;
+        }
+        else if (sel == 1) {
+            // Clicou em XML (Segue o caminho original)
+            carregarXML("/app0/assets/lista.xml");
+        }
+    }
+
+    // MENU COM OS JOGOS NATIVOS DO PS4
+    else if (menuAtual == MENU_JOGAR_PS4) {
+        if (sel == 0) chamarJogo("CUSA07399", NULL);
+        else if (sel == 1) chamarJogo("SSNE10000", NULL);
+    }
+
+    // LÓGICA DO XML ORIGINAL
     else if (menuAtual == JOGAR_XML && strcasecmp(nomes[sel], "sp") == 0) {
         carregarXML("/app0/assets/sp.xml");
     }
+
+    // MENU DO EXPLORADOR DE MÍDIAS
     else if (menuAtual == MENU_MIDIA) {
         if (strcmp(nomes[sel], "Pasta vazia") == 0) return;
 
@@ -198,9 +235,30 @@ void acaoCircle_Root() {
         return;
     }
 
-    if (menuAtual == JOGAR_XML) {
+    // CONTROLE DE RETORNO DO BOTÃO BOLINHA
+    if (menuAtual == MENU_TIPO_JOGO) {
+        preencherRoot(); // Retorna ao menu inicial
+    }
+    else if (menuAtual == MENU_JOGAR_PS4) {
+        // Retorna para a tela PS4 vs XML
+        memset(nomes, 0, sizeof(nomes));
+        strcpy(nomes[0], "Jogos de PS4 Nativo");
+        strcpy(nomes[1], "Listas XML (Retro)");
+        totalItens = 2;
+        sel = 0; off = 0;
+        menuAtual = MENU_TIPO_JOGO;
+    }
+    else if (menuAtual == JOGAR_XML) {
         if (strstr(caminhoXMLAtual, "sp.xml")) carregarXML("/app0/assets/lista.xml");
-        else preencherRoot();
+        else {
+            // Retorna para a tela PS4 vs XML em vez da tela inicial direta
+            memset(nomes, 0, sizeof(nomes));
+            strcpy(nomes[0], "Jogos de PS4 Nativo");
+            strcpy(nomes[1], "Listas XML (Retro)");
+            totalItens = 2;
+            sel = 0; off = 0;
+            menuAtual = MENU_TIPO_JOGO;
+        }
     }
     else if (menuAtual == MENU_MIDIA) {
         if (strcmp(caminhoMidiaAtual, "/data/HyperNeiva/midia") == 0) {

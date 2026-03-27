@@ -17,12 +17,20 @@ extern int pont1X, pont1Y, pont1W, pont1H, pont1On, pont1Modo, pont1Lado;
 extern int sfxLigado, sfxVolume;
 extern int upBg, upTextNorm, upTextSel;
 
+// --- VARIÁVEIS DE ESTILO E ANIMAÇÃO ---
+extern int listStyle;
+extern int fontAnim;
+extern int listCurvature;
+extern int listZoomCentro;
+
 extern bool editMode;
 extern int editTarget;
 extern int editType;
 extern int mapAcoes[50];
 
 void salvarConfiguracao();
+void salvarAnimacaoComNome(const char* nomeArquivo);
+void salvarAnimacaoUnity(const char* nomeArquivo);
 void carregarConfiguracao();
 void preencherMenuEditar();
 void preencherMenuEditTarget();

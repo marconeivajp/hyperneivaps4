@@ -19,6 +19,7 @@ extern bool anim_usarColorKey;
 extern uint8_t anim_keyR;
 extern uint8_t anim_keyG;
 extern uint8_t anim_keyB;
+extern int anim_tolerancia;
 
 extern bool anim_usarColorKey2;
 extern uint8_t anim_keyR2;
@@ -33,17 +34,28 @@ extern int anim_frameFinal;
 extern bool anim_modoTeste;
 extern int anim_frameAtual;
 
-// ==========================================
-// DECLARAÇÃO DO AUTO-CENTRO (Obrigatório para o Linker)
-// ==========================================
 extern bool anim_autoCenter;
 
 extern int anim_frameOffsetX[MAX_ANIM_FRAMES];
 extern int anim_frameOffsetY[MAX_ANIM_FRAMES];
 
+extern unsigned char* imgSpriteSheet;
+extern int wSprite, hSprite, cSprite;
+
+// --- VARIÁVEIS DO CURSOR E PIVÔ ---
+extern int anim_cursorX;
+extern int anim_cursorY;
+extern bool anim_mostrarCruz;
+extern bool anim_editandoPivoVisual;
+extern int anim_pivoCursorX;
+extern int anim_pivoCursorY;
+
 void carregarSpriteSheetAnimada();
 void desenharElementoAnimado(uint32_t* buffer);
 void autoCentralizarFrameAtual();
+
+// --- FUNÇÕES DE CAPTURA VISUAL ---
+void pegarCorNoCursor(bool setColor2);
 
 void desenharSpriteFrameEscala(uint32_t* pixels, unsigned char* img, int imgW, int imgH,
     int frameX, int frameY, int frameW, int frameH,
