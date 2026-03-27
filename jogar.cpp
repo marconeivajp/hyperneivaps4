@@ -17,6 +17,18 @@
 extern char msgStatus[128];
 extern int msgTimer;
 
+// A VARIÁVEL QUE GUARDA O ID DO SEU USUÁRIO LOGADO (Vem do controle!)
+extern int globalUserId;
+
+// A ESTRUTURA OCULTA DO ITEMZFLOW PARA INICIAR JOGOS
+struct app_launch_ctx {
+    uint32_t structsize;
+    uint32_t user_id;
+    uint32_t app_opt;
+    uint64_t crash_report;
+    uint32_t check_flag;
+} __attribute__((packed));
+
 char xmlCaminhoAtual[256] = "";
 
 void carregarXML(const char* path) {
@@ -68,15 +80,24 @@ void chamarJogo(const char* titleId, const char* romPath) {
         return;
     }
 
+    // A MÁGICA: Passando o usuário que tem a permissão para o Kernel!
+    struct app_launch_ctx ctx;
+    memset(&ctx, 0, sizeof(ctx));
+    ctx.structsize = 24; // Tamanho exato da estrutura do PS4
+    ctx.user_id = globalUserId;
+    ctx.app_opt = 0;
+    ctx.crash_report = 0;
+    ctx.check_flag = 0;
+
     int launchRes = 0;
     if (romPath != NULL && strlen(romPath) > 0) {
         char* args[] = { (char*)romPath, NULL };
-        launchRes = launchAppReal(titleId, args, NULL);
+        launchRes = launchAppReal(titleId, args, &ctx); // Envia o ctx preenchido!
     }
     else {
-        // Envia o array nulo com o formato exato
-        char* argsNulo[] = { NULL };
-        launchRes = launchAppReal(titleId, argsNulo, NULL);
+        // Envia o titleId como arg0 para garantir padrão UNIX
+        char* argsNulo[] = { (char*)titleId, NULL };
+        launchRes = launchAppReal(titleId, argsNulo, &ctx); // Envia o ctx preenchido!
     }
 
     if (launchRes < 0) {

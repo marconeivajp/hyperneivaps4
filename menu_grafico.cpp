@@ -26,7 +26,6 @@ extern int barBg, barFill, listMark, listHoverMark, backX, backY, backW, backH; 
 extern int fontAlign, fontScroll;
 
 extern int picX, picY, picW, picH;
-extern int vidX, vidY, vidW, vidH;
 
 extern unsigned char* imgPic1;
 extern int wPic1, hPic1, cPic1;
@@ -44,7 +43,6 @@ int frameContadorGlobal = 0;
 extern bool visualizandoMidiaImagem; extern unsigned char* imgMidia; extern int wM, hM; extern float zoomMidia; extern bool fullscreenMidia;
 extern bool visualizandoMidiaTexto; extern char* textoMidiaBuffer; extern char* linhasTexto[5000]; extern int totalLinhasTexto; extern int textoMidiaScroll;
 extern bool painelDuplo; extern int painelAtivo; extern char nomesEsq[3000][64]; extern bool marcadosEsq[3000]; extern char pathExplorarEsq[256]; extern int selEsq; extern int totalItensEsq; extern MenuLevel menuAtualEsq; extern int offEsq;
-extern bool emApolloSaves;
 
 extern volatile bool downloadEmSegundoPlano;
 extern volatile float progressoAtualDownload;
@@ -55,7 +53,6 @@ extern volatile int baixadosFilaSessao;
 extern int totalOpcoes;
 extern char ipDoPS4[64];
 
-// CARREGADOR GLOBAL DA IMAGEM DE MOLDE (CUSA18879) PARA FICAR SEMPRE PRONTA
 static unsigned char* imgVidEdicao = NULL;
 static int wVidE = 0, hVidE = 0, cVidE = 0;
 static bool tentouVidE = false;
@@ -134,7 +131,6 @@ unsigned char* carregarMediaCaseInsensitive(const char* pastaPath, const char* n
 void desenharInterface(uint32_t* p) {
     frameContadorGlobal++;
 
-    // PREPARA A IMAGEM DE MOLDE DA CAPA DE VÍDEO LOGO NO COMEÇO!
     if (!tentouVidE) {
         imgVidEdicao = stbi_load("/user/appmeta/CUSA18879/pic1.png", &wVidE, &hVidE, &cVidE, 4);
         if (!imgVidEdicao) imgVidEdicao = stbi_load("/user/app/CUSA18879/sce_sys/pic1.png", &wVidE, &hVidE, &cVidE, 4);
@@ -228,7 +224,18 @@ void desenharInterface(uint32_t* p) {
 
     if (menuAtual == MENU_NOTEPAD || menuAtualEsq == MENU_NOTEPAD) renderizarNotepad(p);
 
-    if (emApolloSaves && imgPreview) {
+    // =========================================================
+    // DESENHISTA INTELIGENTE DE SAVES
+    // =========================================================
+    bool isSavePath = false;
+    if (menuAtual == MENU_EXPLORAR || (painelDuplo && menuAtualEsq == MENU_EXPLORAR)) {
+        char* pRef = (painelDuplo && painelAtivo == 0) ? pathExplorarEsq : pathExplorar;
+        if (strstr(pRef, "savedata") || strstr(pRef, "SAVEDATA") || strstr(pRef, "apollo") || strstr(pRef, "exported")) {
+            isSavePath = true;
+        }
+    }
+
+    if (isSavePath && imgPreview) {
         desenharDiscoRedondo(p, imgPreview, wP, hP, discoW, discoH, discoX, discoY);
     }
     else if ((menuAtual == SCRAPER_LIST || menuAtual == MENU_JOGAR_PS4) && imgPreview) {
@@ -247,9 +254,6 @@ void desenharInterface(uint32_t* p) {
         bool isEditingAudio = ((menuAtual == MENU_EDIT_TARGET) && editTarget == 6);
         bool isEditingUp = ((menuAtual == MENU_EDIT_TARGET) && (editTarget == 7 || editTarget == 10));
 
-        // =========================================================
-        // MÁGICA 2: SE ELE CLICAR EM "CAPA DE VIDEO" MESMO FORA DO EDITMODE, MOSTRA A FOTO!
-        // =========================================================
         if (menuAtual == MENU_EDIT_TARGET && editTarget == 3) {
             if (imgVidEdicao) desenharRedimensionado(p, imgVidEdicao, wVidE, hVidE, picW, picH, picX, picY);
             else if (defaultArtwork1) desenharRedimensionado(p, defaultArtwork1, wDef1, hDef1, picW, picH, picX, picY);
@@ -307,7 +311,7 @@ void desenharInterface(uint32_t* p) {
         if (editTarget == 0) { tX = (listOri == 0) ? &listXV : &listXH; tY = (listOri == 0) ? &listYV : &listYH; tW = &listW; tH = &listH; }
         else if (editTarget == 1) { tX = &capaX; tY = &capaY; tW = &capaW; tH = &capaH; }
         else if (editTarget == 2) { tX = &discoX; tY = &discoY; tW = &discoW; tH = &discoH; }
-        else if (editTarget == 3) { tX = &picX; tY = &picY; tW = &picW; tH = &picH; } // AQUI! É O ALVO 3 DA CAPA DE VÍDEO
+        else if (editTarget == 3) { tX = &picX; tY = &picY; tW = &picW; tH = &picH; }
         else if (editTarget == 4) { tX = &backX; tY = &backY; tW = &backW; tH = &backH; }
         else if (editTarget == 5) { tX = &barX; tY = &barY; tW = &barW; tH = &barH; }
         else if (editTarget == 6) { tX = &audioX; tY = &audioY; tW = &audioW; tH = &audioH; }
