@@ -55,42 +55,53 @@ extern void abrirPastaMidia(const char* caminho);
 extern void chamarJogo(const char* titleId, const char* romPath);
 
 // =========================================================================
-// FILTRO ANTI-FANTASMA SUPREMO (USA OS ARQUIVOS QUE VOCÊ ENCONTROU!)
+// FILTRO ANTI-FANTASMA (SÓ RODA NO CLIQUE DO X)
 // =========================================================================
 bool checarJogoInstaladoDeVerdade(const char* cusa) {
-    char p[512]; FILE* f;
-
-    // Os 3 possíveis locais onde o jogo pode estar instalado
+    char p[512];
     const char* bases[] = { "/user/app", "/mnt/ext0/user/app", "/mnt/ext1/user/app" };
 
-    // Os arquivos oficiais de registro que você encontrou!
-    const char* arquivos[] = { "app.pkg", "app.json", "app.pbm", "app.xml" };
-
     for (int i = 0; i < 3; i++) {
-        for (int j = 0; j < 4; j++) {
-            sprintf(p, "%s/%s/%s", bases[i], cusa, arquivos[j]);
-            f = fopen(p, "rb");
-            if (f) {
-                fclose(f);
-                return true; // Achou a prova de que o jogo não é fantasma!
+        sprintf(p, "%s/%s", bases[i], cusa);
+        DIR* d = opendir(p);
+        if (d) {
+            struct dirent* dir;
+            bool temConteudo = false;
+
+            while ((dir = readdir(d)) != NULL) {
+                if (strcmp(dir->d_name, ".") != 0 && strcmp(dir->d_name, "..") != 0) {
+                    temConteudo = true;
+                    break;
+                }
             }
+            closedir(d);
+
+            if (temConteudo) return true; // Achou a pasta e tem arquivos dentro! É real!
         }
     }
-    return false; // Se a pasta existe mas não tem nenhum desses arquivos, bloqueia!
+    return false; // É um fantasma!
 }
 
 // =========================================================================
-// LEITOR INTELIGENTE: BUSCA NOME E PULA QUADRADINHOS
+// LEITOR INTELIGENTE
 // =========================================================================
 void lerNome_PronunciationXML(const char* cusa, char* nomeSaida) {
     strcpy(nomeSaida, "Desconhecido");
     char xmlPath[512];
 
-    sprintf(xmlPath, "/user/app/%s/sce_sys/pronunciation.xml", cusa);
+    // 1º Tenta no appmeta padrão
+    sprintf(xmlPath, "/user/appmeta/%s/pronunciation.xml", cusa);
     FILE* f = fopen(xmlPath, "rb");
 
+    // 2º Se não tiver, tenta no cofre de sistema
     if (!f) {
-        sprintf(xmlPath, "/user/appmeta/%s/pronunciation.xml", cusa);
+        sprintf(xmlPath, "/system_data/priv/appmeta/%s/pronunciation.xml", cusa);
+        f = fopen(xmlPath, "rb");
+    }
+
+    // 3º Se não tiver, tenta no diretório do jogo
+    if (!f) {
+        sprintf(xmlPath, "/user/app/%s/sce_sys/pronunciation.xml", cusa);
         f = fopen(xmlPath, "rb");
     }
 
@@ -153,10 +164,17 @@ void lerNome_PronunciationXML(const char* cusa, char* nomeSaida) {
         fclose(f);
     }
 
+    // PLANO B: LÊ DO SFO
     if (strcmp(nomeSaida, "Desconhecido") == 0) {
         char sfoPath[512];
-        sprintf(sfoPath, "/user/app/%s/sce_sys/param.sfo", cusa);
+        sprintf(sfoPath, "/user/appmeta/%s/param.sfo", cusa);
         FILE* sf = fopen(sfoPath, "rb");
+
+        if (!sf) {
+            sprintf(sfoPath, "/system_data/priv/appmeta/%s/param.sfo", cusa);
+            sf = fopen(sfoPath, "rb");
+        }
+
         if (sf) {
             unsigned int magic; fread(&magic, 4, 1, sf);
             if (magic == 0x46535000) {
@@ -207,32 +225,36 @@ void acaoCross_Root() {
             memset(linksAtuais, 0, sizeof(linksAtuais));
             int cont = 0;
 
-            DIR* d = opendir("/system_data/priv/appmeta");
-            if (!d) d = opendir("/user/appmeta");
+            DIR* d = opendir("/user/appmeta");
+            if (!d) d = opendir("/system_data/priv/appmeta");
 
             if (d) {
                 struct dirent* dir;
                 while ((dir = readdir(d)) != NULL && cont < 2900) {
-                    if (dir->d_name[0] == 'C' && dir->d_name[1] == 'U' && dir->d_name[2] == 'S' && dir->d_name[3] == 'A') {
-                        char cusaLimpo[16]; memset(cusaLimpo, 0, sizeof(cusaLimpo));
-                        strncpy(cusaLimpo, dir->d_name, 9);
-                        cusaLimpo[9] = '\0';
 
-                        // FILTRO MÁXIMO EM AÇÃO AQUI
-                        if (checarJogoInstaladoDeVerdade(cusaLimpo)) {
-                            char nomeReal[100];
-                            lerNome_PronunciationXML(cusaLimpo, nomeReal);
-                            sprintf(nomes[cont], "%s", nomeReal);
-                            strcpy(linksAtuais[cont], cusaLimpo);
-                            cont++;
-                        }
+                    // =========================================================
+                    // MÁGICA AQUI: Aceita QUALQUER pasta de TitleID (com tamanho 9 ou mais)
+                    // Sem ser engessado só com 'CUSA'!
+                    // =========================================================
+                    if (strcmp(dir->d_name, ".") != 0 && strcmp(dir->d_name, "..") != 0 && strlen(dir->d_name) >= 8) {
+
+                        char idLimpo[16]; memset(idLimpo, 0, sizeof(idLimpo));
+                        strncpy(idLimpo, dir->d_name, 9);
+                        idLimpo[9] = '\0';
+
+                        char nomeReal[100];
+                        lerNome_PronunciationXML(idLimpo, nomeReal);
+
+                        sprintf(nomes[cont], "%s", nomeReal);
+                        strcpy(linksAtuais[cont], idLimpo);
+                        cont++;
                     }
                 }
                 closedir(d);
             }
 
             if (cont > 0) { totalItens = cont; }
-            else { strcpy(nomes[0], "Nenhum jogo encontrado!"); strcpy(linksAtuais[0], ""); totalItens = 1; }
+            else { strcpy(nomes[0], "Nenhum jogo encontrado no appmeta!"); strcpy(linksAtuais[0], ""); totalItens = 1; }
 
             sel = 0; off = 0; menuAtual = MENU_JOGAR_PS4; timeToLoadCapa = 5;
         }
@@ -240,7 +262,15 @@ void acaoCross_Root() {
     }
 
     else if (menuAtual == MENU_JOGAR_PS4) {
-        if (totalItens > 0 && strlen(linksAtuais[sel]) > 0) { chamarJogo(linksAtuais[sel], NULL); }
+        if (totalItens > 0 && strlen(linksAtuais[sel]) > 0) {
+            if (checarJogoInstaladoDeVerdade(linksAtuais[sel])) {
+                chamarJogo(linksAtuais[sel], NULL);
+            }
+            else {
+                strcpy(msgStatus, "APP NAO ENCONTRADO! (FANTASMA / DESCONECTADO)");
+                msgTimer = 180;
+            }
+        }
     }
 
     else if (menuAtual == JOGAR_XML && strcasecmp(nomes[sel], "sp") == 0) { carregarXML("/app0/assets/sp.xml"); }
