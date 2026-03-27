@@ -158,10 +158,9 @@ void processarNavegacaoDPad(uint32_t botoes) {
                         char caminhoAbs[512]; sprintf(caminhoAbs, "%s/%s", pExplorar, nItems[sAtual]);
 
                         // ========================================================
-                        // MÁGICA: PUXAR ICONE DE DENTRO DA PASTA DO APOLLO SAVES!
+                        // RADAR DE SAVES INTELIGENTE! (MATA A NECESSIDADE DE FLAGS)
                         // ========================================================
-                        extern bool emApolloSaves;
-                        if (emApolloSaves) {
+                        if (strstr(caminhoAbs, "savedata") || strstr(caminhoAbs, "SAVEDATA") || strstr(caminhoAbs, "apollo") || strstr(caminhoAbs, "exported")) {
                             char saveIcon[512];
                             sprintf(saveIcon, "%s/sce_sys/icon0.png", caminhoAbs);
                             FILE* fs = fopen(saveIcon, "rb");
@@ -174,7 +173,7 @@ void processarNavegacaoDPad(uint32_t botoes) {
                                 carregarPreviewLocal(saveIcon);
                             }
                             else {
-                                carregarPreviewLocal(caminhoAbs); // Fallback padrão
+                                carregarPreviewLocal(caminhoAbs);
                             }
                         }
                         else {

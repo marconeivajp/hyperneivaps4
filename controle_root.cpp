@@ -55,28 +55,28 @@ extern void abrirPastaMidia(const char* caminho);
 extern void chamarJogo(const char* titleId, const char* romPath);
 
 // =========================================================================
-// FILTRO ANTI-FANTASMA CORRIGIDO (VERIFICA APENAS SE A PASTA EXISTE)
+// FILTRO ANTI-FANTASMA SUPREMO (USA OS ARQUIVOS QUE VOCÊ ENCONTROU!)
 // =========================================================================
 bool checarJogoInstaladoDeVerdade(const char* cusa) {
-    char p[512]; DIR* d;
+    char p[512]; FILE* f;
 
-    // Checa se a pasta do jogo existe no HD Interno
-    sprintf(p, "/user/app/%s", cusa);
-    d = opendir(p);
-    if (d) { closedir(d); return true; }
+    // Os 3 possíveis locais onde o jogo pode estar instalado
+    const char* bases[] = { "/user/app", "/mnt/ext0/user/app", "/mnt/ext1/user/app" };
 
-    // Checa se a pasta existe no HD Externo (USB0)
-    sprintf(p, "/mnt/ext0/user/app/%s", cusa);
-    d = opendir(p);
-    if (d) { closedir(d); return true; }
+    // Os arquivos oficiais de registro que você encontrou!
+    const char* arquivos[] = { "app.pkg", "app.json", "app.pbm", "app.xml" };
 
-    // Checa se a pasta existe no HD Externo (USB1)
-    sprintf(p, "/mnt/ext1/user/app/%s", cusa);
-    d = opendir(p);
-    if (d) { closedir(d); return true; }
-
-    // Se a pasta não existe em lugar nenhum, é um fantasma do appmeta!
-    return false;
+    for (int i = 0; i < 3; i++) {
+        for (int j = 0; j < 4; j++) {
+            sprintf(p, "%s/%s/%s", bases[i], cusa, arquivos[j]);
+            f = fopen(p, "rb");
+            if (f) {
+                fclose(f);
+                return true; // Achou a prova de que o jogo não é fantasma!
+            }
+        }
+    }
+    return false; // Se a pasta existe mas não tem nenhum desses arquivos, bloqueia!
 }
 
 // =========================================================================
@@ -216,9 +216,9 @@ void acaoCross_Root() {
                     if (dir->d_name[0] == 'C' && dir->d_name[1] == 'U' && dir->d_name[2] == 'S' && dir->d_name[3] == 'A') {
                         char cusaLimpo[16]; memset(cusaLimpo, 0, sizeof(cusaLimpo));
                         strncpy(cusaLimpo, dir->d_name, 9);
-                        cusaLimpo[9] = '\0'; // Garante o nome limpo
+                        cusaLimpo[9] = '\0';
 
-                        // Filtro flexível: Se a pasta existir, o jogo tá lá!
+                        // FILTRO MÁXIMO EM AÇÃO AQUI
                         if (checarJogoInstaladoDeVerdade(cusaLimpo)) {
                             char nomeReal[100];
                             lerNome_PronunciationXML(cusaLimpo, nomeReal);
