@@ -10,6 +10,9 @@ extern int fontTam, msgX, msgY, msgTam, listOri, listBg;
 extern int barBg, barFill, listMark, listHoverMark, backX, backY, backW, backH;
 extern int fontAlign, fontScroll;
 
+// --- CONFIGURAÇÃO DA CAPA DE VÍDEO (FUNDO/PIC1) ---
+extern int picX, picY, picW, picH;
+
 extern int elem1X, elem1Y, elem1W, elem1H, elem1On;
 extern int ctrl1X, ctrl1Y, ctrl1W, ctrl1H, ctrl1On;
 extern int pont1X, pont1Y, pont1W, pont1H, pont1On, pont1Modo, pont1Lado;
@@ -37,4 +40,4 @@ void preencherMenuEditTarget();
 void processarControlesEdicao(unsigned int buttons);
 void acaoCircle_Editar();
 
-#endif
+#endif	

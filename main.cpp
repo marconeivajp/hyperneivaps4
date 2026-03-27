@@ -120,10 +120,6 @@ int main(void) {
     defaultArtwork2 = stbi_load("/data/HyperNeiva/configuracao/0_Defalt_Artwork2.png", &wDef2, &hDef2, &cDef2, 4);
     if (!defaultArtwork2) defaultArtwork2 = stbi_load("/app0/assets/images/0_Defalt_Artwork2.png", &wDef2, &hDef2, &cDef2, 4);
 
-    // =========================================================================
-    // O SEGREDO ESTÁ AQUI!
-    // Carregar a imagem da Sprite Sheet ANTES do Jailbreak fechar a porta /app0/
-    // =========================================================================
     carregarSpriteSheetAnimada();
 
     // =========================================================================
