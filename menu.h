@@ -34,7 +34,8 @@ enum MenuLevel {
     MENU_MIDIA,
     MENU_EXTRA,
     MENU_INFORMACAO,
-    MENU_CONTROLE_TESTE
+    MENU_CONTROLE_TESTE,
+    MENU_INSTRUMENTOS
 };
 
 extern MenuLevel menuAtual;
