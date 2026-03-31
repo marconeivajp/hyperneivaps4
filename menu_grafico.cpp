@@ -17,7 +17,7 @@
 #include "elementos_animados_sprite_sheet.h"
 #include "editar.h"
 
-// DECLARACÕES DA ENGINE QUE FORAM RESOLVIDAS NO LINKER (Estão no editar.cpp)
+// DECLARACÕES DA ENGINE
 extern bool isFirstFrameUI;
 extern int uiW[10];
 extern int uiH[10];
@@ -441,9 +441,10 @@ void desenharInterface(uint32_t* p) {
         else { char breadEsq[300]; sprintf(breadEsq, "ESQ: %s", pathExplorarEsq); desenharTexto(p, breadEsq, 25, capaX, 1020, (painelAtivo == 0) ? 0xFF00AAFF : 0xFFAAAAAA); char breadDir[300]; sprintf(breadDir, "DIR: %s", pathExplorar); int cX = (listOri == 0) ? listXV : listXH; desenharTexto(p, breadDir, 25, cX, 1020, (painelAtivo == 1) ? 0xFF00AAFF : 0xFFAAAAAA); }
     }
     else {
-        bool isEditingBar = ((menuAtual == MENU_EDIT_TARGET || editMode) && editTarget == 4);
-        bool isEditingAudio = ((menuAtual == MENU_EDIT_TARGET || editMode) && editTarget == 5);
-        bool isEditingUp = ((menuAtual == MENU_EDIT_TARGET || editMode) && (editTarget == 6 || editTarget == 9));
+        // CORREÇÃO DOS ÍNDICES!
+        bool isEditingBar = ((menuAtual == MENU_EDIT_TARGET || editMode) && editTarget == 5); // 5 É A BARRA LOAD
+        bool isEditingAudio = ((menuAtual == MENU_EDIT_TARGET || editMode) && editTarget == 6); // 6 É O AUDIO
+        bool isEditingUp = ((menuAtual == MENU_EDIT_TARGET || editMode) && (editTarget == 7 || editTarget == 10)); // 7 E 10 USAM O PAINEL 'UP' (UPLOAD E EXPLORAR)
 
         if (isEditingBar) {
             int bX = barX; int bY = barY; int bW = barW; int bH = barH;
@@ -461,7 +462,7 @@ void desenharInterface(uint32_t* p) {
             for (int my = 0; my < upH; my++) { for (int mx = 0; mx < upW; mx++) { int pxX = upX + mx; int pyY = upY + my; if (pxX >= 0 && pxX < 1920 && pyY >= 0 && pyY < 1080) p[pyY * 1920 + pxX] = getSysColor(upBg); } }
             int maxV = (upH - 50) / 45; if (maxV < 1) maxV = 1;
 
-            if (editTarget == 9) {
+            if (editTarget == 10) {
                 if (maxV > 0) desenharTextoAlinhado(p, "Copiar", fontTam, upX, upY + 50, upW, getSysColor(upTextSel));
                 if (maxV > 1) desenharTextoAlinhado(p, "Colar", fontTam, upX, upY + 95, upW, getSysColor(upTextNorm));
                 if (maxV > 2) desenharTextoAlinhado(p, "Deletar", fontTam, upX, upY + 140, upW, getSysColor(upTextNorm));
@@ -498,6 +499,10 @@ void desenharInterface(uint32_t* p) {
 
     bool showEditBottomBar = false;
     if (editMode || menuAtual == MENU_EDIT_TARGET) showEditBottomBar = true;
+
+    // CORREÇÃO: 9 É A NOTIFICAÇÃO!
+    if (msgTimer > 0) { desenharTexto(p, msgStatus, msgTam, msgX, msgY, 0xFFFFFFFF); msgTimer--; }
+    else if ((menuAtual == MENU_EDIT_TARGET || editMode) && editTarget == 9) { desenharTexto(p, "EXEMPLO DE NOTIFICACAO...", msgTam, msgX, msgY, 0xFF00FF00); }
 
     if (showEditBottomBar) {
         char txtPos[200]; int* tX, * tY, * tW, * tH;
@@ -548,14 +553,14 @@ void desenharInterface(uint32_t* p) {
                 sprintf(txtPos, "CUSTOM UI - ELEMENTO %d DA TELA %d", interfaceElementoAlvo + 1, interfaceTelaAlvo);
             }
         }
-        else if (editTarget == 9 && editType == 0) sprintf(txtPos, "MODO EDICAO - CORES DO EXPLORAR (USE SETAS ESQ/DIR)");
+        else if (editTarget == 10 && editType == 0) sprintf(txtPos, "MODO EDICAO - CORES DO EXPLORAR (USE SETAS ESQ/DIR)");
         else if (editType == 3) sprintf(txtPos, "MODO EDICAO - COR DE FUNDO (USE SETAS ESQ/DIR)");
         else if (editType == 8) sprintf(txtPos, "MODO EDICAO - COR PREENCHIMENTO (USE SETAS ESQ/DIR)");
         else if (editType == 4) sprintf(txtPos, "MODO EDICAO - ESPACAMENTO: %d", (listOri == 0) ? listSpcV : listSpcH);
         else if (editType == 5) sprintf(txtPos, "MODO EDICAO - ORIENTACAO: %s", listOri == 0 ? "VERTICAL" : "HORIZONTAL");
         else if (editType == 10) sprintf(txtPos, "MODO EDICAO - ALINHAMENTO: %s", fontAlign == 0 ? "ESQUERDA" : (fontAlign == 1 ? "CENTRO" : "DIREITA"));
         else if (editType == 11) sprintf(txtPos, "MODO EDICAO - LIMITES: %s", fontScroll == 0 ? "CORTAR (..)" : "ANIMACAO ROLAGEM");
-        else if (editType == 12) { int stat = 0; if (editTarget == 10) stat = elem1On; else if (editTarget == 11) stat = ctrl1On; else if (editTarget == 12) stat = pont1On; sprintf(txtPos, "MODO EDICAO - LIGADO: %s (USE SETAS)", stat ? "SIM" : "NAO"); }
+        else if (editType == 12) { int stat = 0; if (editTarget == 11) stat = elem1On; else if (editTarget == 12) stat = ctrl1On; else if (editTarget == 13) stat = pont1On; sprintf(txtPos, "MODO EDICAO - LIGADO: %s (USE SETAS)", stat ? "SIM" : "NAO"); }
         else if (editType == 13) sprintf(txtPos, "MODO EDICAO - MODO PONTEIRO: %s (USE SETAS)", pont1Modo == 0 ? "ACOMPANHA" : "ESTATICO");
         else if (editType == 14) { const char* lds[] = { "ESQ", "DIR", "CIMA", "BAIXO" }; sprintf(txtPos, "MODO EDICAO - LADO PONTEIRO: %s (USE SETAS)", lds[pont1Lado]); }
         else if (editType == 15) sprintf(txtPos, "MODO EDICAO - EFEITOS SONOROS: %s (USE SETAS)", sfxLigado ? "LIGADO" : "DESLIGADO");
@@ -564,11 +569,10 @@ void desenharInterface(uint32_t* p) {
         else if (editType == 46) sprintf(txtPos, "MODO EDICAO - EFEITO DA FONTE: %s (USE SETAS)", fontAnim == 0 ? "NORMAL" : (fontAnim == 1 ? "PULSAR" : (fontAnim == 2 ? "ARCO-IRIS" : "ONDA")));
         else if (editType == 47) sprintf(txtPos, "MODO EDICAO - CURVATURA DA ROLETA: %d (USE SETAS)", listCurvature);
         else if (editType == 48) sprintf(txtPos, "MODO EDICAO - ZOOM DO CENTRO: %d (USE SETAS)", listZoomCentro);
-        else if (editTarget == 11) sprintf(txtPos, "EDICAO CTRL - POSICAO ATUAL: X:%d Y:%d", ctrl1X, ctrl1Y);
-        else if (editTarget == 7) sprintf(txtPos, "MODO EDICAO - TAMANHO DA FONTE: %d", fontTam);
-        else if (editTarget == 8) sprintf(txtPos, "MODO EDICAO - NOTIFICACOES: X: %d  |  Y: %d  |  TAM: %d", msgX, msgY, msgTam);
+        else if (editTarget == 12) sprintf(txtPos, "EDICAO CTRL - POSICAO ATUAL: X:%d Y:%d", ctrl1X, ctrl1Y);
+        else if (editTarget == 8) sprintf(txtPos, "MODO EDICAO - TAMANHO DA FONTE: %d", fontTam);
+        else if (editTarget == 9) sprintf(txtPos, "MODO EDICAO - NOTIFICACOES: X: %d  |  Y: %d  |  TAM: %d", msgX, msgY, msgTam);
 
-        // CHROMA KEYS (Avisos de Rodapé Restauarados)
         else if (editType == 29) sprintf(txtPos, "MODO TESTE UNITY - FRAME [%d] | L1/R1: Muda Frame | SETAS: Move | TRIANGULO: Auto-Centro", anim_frameAtual);
         else if (editType == 30) sprintf(txtPos, "MODO EDICAO - ANIMACAO CONTINUA ATIVADA! (APERTE O PARA VOLTAR)");
         else if (editType == 31) sprintf(txtPos, "MODO EDICAO - ANIMACAO: VISUAL LIGADO: %s", anim_ativo ? "SIM" : "NAO");
@@ -653,9 +657,6 @@ void desenharInterface(uint32_t* p) {
 
         desenharElementos(p, selScreenX, selScreenY, wItem, listH);
     }
-
-    if (msgTimer > 0) { desenharTexto(p, msgStatus, msgTam, msgX, msgY, 0xFFFFFFFF); msgTimer--; }
-    else if ((menuAtual == MENU_EDIT_TARGET || editMode) && editTarget == 8) { desenharTexto(p, "EXEMPLO DE NOTIFICACAO...", msgTam, msgX, msgY, 0xFF00FF00); }
 
     if (downloadEmSegundoPlano) {
         int bX = barX; int bY = barY; int bW = barW; int bH = barH;
