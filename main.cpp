@@ -74,6 +74,11 @@ extern void tratarSelecaoAudio(int op);
 extern bool visualizandoMidiaImagem;
 extern bool visualizandoMidiaTexto;
 
+// ========================================================
+// PONTE GLOBAL DO COMANDO (Para o Teste de Controle usar)
+// ========================================================
+int globalPadHandle = -1;
+
 int main(void) {
     initNetwork();
     inicializarAudio();
@@ -85,7 +90,11 @@ int main(void) {
     sceUserServiceInitialize(NULL);
     int32_t uId; sceUserServiceGetInitialUser(&uId);
 
-    scePadInit(); int pad = scePadOpen(uId, 0, 0, NULL);
+    scePadInit();
+    // MÁGICA AQUI: Salva a porta do comando numa variavel global!
+    globalPadHandle = scePadOpen(uId, 0, 0, NULL);
+    int pad = globalPadHandle;
+
     inicializarVideo();
 
     off_t imePh; void* imeVm = NULL;

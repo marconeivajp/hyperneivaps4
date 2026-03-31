@@ -32,6 +32,10 @@
 #include "bloco_de_notas.h"
 #include "ftp.h" 
 
+// NOVOS MENUS
+#include "extra.h"
+#include "informacao.h"
+
 #ifndef CUSTOM_UI_DEF
 #define CUSTOM_UI_DEF
 struct CustomElementDef {
@@ -79,6 +83,7 @@ extern int ftpL2State;
 extern void acaoL2_FTP();
 
 extern int totalOpcoes;
+
 unsigned char* imgPic1 = NULL;
 int wPic1 = 0, hPic1 = 0, cPic1 = 0;
 
@@ -91,6 +96,10 @@ extern char pathExplorar[256];
 extern bool crossReleaseRequired;
 extern bool circleReleaseRequired;
 extern bool selecionandoMidiaElemento;
+
+extern CustomElementDef customUI[6][10];
+extern int interfaceTelaAlvo;
+extern int interfaceElementoAlvo;
 
 #define MAX_NAV_STACK 100
 struct EstadoNavegacao {
@@ -214,15 +223,26 @@ void processarNavegacaoDPad(uint32_t botoes) {
                     char* pExplorar = ehEsq ? pathExplorarEsq : pathExplorar;
                     if (nItems[sAtual][0] != '[') {
                         char caminhoAbs[512]; sprintf(caminhoAbs, "%s/%s", pExplorar, nItems[sAtual]);
+
                         if (strstr(caminhoAbs, "savedata") || strstr(caminhoAbs, "SAVEDATA") || strstr(caminhoAbs, "apollo") || strstr(caminhoAbs, "exported")) {
                             char saveIcon[512];
                             sprintf(saveIcon, "%s/sce_sys/icon0.png", caminhoAbs);
                             FILE* fs = fopen(saveIcon, "rb");
-                            if (!fs) { sprintf(saveIcon, "%s/icon0.png", caminhoAbs); fs = fopen(saveIcon, "rb"); }
-                            if (fs) { fclose(fs); carregarPreviewLocal(saveIcon); }
-                            else { carregarPreviewLocal(caminhoAbs); }
+                            if (!fs) {
+                                sprintf(saveIcon, "%s/icon0.png", caminhoAbs);
+                                fs = fopen(saveIcon, "rb");
+                            }
+                            if (fs) {
+                                fclose(fs);
+                                carregarPreviewLocal(saveIcon);
+                            }
+                            else {
+                                carregarPreviewLocal(caminhoAbs);
+                            }
                         }
-                        else { carregarPreviewLocal(caminhoAbs); }
+                        else {
+                            carregarPreviewLocal(caminhoAbs);
+                        }
                     }
                     else { if (imgPreview) { stbi_image_free(imgPreview); imgPreview = NULL; } }
                 }
@@ -233,14 +253,35 @@ void processarNavegacaoDPad(uint32_t botoes) {
 
 void processarControles(uint32_t botoes, int32_t uId, OrbisImeDialogSetting* imeSetting, uint16_t* imeTitle) {
     globalUserId = uId;
+
+    // SAIDA IMEDIATA SE FOR A TELA DO TESTE
+    if (menuAtual == MENU_CONTROLE_TESTE) {
+        if (botoes & ORBIS_PAD_BUTTON_OPTIONS) {
+            preencherMenuExtra();
+        }
+        return; // IGNORA TUDO O RESTO PARA NÃO INTERFERIR NO TESTE
+    }
+
     if (totalItens <= 0) { sel = 0; off = 0; }
     else if (sel >= totalItens) { sel = totalItens - 1; if (sel < off) off = sel; else if (sel >= off + 6) off = sel - 5; if (off < 0) off = 0; }
     if (painelDuplo) { if (totalItensEsq <= 0) { selEsq = 0; offEsq = 0; } else if (selEsq >= totalItensEsq) { selEsq = totalItensEsq - 1; if (selEsq < offEsq) offEsq = selEsq; else if (selEsq >= offEsq + 6) offEsq = selEsq - 5; if (offEsq < 0) offEsq = 0; } }
 
     if (editMode && menuAtual != MENU_NOTEPAD) { processarControlesEdicao(botoes); return; }
-    processarNavegacaoDPad(botoes);
 
-    bool inExplorar = (menuAtual == MENU_EXPLORAR || menuAtual == MENU_EXPLORAR_HOME || (painelDuplo && (menuAtualEsq == MENU_EXPLORAR || menuAtualEsq == MENU_EXPLORAR_HOME)));
+    // Nao navega se for ecra de informacao
+    if (menuAtual != MENU_INFORMACAO) {
+        processarNavegacaoDPad(botoes);
+    }
+
+    bool inExplorar = false;
+    if (menuAtual == MENU_EXPLORAR || menuAtual == MENU_EXPLORAR_HOME) {
+        inExplorar = true;
+    }
+    else if (painelDuplo && (menuAtualEsq == MENU_EXPLORAR || menuAtualEsq == MENU_EXPLORAR_HOME)) {
+        if (menuAtual != MENU_BAIXAR_FTP_LISTA && menuAtual != MENU_BAIXAR_DROPBOX_LISTA && menuAtual != MENU_BAIXAR_DROPBOX_UPLOAD) {
+            inExplorar = true;
+        }
+    }
 
     if (botoes & ORBIS_PAD_BUTTON_L2) { if (!pL2) { if (inExplorar) acaoL2_Explorar(); else if (menuAtual == MENU_BAIXAR_FTP_LISTA) acaoL2_FTP(); pL2 = true; } }
     else pL2 = false;
@@ -269,69 +310,56 @@ void processarControles(uint32_t botoes, int32_t uId, OrbisImeDialogSetting* ime
             else if (menuAtual == ROOT || menuAtual == MENU_TIPO_JOGO || menuAtual == MENU_JOGAR_PS4 || menuAtual == JOGAR_XML || menuAtual == MENU_MIDIA) acaoCross_Root();
             else if (menuAtual == MENU_MUSICAS || menuAtual == MENU_AUDIO_OPCOES) acaoCross_Musicas();
             else if (menuAtual == MENU_NOTEPAD) { if (!notepadSomenteLeitura) { if (estadoNotepad == 0) acaoCross_Notepad(uId, imeSetting, imeTitle, linhasNotepad[linhaSelecionada]); else if (estadoNotepad == 1) acaoCross_Notepad(uId, imeSetting, imeTitle, nomeArquivo); } }
-            else if (inExplorar) {
 
+            else if (menuAtual == MENU_EXTRA) acaoCross_Extra();
+
+            else if (menuAtual == MENU_BAIXAR || menuAtual == MENU_LOJAS || menuAtual == MENU_BAIXAR_REPOS || menuAtual == MENU_BAIXAR_GAMES_XMLS || menuAtual == MENU_BAIXAR_GAMES_LIST || menuAtual == MENU_BAIXAR_LINKS || menuAtual == MENU_BAIXAR_LINK_DIRETO || menuAtual == MENU_BAIXAR_DROPBOX_LISTA || menuAtual == MENU_BAIXAR_DROPBOX_UPLOAD || menuAtual == MENU_BAIXAR_DROPBOX_BACKUP || menuAtual == MENU_BAIXAR_FTP_SERVIDORES || menuAtual == MENU_BAIXAR_FTP_EDITAR_SERVIDOR || menuAtual == MENU_BAIXAR_FTP_LISTA || menuAtual == MENU_BAIXAR_FTP_UPLOAD_RAIZES || menuAtual == MENU_BAIXAR_FTP_UPLOAD || menuAtual == MENU_CAPAS || menuAtual == MENU_CONSOLES || menuAtual == SCRAPER_LIST) {
+                acaoCross_Baixar(uId, imeSetting, imeTitle);
+            }
+            else if (inExplorar) {
                 bool ehEsq = (painelDuplo && painelAtivo == 0);
                 int sAtual = ehEsq ? selEsq : sel;
                 char* nItem = ehEsq ? nomesEsq[sAtual] : nomes[sAtual];
 
                 bool isImage = false;
                 const char* dot = strrchr(nItem, '.');
-                if (dot && (strcasecmp(dot, ".png") == 0 || strcasecmp(dot, ".jpg") == 0 || strcasecmp(dot, ".jpeg") == 0)) {
-                    isImage = true;
+                if (dot) {
+                    if (strcasecmp(dot, ".png") == 0 || strcasecmp(dot, ".jpg") == 0 || strcasecmp(dot, ".jpeg") == 0) {
+                        isImage = true;
+                    }
                 }
 
                 if (selecionandoMidiaElemento && isImage) {
                     char* pExplorar = ehEsq ? pathExplorarEsq : pathExplorar;
-
-                    extern CustomElementDef customUI[6][10];
-                    extern int interfaceTelaAlvo;
-                    extern int interfaceElementoAlvo;
-
                     CustomElementDef* el = &customUI[interfaceTelaAlvo][interfaceElementoAlvo];
 
                     if (strcmp(pExplorar, "/") == 0) sprintf(el->caminho, "/%s", nItem);
                     else sprintf(el->caminho, "%s/%s", pExplorar, nItem);
 
                     el->ativo = true;
-
                     if (el->pW <= 0 || el->pH <= 0) {
                         el->pX = 960; el->pY = 540; el->pW = 300; el->pH = 300;
-                        el->inX = -300; el->inY = 540;
-                        el->outX = 2200; el->outY = 540;
-                        el->animInAtiva = true; el->animOutAtiva = true;
-                        el->velIn = 6; el->velOut = 6;
+                        el->inX = -300; el->inY = 540; el->outX = 2200; el->outY = 540;
+                        el->animInAtiva = true; el->animOutAtiva = true; el->velIn = 6; el->velOut = 6;
                     }
 
                     extern void salvarCustomUI(); salvarCustomUI();
-                    selecionandoMidiaElemento = false;
-                    isFirstFrameUI = true;
-
-                    menuAtual = MENU_EDIT_TARGET;
-                    editTarget = 18;
-                    extern void preencherMenuEditTarget(); preencherMenuEditTarget();
-                    sel = 1; off = 0;
-
-                    editType = 62;
-                    editMode = true;
-                    crossReleaseRequired = true;
-                    circleReleaseRequired = true;
+                    selecionandoMidiaElemento = false; isFirstFrameUI = true;
+                    menuAtual = MENU_EDIT_TARGET; editTarget = 18;
+                    extern void preencherMenuEditTarget(); preencherMenuEditTarget(); sel = 1; off = 0;
+                    editType = 62; editMode = true; crossReleaseRequired = true; circleReleaseRequired = true;
 
                     extern char msgStatus[128]; extern int msgTimer;
-                    strcpy(msgStatus, "IMAGEM CARREGADA! USE AS SETAS PARA POSICIONAR.");
-                    msgTimer = 180;
+                    strcpy(msgStatus, "IMAGEM CARREGADA! USE AS SETAS PARA POSICIONAR."); msgTimer = 180;
                 }
                 else if (selecionandoMidiaElemento && !isImage) {
-                    selecionandoMidiaElemento = false;
-                    extern void acaoCross_Explorar(); acaoCross_Explorar();
-                    selecionandoMidiaElemento = true;
+                    selecionandoMidiaElemento = false; extern void acaoCross_Explorar(); acaoCross_Explorar(); selecionandoMidiaElemento = true;
                 }
                 else {
                     extern void acaoCross_Explorar(); acaoCross_Explorar();
                 }
             }
             else if (menuAtual == MENU_EDITAR || menuAtual == MENU_EDIT_TARGET) acaoCross_Editar();
-            else if (menuAtual == MENU_BAIXAR || menuAtual == MENU_LOJAS || menuAtual == MENU_BAIXAR_REPOS || menuAtual == MENU_BAIXAR_GAMES_XMLS || menuAtual == MENU_BAIXAR_GAMES_LIST || menuAtual == MENU_BAIXAR_LINKS || menuAtual == MENU_BAIXAR_LINK_DIRETO || menuAtual == MENU_BAIXAR_DROPBOX_LISTA || menuAtual == MENU_BAIXAR_DROPBOX_UPLOAD || menuAtual == MENU_BAIXAR_DROPBOX_BACKUP || menuAtual == MENU_BAIXAR_FTP_SERVIDORES || menuAtual == MENU_BAIXAR_FTP_EDITAR_SERVIDOR || menuAtual == MENU_BAIXAR_FTP_LISTA || menuAtual == MENU_BAIXAR_FTP_UPLOAD_RAIZES || menuAtual == MENU_BAIXAR_FTP_UPLOAD || menuAtual == MENU_CAPAS || menuAtual == MENU_CONSOLES || menuAtual == SCRAPER_LIST) acaoCross_Baixar(uId, imeSetting, imeTitle);
 
             if (menuAtual != mAntes || strcmp(pathExplorar, pAntes) != 0 || menuAtualEsq != mEsqAntes || strcmp(pathExplorarEsq, pEsqAntes) != 0) {
                 if (navTopo < MAX_NAV_STACK) {
@@ -358,32 +386,36 @@ void processarControles(uint32_t botoes, int32_t uId, OrbisImeDialogSetting* ime
             else if (menuAtual == MENU_AUDIO_OPCOES && veioDeOutroMenuParaAudio) { menuAtual = menuAntesDoAudio; showOpcoes = false; veioDeOutroMenuParaAudio = false; }
             else if (showOpcoes && menuAtual != MENU_AUDIO_OPCOES) showOpcoes = false;
             else {
-                if (menuAtual == MENU_NOTEPAD) { if (notepadSomenteLeitura) menuAtual = MENU_MIDIA; else { if (estadoNotepad == 1) estadoNotepad = 0; else { menuAtual = MENU_EXPLORAR; if (painelDuplo && painelAtivo == 0) { extern void listarDiretorioEsq(const char*); listarDiretorioEsq(pathExplorarEsq); } else { extern void listarDiretorio(const char*); listarDiretorio(pathExplorar); } } } }
-                else if (menuAtual == JOGAR_XML || menuAtual == MENU_MIDIA || menuAtual == MENU_TIPO_JOGO || menuAtual == MENU_JOGAR_PS4) acaoCircle_Root();
+                if (menuAtual == MENU_NOTEPAD) {
+                    if (notepadSomenteLeitura) menuAtual = MENU_MIDIA;
+                    else {
+                        if (estadoNotepad == 1) estadoNotepad = 0;
+                        else {
+                            menuAtual = MENU_EXPLORAR;
+                            if (painelDuplo && painelAtivo == 0) { extern void listarDiretorioEsq(const char*); listarDiretorioEsq(pathExplorarEsq); }
+                            else { extern void listarDiretorio(const char*); listarDiretorio(pathExplorar); }
+                        }
+                    }
+                }
+                else if (menuAtual == JOGAR_XML || menuAtual == MENU_MIDIA || menuAtual == MENU_TIPO_JOGO || menuAtual == MENU_JOGAR_PS4 || menuAtual == MENU_EXTRA || menuAtual == MENU_INFORMACAO) acaoCircle_Root();
                 else if (menuAtual == MENU_MUSICAS || menuAtual == MENU_AUDIO_OPCOES) acaoCircle_Musicas();
+                else if (menuAtual == MENU_BAIXAR || menuAtual == MENU_LOJAS || menuAtual == MENU_BAIXAR_REPOS || menuAtual == MENU_BAIXAR_GAMES_XMLS || menuAtual == MENU_BAIXAR_GAMES_LIST || menuAtual == MENU_BAIXAR_LINKS || menuAtual == MENU_BAIXAR_LINK_DIRETO || menuAtual == MENU_BAIXAR_DROPBOX_LISTA || menuAtual == MENU_BAIXAR_DROPBOX_UPLOAD || menuAtual == MENU_BAIXAR_DROPBOX_BACKUP || menuAtual == MENU_BAIXAR_FTP_SERVIDORES || menuAtual == MENU_BAIXAR_FTP_EDITAR_SERVIDOR || menuAtual == MENU_BAIXAR_FTP_LISTA || menuAtual == MENU_BAIXAR_FTP_UPLOAD_RAIZES || menuAtual == MENU_BAIXAR_FTP_UPLOAD || menuAtual == MENU_CAPAS || menuAtual == MENU_CONSOLES || menuAtual == SCRAPER_LIST) {
+                    acaoCircle_Baixar();
+                }
                 else if (inExplorar) {
                     if (selecionandoMidiaElemento) {
-                        selecionandoMidiaElemento = false;
-                        extern void acaoCircle_Explorar(); acaoCircle_Explorar();
+                        selecionandoMidiaElemento = false; extern void acaoCircle_Explorar(); acaoCircle_Explorar();
                         if (menuAtual != MENU_EXPLORAR && menuAtual != MENU_EXPLORAR_HOME && menuAtualEsq != MENU_EXPLORAR && menuAtualEsq != MENU_EXPLORAR_HOME) {
-                            menuAtual = MENU_EDIT_TARGET;
-                            editTarget = 17;
-                            extern void preencherMenuEditTarget(); preencherMenuEditTarget();
-                            sel = 0; off = 0;
-                            extern char msgStatus[128]; extern int msgTimer;
-                            strcpy(msgStatus, "CRIACAO CANCELADA.");
-                            msgTimer = 90;
+                            menuAtual = MENU_EDIT_TARGET; editTarget = 17; extern void preencherMenuEditTarget(); preencherMenuEditTarget(); sel = 0; off = 0;
+                            extern char msgStatus[128]; extern int msgTimer; strcpy(msgStatus, "CRIACAO CANCELADA."); msgTimer = 90;
                         }
-                        else {
-                            selecionandoMidiaElemento = true;
-                        }
+                        else { selecionandoMidiaElemento = true; }
                     }
                     else {
                         extern void acaoCircle_Explorar(); acaoCircle_Explorar();
                     }
                 }
                 else if (menuAtual == MENU_EDITAR || menuAtual == MENU_EDIT_TARGET) acaoCircle_Editar();
-                else if (menuAtual == MENU_BAIXAR || menuAtual == MENU_LOJAS || menuAtual == MENU_BAIXAR_REPOS || menuAtual == MENU_BAIXAR_GAMES_XMLS || menuAtual == MENU_BAIXAR_GAMES_LIST || menuAtual == MENU_BAIXAR_LINKS || menuAtual == MENU_BAIXAR_LINK_DIRETO || menuAtual == MENU_BAIXAR_DROPBOX_LISTA || menuAtual == MENU_BAIXAR_DROPBOX_UPLOAD || menuAtual == MENU_BAIXAR_DROPBOX_BACKUP || menuAtual == MENU_BAIXAR_FTP_SERVIDORES || menuAtual == MENU_BAIXAR_FTP_EDITAR_SERVIDOR || menuAtual == MENU_BAIXAR_FTP_LISTA || menuAtual == MENU_BAIXAR_FTP_UPLOAD_RAIZES || menuAtual == MENU_BAIXAR_FTP_UPLOAD || menuAtual == MENU_CAPAS || menuAtual == MENU_CONSOLES || menuAtual == SCRAPER_LIST) acaoCircle_Baixar();
             }
             if (menuAtual != mAntes || strcmp(pathExplorar, pAntes) != 0 || menuAtualEsq != mEsqAntes || strcmp(pathExplorarEsq, pEsqAntes) != 0) {
                 if (navTopo > 0) {
@@ -402,9 +434,9 @@ void processarControles(uint32_t botoes, int32_t uId, OrbisImeDialogSetting* ime
             if (botoes & ORBIS_PAD_BUTTON_L2) { if (menuAtual != MENU_AUDIO_OPCOES) { menuAntesDoAudio = menuAtual; veioDeOutroMenuParaAudio = true; abrirMenuAudioOpcoes(); } else if (veioDeOutroMenuParaAudio) { menuAtual = menuAntesDoAudio; showOpcoes = false; veioDeOutroMenuParaAudio = false; } }
             else {
                 if (menuAtual == MENU_MUSICAS) acaoTriangle_Musicas();
-                else if (inExplorar) { extern void acaoTriangle_Explorar(); acaoTriangle_Explorar(); }
-                else if (menuAtual == MENU_BAIXAR_DROPBOX_UPLOAD || menuAtual == MENU_BAIXAR_DROPBOX_LISTA) { extern void acaoTriangle_MenuUpload(); acaoTriangle_MenuUpload(); }
                 else if (menuAtual == MENU_BAIXAR_FTP_SERVIDORES || menuAtual == MENU_BAIXAR_FTP_LISTA || menuAtual == MENU_BAIXAR_FTP_UPLOAD) acaoTriangle_Baixar();
+                else if (menuAtual == MENU_BAIXAR_DROPBOX_UPLOAD || menuAtual == MENU_BAIXAR_DROPBOX_LISTA) { extern void acaoTriangle_MenuUpload(); acaoTriangle_MenuUpload(); }
+                else if (inExplorar) { extern void acaoTriangle_Explorar(); acaoTriangle_Explorar(); }
             } pTri = true;
         }
     }

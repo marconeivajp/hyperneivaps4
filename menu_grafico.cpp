@@ -11,13 +11,59 @@
 #include <strings.h>
 #include <stdio.h>
 #include <dirent.h>
-#include <stdlib.h>
 #include <math.h> 
 #include "stb_image.h"
-#include "elementos_animados_sprite_sheet.h"
-#include "editar.h"
 
-// DECLARACÕES DA ENGINE
+#include "elementos_animados_sprite_sheet.h"
+
+extern int mapAcoes[50];
+extern int sel;
+
+extern bool editMode; extern int editTarget; extern int editType; extern bool showOpcoes; extern int selOpcao; extern char pathExplorar[256]; extern bool marcados[3000]; extern const char* listaOpcoes[150]; extern char bufferTecladoC[128]; extern unsigned char* imgPreview;
+extern unsigned char* defaultArtwork1; extern unsigned char* defaultArtwork2; extern int wDef1, hDef1; extern int wDef2, hDef2;
+
+extern int listXV, listYV, listSpcV, listXH, listYH, listSpcH;
+extern int listW, listH, capaX, capaY, capaW, capaH, discoX, discoY, discoW, discoH;
+extern int barX, barY, barW, barH, audioX, audioY, audioW, audioH, upX, upY, upW, upH;
+extern int fontTam, msgX, msgY, msgTam, listOri, listBg;
+extern int barBg, barFill, listMark, listHoverMark, backX, backY, backW, backH; extern int wP, hP;
+extern int fontAlign, fontScroll;
+
+extern int picX, picY, picW, picH;
+extern int vidX, vidY, vidW, vidH;
+
+extern unsigned char* imgPic1;
+extern int wPic1, hPic1, cPic1;
+
+extern int elem1X, elem1Y, elem1W, elem1H, elem1On;
+extern int ctrl1X, ctrl1Y, ctrl1W, ctrl1H, ctrl1On;
+extern int pont1X, pont1Y, pont1W, pont1H, pont1On, pont1Modo, pont1Lado;
+
+extern int sfxLigado, sfxVolume;
+extern int upBg, upTextNorm, upTextSel;
+
+extern int listStyle, fontAnim, listCurvature, listZoomCentro;
+
+int offOpcao = 0;
+int frameContadorGlobal = 0;
+
+extern bool visualizandoMidiaImagem; extern unsigned char* imgMidia; extern int wM, hM; extern float zoomMidia; extern bool fullscreenMidia;
+extern bool visualizandoMidiaTexto; extern char* textoMidiaBuffer; extern char* linhasTexto[5000]; extern int totalLinhasTexto; extern int textoMidiaScroll;
+extern bool painelDuplo; extern int painelAtivo; extern char nomesEsq[3000][64]; extern bool marcadosEsq[3000]; extern char pathExplorarEsq[256]; extern int selEsq; extern int totalItensEsq; extern MenuLevel menuAtualEsq; extern int offEsq;
+extern bool emApolloSaves;
+
+extern volatile bool downloadEmSegundoPlano;
+extern volatile float progressoAtualDownload;
+extern char msgDownloadBg[256];
+extern volatile int totalFilaSessao;
+extern volatile int baixadosFilaSessao;
+
+extern int totalOpcoes;
+extern char ipDoPS4[64];
+
+char nomeItemAnterior[128] = ""; unsigned char* imgBgDinamico = NULL; int dynBgW = 0, dynBgH = 0, dynBgC = 0; unsigned char* imgCapaDinamica = NULL; int dynCapaW = 0, dynCapaH = 0, dynCapaC = 0; unsigned char* imgDiscoDinamico = NULL; int dynDiscoW = 0, dynDiscoH = 0, dynDiscoC = 0;
+static unsigned char* imgVidEdicao = NULL; static int wVidE = 0, hVidE = 0, cVidE = 0; static bool tentouVidE = false;
+
 extern bool isFirstFrameUI;
 extern int uiW[10];
 extern int uiH[10];
@@ -48,39 +94,8 @@ extern CustomElementDef customUI[6][10];
 extern int interfaceTelaAlvo;
 extern int interfaceElementoAlvo;
 
-extern bool editMode; extern int editTarget; extern int editType; extern bool showOpcoes; extern int selOpcao; extern char pathExplorar[256]; extern bool marcados[3000]; extern const char* listaOpcoes[150]; extern char bufferTecladoC[128]; extern unsigned char* imgPreview;
-extern unsigned char* defaultArtwork1; extern unsigned char* defaultArtwork2; extern int wDef1, hDef1; extern int wDef2, hDef2;
-
-extern int listXV, listYV, listSpcV, listXH, listYH, listSpcH;
-extern int listW, listH, capaX, capaY, capaW, capaH, discoX, discoY, discoW, discoH;
-extern int barX, barY, barW, barH, audioX, audioY, audioW, audioH, upX, upY, upW, upH;
-extern int fontTam, msgX, msgY, msgTam, listOri, listBg;
-extern int barBg, barFill, listMark, listHoverMark, backX, backY, backW, backH; extern int wP, hP;
-extern int fontAlign, fontScroll;
-
-extern int picX, picY, picW, picH;
-extern unsigned char* imgPic1; extern int wPic1, hPic1, cPic1;
-
-extern int elem1X, elem1Y, elem1W, elem1H, elem1On;
-extern int ctrl1X, ctrl1Y, ctrl1W, ctrl1H, ctrl1On;
-extern int pont1X, pont1Y, pont1W, pont1H, pont1On, pont1Modo, pont1Lado;
-
-extern int sfxLigado, sfxVolume;
-extern int upBg, upTextNorm, upTextSel;
-
-int offOpcao = 0; int frameContadorGlobal = 0;
-
-extern bool visualizandoMidiaImagem; extern unsigned char* imgMidia; extern int wM, hM; extern float zoomMidia; extern bool fullscreenMidia;
-extern bool visualizandoMidiaTexto; extern char* textoMidiaBuffer; extern char* linhasTexto[5000]; extern int totalLinhasTexto; extern int textoMidiaScroll;
-extern bool painelDuplo; extern int painelAtivo; extern char nomesEsq[3000][64]; extern bool marcadosEsq[3000]; extern char pathExplorarEsq[256]; extern int selEsq; extern int totalItensEsq; extern MenuLevel menuAtualEsq; extern int offEsq;
-
-extern volatile bool downloadEmSegundoPlano; extern volatile float progressoAtualDownload; extern char msgDownloadBg[256]; extern volatile int totalFilaSessao; extern volatile int baixadosFilaSessao;
-extern int totalOpcoes; extern char ipDoPS4[64];
 extern char ultimoJogoCarregado[64]; extern int consoleAtual;
 extern stbtt_fontinfo font; extern int temF;
-
-char nomeItemAnterior[128] = ""; unsigned char* imgBgDinamico = NULL; int dynBgW = 0, dynBgH = 0, dynBgC = 0; unsigned char* imgCapaDinamica = NULL; int dynCapaW = 0, dynCapaH = 0, dynCapaC = 0; unsigned char* imgDiscoDinamico = NULL; int dynDiscoW = 0, dynDiscoH = 0, dynDiscoC = 0;
-static unsigned char* imgVidEdicao = NULL; static int wVidE = 0, hVidE = 0, cVidE = 0; static bool tentouVidE = false;
 
 void limparCacheGrafico() {
     if (imgVidEdicao) { stbi_image_free(imgVidEdicao); imgVidEdicao = NULL; }
@@ -100,8 +115,23 @@ void limparCacheGrafico() {
 
 uint32_t getSysColor(int index) {
     uint32_t sysColors[] = { 0xAA222222, 0xAA000000, 0xAA000044, 0xAA440000, 0xAA004400, 0x00000000, 0xFF444444, 0xFF00D83A, 0xAAFFFF99, 0xFF00FF00, 0xFF00AAFF, 0xAA999933, 0xFFFFFFFF, 0xFFFF0000, 0xFF0000FF };
-    if (index < 0 || index > 14) return sysColors[0]; return sysColors[index];
+    if (index < 0 || index > 14) return sysColors[0];
+    return sysColors[index];
 }
+
+static int advance_utf8(const char* str, int num_chars) {
+    int idx = 0;
+    for (int i = 0; i < num_chars; i++) {
+        if (str[idx] == '\0') break;
+        idx++;
+        while (str[idx] != '\0' && (str[idx] & 0xC0) == 0x80) {
+            idx++;
+        }
+    }
+    return idx;
+}
+
+static bool isTextoAnimado = false;
 
 int medirLarguraTexto(const char* texto, int tam) {
     if (!temF || !texto) return 0; float s = stbtt_ScaleForPixelHeight(&font, (float)tam); int totalW = 0;
@@ -124,19 +154,63 @@ void desenharTextoClip(uint32_t* pixels, const char* texto, int tam, int x, int 
     }
 }
 
+// ===========================================================================
+// MÁGICA DO SCROLL (ROLAGEM): VAI E VOLTA SUAVEMENTE QUANDO O TEXTO É GRANDE
+// ===========================================================================
 void desenharTextoAlinhadoAnimado(uint32_t* p, const char* textoOriginal, int fTam, int xBase, int y, int maxW, uint32_t cor, bool isSelected) {
-    int espacoDisponivel = maxW - 40; int pxWidth = medirLarguraTexto(textoOriginal, fTam); int posX = xBase + 20;
-    if (pxWidth <= espacoDisponivel) { if (fontAlign == 1) posX = xBase + (maxW / 2) - (pxWidth / 2); else if (fontAlign == 2) posX = xBase + maxW - pxWidth - 20; }
-    if (pxWidth > espacoDisponivel) {
-        if (fontScroll == 1) {
-            if (isSelected) { int excessPx = pxWidth - espacoDisponivel; int cycle = 120; int pos = frameContadorGlobal % cycle; int pixelShift = 0; if (pos >= 60) { float progress = (float)(pos - 60) / 60.0f; pixelShift = (int)(progress * excessPx); } desenharTextoClip(p, textoOriginal, fTam, posX - pixelShift, y, cor, xBase + 20, espacoDisponivel); }
-            else desenharTextoClip(p, textoOriginal, fTam, posX, y, cor, xBase + 20, espacoDisponivel);
-        }
-        else { int maxChars = espacoDisponivel / (fTam * 0.55f); if (maxChars < 4) maxChars = 4; char txtFinal[512]; strncpy(txtFinal, textoOriginal, maxChars - 3); txtFinal[maxChars - 3] = '\0'; strcat(txtFinal, "..."); desenharTexto(p, txtFinal, fTam, posX, y, cor); }
+    int espacoDisponivel = maxW - 40;
+    int pxWidth = medirLarguraTexto(textoOriginal, fTam);
+    int posX = xBase + 20;
+
+    if (pxWidth <= espacoDisponivel) {
+        if (fontAlign == 1) posX = xBase + (maxW / 2) - (pxWidth / 2);
+        else if (fontAlign == 2) posX = xBase + maxW - pxWidth - 20;
+        desenharTextoClip(p, textoOriginal, fTam, posX, y, cor, xBase, maxW);
     }
-    else { desenharTextoClip(p, textoOriginal, fTam, posX, y, cor, xBase, maxW); }
+    else {
+        // O TEXTO É MAIOR QUE O BOTÃO/ESPAÇO
+        if (isSelected) {
+            int excessPx = pxWidth - espacoDisponivel + 30; // Deixa 30px extras para não ficar apertado no fim
+            int cycle = 240; // 4 segundos de ciclo a 60fps
+            int pos = frameContadorGlobal % cycle;
+            int pixelShift = 0;
+
+            // 0 a 60 (1s): Pausa no inicio para a pessoa começar a ler
+            // 60 a 120 (1s): Rola suavemente para a esquerda (mostrando o final do texto)
+            if (pos > 60 && pos <= 120) {
+                float progress = (float)(pos - 60) / 60.0f;
+                progress = progress * progress * (3.0f - 2.0f * progress); // Ease in-out (suavidade)
+                pixelShift = (int)(progress * excessPx);
+            }
+            // 120 a 180 (1s): Pausa no final para acabar de ler
+            else if (pos > 120 && pos <= 180) {
+                pixelShift = excessPx;
+            }
+            // 180 a 240 (1s): Rola de volta para o inicio suavemente
+            else if (pos > 180) {
+                float progress = (float)(pos - 180) / 60.0f;
+                progress = progress * progress * (3.0f - 2.0f * progress);
+                pixelShift = (int)((1.0f - progress) * excessPx);
+            }
+
+            desenharTextoClip(p, textoOriginal, fTam, posX - pixelShift, y, cor, xBase + 20, espacoDisponivel);
+        }
+        else {
+            // Se nao estiver com a barra de seleção em cima, corta o texto e põe "..."
+            int maxChars = espacoDisponivel / (fTam * 0.55f);
+            if (maxChars < 4) maxChars = 4;
+            char txtFinal[512];
+            strncpy(txtFinal, textoOriginal, maxChars - 3);
+            txtFinal[maxChars - 3] = '\0';
+            strcat(txtFinal, "...");
+            desenharTexto(p, txtFinal, fTam, posX, y, cor);
+        }
+    }
 }
-void desenharTextoAlinhado(uint32_t* p, const char* textoOriginal, int fTam, int xBase, int y, int maxW, uint32_t cor) { desenharTextoAlinhadoAnimado(p, textoOriginal, fTam, xBase, y, maxW, cor, false); }
+
+void desenharTextoAlinhado(uint32_t* p, const char* textoOriginal, int fTam, int xBase, int y, int maxW, uint32_t cor) {
+    desenharTextoAlinhadoAnimado(p, textoOriginal, fTam, xBase, y, maxW, cor, false);
+}
 
 unsigned char* carregarMediaCaseInsensitive(const char* pastaPath, const char* nomeProcurado, int* w, int* h, int* c) {
     if (!pastaPath || !nomeProcurado || strlen(nomeProcurado) == 0 || strcmp(nomeProcurado, "..") == 0) return NULL;
@@ -152,6 +226,17 @@ unsigned char* carregarMediaCaseInsensitive(const char* pastaPath, const char* n
 
 void desenharInterface(uint32_t* p) {
     frameContadorGlobal++;
+
+    if (menuAtual == MENU_CONTROLE_TESTE) {
+        extern void renderizarControleTeste(uint32_t * p);
+        renderizarControleTeste(p);
+        return;
+    }
+    if (menuAtual == MENU_INFORMACAO) {
+        extern void renderizarInformacao(uint32_t * p);
+        renderizarInformacao(p);
+        return;
+    }
 
     if (!tentouVidE) {
         imgVidEdicao = stbi_load("/user/appmeta/CUSA18879/pic1.png", &wVidE, &hVidE, &cVidE, 4);
@@ -184,21 +269,22 @@ void desenharInterface(uint32_t* p) {
                 strncpy(ultimoJogoCarregado, nAtivo, 63); ultimoJogoCarregado[63] = '\0';
             }
         }
-        else if (strcmp(nomeItemAnterior, nAtivo) != 0) {
+        else if (strcmp(nomeItemAnterior, nAtivo) != 0 && menuAtual != MENU_JOGAR_PS4) {
             strcpy(nomeItemAnterior, nAtivo);
             if (imgBgDinamico) { stbi_image_free(imgBgDinamico); imgBgDinamico = NULL; }
             if (imgCapaDinamica) { stbi_image_free(imgCapaDinamica); imgCapaDinamica = NULL; }
             if (imgDiscoDinamico) { stbi_image_free(imgDiscoDinamico); imgDiscoDinamico = NULL; }
 
-            imgBgDinamico = carregarMediaCaseInsensitive("/data/HyperNeiva/midia/imagens/Games/Background", nomeItemAnterior, &dynBgW, &dynBgH, &dynBgC);
-            imgCapaDinamica = carregarMediaCaseInsensitive("/data/HyperNeiva/midia/imagens/Games/Artwork1", nomeItemAnterior, &dynCapaW, &dynCapaH, &dynCapaC);
-            if (!imgCapaDinamica) { char cp[512]; snprintf(cp, sizeof(cp), "/user/app/meta/%s/icon0.png", nomeItemAnterior); imgCapaDinamica = stbi_load(cp, &dynCapaW, &dynCapaH, &dynCapaC, 4); }
-            imgDiscoDinamico = carregarMediaCaseInsensitive("/data/HyperNeiva/midia/imagens/Games/Artwork2", nomeItemAnterior, &dynDiscoW, &dynDiscoH, &dynDiscoC);
+            if (strlen(nomeItemAnterior) > 0) {
+                imgBgDinamico = carregarMediaCaseInsensitive("/data/HyperNeiva/midia/imagens/Games/Background", nomeItemAnterior, &dynBgW, &dynBgH, &dynBgC);
+                imgCapaDinamica = carregarMediaCaseInsensitive("/data/HyperNeiva/midia/imagens/Games/Artwork1", nomeItemAnterior, &dynCapaW, &dynCapaH, &dynCapaC);
+                imgDiscoDinamico = carregarMediaCaseInsensitive("/data/HyperNeiva/midia/imagens/Games/Artwork2", nomeItemAnterior, &dynDiscoW, &dynDiscoH, &dynDiscoC);
+            }
         }
     }
 
-    if (menuAtual != MENU_NOTEPAD && imgBgDinamico) {
-        desenharRedimensionado(p, imgBgDinamico, dynBgW, dynBgH, backW, backH, backX, backY);
+    if (menuAtual != MENU_NOTEPAD && menuAtualEsq != MENU_NOTEPAD && imgBgDinamico) {
+        desenharRedimensionado(p, imgBgDinamico, dynBgW, dynBgH, 1920, 1080, 0, 0);
     }
 
     if ((menuAtual == MENU_EDIT_TARGET || editMode) && editTarget == 4) {
@@ -212,7 +298,9 @@ void desenharInterface(uint32_t* p) {
         }
     }
 
-    if (menuAtual != MENU_NOTEPAD && !visualizandoMidiaImagem && !visualizandoMidiaTexto) { desenharElementoAnimado(p); }
+    if (menuAtual != MENU_NOTEPAD && menuAtualEsq != MENU_NOTEPAD && !visualizandoMidiaImagem && !visualizandoMidiaTexto) {
+        desenharElementoAnimado(p);
+    }
 
     // ==========================================================
     // MOTOR DE RENDERIZAÇÃO E ANIMAÇÃO DOS ELEMENTOS CUSTOM UI
@@ -220,8 +308,8 @@ void desenharInterface(uint32_t* p) {
     int telaId = 0;
     if (menuAtual == ROOT || menuAtual == MENU_TIPO_JOGO) telaId = 0;
     else if (menuAtual == SCRAPER_LIST || menuAtual == JOGAR_XML || menuAtual == MENU_JOGAR_PS4) telaId = 1;
-    else if (menuAtual == MENU_NOTEPAD || menuAtual == MENU_AUDIO_OPCOES || menuAtual == MENU_MIDIA) telaId = 2;
-    else if (menuAtual == MENU_BAIXAR || menuAtual == MENU_BAIXAR_LINK_DIRETO || menuAtual == MENU_BAIXAR_DROPBOX_LISTA || menuAtual == MENU_BAIXAR_FTP_LISTA || menuAtual == MENU_BAIXAR_FTP_SERVIDORES) telaId = 3;
+    else if (menuAtual == MENU_NOTEPAD || menuAtual == MENU_AUDIO_OPCOES || menuAtual == MENU_MIDIA || menuAtual == MENU_EXTRA || menuAtual == MENU_INFORMACAO) telaId = 2;
+    else if (menuAtual == MENU_BAIXAR || menuAtual == MENU_BAIXAR_LINK_DIRETO || menuAtual == MENU_BAIXAR_DROPBOX_LISTA || menuAtual == MENU_BAIXAR_FTP_LISTA || menuAtual == MENU_BAIXAR_FTP_SERVIDORES || menuAtual == MENU_LOJAS || menuAtual == MENU_BAIXAR_REPOS || menuAtual == MENU_BAIXAR_GAMES_XMLS || menuAtual == MENU_BAIXAR_GAMES_LIST || menuAtual == MENU_BAIXAR_LINKS || menuAtual == MENU_BAIXAR_DROPBOX_UPLOAD || menuAtual == MENU_BAIXAR_DROPBOX_BACKUP || menuAtual == MENU_BAIXAR_FTP_EDITAR_SERVIDOR || menuAtual == MENU_BAIXAR_FTP_UPLOAD_RAIZES || menuAtual == MENU_BAIXAR_FTP_UPLOAD || menuAtual == MENU_CAPAS || menuAtual == MENU_CONSOLES) telaId = 3;
     else if (menuAtual == MENU_EDITAR || menuAtual == MENU_EDIT_TARGET) telaId = 4;
     else if (menuAtual == MENU_EXPLORAR || menuAtual == MENU_EXPLORAR_HOME) telaId = 5;
 
@@ -313,6 +401,7 @@ void desenharInterface(uint32_t* p) {
             }
         }
     }
+    // ==========================================================
 
     if (visualizandoMidiaTexto && textoMidiaBuffer) {
         for (int i = 0; i < 1920 * 1080; i++) p[i] = 0xFF151515; for (int by = 0; by < 80; by++) for (int bx = 0; bx < 1920; bx++) p[by * 1920 + bx] = 0xFF303030; desenharTexto(p, "LEITOR DE ARQUIVOS", 35, 50, 25, 0xFF00AAFF);
@@ -329,122 +418,152 @@ void desenharInterface(uint32_t* p) {
         desenharTexto(p, "[X] Tela Cheia", 25, 1500, 960, 0xFFFFFFFF); desenharTexto(p, "[Cima/Baixo] Zoom", 25, 1500, 1000, 0xFFFFFFFF); desenharTexto(p, "[O] Voltar", 25, 1500, 1040, 0xFFFFFFFF); return;
     }
 
-    if (menuAtual != MENU_NOTEPAD) {
-        int paineisDesenhar = painelDuplo ? 2 : 1; uint32_t corBasePainel = getSysColor(listBg);
-        int curListX = (listOri == 0) ? listXV : listXH; int curListY = (listOri == 0) ? listYV : listYH; int curListSpc = (listOri == 0) ? listSpcV : listSpcH;
+    if (menuAtual == MENU_NOTEPAD || menuAtualEsq == MENU_NOTEPAD) {
+        renderizarNotepad(p);
+        return;
+    }
 
-        for (int painelIndex = 0; painelIndex < paineisDesenhar; painelIndex++) {
-            int refPainel = painelDuplo ? painelIndex : 1; int sAtual = (refPainel == 0) ? selEsq : sel; int oAtual = (refPainel == 0) ? offEsq : off;
-            int tItens = (refPainel == 0) ? totalItensEsq : totalItens; char (*nItems)[64] = (refPainel == 0) ? nomesEsq : nomes; bool* mItems = (refPainel == 0) ? marcadosEsq : marcados; MenuLevel mAtual = (refPainel == 0) ? menuAtualEsq : menuAtual;
+    int paineisDesenhar = painelDuplo ? 2 : 1; uint32_t corBasePainel = getSysColor(listBg);
+    int curListX = (listOri == 0) ? listXV : listXH; int curListY = (listOri == 0) ? listYV : listYH; int curListSpc = (listOri == 0) ? listSpcV : listSpcH;
 
-            if (mAtual == MENU_EXPLORAR_HOME && tItens <= 0) { strcpy(nItems[0], "Hyper Neiva"); strcpy(nItems[1], "Raiz"); strcpy(nItems[2], "USB 0"); strcpy(nItems[3], "USB 1"); tItens = 4; if (refPainel == 0) totalItensEsq = 4; else totalItens = 4; }
+    for (int painelIndex = 0; painelIndex < paineisDesenhar; painelIndex++) {
+        int refPainel = painelDuplo ? painelIndex : 1; int sAtual = (refPainel == 0) ? selEsq : sel; int oAtual = (refPainel == 0) ? offEsq : off;
+        int tItens = (refPainel == 0) ? totalItensEsq : totalItens; char (*nItems)[64] = (refPainel == 0) ? nomesEsq : nomes; bool* mItems = (refPainel == 0) ? marcadosEsq : marcados; MenuLevel mAtual = (refPainel == 0) ? menuAtualEsq : menuAtual;
 
-            int larguraBarraDupla = 750; int posX_Base = (painelDuplo) ? ((refPainel == 0) ? capaX : curListX) : curListX; int larguraItem = (painelDuplo) ? larguraBarraDupla : listW;
-            int stepX = (listOri == 1) ? curListSpc : 0; int stepY = (listOri == 0) ? curListSpc : 0;
+        if (mAtual == MENU_EXPLORAR_HOME && tItens <= 0) { strcpy(nItems[0], "Hyper Neiva"); strcpy(nItems[1], "Raiz"); strcpy(nItems[2], "USB 0"); strcpy(nItems[3], "USB 1"); tItens = 4; if (refPainel == 0) totalItensEsq = 4; else totalItens = 4; }
 
-            static float smoothSelDir = 0.0f; static float smoothSelEsq = 0.0f; static MenuLevel lastMenu2 = ROOT;
-            if (lastMenu2 != menuAtual) { smoothSelDir = sel; smoothSelEsq = selEsq; lastMenu2 = menuAtual; }
-            float& smoothSel = (refPainel == 0) ? smoothSelEsq : smoothSelDir;
+        int larguraBarraDupla = 750; int posX_Base = (painelDuplo) ? ((refPainel == 0) ? capaX : curListX) : curListX; int larguraItem = (painelDuplo) ? larguraBarraDupla : listW;
+        int stepX = (listOri == 1) ? curListSpc : 0; int stepY = (listOri == 0) ? curListSpc : 0;
 
-            if (fabs(smoothSel - sAtual) > 20.0f) smoothSel = sAtual;
-            smoothSel += (sAtual - smoothSel) * 0.15f;
+        static float smoothSelDir = 0.0f; static float smoothSelEsq = 0.0f; static MenuLevel lastMenu2 = ROOT;
+        if (lastMenu2 != menuAtual) { smoothSelDir = sel; smoothSelEsq = selEsq; lastMenu2 = menuAtual; }
+        float& smoothSel = (refPainel == 0) ? smoothSelEsq : smoothSelDir;
 
-            int loopStart = 0; int loopEnd = 6;
-            if (listStyle == 1) { loopStart = (int)smoothSel - 4; loopEnd = (int)smoothSel + 4; }
+        if (fabs(smoothSel - sAtual) > 20.0f) smoothSel = sAtual;
+        smoothSel += (sAtual - smoothSel) * 0.15f;
 
-            for (int i = loopStart; i <= loopEnd; i++) {
-                int gIdx = (listStyle == 1) ? i : (i + oAtual);
+        int loopStart = 0; int loopEnd = 6;
+        if (listStyle == 1) { loopStart = (int)smoothSel - 4; loopEnd = (int)smoothSel + 4; }
 
-                if (gIdx < 0 || gIdx >= tItens) {
-                    if (listStyle == 1) continue; else break;
-                }
+        for (int i = loopStart; i <= loopEnd; i++) {
+            int gIdx = (listStyle == 1) ? i : (i + oAtual);
 
-                int currentX = posX_Base; int currentY = curListY;
-                int animOffsetX = 0; int animOffsetY = 0;
-                int currentFontTam = fontTam;
-                float opacityMulti = 1.0f;
-
-                if (listStyle == 1) {
-                    float dist = gIdx - smoothSel;
-
-                    int centroX = posX_Base;
-                    int centroY = curListY + (2 * stepY);
-                    if (listOri == 1) centroX = posX_Base + (2 * stepX);
-
-                    currentX = centroX + (int)(dist * stepX);
-                    currentY = centroY + (int)(dist * stepY);
-
-                    int curva = (int)(dist * dist * (float)listCurvature);
-                    if (listOri == 0) animOffsetX = curva;
-                    else animOffsetY = curva;
-
-                    float absDist = fabs(dist);
-                    if (absDist < 1.0f && (!painelDuplo || painelAtivo == refPainel)) {
-                        currentFontTam += (int)((1.0f - absDist) * (float)listZoomCentro);
-                    }
-
-                    if (absDist > 2.0f) {
-                        opacityMulti = 1.0f - ((absDist - 2.0f) / 1.5f);
-                        if (opacityMulti < 0.0f) opacityMulti = 0.0f;
-                    }
-                }
-                else {
-                    currentX = posX_Base + (i * stepX);
-                    currentY = curListY + (i * stepY);
-
-                    if (listStyle == 2 && gIdx == sAtual && (!painelDuplo || painelAtivo == refPainel)) {
-                        if (listOri == 0) animOffsetX = 30; else animOffsetY = 30;
-                        currentFontTam += (listZoomCentro / 2);
-                    }
-                    else if (listStyle == 3) {
-                        if (gIdx == sAtual && (!painelDuplo || painelAtivo == refPainel)) currentFontTam += (listZoomCentro / 2);
-                        else currentFontTam -= 6;
-                    }
-                }
-
-                bool isPainelAtivo = (!painelDuplo || painelAtivo == refPainel);
-                uint32_t corFundo = isPainelAtivo ? corBasePainel : 0xAA111111;
-                uint32_t corTexto = isPainelAtivo ? 0xFFFFFFFF : 0xFFAAAAAA;
-
-                bool isMarcado = (mAtual == MENU_EXPLORAR || mAtual == MENU_BAIXAR_DROPBOX_LISTA || mAtual == MENU_BAIXAR_DROPBOX_UPLOAD) && mItems[gIdx];
-                if (isMarcado) { corFundo = isPainelAtivo ? getSysColor(listMark) : getSysColor(11); }
-
-                bool isSelected = isPainelAtivo && (gIdx == sAtual);
-
-                if (isSelected) {
-                    if (isMarcado) corFundo = getSysColor(listHoverMark); else corFundo = getSysColor(10);
-                    corTexto = 0xFF000000;
-
-                    if (fontAnim == 1) { currentFontTam += (int)(sin(frameContadorGlobal * 0.1f) * 6.0f); }
-                    else if (fontAnim == 2) { uint8_t r = (uint8_t)((sin(frameContadorGlobal * 0.05f) + 1.0f) * 127.5f); uint8_t g = (uint8_t)((sin(frameContadorGlobal * 0.05f + 2.0f) + 1.0f) * 127.5f); uint8_t b = (uint8_t)((sin(frameContadorGlobal * 0.05f + 4.0f) + 1.0f) * 127.5f); corTexto = 0xFF000000 | (r << 16) | (g << 8) | b; }
-                    else if (fontAnim == 3) { animOffsetY += (int)(sin(frameContadorGlobal * 0.2f) * 8.0f); }
-                }
-                else if (!isPainelAtivo) { corFundo = 0xAA555555; }
-
-                uint8_t aF = (uint8_t)(((corFundo >> 24) & 0xFF) * opacityMulti); corFundo = (aF << 24) | (corFundo & 0x00FFFFFF);
-                uint8_t aT = (uint8_t)(((corTexto >> 24) & 0xFF) * opacityMulti); corTexto = (aT << 24) | (corTexto & 0x00FFFFFF);
-
-                int drawX = currentX + animOffsetX; int drawY = currentY + animOffsetY;
-
-                if (aF > 10) { for (int by = 0; by < listH; by++) { for (int bx = 0; bx < larguraItem; bx++) { int pxX = drawX + bx; int pyY = drawY + by; if (pxX >= 0 && pxX < 1920 && pyY >= 0 && pyY < 1080) p[pyY * 1920 + pxX] = corFundo; } } }
-
-                desenharTextoAlinhadoAnimado(p, nItems[gIdx], currentFontTam, drawX, drawY + (listH / 4), larguraItem, corTexto, isSelected);
+            if (gIdx < 0 || gIdx >= tItens) {
+                if (listStyle == 1) continue; else break;
             }
+
+            int currentX = posX_Base; int currentY = curListY;
+            int animOffsetX = 0; int animOffsetY = 0;
+            int currentFontTam = fontTam;
+            float opacityMulti = 1.0f;
+
+            if (listStyle == 1) {
+                float dist = gIdx - smoothSel;
+
+                int centroX = posX_Base;
+                int centroY = curListY + (2 * stepY);
+                if (listOri == 1) centroX = posX_Base + (2 * stepX);
+
+                currentX = centroX + (int)(dist * stepX);
+                currentY = centroY + (int)(dist * stepY);
+
+                int curva = (int)(dist * dist * (float)listCurvature);
+                if (listOri == 0) animOffsetX = curva;
+                else animOffsetY = curva;
+
+                float absDist = fabs(dist);
+                if (absDist < 1.0f && (!painelDuplo || painelAtivo == refPainel)) {
+                    currentFontTam += (int)((1.0f - absDist) * (float)listZoomCentro);
+                }
+
+                if (absDist > 2.0f) {
+                    opacityMulti = 1.0f - ((absDist - 2.0f) / 1.5f);
+                    if (opacityMulti < 0.0f) opacityMulti = 0.0f;
+                }
+            }
+            else {
+                currentX = posX_Base + (i * stepX);
+                currentY = curListY + (i * stepY);
+
+                if (listStyle == 2 && gIdx == sAtual && (!painelDuplo || painelAtivo == refPainel)) {
+                    if (listOri == 0) animOffsetX = 30; else animOffsetY = 30;
+                    currentFontTam += (listZoomCentro / 2);
+                }
+                else if (listStyle == 3) {
+                    if (gIdx == sAtual && (!painelDuplo || painelAtivo == refPainel)) currentFontTam += (listZoomCentro / 2);
+                    else currentFontTam -= 6;
+                }
+            }
+
+            bool isPainelAtivo = (!painelDuplo || painelAtivo == refPainel);
+            uint32_t corFundo = isPainelAtivo ? corBasePainel : 0xAA111111;
+            uint32_t corTexto = isPainelAtivo ? 0xFFFFFFFF : 0xFFAAAAAA;
+
+            bool isMarcado = (mAtual == MENU_EXPLORAR || mAtual == MENU_BAIXAR_DROPBOX_LISTA || mAtual == MENU_BAIXAR_DROPBOX_UPLOAD) && mItems[gIdx];
+            if (isMarcado) { corFundo = isPainelAtivo ? getSysColor(listMark) : getSysColor(11); }
+
+            bool isSelected = isPainelAtivo && (gIdx == sAtual);
+
+            if (isSelected) {
+                if (isMarcado) corFundo = getSysColor(listHoverMark); else corFundo = getSysColor(10);
+                corTexto = 0xFF000000;
+
+                if (fontAnim == 1) { currentFontTam += (int)(sin(frameContadorGlobal * 0.1f) * 6.0f); }
+                else if (fontAnim == 2) { uint8_t r = (uint8_t)((sin(frameContadorGlobal * 0.05f) + 1.0f) * 127.5f); uint8_t g = (uint8_t)((sin(frameContadorGlobal * 0.05f + 2.0f) + 1.0f) * 127.5f); uint8_t b = (uint8_t)((sin(frameContadorGlobal * 0.05f + 4.0f) + 1.0f) * 127.5f); corTexto = 0xFF000000 | (r << 16) | (g << 8) | b; }
+                else if (fontAnim == 3) { animOffsetY += (int)(sin(frameContadorGlobal * 0.2f) * 8.0f); }
+            }
+            else if (!isPainelAtivo) { corFundo = 0xAA555555; }
+
+            uint8_t aF = (uint8_t)(((corFundo >> 24) & 0xFF) * opacityMulti); corFundo = (aF << 24) | (corFundo & 0x00FFFFFF);
+            uint8_t aT = (uint8_t)(((corTexto >> 24) & 0xFF) * opacityMulti); corTexto = (aT << 24) | (corTexto & 0x00FFFFFF);
+
+            int drawX = currentX + animOffsetX; int drawY = currentY + animOffsetY;
+
+            if (aF > 10) { for (int by = 0; by < listH; by++) { for (int bx = 0; bx < larguraItem; bx++) { int pxX = drawX + bx; int pyY = drawY + by; if (pxX >= 0 && pxX < 1920 && pyY >= 0 && pyY < 1080) p[pyY * 1920 + pxX] = corFundo; } } }
+
+            // RENDERIZAÇÃO DO TEXTO AGORA USA A MÁGICA DO SCROLL AUTOMÁTICO
+            desenharTextoAlinhadoAnimado(p, nItems[gIdx], currentFontTam, drawX, drawY + (listH / 4), larguraItem, corTexto, isSelected);
         }
     }
 
-    if (menuAtual == MENU_NOTEPAD || menuAtualEsq == MENU_NOTEPAD) renderizarNotepad(p);
 
-    if (menuAtual == SCRAPER_LIST && imgPreview) { desenharRedimensionado(p, imgPreview, wP, hP, capaW, capaH, capaX, capaY); }
+    bool isSavePath = false;
+    if (menuAtual == MENU_EXPLORAR || (painelDuplo && menuAtualEsq == MENU_EXPLORAR)) {
+        char* pRef = (painelDuplo && painelAtivo == 0) ? pathExplorarEsq : pathExplorar;
+        if (strstr(pRef, "savedata") || strstr(pRef, "SAVEDATA") || strstr(pRef, "apollo") || strstr(pRef, "exported")) {
+            isSavePath = true;
+        }
+    }
+
+    if (isSavePath && imgPreview) {
+        desenharDiscoRedondo(p, imgPreview, wP, hP, discoW, discoH, discoX, discoY);
+    }
+    else if ((menuAtual == SCRAPER_LIST || menuAtual == MENU_JOGAR_PS4) && imgPreview) {
+        if (menuAtual == MENU_JOGAR_PS4 && imgPic1) {
+            desenharRedimensionado(p, imgPic1, wPic1, hPic1, picW, picH, picX, picY);
+        }
+        desenharRedimensionado(p, imgPreview, wP, hP, capaW, capaH, capaX, capaY);
+    }
+
     else if (menuAtual == MENU_EXPLORAR || (painelDuplo && menuAtualEsq == MENU_EXPLORAR)) {
         if (!painelDuplo) { char bread[300]; sprintf(bread, "Caminho: %s", pathExplorar); int cX = (listOri == 0) ? listXV : listXH; desenharTexto(p, bread, 30, cX, 1020, 0xFFFFFFFF); }
         else { char breadEsq[300]; sprintf(breadEsq, "ESQ: %s", pathExplorarEsq); desenharTexto(p, breadEsq, 25, capaX, 1020, (painelAtivo == 0) ? 0xFF00AAFF : 0xFFAAAAAA); char breadDir[300]; sprintf(breadDir, "DIR: %s", pathExplorar); int cX = (listOri == 0) ? listXV : listXH; desenharTexto(p, breadDir, 25, cX, 1020, (painelAtivo == 1) ? 0xFF00AAFF : 0xFFAAAAAA); }
     }
-    else {
-        // CORREÇÃO DOS ÍNDICES!
-        bool isEditingBar = ((menuAtual == MENU_EDIT_TARGET || editMode) && editTarget == 5); // 5 É A BARRA LOAD
-        bool isEditingAudio = ((menuAtual == MENU_EDIT_TARGET || editMode) && editTarget == 6); // 6 É O AUDIO
-        bool isEditingUp = ((menuAtual == MENU_EDIT_TARGET || editMode) && (editTarget == 7 || editTarget == 10)); // 7 E 10 USAM O PAINEL 'UP' (UPLOAD E EXPLORAR)
+    else if (!editMode) {
+        bool isEditingBar = ((menuAtual == MENU_EDIT_TARGET) && editTarget == 5);
+        bool isEditingAudio = ((menuAtual == MENU_EDIT_TARGET) && editTarget == 6);
+        bool isEditingUp = ((menuAtual == MENU_EDIT_TARGET) && (editTarget == 7 || editTarget == 10));
+
+        if (menuAtual == MENU_EDIT_TARGET && editTarget == 3) {
+            if (imgVidEdicao) desenharRedimensionado(p, imgVidEdicao, wVidE, hVidE, picW, picH, picX, picY);
+            else if (defaultArtwork1) desenharRedimensionado(p, defaultArtwork1, wDef1, hDef1, picW, picH, picX, picY);
+        }
+        else if (menuAtual == MENU_EDIT_TARGET && editTarget == 1) {
+            if (defaultArtwork1) desenharRedimensionado(p, defaultArtwork1, wDef1, hDef1, capaW, capaH, capaX, capaY);
+        }
+        else if (menuAtual == MENU_EDIT_TARGET && editTarget == 2) {
+            if (defaultArtwork2) desenharDiscoRedondo(p, defaultArtwork2, wDef2, hDef2, discoW, discoH, discoX, discoY);
+        }
 
         if (isEditingBar) {
             int bX = barX; int bY = barY; int bW = barW; int bH = barH;
@@ -455,8 +574,7 @@ void desenharInterface(uint32_t* p) {
         else if (isEditingAudio) {
             for (int my = 0; my < audioH; my++) { for (int mx = 0; mx < audioW; mx++) { int pxX = audioX + mx; int pyY = audioY + my; if (pxX >= 0 && pxX < 1920 && pyY >= 0 && pyY < 1080) p[pyY * 1920 + pxX] = getSysColor(listBg); } }
             int maxV = (audioH - 50) / 45; if (maxV < 1) maxV = 1;
-            if (maxV > 0) desenharTextoAlinhado(p, "PLAY / PAUSE", fontTam, audioX, audioY + 50, audioW, 0xFFFFFF00);
-            if (maxV > 1) desenharTextoAlinhado(p, "PARAR", fontTam, audioX, audioY + 95, audioW, 0xFFFFFFFF);
+            if (maxV > 0) desenharTextoAlinhado(p, "PLAY / PAUSE", fontTam, audioX, audioY + 50, audioW, 0xFFFFFF00); if (maxV > 1) desenharTextoAlinhado(p, "PARAR", fontTam, audioX, audioY + 95, audioW, 0xFFFFFFFF);
         }
         else if (isEditingUp) {
             for (int my = 0; my < upH; my++) { for (int mx = 0; mx < upW; mx++) { int pxX = upX + mx; int pyY = upY + my; if (pxX >= 0 && pxX < 1920 && pyY >= 0 && pyY < 1080) p[pyY * 1920 + pxX] = getSysColor(upBg); } }
@@ -475,24 +593,29 @@ void desenharInterface(uint32_t* p) {
             }
         }
         else {
-            bool isMenuListas = (menuAtual == SCRAPER_LIST || menuAtual == JOGAR_XML || menuAtual == MENU_JOGAR_PS4 || menuAtual == MENU_TIPO_JOGO);
+            bool isMenuXML = (menuAtual == JOGAR_XML || menuAtual == SCRAPER_LIST);
+            bool isMenuPS4 = (menuAtual == MENU_JOGAR_PS4);
             bool isEditingCapaCD = ((menuAtual == MENU_EDIT_TARGET || editMode) && (editTarget == 1 || editTarget == 2 || editTarget == 3));
 
-            if (isMenuListas || isEditingCapaCD) {
-
+            if (isMenuXML || isMenuPS4 || isEditingCapaCD) {
                 if ((menuAtual == MENU_EDIT_TARGET || editMode) && editTarget == 3) {
                     if (imgVidEdicao) desenharRedimensionado(p, imgVidEdicao, wVidE, hVidE, picW, picH, picX, picY);
                     else if (defaultArtwork1) desenharRedimensionado(p, defaultArtwork1, wDef1, hDef1, picW, picH, picX, picY);
                 }
-                else if (menuAtual == MENU_JOGAR_PS4 || menuAtual == JOGAR_XML) {
+                else if (isMenuPS4 || isMenuXML) {
                     if (imgPic1) desenharRedimensionado(p, imgPic1, wPic1, hPic1, picW, picH, picX, picY);
                 }
 
-                if (imgCapaDinamica) { desenharRedimensionado(p, imgCapaDinamica, dynCapaW, dynCapaH, capaW, capaH, capaX, capaY); }
-                else if (defaultArtwork1) { desenharRedimensionado(p, defaultArtwork1, wDef1, hDef1, capaW, capaH, capaX, capaY); }
+                if (isMenuPS4 || menuAtual == SCRAPER_LIST) {
+                    if (imgPreview) { desenharRedimensionado(p, imgPreview, wP, hP, capaW, capaH, capaX, capaY); }
+                }
+                else if (menuAtual == JOGAR_XML || isEditingCapaCD) {
+                    if (imgCapaDinamica) { desenharRedimensionado(p, imgCapaDinamica, dynCapaW, dynCapaH, capaW, capaH, capaX, capaY); }
+                    else if (defaultArtwork1) { desenharRedimensionado(p, defaultArtwork1, wDef1, hDef1, capaW, capaH, capaX, capaY); }
 
-                if (imgDiscoDinamico) { desenharDiscoRedondo(p, imgDiscoDinamico, dynDiscoW, dynDiscoH, discoW, discoH, discoX, discoY); }
-                else if (defaultArtwork2) { desenharDiscoRedondo(p, defaultArtwork2, wDef2, hDef2, discoW, discoH, discoX, discoY); }
+                    if (imgDiscoDinamico) { desenharDiscoRedondo(p, imgDiscoDinamico, dynDiscoW, dynDiscoH, discoW, discoH, discoX, discoY); }
+                    else if (defaultArtwork2) { desenharDiscoRedondo(p, defaultArtwork2, wDef2, hDef2, discoW, discoH, discoX, discoY); }
+                }
             }
         }
     }
@@ -500,7 +623,6 @@ void desenharInterface(uint32_t* p) {
     bool showEditBottomBar = false;
     if (editMode || menuAtual == MENU_EDIT_TARGET) showEditBottomBar = true;
 
-    // CORREÇÃO: 9 É A NOTIFICAÇÃO!
     if (msgTimer > 0) { desenharTexto(p, msgStatus, msgTam, msgX, msgY, 0xFFFFFFFF); msgTimer--; }
     else if ((menuAtual == MENU_EDIT_TARGET || editMode) && editTarget == 9) { desenharTexto(p, "EXEMPLO DE NOTIFICACAO...", msgTam, msgX, msgY, 0xFF00FF00); }
 
@@ -560,20 +682,24 @@ void desenharInterface(uint32_t* p) {
         else if (editType == 5) sprintf(txtPos, "MODO EDICAO - ORIENTACAO: %s", listOri == 0 ? "VERTICAL" : "HORIZONTAL");
         else if (editType == 10) sprintf(txtPos, "MODO EDICAO - ALINHAMENTO: %s", fontAlign == 0 ? "ESQUERDA" : (fontAlign == 1 ? "CENTRO" : "DIREITA"));
         else if (editType == 11) sprintf(txtPos, "MODO EDICAO - LIMITES: %s", fontScroll == 0 ? "CORTAR (..)" : "ANIMACAO ROLAGEM");
-        else if (editType == 12) { int stat = 0; if (editTarget == 11) stat = elem1On; else if (editTarget == 12) stat = ctrl1On; else if (editTarget == 13) stat = pont1On; sprintf(txtPos, "MODO EDICAO - LIGADO: %s (USE SETAS)", stat ? "SIM" : "NAO"); }
-        else if (editType == 13) sprintf(txtPos, "MODO EDICAO - MODO PONTEIRO: %s (USE SETAS)", pont1Modo == 0 ? "ACOMPANHA" : "ESTATICO");
-        else if (editType == 14) { const char* lds[] = { "ESQ", "DIR", "CIMA", "BAIXO" }; sprintf(txtPos, "MODO EDICAO - LADO PONTEIRO: %s (USE SETAS)", lds[pont1Lado]); }
+        else if (editType == 12) { int stat = 0; if (editTarget == 11) stat = elem1On; else if (editTarget == 12) stat = ctrl1On; else if (editTarget == 13) stat = pont1On; sprintf(txtPos, "MODO EDICAO - LIGADO: %s (USE SETAS ESQ/DIR)", stat ? "SIM" : "NAO"); }
+        else if (editType == 13) sprintf(txtPos, "MODO EDICAO - MODO PONTEIRO: %s (USE SETAS ESQ/DIR)", pont1Modo == 0 ? "ACOMPANHA" : "ESTATICO");
+        else if (editType == 14) { const char* lds[] = { "ESQUERDA", "DIREITA", "CIMA", "BAIXO" }; sprintf(txtPos, "MODO EDICAO - LADO PONTEIRO: %s (USE SETAS)", lds[pont1Lado]); }
         else if (editType == 15) sprintf(txtPos, "MODO EDICAO - EFEITOS SONOROS: %s (USE SETAS)", sfxLigado ? "LIGADO" : "DESLIGADO");
         else if (editType == 16) sprintf(txtPos, "MODO EDICAO - VOLUME EFEITOS: %d%% (USE SETAS)", sfxVolume);
-        else if (editType == 45) sprintf(txtPos, "MODO EDICAO - ESTILO DA LISTA: %s (USE SETAS)", listStyle == 0 ? "NORMAL" : (listStyle == 1 ? "ROLETA HYPERSPIN" : (listStyle == 2 ? "PS4 FLOW" : "PS3 XMB")));
-        else if (editType == 46) sprintf(txtPos, "MODO EDICAO - EFEITO DA FONTE: %s (USE SETAS)", fontAnim == 0 ? "NORMAL" : (fontAnim == 1 ? "PULSAR" : (fontAnim == 2 ? "ARCO-IRIS" : "ONDA")));
-        else if (editType == 47) sprintf(txtPos, "MODO EDICAO - CURVATURA DA ROLETA: %d (USE SETAS)", listCurvature);
-        else if (editType == 48) sprintf(txtPos, "MODO EDICAO - ZOOM DO CENTRO: %d (USE SETAS)", listZoomCentro);
-        else if (editTarget == 12) sprintf(txtPos, "EDICAO CTRL - POSICAO ATUAL: X:%d Y:%d", ctrl1X, ctrl1Y);
-        else if (editTarget == 8) sprintf(txtPos, "MODO EDICAO - TAMANHO DA FONTE: %d", fontTam);
-        else if (editTarget == 9) sprintf(txtPos, "MODO EDICAO - NOTIFICACOES: X: %d  |  Y: %d  |  TAM: %d", msgX, msgY, msgTam);
-
-        else if (editType == 29) sprintf(txtPos, "MODO TESTE UNITY - FRAME [%d] | L1/R1: Muda Frame | SETAS: Move | TRIANGULO: Auto-Centro", anim_frameAtual);
+        else if (editType == 17) sprintf(txtPos, "MODO EDICAO - MENU OPCOES POSICAO: X:%d Y:%d", upX, upY);
+        else if (editType == 18) sprintf(txtPos, "MODO EDICAO - MENU OPCOES TAMANHO: LARGURA:%d ALTURA:%d", upW, upH);
+        else if (editType == 19) sprintf(txtPos, "MODO EDICAO - MENU OPCOES ESTICAR: LARGURA:%d", upW);
+        else if (editType == 20) sprintf(txtPos, "MODO EDICAO - MENU OPCOES COR FUNDO (USE SETAS)");
+        else if (editType == 21) sprintf(txtPos, "MODO EDICAO - MENU OPCOES COR DO TEXTO (USE SETAS)");
+        else if (editType == 22) sprintf(txtPos, "MODO EDICAO - MENU OPCOES COR TEXTO SELECIONADO (USE SETAS)");
+        else if (editType == 23) sprintf(txtPos, "MODO EDICAO - ANIMACAO: POSICAO X:%d Y:%d (USE SETAS)", anim_posX, anim_posY);
+        else if (editType == 24) sprintf(txtPos, "MODO EDICAO - ANIMACAO: ESCALA: %.1f (USE CIMA/BAIXO)", anim_escala);
+        else if (editType == 25) sprintf(txtPos, "MODO EDICAO - ANIMACAO: VELOCIDADE: %d (USE SETAS)", anim_velocidade);
+        else if (editType == 26) sprintf(txtPos, "MODO EDICAO - ANIMACAO GRADE: COLUNAS:%d LINHAS:%d (USE SETAS)", anim_colunas, anim_linhas);
+        else if (editType == 27) sprintf(txtPos, "MODO EDICAO - ANIMACAO: DESLOCAMENTO GLOBAL DA GRADE X:%d Y:%d (SETAS)", anim_offsetX, anim_offsetY);
+        else if (editType == 28) sprintf(txtPos, "MODO EDICAO - ANIMACAO: LOOP - INICIO [%d] FIM [%d] (USE ESQ/DIR/UP/DOWN)", anim_frameInicial, anim_frameFinal);
+        else if (editType == 29) sprintf(txtPos, "MODO TESTE UNITY - FRAME [%d] | OFFSET X:%d Y:%d | L1/R1: Muda Frame | SETAS: Move | TRIANGULO: Auto-Centro", anim_frameAtual, anim_frameOffsetX[anim_frameAtual], anim_frameOffsetY[anim_frameAtual]);
         else if (editType == 30) sprintf(txtPos, "MODO EDICAO - ANIMACAO CONTINUA ATIVADA! (APERTE O PARA VOLTAR)");
         else if (editType == 31) sprintf(txtPos, "MODO EDICAO - ANIMACAO: VISUAL LIGADO: %s", anim_ativo ? "SIM" : "NAO");
         else if (editType == 32) sprintf(txtPos, "MODO EDICAO - CHROMA KEY 1: RED (VERMELHO): %d", anim_keyR);
@@ -583,10 +709,10 @@ void desenharInterface(uint32_t* p) {
         else if (editType == 37) sprintf(txtPos, "MODO EDICAO - CHROMA KEY 2: RED (VERMELHO): %d", anim_keyR2);
         else if (editType == 38) sprintf(txtPos, "MODO EDICAO - CHROMA KEY 2: GREEN (VERDE): %d", anim_keyG2);
         else if (editType == 39) sprintf(txtPos, "MODO EDICAO - CHROMA KEY 2: BLUE (AZUL): %d", anim_keyB2);
-        else if (editType == 40) sprintf(txtPos, "MODO EDICAO - AUTO-CENTRO GLOBAL: %s", anim_autoCenter ? "LIGADO" : "DESLIGADO");
+        else if (editType == 40) sprintf(txtPos, "MODO EDICAO - AUTO-CENTRO GLOBAL (SEMPRE LIGADO): %s", anim_autoCenter ? "LIGADO" : "DESLIGADO");
         else if (editType == 44) sprintf(txtPos, "USE AS SETAS E QUADRADO P/ COR 1, OU X P/ COR 2");
 
-        else if (editTarget < 52) sprintf(txtPos, "MODO EDICAO - X: %d  |  Y: %d  |  L: %d  |  A: %d", *tX, *tY, *tW, *tH);
+        else if (editTarget < 52) sprintf(txtPos, "MODO EDICAO - X: %d  |  Y: %d  |  LARGURA: %d  |  ALTURA: %d", *tX, *tY, *tW, *tH);
 
         for (int by = 0; by < 40; by++) { for (int bx = 0; bx < 1920; bx++) { int pyY = 1040 + by; if (pyY < 1080) p[pyY * 1920 + bx] = 0xAA000000; } }
         desenharTexto(p, txtPos, 25, 50, 1045, 0xFF00FF00);
@@ -600,7 +726,8 @@ void desenharInterface(uint32_t* p) {
             for (int mx = 0; mx < upW; mx++) {
                 int pxX = upX + mx;
                 int pyY = upY + my;
-                if (pxX >= 0 && pxX < 1920 && pyY >= 0 && pyY < 1080) p[pyY * 1920 + pxX] = getSysColor(upBg);
+                if (pxX >= 0 && pxX < 1920 && pyY >= 0 && pyY < 1080)
+                    p[pyY * 1920 + pxX] = getSysColor(upBg);
             }
         }
 
@@ -614,15 +741,18 @@ void desenharInterface(uint32_t* p) {
             int gIdx = i + offOpcao;
             if (gIdx >= totalOpcoes) break;
 
-            bool isSelected = (gIdx == selOpcao);
-            uint32_t corOp = isSelected ? getSysColor(upTextSel) : getSysColor(upTextNorm);
-            desenharTextoAlinhadoAnimado(p, listaOpcoes[gIdx], fontTam, upX, upY + 50 + (i * 45), upW, corOp, isSelected);
+            uint32_t corOp = (gIdx == selOpcao) ? getSysColor(upTextSel) : getSysColor(upTextNorm);
+            bool isSel = (gIdx == selOpcao);
+            if (isSel) isTextoAnimado = true;
+
+            // O MENU DE OPÇÕES AGORA USA A MÁGICA DO SCROLL:
+            desenharTextoAlinhadoAnimado(p, listaOpcoes[gIdx], fontTam, upX, upY + 50 + (i * 45), upW, corOp, isSel);
         }
     }
 
     desenharMenuAudio(p); desenharMenuUpload(p);
 
-    bool esconderElementos = (visualizandoMidiaImagem || visualizandoMidiaTexto || menuAtual == MENU_NOTEPAD || menuAtualEsq == MENU_NOTEPAD);
+    bool esconderElementos = (visualizandoMidiaImagem || visualizandoMidiaTexto || menuAtual == MENU_NOTEPAD || menuAtualEsq == MENU_NOTEPAD || menuAtual == MENU_CONTROLE_TESTE || menuAtual == MENU_INFORMACAO);
 
     if (!esconderElementos) {
         int curListX = (listOri == 0) ? listXV : listXH;
@@ -659,17 +789,47 @@ void desenharInterface(uint32_t* p) {
     }
 
     if (downloadEmSegundoPlano) {
-        int bX = barX; int bY = barY; int bW = barW; int bH = barH;
-        for (int y = bY; y < bY + bH; y++) { for (int x = bX; x < bX + bW; x++) { if (x >= 0 && x < 1920 && y >= 0 && y < 1080) p[y * 1920 + x] = getSysColor(barBg); } }
-        int fill = (int)(bW * progressoAtualDownload); if (fill > bW) fill = bW; if (fill < 0) fill = 0;
-        for (int y = bY; y < bY + bH; y++) { for (int x = bX; x < bX + fill; x++) { if (x >= 0 && x < 1920 && y >= 0 && y < 1080) p[y * 1920 + x] = getSysColor(barFill); } }
-        char pctMsg[300]; sprintf(pctMsg, "%s", msgDownloadBg); desenharTexto(p, pctMsg, 25, bX, bY - 35, 0xFFFFFFFF);
-        int porcentagem = (int)(progressoAtualDownload * 100.0f); if (porcentagem > 100) porcentagem = 100; if (porcentagem < 0) porcentagem = 0;
-        char textoFila[128]; snprintf(textoFila, sizeof(textoFila), "%d%%   -   %d / %d", porcentagem, baixadosFilaSessao + 1, totalFilaSessao);
+        int bX = barX;
+        int bY = barY;
+        int bW = barW;
+        int bH = barH;
+
+        for (int y = bY; y < bY + bH; y++) {
+            for (int x = bX; x < bX + bW; x++) {
+                if (x >= 0 && x < 1920 && y >= 0 && y < 1080) {
+                    p[y * 1920 + x] = getSysColor(barBg);
+                }
+            }
+        }
+
+        int fill = (int)(bW * progressoAtualDownload);
+        if (fill > bW) fill = bW;
+        if (fill < 0) fill = 0;
+
+        for (int y = bY; y < bY + bH; y++) {
+            for (int x = bX; x < bX + fill; x++) {
+                if (x >= 0 && x < 1920 && y >= 0 && y < 1080) {
+                    p[y * 1920 + x] = getSysColor(barFill);
+                }
+            }
+        }
+
+        char pctMsg[300];
+        sprintf(pctMsg, "%s", msgDownloadBg);
+        desenharTexto(p, pctMsg, 25, bX, bY - 35, 0xFFFFFFFF);
+
+        int porcentagem = (int)(progressoAtualDownload * 100.0f);
+        if (porcentagem > 100) porcentagem = 100;
+        if (porcentagem < 0) porcentagem = 0;
+
+        char textoFila[128];
+        snprintf(textoFila, sizeof(textoFila), "%d%%   -   %d / %d", porcentagem, baixadosFilaSessao + 1, totalFilaSessao);
         desenharTexto(p, textoFila, 25, bX + bW + 20, bY - 2, 0xFFFFFFFF);
     }
 
     if (menuAtual == MENU_BAIXAR || menuAtual == MENU_BAIXAR_FTP_SERVIDORES || menuAtual == MENU_BAIXAR_FTP_LISTA || menuAtual == MENU_BAIXAR_FTP_UPLOAD || menuAtual == MENU_BAIXAR_FTP_UPLOAD_RAIZES || menuAtual == MENU_BAIXAR_FTP_EDITAR_SERVIDOR) {
-        char textoIP[128]; sprintf(textoIP, "IP DO PS4: %s", ipDoPS4); desenharTexto(p, textoIP, 25, 1550, 1020, 0xFF00FF00);
+        char textoIP[128];
+        sprintf(textoIP, "IP DO PS4: %s", ipDoPS4);
+        desenharTexto(p, textoIP, 25, 1550, 1020, 0xFF00FF00);
     }
 }
