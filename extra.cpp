@@ -46,7 +46,7 @@ void acaoCross_Extra() {
 }
 
 // =======================================================
-// ALGORITMO BRESENHAM (Cria linhas contínuas geometricamente perfeitas)
+// ALGORITMO BRESENHAM (Cria linhas contínuas em vez de pontos pulados)
 // =======================================================
 template<int W, int H>
 void drawLineOnGrid(bool(&grid)[W][H], int x0, int y0, int x1, int y1) {
@@ -81,32 +81,22 @@ void renderizarControleTeste(uint32_t* p) {
     }
 
     // =======================================================
-    // LEITURA OFICIAL NATIVA DO SDK DA SONY (NOMES EXATOS)
+    // LEITURA BRUTA (BLINDADA) DA MEMÓRIA DO HARDWARE DA PS4
+    // Resolve o bug do L2, R2 e Touchpad malucos!
     // =======================================================
-    uint32_t buttons = data.buttons;
-    uint8_t lx = data.leftStick.x;
-    uint8_t ly = data.leftStick.y;
-    uint8_t rx = data.rightStick.x;
-    uint8_t ry = data.rightStick.y;
-
-    // Na API da Sony, os gatilhos ficam armazenados numa estrutura chamada analogButtons
-    uint8_t l2 = data.analogButtons.l2;
-    uint8_t r2 = data.analogButtons.r2;
-
-    // Touchpad oficial do OpenOrbis (touchPadData)
-    uint8_t touchNum = data.touchPadData.touchNum;
-    uint16_t t0_x = 0; uint16_t t0_y = 0;
-    uint16_t t1_x = 0; uint16_t t1_y = 0;
-
-    // Lê as coordenadas apenas se o dedo estiver encostado para evitar zeros falsos
-    if (touchNum > 0) {
-        t0_x = data.touchPadData.touch[0].x;
-        t0_y = data.touchPadData.touch[0].y;
-    }
-    if (touchNum > 1) {
-        t1_x = data.touchPadData.touch[1].x;
-        t1_y = data.touchPadData.touch[1].y;
-    }
+    uint8_t* raw = (uint8_t*)&data;
+    uint32_t buttons = *(uint32_t*)(raw + 0x00);
+    uint8_t lx = raw[0x04];
+    uint8_t ly = raw[0x05];
+    uint8_t rx = raw[0x06];
+    uint8_t ry = raw[0x07];
+    uint8_t l2 = raw[0x08];
+    uint8_t r2 = raw[0x09];
+    uint8_t touchNum = raw[0x3C];
+    uint16_t t0_x = *(uint16_t*)(raw + 0x40);
+    uint16_t t0_y = *(uint16_t*)(raw + 0x42);
+    uint16_t t1_x = *(uint16_t*)(raw + 0x48);
+    uint16_t t1_y = *(uint16_t*)(raw + 0x4A);
 
     // Funcao auxiliar para desenhar a base dos circulos
     auto drawCircle = [&](int cx, int cy, int r, uint32_t color, bool fill) {
@@ -187,9 +177,7 @@ void renderizarControleTeste(uint32_t* p) {
     char txt[256]; sprintf(txt, "L3 X: %d | Y: %d", lx, ly);
     desenharTexto(p, txt, 30, lCenterX - 110, lCenterY + 180, 0xFFFFFFFF);
 
-    // -----------------------------------------
     // Renderizar Touchpad no Meio
-    // -----------------------------------------
     int tpW = 576; int tpH = 282;
     int tpX = 672; int tpY = 450;
 
@@ -239,9 +227,7 @@ void renderizarControleTeste(uint32_t* p) {
         desenharTexto(p, txt, 25, tpX + 350, tpY + tpH + 30, 0xFF00FF00);
     }
 
-    // -----------------------------------------
     // Analógico R3
-    // -----------------------------------------
     int rCenterX = 1570; int rCenterY = 600;
     desenharTexto(p, "Centro Ideal: 128 | 128", 25, rCenterX - 130, rCenterY - 180, 0xFFFFFFFF);
     drawCircle(rCenterX, rCenterY, radius, 0xFF444444, false);

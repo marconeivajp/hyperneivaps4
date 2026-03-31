@@ -10,6 +10,7 @@
 #include <stdarg.h>
 #include <unistd.h>
 #include <ctype.h>
+#include <sys/stat.h>
 
 #include <pthread.h>
 #include <sys/socket.h>
@@ -61,6 +62,19 @@ extern char caminhoImagemAberta[512];
 
 extern unsigned char* imgPreview;
 extern int wP, hP, cP;
+
+extern char msgStatus[128];
+extern int msgTimer;
+
+extern char baseRaiz[256];
+extern bool esperandoNomePasta;
+extern bool esperandoRenomear;
+extern bool marcados[3000];
+extern bool marcadosEsq[3000];
+extern bool selecionandoMidiaElemento;
+
+extern void listarDiretorio(const char*);
+extern void listarDiretorioEsq(const char*);
 
 void carregarPreviewArquivo(const char* caminhoAbsoluto) {
     if (imgPreview) { stbi_image_free(imgPreview); imgPreview = NULL; }
@@ -186,12 +200,15 @@ void acaoCross_Explorar() {
                 totalOpcoes = 1; showOpcoes = true; selOpcao = 0;
             }
             else if (strstr(nomeBlindado, ".png") || strstr(nomeBlindado, ".jpg") || strstr(nomeBlindado, ".jpeg") || strstr(nomeBlindado, ".bmp") || strstr(nomeBlindado, ".xavatar")) {
+
+                if (selecionandoMidiaElemento) return;
+
                 strcpy(caminhoImagemAberta, caminhoArquivo);
 
                 listaOpcoes[0] = "visualizar";
                 if (strstr(nomeBlindado, ".xavatar")) mapOpcoes[0] = 13; else mapOpcoes[0] = 14;
 
-                listaOpcoes[1] = "personalizar jogo (appmeta)"; mapOpcoes[1] = 30; // NOVO MENU INJETADO
+                listaOpcoes[1] = "personalizar jogo (appmeta)"; mapOpcoes[1] = 30;
                 listaOpcoes[2] = "usar no perfil ps4"; mapOpcoes[2] = 12;
                 listaOpcoes[3] = "plano de fundo do ps4"; mapOpcoes[3] = 11;
                 listaOpcoes[4] = "plano de fundo hyper neiva"; mapOpcoes[4] = 10;
@@ -211,7 +228,8 @@ void acaoCross_Explorar() {
                 if (strcmp(caminhoMusicaTocando, caminhoArquivo) == 0) { tocarMusicaNova("PARADO"); strcpy(caminhoMusicaTocando, ""); sprintf(msgStatus, "Musica Parada"); msgTimer = 90; }
                 else { tocarMusicaNova(caminhoArquivo); strcpy(caminhoMusicaTocando, caminhoArquivo); sprintf(msgStatus, "Reproduzindo Audio"); msgTimer = 90; }
             }
-            else if (strstr(nomeBlindado, ".txt") || strstr(nomeBlindado, ".xml") || strstr(nomeBlindado, ".json") || strstr(nomeBlindado, ".ini") || strstr(nomeBlindado, ".cfg") || strstr(nomeBlindado, ".log")) {
+            else if (strstr(nomeBlindado, ".txt") || strstr(nomeBlindado, ".xml") || strstr(nomeBlindado, ".json") || strstr(nomeBlindado, ".ini") || strstr(nomeBlindado, ".cfg") || strstr(nomeBlindado, ".log") || strstr(nomeBlindado, ".cpp") || strstr(nomeBlindado, ".h")) {
+                // VOLTA A USAR 100% A SUA LOGICA DO BLOCO DE NOTAS ORIGINAL!
                 extern void editarArquivoExistente(const char* pPasta, const char* nArquivo);
                 editarArquivoExistente(pExplorar, nItems[sAtual]);
                 if (ehEsq) menuAtualEsq = MENU_NOTEPAD; else menuAtual = MENU_NOTEPAD;
@@ -221,15 +239,23 @@ void acaoCross_Explorar() {
 }
 
 void acaoCircle_Explorar() {
+    if (visualizandoMidiaImagem) {
+        visualizandoMidiaImagem = false;
+        if (imgMidia) { stbi_image_free(imgMidia); imgMidia = NULL; }
+        return;
+    }
+
     if (esperandoNomePasta || esperandoRenomear) return;
     if (showOpcoes) { showOpcoes = false; return; }
-    if (visualizandoMidiaImagem) { visualizandoMidiaImagem = false; if (imgMidia) { stbi_image_free(imgMidia); imgMidia = NULL; } return; }
+
     bool ehEsq = (painelDuplo && painelAtivo == 0); MenuLevel mAtual = ehEsq ? menuAtualEsq : menuAtual; char* pExplorar = ehEsq ? pathExplorarEsq : pathExplorar;
+
     if (mAtual == MENU_EXPLORAR_HOME) { if (painelDuplo) { painelDuplo = false; painelAtivo = 1; } if (!ehEsq) preencherRoot(); }
     else if (mAtual == MENU_EXPLORAR) { if (strcmp(pExplorar, baseRaiz) == 0 || strcmp(pExplorar, "/") == 0 || strcmp(pExplorar, "/mnt/usb0") == 0 || strcmp(pExplorar, "/mnt/usb1") == 0) { if (ehEsq) menuAtualEsq = MENU_EXPLORAR_HOME; else preencherExplorerHome(); } else { char temp[256]; strcpy(temp, pExplorar); char* last = strrchr(temp, '/'); if (last) { if (last == temp) strcpy(temp, "/"); else *last = '\0'; if (ehEsq) listarDiretorioEsq(temp); else listarDiretorio(temp); } } }
 }
 
 void acaoTriangle_Explorar() {
+    if (visualizandoMidiaImagem) return;
     if (esperandoNomePasta || esperandoRenomear) return;
     bool ehEsq = (painelDuplo && painelAtivo == 0); MenuLevel mAtual = ehEsq ? menuAtualEsq : menuAtual;
     if (mAtual == MENU_EXPLORAR) {
@@ -240,4 +266,17 @@ void acaoTriangle_Explorar() {
     }
 }
 
-void acaoR1_Explorar() { if (esperandoNomePasta || esperandoRenomear) return; if (visualizandoMidiaImagem) return; bool ehEsq = (painelDuplo && painelAtivo == 0); MenuLevel mAtual = ehEsq ? menuAtualEsq : menuAtual; int sAtual = ehEsq ? selEsq : sel; bool* mItems = ehEsq ? marcadosEsq : marcados; if (mAtual == MENU_EXPLORAR) { if (cd <= 0) { mItems[sAtual] = !mItems[sAtual]; cd = 12; } } }
+void acaoR1_Explorar() {
+    if (visualizandoMidiaImagem) return;
+    if (esperandoNomePasta || esperandoRenomear) return;
+    bool ehEsq = (painelDuplo && painelAtivo == 0);
+    MenuLevel mAtual = ehEsq ? menuAtualEsq : menuAtual;
+    int sAtual = ehEsq ? selEsq : sel;
+    if (mAtual == MENU_EXPLORAR) {
+        if (cd <= 0) {
+            bool* mItems = ehEsq ? marcadosEsq : marcados;
+            mItems[sAtual] = !mItems[sAtual];
+            cd = 12;
+        }
+    }
+}

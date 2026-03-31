@@ -49,22 +49,10 @@
     <ClCompile Include="graphics.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="manager.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
     <ClCompile Include="network.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="pastas.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="logica_jogar.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
     <ClCompile Include="controle.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="explorar_logica.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="audio.cpp">
@@ -82,9 +70,6 @@
     <ClCompile Include="menu_explorar.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="menu_imagens.cpp.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
     <ClCompile Include="menu_video.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -98,6 +83,87 @@
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="jogar.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="baixar_dropbox_download.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="baixar_lojas.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="baixar_repositorio.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="barra_de_load.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="bloco_de_notas.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="controle_baixar.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="controle_direcional.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="controle_editar.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="controle_elementos.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="controle_explorar.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="controle_musicas.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="controle_root.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="controle_virtual.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="criar_pastas.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="dowload_sistema.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="elementos.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="elementos_animados_sprite_sheet.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="elementos_sonoros.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="ftp.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="menu_grafico.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="menu_upload.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="stb_implementations.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="teclado.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="upload.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="video.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="extra.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="informacao.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>
@@ -136,13 +202,7 @@
     <ClInclude Include="stb_image.h">
       <Filter>Source Files</Filter>
     </ClInclude>
-    <ClInclude Include="globals.h">
-      <Filter>Source Files</Filter>
-    </ClInclude>
     <ClInclude Include="explorar.h">
-      <Filter>Source Files</Filter>
-    </ClInclude>
-    <ClInclude Include="pastas.h">
       <Filter>Source Files</Filter>
     </ClInclude>
     <ClInclude Include="editar.h">
@@ -161,6 +221,87 @@
       <Filter>Source Files</Filter>
     </ClInclude>
     <ClInclude Include="audio.h">
+      <Filter>Source Files</Filter>
+    </ClInclude>
+    <ClInclude Include="baixar_dropbox_download.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="baixar_lojas.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="baixar_repositorio.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="barra_de_load.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="bloco_de_notas.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="controle.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="controle_baixar.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="controle_direcional.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="controle_editar.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="controle_elementos.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="controle_explorar.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="controle_musicas.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="controle_root.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="controle_virtual.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="criar_pastas.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="elementos.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="elementos_animados_sprite_sheet.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="elementos_sonoros.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="ftp.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="menu.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="menu_audio.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="menu_grafico.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="menu_upload.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="teclado.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="upload.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="extra.h">
+      <Filter>Source Files</Filter>
+    </ClInclude>
+    <ClInclude Include="informacao.h">
       <Filter>Source Files</Filter>
     </ClInclude>
   </ItemGroup>

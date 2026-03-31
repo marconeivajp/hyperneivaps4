@@ -22,7 +22,9 @@ void preencherRoot() {
     strcpy(nomes[2], "BAIXAR");
     strcpy(nomes[3], "EDITAR");
     strcpy(nomes[4], "EXPLORAR");
-    totalItens = 5; // Removido o item MUSICAS da tela inicial
+    strcpy(nomes[5], "EXTRA");
+    strcpy(nomes[6], "INFORMACOES");
+    totalItens = 7;
     menuAtual = ROOT;
 }
 

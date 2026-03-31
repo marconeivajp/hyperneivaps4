@@ -19,17 +19,19 @@ extern int ftpL2State;
 extern char currentFtpPathEsq[1024];
 extern char linksAtuaisEsq[3000][1024];
 
+extern char currentFtpPathDir[1024]; // Caminho do PC no painel direito
+
 extern char ftpClipPaths[100][1024];
 extern bool ftpClipIsDir[100];
 extern int ftpClipCount;
 extern bool ftpClipIsCut;
 extern int ftpClipSource;
 
-// VARIÁVEIS DO EXPLORADOR NO PAINEL DIREITO
 extern char pathExplorarDireita[512];
 extern bool homeDireitaFTP;
-void listarDiretorioDireitaFTP(const char* dirPath);
 
+// DECLARAÇÕES GLOBAIS BLINDADAS
+void listarDiretorioDireitaFTP(const char* dirPath);
 void carregarServidoresFTP();
 void salvarServidoresFTP();
 void preencherMenuFTPServidores(bool isUpload);
@@ -38,6 +40,7 @@ void abrirTecladoEdicaoFTP(int32_t uId, int campo);
 
 void acessarFTP(int index, const char* path);
 void acessarFTPEsq(int index, const char* path);
+void acessarFTPDir(int index, const char* path);
 
 void adicionarFilaFTP(const char* sourcePath, const char* destPath, bool isUpload, bool isDir);
 void iniciarProcessamentoFilaFTP();
@@ -49,3 +52,5 @@ void acaoL2_FTP();
 void preencherOpcoesFTP();
 void acaoOpcaoFTP(int idxOpcao, int32_t uId);
 void prepararPreviewFTP(const char* remotePath);
+
+bool isFtpPanelLocal(bool isEsq);

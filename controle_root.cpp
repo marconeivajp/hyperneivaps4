@@ -17,6 +17,10 @@
 #include "audio.h"
 #include "bloco_de_notas.h"
 
+// DECLARAÇÃO DOS NOVOS MENUS
+extern void preencherMenuExtra();
+extern void preencherMenuInformacao();
+
 bool visualizandoMidiaImagem = false;
 unsigned char* imgMidia = NULL;
 int wM = 0, hM = 0, cM = 0;
@@ -217,6 +221,8 @@ void acaoCross_Root() {
         else if (sel == 2) { preencherMenuBaixar(); sel = 0; off = 0; }
         else if (sel == 3) { preencherMenuEditar(); sel = 0; off = 0; }
         else if (sel == 4) { preencherExplorerHome(); sel = 0; off = 0; }
+        else if (sel == 5) { preencherMenuExtra(); sel = 0; off = 0; }
+        else if (sel == 6) { preencherMenuInformacao(); sel = 0; off = 0; }
     }
 
     else if (menuAtual == MENU_TIPO_JOGO) {
@@ -320,4 +326,7 @@ void acaoCircle_Root() {
     else if (menuAtual == MENU_JOGAR_PS4) { memset(nomes, 0, sizeof(nomes)); strcpy(nomes[0], "Jogos de PS4 Nativo"); strcpy(nomes[1], "Listas XML (Retro)"); totalItens = 2; sel = 0; off = 0; menuAtual = MENU_TIPO_JOGO; }
     else if (menuAtual == JOGAR_XML) { if (strstr(caminhoXMLAtual, "sp.xml")) carregarXML("/app0/assets/lista.xml"); else { memset(nomes, 0, sizeof(nomes)); strcpy(nomes[0], "Jogos de PS4 Nativo"); strcpy(nomes[1], "Listas XML (Retro)"); totalItens = 2; sel = 0; off = 0; menuAtual = MENU_TIPO_JOGO; } }
     else if (menuAtual == MENU_MIDIA) { if (strcmp(caminhoMidiaAtual, "/data/HyperNeiva/midia") == 0) { preencherRoot(); } else { char* ultimaBarra = strrchr(caminhoMidiaAtual, '/'); if (ultimaBarra != NULL) { *ultimaBarra = '\0'; } abrirPastaMidia(caminhoMidiaAtual); } }
+
+    // RETORNO DOS NOVOS MENUS PARA A HOME (BOLINHA VOLTA AQUI)
+    else if (menuAtual == MENU_EXTRA || menuAtual == MENU_INFORMACAO) { preencherRoot(); }
 }
