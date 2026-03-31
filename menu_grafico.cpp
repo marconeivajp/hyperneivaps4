@@ -168,27 +168,22 @@ void desenharTextoAlinhadoAnimado(uint32_t* p, const char* textoOriginal, int fT
         desenharTextoClip(p, textoOriginal, fTam, posX, y, cor, xBase, maxW);
     }
     else {
-        // O TEXTO É MAIOR QUE O BOTÃO/ESPAÇO
         if (isSelected) {
-            int excessPx = pxWidth - espacoDisponivel + 30; // Deixa 30px extras para não ficar apertado no fim
-            int cycle = 240; // 4 segundos de ciclo a 60fps
+            int excessPx = pxWidth - espacoDisponivel + 40;
+            int cycle = 300; // Ciclo total de 5 segundos
             int pos = frameContadorGlobal % cycle;
             int pixelShift = 0;
 
-            // 0 a 60 (1s): Pausa no inicio para a pessoa começar a ler
-            // 60 a 120 (1s): Rola suavemente para a esquerda (mostrando o final do texto)
-            if (pos > 60 && pos <= 120) {
-                float progress = (float)(pos - 60) / 60.0f;
-                progress = progress * progress * (3.0f - 2.0f * progress); // Ease in-out (suavidade)
+            if (pos > 60 && pos <= 150) { // Rola para a esquerda
+                float progress = (float)(pos - 60) / 90.0f;
+                progress = progress * progress * (3.0f - 2.0f * progress);
                 pixelShift = (int)(progress * excessPx);
             }
-            // 120 a 180 (1s): Pausa no final para acabar de ler
-            else if (pos > 120 && pos <= 180) {
+            else if (pos > 150 && pos <= 210) { // Pausa no fim
                 pixelShift = excessPx;
             }
-            // 180 a 240 (1s): Rola de volta para o inicio suavemente
-            else if (pos > 180) {
-                float progress = (float)(pos - 180) / 60.0f;
+            else if (pos > 210) { // Volta para o início
+                float progress = (float)(pos - 210) / 90.0f;
                 progress = progress * progress * (3.0f - 2.0f * progress);
                 pixelShift = (int)((1.0f - progress) * excessPx);
             }
@@ -196,7 +191,6 @@ void desenharTextoAlinhadoAnimado(uint32_t* p, const char* textoOriginal, int fT
             desenharTextoClip(p, textoOriginal, fTam, posX - pixelShift, y, cor, xBase + 20, espacoDisponivel);
         }
         else {
-            // Se nao estiver com a barra de seleção em cima, corta o texto e põe "..."
             int maxChars = espacoDisponivel / (fTam * 0.55f);
             if (maxChars < 4) maxChars = 4;
             char txtFinal[512];
@@ -230,6 +224,11 @@ void desenharInterface(uint32_t* p) {
     if (menuAtual == MENU_CONTROLE_TESTE) {
         extern void renderizarControleTeste(uint32_t * p);
         renderizarControleTeste(p);
+        return;
+    }
+    if (menuAtual == MENU_INSTRUMENTOS) {
+        extern void renderizarInstrumentos(uint32_t * p);
+        renderizarInstrumentos(p);
         return;
     }
     if (menuAtual == MENU_INFORMACAO) {
@@ -436,10 +435,10 @@ void desenharInterface(uint32_t* p) {
         int stepX = (listOri == 1) ? curListSpc : 0; int stepY = (listOri == 0) ? curListSpc : 0;
 
         static float smoothSelDir = 0.0f; static float smoothSelEsq = 0.0f; static MenuLevel lastMenu2 = ROOT;
-        if (lastMenu2 != menuAtual) { smoothSelDir = sel; smoothSelEsq = selEsq; lastMenu2 = menuAtual; }
+        if (lastMenu2 != menuAtual) { smoothSelDir = (float)sel; smoothSelEsq = (float)selEsq; lastMenu2 = menuAtual; }
         float& smoothSel = (refPainel == 0) ? smoothSelEsq : smoothSelDir;
 
-        if (fabs(smoothSel - sAtual) > 20.0f) smoothSel = sAtual;
+        if (fabs(smoothSel - sAtual) > 20.0f) smoothSel = (float)sAtual;
         smoothSel += (sAtual - smoothSel) * 0.15f;
 
         int loopStart = 0; int loopEnd = 6;
@@ -458,7 +457,7 @@ void desenharInterface(uint32_t* p) {
             float opacityMulti = 1.0f;
 
             if (listStyle == 1) {
-                float dist = gIdx - smoothSel;
+                float dist = (float)gIdx - smoothSel;
 
                 int centroX = posX_Base;
                 int centroY = curListY + (2 * stepY);
@@ -521,7 +520,7 @@ void desenharInterface(uint32_t* p) {
 
             if (aF > 10) { for (int by = 0; by < listH; by++) { for (int bx = 0; bx < larguraItem; bx++) { int pxX = drawX + bx; int pyY = drawY + by; if (pxX >= 0 && pxX < 1920 && pyY >= 0 && pyY < 1080) p[pyY * 1920 + pxX] = corFundo; } } }
 
-            // RENDERIZAÇÃO DO TEXTO AGORA USA A MÁGICA DO SCROLL AUTOMÁTICO
+            // AGORA USA A FUNÇÃO COM SCROLL (MARQUEE) PARA NOMES LONGOS
             desenharTextoAlinhadoAnimado(p, nItems[gIdx], currentFontTam, drawX, drawY + (listH / 4), larguraItem, corTexto, isSelected);
         }
     }
@@ -745,14 +744,14 @@ void desenharInterface(uint32_t* p) {
             bool isSel = (gIdx == selOpcao);
             if (isSel) isTextoAnimado = true;
 
-            // O MENU DE OPÇÕES AGORA USA A MÁGICA DO SCROLL:
+            // O MENU DE OPÇÕES AGORA USA O SCROLL AUTOMÁTICO TAMBÉM
             desenharTextoAlinhadoAnimado(p, listaOpcoes[gIdx], fontTam, upX, upY + 50 + (i * 45), upW, corOp, isSel);
         }
     }
 
     desenharMenuAudio(p); desenharMenuUpload(p);
 
-    bool esconderElementos = (visualizandoMidiaImagem || visualizandoMidiaTexto || menuAtual == MENU_NOTEPAD || menuAtualEsq == MENU_NOTEPAD || menuAtual == MENU_CONTROLE_TESTE || menuAtual == MENU_INFORMACAO);
+    bool esconderElementos = (visualizandoMidiaImagem || visualizandoMidiaTexto || menuAtual == MENU_NOTEPAD || menuAtualEsq == MENU_NOTEPAD || menuAtual == MENU_CONTROLE_TESTE || menuAtual == MENU_INFORMACAO || menuAtual == MENU_INSTRUMENTOS);
 
     if (!esconderElementos) {
         int curListX = (listOri == 0) ? listXV : listXH;

@@ -83,6 +83,7 @@
     <ClCompile Include="gestor_de_saves.cpp" />
     <ClCompile Include="graphics.cpp" />
     <ClCompile Include="informacao.cpp" />
+    <ClCompile Include="instrumentos.cpp" />
     <ClCompile Include="jogar.cpp" />
     <ClCompile Include="main.cpp" />
     <ClCompile Include="build.bat" />
@@ -138,6 +139,7 @@
     <ClInclude Include="ftp.h" />
     <ClInclude Include="graphics.h" />
     <ClInclude Include="informacao.h" />
+    <ClInclude Include="instrumentos.h" />
     <ClInclude Include="jogar.h" />
     <ClInclude Include="menu.h" />
     <ClInclude Include="menu_audio.h" />

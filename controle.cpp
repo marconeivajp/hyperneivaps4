@@ -254,12 +254,13 @@ void processarNavegacaoDPad(uint32_t botoes) {
 void processarControles(uint32_t botoes, int32_t uId, OrbisImeDialogSetting* imeSetting, uint16_t* imeTitle) {
     globalUserId = uId;
 
-    // SAIDA IMEDIATA SE FOR A TELA DO TESTE
-    if (menuAtual == MENU_CONTROLE_TESTE) {
+    // SAIDA IMEDIATA SE FOR A TELA DO TESTE OU PIANO
+    if (menuAtual == MENU_CONTROLE_TESTE || menuAtual == MENU_INSTRUMENTOS) {
         if (botoes & ORBIS_PAD_BUTTON_OPTIONS) {
+            extern void preencherMenuExtra();
             preencherMenuExtra();
         }
-        return; // IGNORA TUDO O RESTO PARA NÃO INTERFERIR NO TESTE
+        return; // IGNORA TUDO O RESTO PARA NÃO INTERFERIR COM O TESTE OU PIANO
     }
 
     if (totalItens <= 0) { sel = 0; off = 0; }
