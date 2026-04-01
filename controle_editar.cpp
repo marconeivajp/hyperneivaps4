@@ -67,7 +67,7 @@ void verificarTecladoVirtual() {
         nomeFinalASCII[len] = '\0';
         if (len > 0) {
             salvarAnimacaoComNome(nomeFinalASCII);
-            salvarAnimacaoUnity(nomeFinalASCII); // UNITY EXPORT RESTAURADO
+            salvarAnimacaoUnity(nomeFinalASCII);
             sprintf(msgStatus, "SALVO EM: configuracao/%s.bin", nomeFinalASCII);
             msgTimer = 180;
         }
@@ -162,7 +162,7 @@ void processarControlesEdicao(unsigned int buttons) {
     else if (editType == 21) { if (buttons & ORBIS_PAD_BUTTON_LEFT) { upTextNorm--; if (upTextNorm < 0) upTextNorm = 14; } if (buttons & ORBIS_PAD_BUTTON_RIGHT) { upTextNorm++; if (upTextNorm > 14) upTextNorm = 0; } }
     else if (editType == 22) { if (buttons & ORBIS_PAD_BUTTON_LEFT) { upTextSel--; if (upTextSel < 0) upTextSel = 14; } if (buttons & ORBIS_PAD_BUTTON_RIGHT) { upTextSel++; if (upTextSel > 14) upTextSel = 0; } }
 
-    // ANIMAÇÃO E CHROMA KEYS (100% RESTAURADOS)
+    // ANIMAÇÃO E CHROMA KEYS
     else if (editType == 23) { if (buttons & ORBIS_PAD_BUTTON_UP) anim_posY -= 5; if (buttons & ORBIS_PAD_BUTTON_DOWN) anim_posY += 5; if (buttons & ORBIS_PAD_BUTTON_LEFT) anim_posX -= 5; if (buttons & ORBIS_PAD_BUTTON_RIGHT) anim_posX += 5; }
     else if (editType == 24) { if (buttons & ORBIS_PAD_BUTTON_UP) anim_escala += 0.1f; if (buttons & ORBIS_PAD_BUTTON_DOWN) { anim_escala -= 0.1f; if (anim_escala < 0.1f) anim_escala = 0.1f; } }
     else if (editType == 25) { if (buttons & ORBIS_PAD_BUTTON_LEFT) anim_velocidade -= 5; if (buttons & ORBIS_PAD_BUTTON_RIGHT) anim_velocidade += 5; if (buttons & ORBIS_PAD_BUTTON_UP) anim_velocidade += 20; if (buttons & ORBIS_PAD_BUTTON_DOWN) anim_velocidade -= 20; if (anim_velocidade < 1) anim_velocidade = 1; }
@@ -178,12 +178,12 @@ void processarControlesEdicao(unsigned int buttons) {
     else if (editType == 39) { if (buttons & ORBIS_PAD_BUTTON_LEFT) { anim_keyB2 -= 5; if (anim_keyB2 < 0) anim_keyB2 = 0; } if (buttons & ORBIS_PAD_BUTTON_RIGHT) { anim_keyB2 += 5; if (anim_keyB2 > 255) anim_keyB2 = 255; } }
     else if (editType == 40) { if (pDelay == 0 && (buttons & (ORBIS_PAD_BUTTON_LEFT | ORBIS_PAD_BUTTON_RIGHT))) { anim_autoCenter = !anim_autoCenter; pDelay = 10; } }
     else if (editType == 42) { if (buttons & ORBIS_PAD_BUTTON_LEFT) { anim_tolerancia -= 50; if (anim_tolerancia < 0) anim_tolerancia = 0; } if (buttons & ORBIS_PAD_BUTTON_RIGHT) anim_tolerancia += 50; if (buttons & ORBIS_PAD_BUTTON_UP) anim_tolerancia += 500; if (buttons & ORBIS_PAD_BUTTON_DOWN) { anim_tolerancia -= 500; if (anim_tolerancia < 0) anim_tolerancia = 0; } }
-    else if (editType == 45) { if (pDelay == 0) { if (buttons & ORBIS_PAD_BUTTON_LEFT) { listStyle -= 1; if (listStyle < 0) listStyle = 3; pDelay = 8; } if (buttons & ORBIS_PAD_BUTTON_RIGHT) { listStyle += 1; if (listStyle > 3) listStyle = 0; pDelay = 8; } } }
+    else if (editType == 45) { if (pDelay == 0) { if (buttons & ORBIS_PAD_BUTTON_LEFT) { listStyle -= 1; if (listStyle < 0) listStyle = 4; pDelay = 8; } if (buttons & ORBIS_PAD_BUTTON_RIGHT) { listStyle += 1; if (listStyle > 4) listStyle = 0; pDelay = 8; } } }
     else if (editType == 46) { if (pDelay == 0) { if (buttons & ORBIS_PAD_BUTTON_LEFT) { fontAnim -= 1; if (fontAnim < 0) fontAnim = 3; pDelay = 8; } if (buttons & ORBIS_PAD_BUTTON_RIGHT) { fontAnim += 1; if (fontAnim > 3) fontAnim = 0; pDelay = 8; } } }
     else if (editType == 47) { if (pDelay == 0) { if (buttons & ORBIS_PAD_BUTTON_LEFT) { listCurvature -= 1; if (listCurvature < 0) listCurvature = 0; pDelay = 2; } if (buttons & ORBIS_PAD_BUTTON_RIGHT) { listCurvature += 1; if (listCurvature > 100) listCurvature = 100; pDelay = 2; } if (buttons & ORBIS_PAD_BUTTON_UP) { listCurvature += 5; pDelay = 4; } if (buttons & ORBIS_PAD_BUTTON_DOWN) { listCurvature -= 5; if (listCurvature < 0) listCurvature = 0; pDelay = 4; } } }
     else if (editType == 48) { if (pDelay == 0) { if (buttons & ORBIS_PAD_BUTTON_LEFT) { listZoomCentro -= 1; if (listZoomCentro < 0) listZoomCentro = 0; pDelay = 2; } if (buttons & ORBIS_PAD_BUTTON_RIGHT) { listZoomCentro += 1; if (listZoomCentro > 100) listZoomCentro = 100; pDelay = 2; } if (buttons & ORBIS_PAD_BUTTON_UP) { listZoomCentro += 5; pDelay = 4; } if (buttons & ORBIS_PAD_BUTTON_DOWN) { listZoomCentro -= 5; if (listZoomCentro < 0) listZoomCentro = 0; pDelay = 4; } } }
 
-    // MODO TESTE (PIVOT + UNITY EXPORT)
+    // MODO TESTE
     else if (editType == 29) {
         extern int wSprite, hSprite; anim_modoTeste = true; static int fDelay = 0; if (fDelay > 0) fDelay--; static bool pSqEdit = false; static bool pCrossEdit29 = false;
         int frameDrawW = (wSprite / (anim_colunas > 0 ? anim_colunas : 1)) * anim_escala; int frameDrawH = (hSprite / (anim_linhas > 0 ? anim_linhas : 1)) * anim_escala; int centroBoxX = anim_posX + frameDrawW / 2; int centroBoxY = anim_posY + frameDrawH / 2;

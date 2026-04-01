@@ -11,7 +11,6 @@ extern int wSprite, hSprite;
 extern char msgStatus[128];
 extern int msgTimer;
 
-// VARIÁVEIS GLOBAIS DA ENGINE GRÁFICA (Resolve os erros de undefined symbol)
 bool isFirstFrameUI = true;
 int uiW[10] = { 0 };
 int uiH[10] = { 0 };
@@ -204,7 +203,7 @@ void preencherMenuEditTarget() {
         else { strcpy(nomes[totalItens], "TAMANHO"); mapAcoes[totalItens++] = 1; strcpy(nomes[totalItens], "ESTICAR"); mapAcoes[totalItens++] = 2; }
 
         if (editTarget == 0) {
-            strcpy(nomes[totalItens], "ESTILO DE LISTA (ROLETA/PS4/PS3)"); mapAcoes[totalItens++] = 45; strcpy(nomes[totalItens], "CURVATURA DA ROLETA"); mapAcoes[totalItens++] = 47; strcpy(nomes[totalItens], "ZOOM DO SELETOR"); mapAcoes[totalItens++] = 48; strcpy(nomes[totalItens], "COR DE FUNDO"); mapAcoes[totalItens++] = 3; strcpy(nomes[totalItens], "ESPACAMENTO"); mapAcoes[totalItens++] = 4; strcpy(nomes[totalItens], "ORIENTACAO"); mapAcoes[totalItens++] = 5;
+            strcpy(nomes[totalItens], "ESTILO DE LISTA (5 OPCOES)"); mapAcoes[totalItens++] = 45; strcpy(nomes[totalItens], "CURVATURA DA ROLETA"); mapAcoes[totalItens++] = 47; strcpy(nomes[totalItens], "ZOOM DO SELETOR"); mapAcoes[totalItens++] = 48; strcpy(nomes[totalItens], "COR DE FUNDO"); mapAcoes[totalItens++] = 3; strcpy(nomes[totalItens], "ESPACAMENTO"); mapAcoes[totalItens++] = 4; strcpy(nomes[totalItens], "ORIENTACAO"); mapAcoes[totalItens++] = 5;
         }
         else if (editTarget == 4 || editTarget == 5) { strcpy(nomes[totalItens], "COR DE FUNDO"); mapAcoes[totalItens++] = 3; strcpy(nomes[totalItens], "COR PREENCH"); mapAcoes[totalItens++] = 8; }
         else if (editTarget == 6 || editTarget == 7) { strcpy(nomes[totalItens], "COR DE FUNDO"); mapAcoes[totalItens++] = 3; }
