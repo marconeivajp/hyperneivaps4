@@ -17,12 +17,18 @@ extern int globalPadHandle;
 // Matrizes para guardar o rastro (gráfico) contínuo
 static bool trilhaL[256][256];
 static bool trilhaR[256][256];
-static bool trilhaTouch[576][282]; // Resolução do Touchpad escalonada
+
+// AGORA TEMOS DUAS MATRIZES DE RASTRO (Uma para cada dedo)
+static bool trilhaTouch1[576][282];
+static bool trilhaTouch2[576][282];
 
 // Guarda a posição anterior para desenhar linhas perfeitas (Bresenham)
 static int prevLx = 128, prevLy = 128;
 static int prevRx = 128, prevRy = 128;
-static int prevTx = -1, prevTy = -1;
+
+// Posições anteriores independentes para os dois dedos
+static int prevT1x = -1, prevT1y = -1;
+static int prevT2x = -1, prevT2y = -1;
 
 void preencherMenuExtra() {
     memset(nomes, 0, sizeof(nomes));
@@ -38,10 +44,12 @@ void acaoCross_Extra() {
         // Limpa os gráficos antes de entrar no Teste de Controle
         memset(trilhaL, 0, sizeof(trilhaL));
         memset(trilhaR, 0, sizeof(trilhaR));
-        memset(trilhaTouch, 0, sizeof(trilhaTouch));
+        memset(trilhaTouch1, 0, sizeof(trilhaTouch1));
+        memset(trilhaTouch2, 0, sizeof(trilhaTouch2));
         prevLx = 128; prevLy = 128;
         prevRx = 128; prevRy = 128;
-        prevTx = -1; prevTy = -1;
+        prevT1x = -1; prevT1y = -1;
+        prevT2x = -1; prevT2y = -1;
         menuAtual = MENU_CONTROLE_TESTE;
     }
     else if (sel == 1) {
@@ -97,14 +105,6 @@ void renderizarControleTeste(uint32_t* p) {
     uint8_t l2 = raw[0x08];
     uint8_t r2 = raw[0x09];
 
-    // =======================================================
-    // O SEGREDO DO TOUCHPAD CORRIGIDO AQUI!
-    // Como a sua versão do SDK não possui "touchData" declarado na struct,
-    // lemos diretamente da memória, mas agora com os ENDEREÇOS EXATOS!
-    // 0x34 = Quantidade de dedos na tela
-    // 0x3C e 0x3E = X e Y do Dedo 1
-    // 0x44 e 0x46 = X e Y do Dedo 2
-    // =======================================================
     uint8_t touchNum = raw[0x34];
     uint16_t t0_x = 0; uint16_t t0_y = 0;
     uint16_t t1_x = 0; uint16_t t1_y = 0;
@@ -223,7 +223,7 @@ void renderizarControleTeste(uint32_t* p) {
     desenharTexto(p, txt, 30, rCenterX - 110, rCenterY + 180, 0xFFFFFFFF);
 
     // -----------------------------------------
-    // Renderizar Touchpad na Direita
+    // Renderizar Touchpad na Direita (Agora Multi-Touch!)
     // -----------------------------------------
     int tpW = 576; int tpH = 282;
     int tpX = 1250; int tpY = 460;
@@ -233,24 +233,45 @@ void renderizarControleTeste(uint32_t* p) {
     for (int y = 0; y < tpH; y++) { for (int x = 0; x < tpW; x++) { p[(tpY + y) * 1920 + (tpX + x)] = 0xFF222222; } }
     for (int y = 0; y < tpH; y++) { for (int x = 0; x < tpW; x++) { if (x == 0 || y == 0 || x == tpW - 1 || y == tpH - 1) p[(tpY + y) * 1920 + (tpX + x)] = 0xFFAAAAAA; } }
 
-    // Limpa a tela do touch se pressionar "Click"
-    if (buttons & ORBIS_PAD_BUTTON_TOUCH_PAD) { memset(trilhaTouch, 0, sizeof(trilhaTouch)); prevTx = -1; prevTy = -1; }
+    // Limpa a tela do touch se pressionar o "Click" central
+    if (buttons & ORBIS_PAD_BUTTON_TOUCH_PAD) {
+        memset(trilhaTouch1, 0, sizeof(trilhaTouch1));
+        memset(trilhaTouch2, 0, sizeof(trilhaTouch2));
+        prevT1x = -1; prevT1y = -1;
+        prevT2x = -1; prevT2y = -1;
+    }
 
-    // DEDO 1
+    // ===================================
+    // DEDO 1 (Azul)
+    // ===================================
     if (touchNum > 0) {
         int tx = (t0_x * tpW) / 1919; int ty = (t0_y * tpH) / 941;
-        if (prevTx == -1) { prevTx = tx; prevTy = ty; }
-        drawLineOnGrid(trilhaTouch, prevTx, prevTy, tx, ty);
-        prevTx = tx; prevTy = ty;
+        if (prevT1x == -1) { prevT1x = tx; prevT1y = ty; }
+        drawLineOnGrid(trilhaTouch1, prevT1x, prevT1y, tx, ty);
+        prevT1x = tx; prevT1y = ty;
     }
     else {
-        prevTx = -1; prevTy = -1;
+        prevT1x = -1; prevT1y = -1; // Levantou o dedo 1
     }
 
-    // Desenha o rastro do dedo 1
+    // ===================================
+    // DEDO 2 (Verde)
+    // ===================================
+    if (touchNum > 1) {
+        int tx2 = (t1_x * tpW) / 1919; int ty2 = (t1_y * tpH) / 941;
+        if (prevT2x == -1) { prevT2x = tx2; prevT2y = ty2; }
+        drawLineOnGrid(trilhaTouch2, prevT2x, prevT2y, tx2, ty2);
+        prevT2x = tx2; prevT2y = ty2;
+    }
+    else {
+        prevT2x = -1; prevT2y = -1; // Levantou o dedo 2
+    }
+
+    // Renderiza as duas trilhas independentes na tela!
     for (int ty = 0; ty < tpH; ty++) {
         for (int tx = 0; tx < tpW; tx++) {
-            if (trilhaTouch[tx][ty]) {
+            // Se o dedo 1 passou por aqui, desenha AZUL
+            if (trilhaTouch1[tx][ty]) {
                 int fpx = tpX + tx; int fpy = tpY + ty;
                 for (int dy = -1; dy <= 1; dy++) {
                     for (int dx = -1; dx <= 1; dx++) {
@@ -259,19 +280,32 @@ void renderizarControleTeste(uint32_t* p) {
                     }
                 }
             }
+            // Se o dedo 2 passou por aqui, desenha VERDE
+            if (trilhaTouch2[tx][ty]) {
+                int fpx = tpX + tx; int fpy = tpY + ty;
+                for (int dy = -1; dy <= 1; dy++) {
+                    for (int dx = -1; dx <= 1; dx++) {
+                        int ppx = fpx + dx, ppy = fpy + dy;
+                        if (ppx >= 0 && ppx < 1920 && ppy >= 0 && ppy < 1080) p[ppy * 1920 + ppx] = 0xFF00FF00;
+                    }
+                }
+            }
         }
     }
 
-    // Informação do Dedo 1
+    // ===================================
+    // TEXTOS E BOLINHAS EM TEMPO REAL
+    // ===================================
     if (touchNum > 0) {
         int dotX = tpX + (t0_x * tpW) / 1919; int dotY = tpY + (t0_y * tpH) / 941;
         drawCircle(dotX, dotY, 12, 0xFF00AAFF, true);
         sprintf(txt, "Dedo 1: X:%d Y:%d", t0_x, t0_y);
         desenharTexto(p, txt, 25, tpX + 10, tpY + tpH + 30, 0xFF00AAFF);
     }
-    else { desenharTexto(p, "Sem toque detectado", 25, tpX + 170, tpY + tpH + 30, 0xFF555555); }
+    else {
+        desenharTexto(p, "Aguardando toque...", 25, tpX + 170, tpY + tpH + 30, 0xFF555555);
+    }
 
-    // Informação do Dedo 2
     if (touchNum > 1) {
         int dotX2 = tpX + (t1_x * tpW) / 1919; int dotY2 = tpY + (t1_y * tpH) / 941;
         drawCircle(dotX2, dotY2, 12, 0xFF00FF00, true);
