@@ -2,10 +2,14 @@
 #ifndef __builtin_va_list
 #define __builtin_va_list void*
 #endif
+#ifndef __attribute__
+#define __attribute__(x)
+#endif
 #endif
 
 #include "jogar.h"
 #include "explorar.h" 
+#include "audio.h" 
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -17,10 +21,8 @@
 extern char msgStatus[128];
 extern int msgTimer;
 
-// A VARIÁVEL QUE GUARDA O ID DO SEU USUÁRIO LOGADO (Vem do controle!)
 extern int globalUserId;
 
-// A ESTRUTURA OCULTA DO ITEMZFLOW PARA INICIAR JOGOS
 struct app_launch_ctx {
     uint32_t structsize;
     uint32_t user_id;
@@ -72,40 +74,74 @@ void chamarJogo(const char* titleId, const char* romPath) {
 
     typedef int (*LaunchAppFunc)(const char*, char**, void*);
     LaunchAppFunc launchAppReal = NULL;
+    sceKernelDlsym(libSystemService, "sceSystemServiceLaunchApp", (void**)&launchAppReal);
 
-    int resSym = sceKernelDlsym(libSystemService, "sceSystemServiceLaunchApp", (void**)&launchAppReal);
-    if (resSym < 0 || launchAppReal == NULL) {
-        sprintf(msgStatus, "ERRO 2: FUNCAO NAO ENCONTRADA (0x%08X)", resSym);
-        msgTimer = 300;
-        return;
-    }
+    if (launchAppReal == NULL) return;
 
-    // A MÁGICA: Passando o usuário que tem a permissão para o Kernel!
+    // Desligamos o motor de áudio do Hyper Neiva para liberar a porta do PS4.
+    pararAudio();
+
     struct app_launch_ctx ctx;
     memset(&ctx, 0, sizeof(ctx));
-    ctx.structsize = 24; // Tamanho exato da estrutura do PS4
+    ctx.structsize = 24;
     ctx.user_id = globalUserId;
     ctx.app_opt = 0;
     ctx.crash_report = 0;
     ctx.check_flag = 0;
 
     int launchRes = 0;
-    if (romPath != NULL && strlen(romPath) > 0) {
-        char* args[] = { (char*)romPath, NULL };
-        launchRes = launchAppReal(titleId, args, &ctx); // Envia o ctx preenchido!
+
+    if (strcmp(titleId, "SSNE10000") == 0) {
+        // TRUQUE DE CONFIGURAÇÃO DO RETROARCH
+        FILE* cfg = fopen("/data/retroarch/retroarch.cfg", "a");
+        if (cfg) {
+            fprintf(cfg, "\nlibretro_path = \"/data/self/retroarch/cores/genesis_plus_gx_libretro_ps4.self\"\n");
+            fprintf(cfg, "rgui_browser_directory = \"/data/HyperNeiva/baixado/\"\n");
+            fclose(cfg);
+        }
+
+        char* argsNulo[] = { (char*)titleId, NULL };
+        sprintf(msgStatus, "INICIANDO RETROARCH...");
+        launchRes = launchAppReal(titleId, argsNulo, &ctx);
+    }
+    else if (romPath != NULL && strlen(romPath) > 0) {
+        char* args[] = { (char*)titleId, (char*)romPath, NULL };
+        launchRes = launchAppReal(titleId, args, &ctx);
     }
     else {
-        // Envia o titleId como arg0 para garantir padrão UNIX
         char* argsNulo[] = { (char*)titleId, NULL };
-        launchRes = launchAppReal(titleId, argsNulo, &ctx); // Envia o ctx preenchido!
+        launchRes = launchAppReal(titleId, argsNulo, &ctx);
     }
 
     if (launchRes < 0) {
-        sprintf(msgStatus, "ERRO 3: %s FALHOU (0x%08X)", titleId, launchRes);
+        sprintf(msgStatus, "ERRO: %s (0x%08X)", titleId, launchRes);
         msgTimer = 400;
+
+        // Se falhar, liga o som do menu de volta
+        inicializarAudio();
     }
     else {
-        sprintf(msgStatus, "JOGO %s INICIADO COM SUCESSO!", titleId);
-        msgTimer = 180;
+        sprintf(msgStatus, "FECHANDO FRONTEND...");
+
+        // Dá meio segundo para o PS4 assumir o controle da tela
+        sceKernelUsleep(500000);
+
+        // =====================================================================
+        // BUSCA DINÂMICA DA FUNÇÃO DE SAÍDA (Resolve o erro do ld.lld)
+        // =====================================================================
+        typedef void (*ExitProcessFunc)(int);
+        ExitProcessFunc exitProcessReal = NULL;
+
+        int libKernel = sceKernelLoadStartModule("libkernel.sprx", 0, NULL, 0, NULL, NULL);
+        if (libKernel >= 0) {
+            sceKernelDlsym(libKernel, "sceKernelExitProcess", (void**)&exitProcessReal);
+        }
+
+        if (exitProcessReal != NULL) {
+            exitProcessReal(0); // Morte Limpa pelo Kernel
+        }
+        else {
+            exit(0); // Plano B (Padrão C++)
+        }
     }
 }
