@@ -35,9 +35,11 @@ struct AcordeTempo {
 
 static AcordeTempo acordesCarregados[MAX_CHORDS_MUSICA];
 static int totalAcordesCarregados = 0;
+static bool usandoAcordesFalsos = false;
 
 static void carregarAcordesDaMusica(const char* audioPath) {
     totalAcordesCarregados = 0;
+    usandoAcordesFalsos = false;
     char txtPath[512];
     strcpy(txtPath, audioPath);
 
@@ -65,6 +67,7 @@ static void carregarAcordesDaMusica(const char* audioPath) {
     }
 
     if (totalAcordesCarregados == 0) {
+        usandoAcordesFalsos = true;
         const char* fakeChords[] = { "C", "G", "Am", "F", "Dm", "E7", "Am", "G" };
         for (int i = 0; i < MAX_CHORDS_MUSICA; i++) {
             acordesCarregados[i].tempo = i * 4.0f;
@@ -81,8 +84,12 @@ static void carregarAcordesDaMusica(const char* audioPath) {
 static volatile int modoInstrumento = 0;
 static volatile int violaoMenuEstado = 0;
 static volatile int cursorMenuViolao = 0;
+static uint32_t padBotoesAnteriores = 0;
+
 static bool touchPressionadoAnteriormente = false;
 static bool l3PressionadoAnteriormente = false;
+static bool l1PressionadoAnteriormente = false;
+static bool r1PressionadoAnteriormente = false;
 
 // ==========================================
 // BANCO DE DADOS DE COLETÂNEAS CUSTOMIZADAS
@@ -193,8 +200,6 @@ static volatile int acordeAtual = 0;
 static volatile int grupoAcordeAtual = 0;
 static volatile bool usandoColetaneaCustomizada = false;
 static volatile int indiceColetaneaAtual = 0;
-static bool l1PressionadoAnteriormente = false;
-static bool r1PressionadoAnteriormente = false;
 
 static const char* nomeAcordes[NUM_GRUPOS_VIOLAO][6] = {
     { "C", "Dm", "Em", "F", "G", "Am" }, { "G", "Am", "Bm", "C", "D", "Em" },
@@ -202,6 +207,7 @@ static const char* nomeAcordes[NUM_GRUPOS_VIOLAO][6] = {
     { "E", "F#m", "G#m", "A", "B", "C#m" }, { "F", "Gm", "Am", "Bb", "C", "Dm" },
     { "B", "C#m", "D#m", "E", "F#", "G#m" }
 };
+
 static const char* notasAcordes[NUM_GRUPOS_VIOLAO][6][6] = {
     { {"G2", "C3", "E3", "G3", "C4", "E4"}, {"A2", "D3", "A3", "D4", "F4", "A4"}, {"E2", "B2", "E3", "G3", "B3", "E4"}, {"F2", "C3", "F3", "A3", "C4", "F4"}, {"G2", "B2", "D3", "G3", "D4", "G4"}, {"E2", "A2", "E3", "A3", "C4", "E4"} },
     { {"G2", "B2", "D3", "G3", "D4", "G4"}, {"E2", "A2", "E3", "A3", "C4", "E4"}, {"F#2", "B2", "F#3", "B3", "D4", "F#4"},{"G2", "C3", "E3", "G3", "C4", "E4"}, {"A2", "D3", "A3", "D4", "F#4", "A4"},{"E2", "B2", "E3", "G3", "B3", "E4"} },
@@ -211,6 +217,8 @@ static const char* notasAcordes[NUM_GRUPOS_VIOLAO][6][6] = {
     { {"F2", "C3", "F3", "A3", "C4", "F4"}, {"G2", "D3", "G3", "Bb3", "D4", "G4"}, {"E2", "A2", "E3", "A3", "C4", "E4"}, {"F2", "Bb2", "F3", "Bb3", "D4", "F4"}, {"G2", "C3", "E3", "G3", "C4", "E4"}, {"A2", "D3", "A3", "D4", "F4", "A4"} },
     { {"F#2", "B2", "F#3", "B3", "D#4", "F#4"},{"G#2", "C#3", "G#3", "C#4", "E4", "G#4"},{"A#2", "D#3", "A#3", "D#4", "F#4", "A#4"},{"E2", "B2", "E3", "G#3", "B3", "E4"}, {"F#2", "C#3", "F#3", "A#3", "C#4", "F#4"},{"G#2", "D#3", "G#3", "B3", "D#4", "G#4"} }
 };
+
+// ARRAY DE FREQUÊNCIAS RESTAURADO!
 static const float frequenciasViolao[NUM_GRUPOS_VIOLAO][6][6] = {
     { {98.00f, 130.81f, 164.81f, 196.00f, 261.63f, 329.63f}, {110.00f, 146.83f, 220.00f, 293.66f, 349.23f, 440.00f}, {82.41f, 123.47f, 164.81f, 196.00f, 246.94f, 329.63f}, {87.31f, 130.81f, 174.61f, 220.00f, 261.63f, 349.23f}, {98.00f, 123.47f, 146.83f, 196.00f, 293.66f, 392.00f}, {82.41f, 110.00f, 164.81f, 220.00f, 261.63f, 329.63f} },
     { {98.00f, 123.47f, 146.83f, 196.00f, 293.66f, 392.00f}, {82.41f, 110.00f, 164.81f, 220.00f, 261.63f, 329.63f}, {92.50f, 123.47f, 185.00f, 246.94f, 293.66f, 369.99f}, {98.00f, 130.81f, 164.81f, 196.00f, 261.63f, 329.63f}, {110.00f, 146.83f, 220.00f, 293.66f, 369.99f, 440.00f},{82.41f, 123.47f, 164.81f, 196.00f, 246.94f, 329.63f} },
@@ -269,21 +277,20 @@ static void renderizarGrelhaAcordes(uint32_t* p) {
         desenharRetanguloAlpha(p, 400, painelY, 4, painelH, 0xFF334155);
         desenharTexto(p, "HYPER NEIVA STUDIO v2", 30, 50, painelY + 40, 0xFF38BDF8);
         desenharTexto(p, "STATUS: Aguardando Faixa de Audio...", 20, 50, painelY + 80, 0xFF94A3B8);
-        desenharTexto(p, "-> Pressione [TOUCHPAD] -> 'Escolher Musica' para carregar a musica e os acordes reais!", 18, 50, painelY + 120, 0xFF64748B);
+        desenharTexto(p, "-> Pressione [TOUCHPAD] -> 'Escolher Musica' para carregar a musica e os acordes reais!", 18, 50, painelY + 120, 0xFFFFFFFF);
         return;
     }
 
     int pixelsPerSecond = 200;
     int centerX = 400;
 
-    // 1. Fundo Escuro do Painel Inferior
     desenharRetanguloAlpha(p, 0, painelY, 1920, painelH, 0xEE020617);
 
-    // 2. GRELHA DE FUNDO ABSOLUTA
-    float beatDuration = 60.0f / 120.0f; // Compassos de fundo a 120BPM
+    float beatDuration = 60.0f / 120.0f;
     int startBeatIndex = (int)((audioTempoAtual - 5.0f) / beatDuration);
     int endBeatIndex = (int)((audioTempoAtual + 10.0f) / beatDuration);
 
+    // GRELHA DE FUNDO
     for (int i = startBeatIndex; i <= endBeatIndex; i++) {
         if (i < 0) continue;
         float beatTime = i * beatDuration;
@@ -291,22 +298,19 @@ static void renderizarGrelhaAcordes(uint32_t* p) {
 
         if (px > -100 && px < 1920 + 100) {
             if (i % 4 == 0) {
-                // Risco Mestre centralizado na altura
-                desenharRetanguloAlpha(p, px - 1, painelY + 30, 3, 200, 0x7738BDF8);
+                desenharRetanguloAlpha(p, px, painelY + 30, 2, 200, 0x7738BDF8);
             }
             else {
-                // Riscos internos centralizados
                 desenharRetanguloAlpha(p, px, painelY + 50, 2, 160, 0x6694A3B8);
             }
         }
     }
 
-    // 3. DESENHA OS BLOCOS CARREGADOS DO ARQUIVO .TXT
-    // Agora centralizados exatamente no meio dos 260px de altura do painel
     int blockH = 160;
-    int blockY = painelY + 50; // Margem de 50 cima, 50 baixo
+    int blockY = painelY + 50;
 
     if (totalAcordesCarregados > 0) {
+        // MATEMÁTICA EXATA PARA OS BLOCOS: Começa EXATAMENTE no startPx, termina EXATAMENTE no endPx
         for (int i = 0; i < totalAcordesCarregados; i++) {
             float startT = acordesCarregados[i].tempo;
             float endT = (i + 1 < totalAcordesCarregados) ? acordesCarregados[i + 1].tempo : (startT + 4.0f);
@@ -315,44 +319,50 @@ static void renderizarGrelhaAcordes(uint32_t* p) {
             int endPx = centerX + (int)((endT - audioTempoAtual) * pixelsPerSecond);
             int boxWidth = endPx - startPx;
 
-            if (endPx > -100 && startPx < 1920 + 100) {
+            if (endPx > -100 && startPx < 1920 + 100 && boxWidth > 0) {
                 bool isActive = (audioTempoAtual >= startT && audioTempoAtual < endT);
-
                 uint32_t corBloco = isActive ? 0x6638BDF8 : 0x881E293B;
                 uint32_t corTexto = isActive ? 0xFFFFFFFF : 0xFF64748B;
 
-                // Desenha o bloco centralizado verticalmente
-                desenharRetanguloAlpha(p, startPx + 2, blockY, boxWidth - 4, blockH, corBloco);
-
-                // Nome centralizado perfeitamente no bloco (blockY + 80 + compensação da fonte)
-                desenharTexto(p, acordesCarregados[i].nome, 50, startPx + (boxWidth / 2) - 25, painelY + 145, corTexto);
+                // Bloco desenhado sem offsets - cobre de startPx a endPx perfeitamente
+                desenharRetanguloAlpha(p, startPx, blockY, boxWidth, blockH, corBloco);
+                desenharTexto(p, acordesCarregados[i].nome, 50, startPx + (boxWidth / 2) - 25, painelY + 155, corTexto);
             }
         }
 
-        // 4. Desenha as Linhas Brancas fortes nas bordas (Z-INDEX 2)
+        // LINHAS DAS BORDAS por cima
         for (int i = 0; i < totalAcordesCarregados; i++) {
             float startT = acordesCarregados[i].tempo;
             int startPx = centerX + (int)((startT - audioTempoAtual) * pixelsPerSecond);
             if (startPx > -10 && startPx < 1920 + 10) {
-                desenharRetanguloAlpha(p, startPx, painelY + 30, 3, 200, 0xEE38BDF8);
+                desenharRetanguloAlpha(p, startPx, painelY + 30, 2, 200, 0xEE38BDF8);
             }
         }
     }
 
-    // 5. Linha do Tempo (Playhead) - VERDE LIMÃO
+    // AVISOS EM BRANCO PURO
+    if (usandoAcordesFalsos) {
+        desenharTexto(p, "ARQUIVO (.TXT) NAO ENCONTRADO! EXIBINDO ACORDES DE TESTE", 20, centerX + 50, painelY + 20, 0xFFFFFFFF);
+    }
+    else if (totalAcordesCarregados == 0) {
+        desenharTexto(p, "ARQUIVO DE ACORDES (.TXT) NAO ENCONTRADO!", 35, centerX + 50, painelY + 100, 0xFFFFFFFF);
+        desenharTexto(p, "Crie um arquivo de texto com o mesmo nome da musica e os tempos dos acordes.", 20, centerX + 50, painelY + 150, 0xFFFFFFFF);
+    }
+
     desenharRetanguloAlpha(p, centerX - 1, painelY + 20, 4, 220, 0xFF00FF00);
 
-    // 6. Painel de Status Inferior (Acorde Atual Real)
     const char* acordeTocando = "...";
-    for (int i = totalAcordesCarregados - 1; i >= 0; i--) {
-        if (audioTempoAtual >= acordesCarregados[i].tempo) {
-            acordeTocando = acordesCarregados[i].nome;
-            break;
+    if (totalAcordesCarregados > 0) {
+        for (int i = totalAcordesCarregados - 1; i >= 0; i--) {
+            if (audioTempoAtual >= acordesCarregados[i].tempo) {
+                acordeTocando = acordesCarregados[i].nome;
+                break;
+            }
         }
     }
 
     char textoAtual[128];
-    sprintf(textoAtual, "ACORDE DA MUSICA: %s", acordeTocando);
+    sprintf(textoAtual, "ACORDE ATUAL: %s", acordeTocando);
     desenharTexto(p, textoAtual, 25, 50, painelY + 30, 0xFF38BDF8);
 }
 
@@ -402,7 +412,7 @@ void renderizarInstrumentos(uint32_t* p) {
             }
         }
         else {
-            desenharTexto(p, "MAO ESQUERDA: Analogico (L3) escolhe o Acorde", 25, 100, 200, 0xFF00FF00);
+            desenharTexto(p, "MAO ESQUERDA: Analogico (L3) escolhe o Acorde", 25, 50, 200, 0xFF00FF00);
 
             char txtGrupo[128];
             if (usandoColetaneaCustomizada) {
@@ -411,9 +421,9 @@ void renderizarInstrumentos(uint32_t* p) {
             else {
                 sprintf(txtGrupo, "[L1] ou [R1] para trocar - Coletanea Padrão: Grupo %d/7", grupoAcordeAtual + 1);
             }
-            desenharTexto(p, txtGrupo, 25, 100, 250, 0xFF00FFFF);
+            desenharTexto(p, txtGrupo, 25, 50, 250, 0xFF00FFFF);
 
-            int cx = 350; int cy = 500; int radius = 180; int boxW = 120; int boxH = 60;
+            int cx = 250; int cy = 500; int radius = 180; int boxW = 120; int boxH = 60;
             int boxX[6] = { cx - boxW / 2, cx + (int)(radius * 0.866f) - boxW / 2, cx + (int)(radius * 0.866f) - boxW / 2, cx - boxW / 2, cx - (int)(radius * 0.866f) - boxW / 2, cx - (int)(radius * 0.866f) - boxW / 2 };
             int boxY[6] = { cy - radius - boxH / 2, cy - (int)(radius * 0.5f) - boxH / 2, cy + (int)(radius * 0.5f) - boxH / 2, cy + radius - boxH / 2, cy + (int)(radius * 0.5f) - boxH / 2, cy - (int)(radius * 0.5f) - boxH / 2 };
 
@@ -431,46 +441,47 @@ void renderizarInstrumentos(uint32_t* p) {
                 }
             }
 
-            int gridX = 1450; int gridY = 150;
-            desenharTexto(p, "TABELA DE GRUPOS", 25, gridX, gridY, 0xFF00AAFF);
+            // AJUSTE: TABELA LADO A LADO E NOTAS TAMANHO 30
+            int gridX = 1150; int gridY = 150;
+            desenharTexto(p, "TABELA DE GRUPOS", 25, gridX, gridY - 50, 0xFF00AAFF);
             for (int g = 0; g < GRUPOS_POR_COLETANEA; g++) {
                 char headerG[8]; sprintf(headerG, "G%d", g + 1);
-                int cX = gridX + (g % 4) * 80; int cY = gridY + 40 + (g / 4) * 250;
-                desenharTexto(p, headerG, 22, cX, cY, (grupoAcordeAtual == g) ? 0xFF00FFFF : 0xFFFFFFFF);
+                int cX = gridX + (g * 105); // Colunas lado a lado
+                int cY = gridY;
+                desenharTexto(p, headerG, 30, cX, cY, (grupoAcordeAtual == g) ? 0xFF00FFFF : 0xFFFFFFFF);
                 for (int c = 0; c < 6; c++) {
                     if (usandoColetaneaCustomizada) {
                         int gO = coletaneasCustomizadas[indiceColetaneaAtual].grupoOrigem[g][c];
                         int iO = coletaneasCustomizadas[indiceColetaneaAtual].indiceOrigem[g][c];
-                        desenharTexto(p, nomeAcordes[gO][iO], 18, cX, cY + 30 + c * 30, 0xFFAAAAAA);
+                        desenharTexto(p, nomeAcordes[gO][iO], 30, cX, cY + 45 + c * 40, 0xFFAAAAAA);
                     }
                     else {
-                        desenharTexto(p, nomeAcordes[g][c], 18, cX, cY + 30 + c * 30, 0xFFAAAAAA);
+                        desenharTexto(p, nomeAcordes[g][c], 30, cX, cY + 45 + c * 40, 0xFFAAAAAA);
                     }
                 }
             }
 
-            // AJUSTE DA MÃO DIREITA - AGORA POSICIONADA LÁ NO TOPO (Y=150)
+            // MÃO DIREITA LÁ NO TOPO E CORDAS TAMANHO 30
             int rhY = 150;
-            desenharTexto(p, "MAO DIREITA: Palhetada e Dedilhado", 30, 800, rhY, 0xFF00AAFF);
-            desenharTexto(p, "Mova o Analogico Direito (R3) para palhetar!", 20, 800, rhY + 40, 0xFFFFFFFF);
+            int rhX = 650; // Ajustado um pouco para a esquerda para nao colidir com a tabela gigante
+            desenharTexto(p, "MAO DIREITA: Palhetada e Dedilhado", 25, rhX, rhY, 0xFF00AAFF);
+            desenharTexto(p, "Mova o Analogico Direito (R3) para palhetar!", 20, rhX, rhY + 40, 0xFFFFFFFF);
 
             char bufCordas[128];
             int gReal = usandoColetaneaCustomizada ? coletaneasCustomizadas[indiceColetaneaAtual].grupoOrigem[grupoAcordeAtual][acordeAtual] : grupoAcordeAtual;
             int iReal = usandoColetaneaCustomizada ? coletaneasCustomizadas[indiceColetaneaAtual].indiceOrigem[grupoAcordeAtual][acordeAtual] : acordeAtual;
 
-            sprintf(bufCordas, "[ L2 ]       - Corda 6 (%s)", notasAcordes[gReal][iReal][0]); desenharTexto(p, bufCordas, 20, 800, rhY + 100, 0xFFEEEEEE);
-            sprintf(bufCordas, "[ ESQUERDA ] - Corda 5 (%s)", notasAcordes[gReal][iReal][1]); desenharTexto(p, bufCordas, 20, 800, rhY + 150, 0xFFEEEEEE);
-            sprintf(bufCordas, "[ DIREITA ]  - Corda 4 (%s)", notasAcordes[gReal][iReal][2]); desenharTexto(p, bufCordas, 20, 800, rhY + 200, 0xFFEEEEEE);
-            sprintf(bufCordas, "[ R2 ]       - Corda 3 (%s)", notasAcordes[gReal][iReal][3]); desenharTexto(p, bufCordas, 20, 800, rhY + 250, 0xFFEEEEEE);
-            sprintf(bufCordas, "[QUADRADO]   - Corda 2 (%s)", notasAcordes[gReal][iReal][4]); desenharTexto(p, bufCordas, 20, 800, rhY + 300, 0xFFEEEEEE);
-            sprintf(bufCordas, "[TRIANGULO]  - Corda 1 (%s)", notasAcordes[gReal][iReal][5]); desenharTexto(p, bufCordas, 20, 800, rhY + 350, 0xFFEEEEEE);
+            sprintf(bufCordas, "[ L2 ]       - Corda 6 (%s)", notasAcordes[gReal][iReal][0]); desenharTexto(p, bufCordas, 30, rhX, rhY + 110, 0xFFEEEEEE);
+            sprintf(bufCordas, "[ ESQUERDA ] - Corda 5 (%s)", notasAcordes[gReal][iReal][1]); desenharTexto(p, bufCordas, 30, rhX, rhY + 160, 0xFFEEEEEE);
+            sprintf(bufCordas, "[ DIREITA ]  - Corda 4 (%s)", notasAcordes[gReal][iReal][2]); desenharTexto(p, bufCordas, 30, rhX, rhY + 210, 0xFFEEEEEE);
+            sprintf(bufCordas, "[ R2 ]       - Corda 3 (%s)", notasAcordes[gReal][iReal][3]); desenharTexto(p, bufCordas, 30, rhX, rhY + 260, 0xFFEEEEEE);
+            sprintf(bufCordas, "[QUADRADO]   - Corda 2 (%s)", notasAcordes[gReal][iReal][4]); desenharTexto(p, bufCordas, 30, rhX, rhY + 310, 0xFFEEEEEE);
+            sprintf(bufCordas, "[TRIANGULO]  - Corda 1 (%s)", notasAcordes[gReal][iReal][5]); desenharTexto(p, bufCordas, 30, rhX, rhY + 360, 0xFFEEEEEE);
         }
 
-        // RENDERIZA A FITA DE ACORDES
         renderizarGrelhaAcordes(p);
     }
     else {
-        // MENUS CUSTOMIZADOS (Fundo Escurecido)
         for (int i = 0; i < 1920 * 1080; i++) {
             uint32_t cor = p[i]; p[i] = 0xFF000000 | ((((cor >> 16) & 0xFF) / 4) << 16) | ((((cor >> 8) & 0xFF) / 4) << 8) | ((cor & 0xFF) / 4);
         }
@@ -511,7 +522,6 @@ void renderizarInstrumentos(uint32_t* p) {
             }
         }
         else if (violaoMenuEstado == 3) {
-            // NAVEGADOR DE MÚSICAS (MINI-EXPLORER)
             desenharTexto(p, "SELECIONAR FAIXA DE AUDIO", 40, 400, 100, 0xFF00AAFF);
             char bufDir[512]; sprintf(bufDir, "PASTA ATUAL: %s", instCaminhoAtual);
             desenharTexto(p, bufDir, 20, 400, 150, 0xFFAAAAAA);
@@ -545,6 +555,8 @@ void misturarAudioPiano(int16_t* bufferAudio, size_t frames) {
         OrbisPadData data;
         if (scePadReadState(globalPadHandle, &data) == 0) {
             uint32_t b = data.buttons;
+
+            uint32_t btnPressed = b & ~padBotoesAnteriores;
 
             bool touchAtual = (b & ORBIS_PAD_BUTTON_TOUCH_PAD);
             if (touchAtual && !touchPressionadoAnteriormente && modoInstrumento == 1) {
@@ -613,31 +625,15 @@ void misturarAudioPiano(int16_t* bufferAudio, size_t frames) {
                 }
             }
             else if (violaoMenuEstado == 1) {
-                static int holdTimerUp1 = 0, holdTimerDown1 = 0;
-
-                if (b & ORBIS_PAD_BUTTON_UP) {
-                    if (holdTimerUp1 == 0 || holdTimerUp1 > 20) {
-                        cursorMenuViolao--;
-                        if (cursorMenuViolao < 0) cursorMenuViolao = 3 + totalColetaneas;
-                        if (holdTimerUp1 > 20) holdTimerUp1 = 15;
-                    }
-                    holdTimerUp1++;
+                if (btnPressed & ORBIS_PAD_BUTTON_UP) {
+                    cursorMenuViolao--;
+                    if (cursorMenuViolao < 0) cursorMenuViolao = 3 + totalColetaneas;
                 }
-                else holdTimerUp1 = 0;
-
-                if (b & ORBIS_PAD_BUTTON_DOWN) {
-                    if (holdTimerDown1 == 0 || holdTimerDown1 > 20) {
-                        cursorMenuViolao++;
-                        if (cursorMenuViolao > 3 + totalColetaneas) cursorMenuViolao = 0;
-                        if (holdTimerDown1 > 20) holdTimerDown1 = 15;
-                    }
-                    holdTimerDown1++;
+                if (btnPressed & ORBIS_PAD_BUTTON_DOWN) {
+                    cursorMenuViolao++;
+                    if (cursorMenuViolao > 3 + totalColetaneas) cursorMenuViolao = 0;
                 }
-                else holdTimerDown1 = 0;
-
-                static bool x_prev = false;
-                bool xBtn = (b & ORBIS_PAD_BUTTON_CROSS) != 0;
-                if (xBtn && !x_prev) {
+                if (btnPressed & ORBIS_PAD_BUTTON_CROSS) {
                     if (cursorMenuViolao == 0) violaoMenuEstado = 0;
                     else if (cursorMenuViolao == 1) {
                         instListarMusicas(instCaminhoAtual);
@@ -654,36 +650,27 @@ void misturarAudioPiano(int16_t* bufferAudio, size_t frames) {
                     else if (cursorMenuViolao == 3) { totalColetaneas = 0; usandoColetaneaCustomizada = false; violaoMenuEstado = 0; }
                     else { indiceColetaneaAtual = cursorMenuViolao - 4; usandoColetaneaCustomizada = true; grupoAcordeAtual = 0; violaoMenuEstado = 0; }
                 }
-                x_prev = xBtn;
             }
             else if (violaoMenuEstado == 2) {
-                static int htUp = 0, htDown = 0, htLeft = 0, htRight = 0;
-                static bool l1_prev = false, r1_prev = false, square_prev = false;
+                if (btnPressed & ORBIS_PAD_BUTTON_UP) {
+                    cursorEdicaoAcorde--; if (cursorEdicaoAcorde < 0) cursorEdicaoAcorde = 5;
+                }
+                if (btnPressed & ORBIS_PAD_BUTTON_DOWN) {
+                    cursorEdicaoAcorde++; if (cursorEdicaoAcorde > 5) cursorEdicaoAcorde = 0;
+                }
 
-                if (b & ORBIS_PAD_BUTTON_UP) { if (htUp == 0 || htUp > 20) { cursorEdicaoAcorde--; if (cursorEdicaoAcorde < 0) cursorEdicaoAcorde = 5; if (htUp > 20) htUp = 15; } htUp++; }
-                else htUp = 0;
-
-                if (b & ORBIS_PAD_BUTTON_DOWN) { if (htDown == 0 || htDown > 20) { cursorEdicaoAcorde++; if (cursorEdicaoAcorde > 5) cursorEdicaoAcorde = 0; if (htDown > 20) htDown = 15; } htDown++; }
-                else htDown = 0;
-
-                if (b & ORBIS_PAD_BUTTON_LEFT || b & ORBIS_PAD_BUTTON_RIGHT) {
+                if (btnPressed & ORBIS_PAD_BUTTON_LEFT || btnPressed & ORBIS_PAD_BUTTON_RIGHT) {
                     int flatIndex = coletaneaEmEdicao.grupoOrigem[grupoEdicaoAtual][cursorEdicaoAcorde] * 6 + coletaneaEmEdicao.indiceOrigem[grupoEdicaoAtual][cursorEdicaoAcorde];
-                    if (b & ORBIS_PAD_BUTTON_LEFT) { if (htLeft == 0 || htLeft > 15) { flatIndex--; if (flatIndex < 0) flatIndex = 41; if (htLeft > 15) htLeft = 10; } htLeft++; }
-                    else htLeft = 0;
-                    if (b & ORBIS_PAD_BUTTON_RIGHT) { if (htRight == 0 || htRight > 15) { flatIndex++; if (flatIndex > 41) flatIndex = 0; if (htRight > 15) htRight = 10; } htRight++; }
-                    else htRight = 0;
+                    if (btnPressed & ORBIS_PAD_BUTTON_LEFT) { flatIndex--; if (flatIndex < 0) flatIndex = 41; }
+                    if (btnPressed & ORBIS_PAD_BUTTON_RIGHT) { flatIndex++; if (flatIndex > 41) flatIndex = 0; }
                     coletaneaEmEdicao.grupoOrigem[grupoEdicaoAtual][cursorEdicaoAcorde] = flatIndex / 6;
                     coletaneaEmEdicao.indiceOrigem[grupoEdicaoAtual][cursorEdicaoAcorde] = flatIndex % 6;
                 }
-                else { htLeft = 0; htRight = 0; }
 
-                bool l1Btn = (b & ORBIS_PAD_BUTTON_L1) != 0; bool r1Btn = (b & ORBIS_PAD_BUTTON_R1) != 0;
-                if (l1Btn && !l1_prev) { grupoEdicaoAtual--; if (grupoEdicaoAtual < 0) grupoEdicaoAtual = GRUPOS_POR_COLETANEA - 1; }
-                if (r1Btn && !r1_prev) { grupoEdicaoAtual++; if (grupoEdicaoAtual >= GRUPOS_POR_COLETANEA) grupoEdicaoAtual = 0; }
-                l1_prev = l1Btn; r1_prev = r1Btn;
+                if (btnPressed & ORBIS_PAD_BUTTON_L1) { grupoEdicaoAtual--; if (grupoEdicaoAtual < 0) grupoEdicaoAtual = GRUPOS_POR_COLETANEA - 1; }
+                if (btnPressed & ORBIS_PAD_BUTTON_R1) { grupoEdicaoAtual++; if (grupoEdicaoAtual >= GRUPOS_POR_COLETANEA) grupoEdicaoAtual = 0; }
 
-                bool squareBtn = (b & ORBIS_PAD_BUTTON_SQUARE) != 0;
-                if (squareBtn && !square_prev) {
+                if (btnPressed & ORBIS_PAD_BUTTON_SQUARE) {
                     char bufferNome[64];
                     sprintf(bufferNome, "Minha Coletanea %d", totalColetaneas + 1);
 
@@ -695,38 +682,22 @@ void misturarAudioPiano(int16_t* bufferAudio, size_t frames) {
                     grupoAcordeAtual = 0;
                     violaoMenuEstado = 0;
                 }
-                square_prev = squareBtn;
             }
             else if (violaoMenuEstado == 3) {
-                static int htUp3 = 0, htDown3 = 0;
-
-                if (b & ORBIS_PAD_BUTTON_UP) {
-                    if (htUp3 == 0 || htUp3 > 20) {
-                        instSel--;
-                        if (instSel < 0) instSel = instTotalItens > 0 ? instTotalItens - 1 : 0;
-                        if (instSel < instScroll) instScroll = instSel;
-                        if (instSel > instScroll + 14) instScroll = instSel - 14;
-                        if (htUp3 > 20) htUp3 = 15;
-                    }
-                    htUp3++;
+                if (btnPressed & ORBIS_PAD_BUTTON_UP) {
+                    instSel--;
+                    if (instSel < 0) instSel = instTotalItens > 0 ? instTotalItens - 1 : 0;
+                    if (instSel < instScroll) instScroll = instSel;
+                    if (instSel > instScroll + 14) instScroll = instSel - 14;
                 }
-                else htUp3 = 0;
-
-                if (b & ORBIS_PAD_BUTTON_DOWN) {
-                    if (htDown3 == 0 || htDown3 > 20) {
-                        instSel++;
-                        if (instSel >= instTotalItens) instSel = 0;
-                        if (instSel > instScroll + 14) instScroll = instSel - 14;
-                        if (instSel < instScroll) instScroll = instSel;
-                        if (htDown3 > 20) htDown3 = 15;
-                    }
-                    htDown3++;
+                if (btnPressed & ORBIS_PAD_BUTTON_DOWN) {
+                    instSel++;
+                    if (instSel >= instTotalItens) instSel = 0;
+                    if (instSel > instScroll + 14) instScroll = instSel - 14;
+                    if (instSel < instScroll) instScroll = instSel;
                 }
-                else htDown3 = 0;
 
-                static bool x_prev = false, o_prev = false;
-                bool xBtn = (b & ORBIS_PAD_BUTTON_CROSS) != 0;
-                if (xBtn && !x_prev) {
+                if (btnPressed & ORBIS_PAD_BUTTON_CROSS) {
                     if (instTotalItens > 0) {
                         if (instEhPasta[instSel]) {
                             if (strcmp(instPaths[instSel], "..") == 0) {
@@ -748,14 +719,13 @@ void misturarAudioPiano(int16_t* bufferAudio, size_t frames) {
                         }
                     }
                 }
-                x_prev = xBtn;
 
-                bool oBtn = (b & ORBIS_PAD_BUTTON_CIRCLE) != 0;
-                if (oBtn && !o_prev) {
+                if (btnPressed & ORBIS_PAD_BUTTON_CIRCLE) {
                     violaoMenuEstado = 1;
                 }
-                o_prev = oBtn;
             }
+
+            padBotoesAnteriores = b;
         }
     }
 
