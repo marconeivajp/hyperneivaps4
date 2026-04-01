@@ -20,6 +20,7 @@
 #include "audio.h"
 #include "explorar.h" 
 #include "elementos_sonoros.h" 
+#include "instrumentos.h" // <-- NOVO: Inclui o piano virtual
 
 #define DR_WAV_IMPLEMENTATION
 #include "dr_wav.h"
@@ -301,6 +302,7 @@ static void* audioThreadFunc(void* argp) {
         if (comandoPausar || currentAudioType == AUDIO_NONE) {
             for (int i = 0; i < 256 * 2; i++) pSampleData[i] = 0;
             misturarEfeitosSonoros(pSampleData, 256);
+            misturarAudioPiano(pSampleData, 256); // <-- MISTURA DO PIANO AQUI
             sceAudioOutOutput(audioPort, pSampleData);
             continue;
         }
@@ -375,6 +377,7 @@ static void* audioThreadFunc(void* argp) {
         }
 
         misturarEfeitosSonoros(pSampleData, 256);
+        misturarAudioPiano(pSampleData, 256); // <-- MISTURA DO PIANO AQUI TAMBÉM
         sceAudioOutOutput(audioPort, pSampleData);
     }
 
