@@ -45,6 +45,9 @@ char ultimaMusicaTocada[256] = "";
 char caminhosMusicasMenu[3000][256];
 char caminhoNavegacaoMusicas[512] = "/data/HyperNeiva/Musicas";
 
+// ---> O RELÓGIO DO VISUALIZADOR DE ACORDES <---
+volatile float audioTempoAtual = 0.0f;
+
 enum AudioType { AUDIO_NONE, AUDIO_WAV, AUDIO_MP3 };
 
 void adiantarAudio() { comandoBuscarSegundos = 10; }
@@ -278,6 +281,10 @@ static void* audioThreadFunc(void* argp) {
                 if (currentAudioType == AUDIO_WAV) drwav_seek_to_pcm_frame(&wav, (uint64_t)targetFrame);
                 else if (currentAudioType == AUDIO_MP3) drmp3_seek_to_pcm_frame(&mp3, (uint64_t)targetFrame);
                 currentFrame = (uint64_t)targetFrame;
+
+                // Atualiza o tempo atual ao avançar/retroceder
+                if (currentAudioType == AUDIO_WAV) audioTempoAtual = (float)currentFrame / wav.sampleRate;
+                else if (currentAudioType == AUDIO_MP3) audioTempoAtual = (float)currentFrame / mp3.sampleRate;
             }
             comandoBuscarSegundos = 0;
         }
@@ -297,6 +304,7 @@ static void* audioThreadFunc(void* argp) {
                 }
             }
             currentFrame = 0;
+            audioTempoAtual = 0.0f; // Zera ao trocar de música
         }
 
         if (comandoPausar || currentAudioType == AUDIO_NONE) {
@@ -328,11 +336,20 @@ static void* audioThreadFunc(void* argp) {
 
         currentFrame += framesLidos;
 
+        // ---> CÁLCULO CONTÍNUO DO TEMPO PARA O VISUALIZADOR <---
+        if (currentAudioType == AUDIO_WAV) {
+            audioTempoAtual = (float)currentFrame / wav.sampleRate;
+        }
+        else if (currentAudioType == AUDIO_MP3) {
+            audioTempoAtual = (float)currentFrame / mp3.sampleRate;
+        }
+
         if (framesLidos == 0) {
             if (modoReproducao == 1) {
                 if (currentAudioType == AUDIO_WAV) drwav_seek_to_pcm_frame(&wav, 0);
                 else if (currentAudioType == AUDIO_MP3) drmp3_seek_to_pcm_frame(&mp3, 0);
                 currentFrame = 0;
+                audioTempoAtual = 0.0f; // Zera no loop
             }
             else if (strstr(musicaAtual, "/data/HyperNeiva/Musicas/") != NULL) {
                 char proxima[256];
@@ -353,6 +370,7 @@ static void* audioThreadFunc(void* argp) {
                     }
                     if (sucesso) {
                         currentFrame = 0;
+                        audioTempoAtual = 0.0f; // Zera ao puxar a próxima da playlist
                         continue;
                     }
                 }
@@ -361,6 +379,7 @@ static void* audioThreadFunc(void* argp) {
                 if (currentAudioType == AUDIO_WAV) drwav_seek_to_pcm_frame(&wav, 0);
                 else if (currentAudioType == AUDIO_MP3) drmp3_seek_to_pcm_frame(&mp3, 0);
                 currentFrame = 0;
+                audioTempoAtual = 0.0f; // Zera fallback
             }
             continue;
         }

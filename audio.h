@@ -13,6 +13,9 @@ extern int volumeGeral;
 extern char caminhosMusicasMenu[3000][256];
 extern char caminhoNavegacaoMusicas[512];
 
+// --- VARIÁVEL DO VISUALIZADOR DE ACORDES ---
+extern volatile float audioTempoAtual;
+
 void inicializarAudio();
 void pararAudio();
 void tocarMusicaNova(const char* path);
