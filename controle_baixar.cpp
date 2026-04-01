@@ -20,9 +20,6 @@
 #include "explorar.h"
 #include "audio.h"
 
-// ========================================================
-// DECLARAÇÕES PARA O COMPILADOR
-// ========================================================
 extern bool isFtpPanelLocal(bool isEsq);
 extern void acessarFTPDir(int index, const char* path);
 extern char currentFtpPathDir[1024];
@@ -36,7 +33,6 @@ extern int selOpcao;
 extern bool selecionandoMidiaElemento;
 extern void acaoCross_Notepad(int32_t uId, OrbisImeDialogSetting* imeSetting, uint16_t* imeTitle, const char* textoInicial);
 extern void instalarPkgLocal(const char* caminhoAbsoluto);
-// ========================================================
 
 extern bool emSubmenuDropbox;
 extern bool emSubmenuFTP;
@@ -62,7 +58,6 @@ extern unsigned char* imgMidia;
 extern bool visualizandoMidiaTexto;
 
 extern char caminhoImagemAberta[512];
-
 extern "C" void stbi_image_free(void*);
 
 static char caminhoMusicaTocandoBaixar[512] = "";
@@ -98,9 +93,6 @@ void acaoCross_Baixar(int32_t uId, OrbisImeDialogSetting* imeSetting, uint16_t* 
             }
         }
     }
-    // ==========================================
-    // LOGICAS DO FTP E EXPLORADOR
-    // ==========================================
     else if (menuAtual == MENU_BAIXAR_FTP_SERVIDORES) {
         if (sel == 0) {
             if (totalServidoresFTP < 100) {
@@ -195,7 +187,7 @@ void acaoCross_Baixar(int32_t uId, OrbisImeDialogSetting* imeSetting, uint16_t* 
                         else if (strstr(nomeBlindado, ".txt") || strstr(nomeBlindado, ".xml") || strstr(nomeBlindado, ".json") || strstr(nomeBlindado, ".ini") || strstr(nomeBlindado, ".cfg") || strstr(nomeBlindado, ".log") || strstr(nomeBlindado, ".cpp") || strstr(nomeBlindado, ".h")) {
                             extern void editarArquivoExistente(const char* pPasta, const char* nArquivo);
                             editarArquivoExistente(pPath, nItems[sAt]);
-                            menuAtual = MENU_NOTEPAD; // Força tela cheia do bloco de notas
+                            menuAtual = MENU_NOTEPAD;
                         }
                         else {
                             fazerUploadFTP(absPath);
@@ -222,12 +214,46 @@ void acaoCross_Baixar(int32_t uId, OrbisImeDialogSetting* imeSetting, uint16_t* 
             }
         }
     }
-    else if (menuAtual == MENU_BAIXAR_DROPBOX_BACKUP) { if (sel == 0) listarArquivosUpload("/data/HyperNeiva"); else if (sel == 1) listarArquivosUpload("/"); else if (sel == 2) listarArquivosUpload("/mnt/usb0"); else if (sel == 3) listarArquivosUpload("/mnt/usb1"); else if (sel == 4) executarBackupTodos(); }
-    else if (menuAtual == MENU_BAIXAR_DROPBOX_LISTA) { char urlSel[1024]; strcpy(urlSel, linksAtuais[sel]); int tam = strlen(urlSel); if (strcmp(urlSel, "UPDATE_HB_STORE") == 0) { atualizarHBStore(); return; } if (tam > 0 && urlSel[tam - 1] == '/') { if (emApolloSaves) acessarApolloSaves(urlSel); else { urlSel[tam - 1] = '\0'; acessarDropbox(urlSel); } } else { iniciarDownload(urlSel); } }
-    else if (menuAtual == MENU_BAIXAR_DROPBOX_UPLOAD) { char urlSel[1024]; strcpy(urlSel, linksAtuais[sel]); int tam = strlen(urlSel); if (tam > 0 && urlSel[tam - 1] == '/') { urlSel[tam - 1] = '\0'; listarArquivosUpload(urlSel); } else { fazerUploadDropbox(urlSel); } }
+    // ==========================================
+    // LOGICA NOVA DE BACKUP / EXPLORER DROPBOX
+    // ==========================================
+    else if (menuAtual == MENU_BAIXAR_DROPBOX_BACKUP) {
+        if (sel == 0) listarArquivosUpload("/data/HyperNeiva");
+        else if (sel == 1) listarArquivosUpload("/");
+        else if (sel == 2) listarArquivosUpload("/mnt/usb0");
+        else if (sel == 3) listarArquivosUpload("/mnt/usb1");
+
+        else if (sel == 4) executarBackupTodos();
+        else if (sel == 5) fazerUploadPastaRecursivo("/user/home");
+        else if (sel == 6) fazerUploadPastaRecursivo("/user/appmeta");
+        else if (sel == 7) fazerUploadPastaRecursivo("/system_data/priv/cache/profile");
+        else if (sel == 8) fazerUploadPastaRecursivo("/system_data/priv/mms");
+    }
+    else if (menuAtual == MENU_BAIXAR_DROPBOX_LISTA) {
+        char urlSel[1024]; strcpy(urlSel, linksAtuais[sel]); int tam = strlen(urlSel);
+        if (strcmp(urlSel, "UPDATE_HB_STORE") == 0) { atualizarHBStore(); return; }
+        if (tam > 0 && urlSel[tam - 1] == '/') {
+            if (emApolloSaves) acessarApolloSaves(urlSel);
+            else { urlSel[tam - 1] = '\0'; acessarDropbox(urlSel); }
+        }
+        else { iniciarDownload(urlSel); }
+    }
+    else if (menuAtual == MENU_BAIXAR_DROPBOX_UPLOAD) {
+        extern bool showUploadOpcoes;
+        if (showUploadOpcoes) {
+            extern void acaoCross_MenuUpload();
+            acaoCross_MenuUpload();
+        }
+        else {
+            char urlSel[1024]; strcpy(urlSel, linksAtuais[sel]); int tam = strlen(urlSel);
+            if (tam > 0 && urlSel[tam - 1] == '/') {
+                urlSel[tam - 1] = '\0'; listarArquivosUpload(urlSel);
+            }
+            else { fazerUploadDropbox(urlSel); }
+        }
+    }
     else if (menuAtual == MENU_BAIXAR_REPOS) { if (sel == 0) listarXMLsRepositorio(); }
     else if (menuAtual == MENU_BAIXAR_GAMES_XMLS) { if (strstr(nomes[sel], ".xml")) abrirXMLRepositorio(nomes[sel]); }
-
     else if (menuAtual == MENU_BAIXAR_GAMES_LIST) mostrarLinksJogo(sel);
     else if (menuAtual == MENU_BAIXAR_LINKS) {
         iniciarDownload(linksAtuais[sel]);
@@ -235,7 +261,6 @@ void acaoCross_Baixar(int32_t uId, OrbisImeDialogSetting* imeSetting, uint16_t* 
         msgTimer = 180;
     }
     else if (menuAtual == MENU_CONSOLES) { consoleAtual = sel; acaoRede(NULL, true, false); }
-
     else if (menuAtual == SCRAPER_LIST) {
         acaoRede(nomes[sel], false, true);
         sprintf(msgStatus, "DOWNLOAD CONCLUIDO!");
@@ -294,9 +319,72 @@ void acaoCircle_Baixar() {
         }
     }
     else if (menuAtual == MENU_BAIXAR_DROPBOX_BACKUP) { preencherMenuDropbox(); }
-    else if (menuAtual == MENU_BAIXAR_DROPBOX_LISTA) { if (emApolloSaves) { if (strcmp(currentApolloUrl, "https://bucanero.github.io/apollo-saves/") == 0 || strlen(currentApolloUrl) < 41) { preencherMenuLojas(); } else { int len = strlen(currentApolloUrl); if (currentApolloUrl[len - 1] == '/') currentApolloUrl[len - 1] = '\0'; char* ultimaBarra = strrchr(currentApolloUrl, '/'); if (ultimaBarra != NULL) { *(ultimaBarra + 1) = '\0'; acessarApolloSaves(currentApolloUrl); } else { preencherMenuLojas(); } } } else { if (!emSubmenuLojas && !emApolloSaves && !emSubmenuDropbox && strlen(currentDropboxPath) == 0) { preencherMenuLojas(); } else if (strlen(currentDropboxPath) == 0 || strcmp(currentDropboxPath, "/") == 0) { if (emSubmenuLojas) preencherMenuLojas(); else if (emSubmenuDropbox) preencherMenuDropbox(); else preencherMenuBaixar(); } else { char* ultimaBarra = strrchr(currentDropboxPath, '/'); if (ultimaBarra != NULL) { if (ultimaBarra == currentDropboxPath) strcpy(currentDropboxPath, ""); else *ultimaBarra = '\0'; acessarDropbox(currentDropboxPath); } else { strcpy(currentDropboxPath, ""); acessarDropbox(currentDropboxPath); } } } }
-    else if (menuAtual == MENU_BAIXAR_DROPBOX_UPLOAD) { if (strcmp(currentUploadPath, "/") == 0 || strcmp(currentUploadPath, "/data/HyperNeiva") == 0 || strcmp(currentUploadPath, "/mnt/usb0") == 0 || strcmp(currentUploadPath, "/mnt/usb1") == 0 || strlen(currentUploadPath) == 0) { preencherMenuBackup(); } else { char* ultimaBarra = strrchr(currentUploadPath, '/'); if (ultimaBarra != NULL) { if (ultimaBarra == currentUploadPath) { strcpy(currentUploadPath, "/"); listarArquivosUpload(currentUploadPath); } else { *ultimaBarra = '\0'; listarArquivosUpload(currentUploadPath); } } else { preencherMenuBackup(); } } }
-
+    else if (menuAtual == MENU_BAIXAR_DROPBOX_LISTA) {
+        if (emApolloSaves) {
+            if (strcmp(currentApolloUrl, "https://bucanero.github.io/apollo-saves/") == 0 || strlen(currentApolloUrl) < 41) {
+                preencherMenuLojas();
+            }
+            else {
+                int len = strlen(currentApolloUrl);
+                if (currentApolloUrl[len - 1] == '/') currentApolloUrl[len - 1] = '\0';
+                char* ultimaBarra = strrchr(currentApolloUrl, '/');
+                if (ultimaBarra != NULL) {
+                    *(ultimaBarra + 1) = '\0'; acessarApolloSaves(currentApolloUrl);
+                }
+                else { preencherMenuLojas(); }
+            }
+        }
+        else {
+            if (!emSubmenuLojas && !emApolloSaves && !emSubmenuDropbox && strlen(currentDropboxPath) == 0) {
+                preencherMenuLojas();
+            }
+            else if (strlen(currentDropboxPath) == 0 || strcmp(currentDropboxPath, "/") == 0) {
+                if (emSubmenuLojas) preencherMenuLojas();
+                else if (emSubmenuDropbox) preencherMenuDropbox();
+                else preencherMenuBaixar();
+            }
+            else {
+                char* ultimaBarra = strrchr(currentDropboxPath, '/');
+                if (ultimaBarra != NULL) {
+                    if (ultimaBarra == currentDropboxPath) strcpy(currentDropboxPath, "");
+                    else *ultimaBarra = '\0';
+                    acessarDropbox(currentDropboxPath);
+                }
+                else {
+                    strcpy(currentDropboxPath, ""); acessarDropbox(currentDropboxPath);
+                }
+            }
+        }
+    }
+    else if (menuAtual == MENU_BAIXAR_DROPBOX_UPLOAD) {
+        extern bool showUploadOpcoes;
+        if (showUploadOpcoes) {
+            showUploadOpcoes = false;
+        }
+        else if (strcmp(currentUploadPath, "/") == 0 ||
+            strcmp(currentUploadPath, "/data/HyperNeiva") == 0 ||
+            strcmp(currentUploadPath, "/mnt/usb0") == 0 ||
+            strcmp(currentUploadPath, "/mnt/usb1") == 0 ||
+            strlen(currentUploadPath) == 0) {
+            preencherMenuBackup();
+        }
+        else {
+            char* ultimaBarra = strrchr(currentUploadPath, '/');
+            if (ultimaBarra != NULL) {
+                if (ultimaBarra == currentUploadPath) {
+                    strcpy(currentUploadPath, "/");
+                    listarArquivosUpload(currentUploadPath);
+                }
+                else {
+                    *ultimaBarra = '\0';
+                    listarArquivosUpload(currentUploadPath);
+                }
+            }
+            else {
+                preencherMenuBackup();
+            }
+        }
+    }
     else if (menuAtual == MENU_BAIXAR_REPOS) preencherMenuBaixar();
     else if (menuAtual == MENU_BAIXAR_GAMES_XMLS) preencherMenuRepositorios();
     else if (menuAtual == MENU_BAIXAR_GAMES_LIST) listarXMLsRepositorio();
@@ -307,7 +395,6 @@ void acaoCircle_Baixar() {
         if (xmlName) abrirXMLRepositorio(xmlName + 1);
         else listarXMLsRepositorio();
     }
-
     else if (menuAtual == MENU_CONSOLES) preencherMenuLojas();
     else if (menuAtual == SCRAPER_LIST) {
         memset(nomes, 0, sizeof(nomes));
@@ -327,5 +414,9 @@ void acaoTriangle_Baixar() {
     else if (menuAtual == MENU_BAIXAR_FTP_LISTA) {
         extern void preencherOpcoesFTP();
         preencherOpcoesFTP();
+    }
+    else if (menuAtual == MENU_BAIXAR_DROPBOX_UPLOAD || menuAtual == MENU_BAIXAR_DROPBOX_LISTA) {
+        extern void acaoTriangle_MenuUpload();
+        acaoTriangle_MenuUpload();
     }
 }
