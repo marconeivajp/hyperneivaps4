@@ -86,11 +86,9 @@ void renderizarControleTeste(uint32_t* p) {
     }
 
     // =======================================================
-    // LEITURA BRUTA (BLINDADA) DA MEMÓRIA DO HARDWARE DA PS4
-    // Usa casting de bytes para evitar qualquer erro de nome no SDK
+    // LEITURA DOS SENSORES (MEMÓRIA BRUTA)
     // =======================================================
     uint8_t* raw = (uint8_t*)&data;
-
     uint32_t buttons = *(uint32_t*)(raw + 0x00);
     uint8_t lx = raw[0x04];
     uint8_t ly = raw[0x05];
@@ -99,19 +97,25 @@ void renderizarControleTeste(uint32_t* p) {
     uint8_t l2 = raw[0x08];
     uint8_t r2 = raw[0x09];
 
-    // O Touchpad possui 4 bytes em branco "reserved" antes do X e Y!
-    // Esta é a magia que faz as coordenadas funcionarem perfeitamente e sem erros do compilador:
-    uint8_t touchNum = raw[0x3C];
+    // =======================================================
+    // O SEGREDO DO TOUCHPAD CORRIGIDO AQUI!
+    // Como a sua versão do SDK não possui "touchData" declarado na struct,
+    // lemos diretamente da memória, mas agora com os ENDEREÇOS EXATOS!
+    // 0x34 = Quantidade de dedos na tela
+    // 0x3C e 0x3E = X e Y do Dedo 1
+    // 0x44 e 0x46 = X e Y do Dedo 2
+    // =======================================================
+    uint8_t touchNum = raw[0x34];
     uint16_t t0_x = 0; uint16_t t0_y = 0;
     uint16_t t1_x = 0; uint16_t t1_y = 0;
 
     if (touchNum > 0) {
-        t0_x = *(uint16_t*)(raw + 0x44); // 0x44 é o endereço exato do X do dedo 1
-        t0_y = *(uint16_t*)(raw + 0x46); // 0x46 é o endereço exato do Y do dedo 1
+        t0_x = *(uint16_t*)(raw + 0x3C);
+        t0_y = *(uint16_t*)(raw + 0x3E);
     }
     if (touchNum > 1) {
-        t1_x = *(uint16_t*)(raw + 0x4C); // 0x4C é o endereço exato do X do dedo 2
-        t1_y = *(uint16_t*)(raw + 0x4E); // 0x4E é o endereço exato do Y do dedo 2
+        t1_x = *(uint16_t*)(raw + 0x44);
+        t1_y = *(uint16_t*)(raw + 0x46);
     }
 
     // Funcao auxiliar para desenhar a base dos circulos
@@ -229,8 +233,10 @@ void renderizarControleTeste(uint32_t* p) {
     for (int y = 0; y < tpH; y++) { for (int x = 0; x < tpW; x++) { p[(tpY + y) * 1920 + (tpX + x)] = 0xFF222222; } }
     for (int y = 0; y < tpH; y++) { for (int x = 0; x < tpW; x++) { if (x == 0 || y == 0 || x == tpW - 1 || y == tpH - 1) p[(tpY + y) * 1920 + (tpX + x)] = 0xFFAAAAAA; } }
 
+    // Limpa a tela do touch se pressionar "Click"
     if (buttons & ORBIS_PAD_BUTTON_TOUCH_PAD) { memset(trilhaTouch, 0, sizeof(trilhaTouch)); prevTx = -1; prevTy = -1; }
 
+    // DEDO 1
     if (touchNum > 0) {
         int tx = (t0_x * tpW) / 1919; int ty = (t0_y * tpH) / 941;
         if (prevTx == -1) { prevTx = tx; prevTy = ty; }
@@ -241,6 +247,7 @@ void renderizarControleTeste(uint32_t* p) {
         prevTx = -1; prevTy = -1;
     }
 
+    // Desenha o rastro do dedo 1
     for (int ty = 0; ty < tpH; ty++) {
         for (int tx = 0; tx < tpW; tx++) {
             if (trilhaTouch[tx][ty]) {
@@ -255,6 +262,7 @@ void renderizarControleTeste(uint32_t* p) {
         }
     }
 
+    // Informação do Dedo 1
     if (touchNum > 0) {
         int dotX = tpX + (t0_x * tpW) / 1919; int dotY = tpY + (t0_y * tpH) / 941;
         drawCircle(dotX, dotY, 12, 0xFF00AAFF, true);
@@ -263,6 +271,7 @@ void renderizarControleTeste(uint32_t* p) {
     }
     else { desenharTexto(p, "Sem toque detectado", 25, tpX + 170, tpY + tpH + 30, 0xFF555555); }
 
+    // Informação do Dedo 2
     if (touchNum > 1) {
         int dotX2 = tpX + (t1_x * tpW) / 1919; int dotY2 = tpY + (t1_y * tpH) / 941;
         drawCircle(dotX2, dotY2, 12, 0xFF00FF00, true);
