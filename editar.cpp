@@ -58,6 +58,7 @@ struct LayoutConfig {
     int a_tol;
     int lSt, fAn, lCurv, lZmCtr;
     int picX, picY, picW, picH;
+    int gX, gY, gIW, gIH, gCols, gLins, gSpcX, gSpcY;
 };
 
 int listXV = 1054, listYV = 204, listSpcV = 120, listXH = 50, listYH = 800, listSpcH = 300, listW = 550, listH = 80, capaX = 150, capaY = 640, capaW = 300, capaH = 400, discoX = 555, discoY = 650, discoW = 300, discoH = 300, backX = 0, backY = 0, backW = 1920, backH = 1080, barX = 95, barY = 911, barW = 345, barH = 15, audioX = 545, audioY = 632, audioW = 321, audioH = 378, upX = 545, upY = 632, upW = 321, upH = 378, fontTam = 35, msgX = 100, msgY = 970, msgTam = 40, listOri = 0, listBg = 0, barBg = 6, barFill = 7, listMark = 8, listHoverMark = 9, fontAlign = 0, fontScroll = 0;
@@ -67,6 +68,8 @@ int pont1X = 0, pont1Y = 0, pont1W = 50, pont1H = 50, pont1On = 0, pont1Modo = 0
 int sfxLigado = 1, sfxVolume = 100, upBg = 0, upTextNorm = 12, upTextSel = 8;
 int listStyle = 0, fontAnim = 0, listCurvature = 15, listZoomCentro = 15;
 int picX = 150, picY = 100, picW = 730, picH = 410;
+
+int gridX = 220, gridY = 200, gridItemW = 340, gridItemH = 400, gridCols = 4, gridLins = 3, gridSpcX = 40, gridSpcY = 60;
 
 bool editMode = false; int editTarget = 0, editType = 0; int mapAcoes[50];
 
@@ -84,6 +87,7 @@ void salvarConfiguracao() {
     cfg.uBg = upBg; cfg.uTn = upTextNorm; cfg.uTs = upTextSel;
     cfg.a_ativo = anim_ativo; cfg.a_ck = anim_usarColorKey; cfg.a_x = anim_posX; cfg.a_y = anim_posY; cfg.a_col = anim_colunas; cfg.a_lin = anim_linhas; cfg.a_vel = anim_velocidade; cfg.a_esc = anim_escala; cfg.a_r = anim_keyR; cfg.a_g = anim_keyG; cfg.a_b = anim_keyB; cfg.a_offX = anim_offsetX; cfg.a_offY = anim_offsetY; cfg.a_fIni = anim_frameInicial; cfg.a_fFim = anim_frameFinal; cfg.a_ck2 = anim_usarColorKey2; cfg.a_r2 = anim_keyR2; cfg.a_g2 = anim_keyG2; cfg.a_b2 = anim_keyB2; cfg.a_autoCtr = anim_autoCenter; cfg.a_tol = anim_tolerancia;
     cfg.lSt = listStyle; cfg.fAn = fontAnim; cfg.lCurv = listCurvature; cfg.lZmCtr = listZoomCentro; cfg.picX = picX; cfg.picY = picY; cfg.picW = picW; cfg.picH = picH;
+    cfg.gX = gridX; cfg.gY = gridY; cfg.gIW = gridItemW; cfg.gIH = gridItemH; cfg.gCols = gridCols; cfg.gLins = gridLins; cfg.gSpcX = gridSpcX; cfg.gSpcY = gridSpcY;
     for (int i = 0; i < 100; i++) { cfg.a_frameOffX[i] = anim_frameOffsetX[i]; cfg.a_frameOffY[i] = anim_frameOffsetY[i]; }
     FILE* f = fopen("/data/HyperNeiva/configuracao/settings/settings.bin", "wb");
     if (f) { fwrite(&cfg, sizeof(LayoutConfig), 1, f); fclose(f); strcpy(msgStatus, "POSICOES SALVAS!"); } msgTimer = 90;
@@ -115,6 +119,7 @@ void carregarConfiguracao() {
     elem1On = 0; ctrl1On = 0; pont1On = 0; sfxLigado = 1; sfxVolume = 100; upBg = 0; upTextNorm = 12; upTextSel = 8;
     anim_ativo = false; anim_usarColorKey = true; anim_posX = 445; anim_posY = -130; anim_colunas = 24; anim_linhas = 19; anim_velocidade = 100; anim_escala = 4.5f; anim_keyR = 55; anim_keyG = 39; anim_keyB = 130; anim_offsetX = 65; anim_offsetY = 0; anim_frameInicial = 0; anim_frameFinal = 7; anim_usarColorKey2 = true; anim_keyR2 = 0; anim_keyG2 = 0; anim_keyB2 = 255; anim_autoCenter = false; anim_tolerancia = 100;
     listStyle = 0; fontAnim = 0; listCurvature = 15; listZoomCentro = 15; picX = 150; picY = 100; picW = 730; picH = 410;
+    gridX = 220; gridY = 200; gridItemW = 340; gridItemH = 400; gridCols = 4; gridLins = 3; gridSpcX = 40; gridSpcY = 60;
     for (int i = 0; i < 100; i++) { anim_frameOffsetX[i] = 0; anim_frameOffsetY[i] = 0; }
 
     if (f) {
@@ -128,6 +133,14 @@ void carregarConfiguracao() {
             listStyle = cfg.lSt; fontAnim = cfg.fAn; if (cfg.lCurv > 0 || lidos == sizeof(LayoutConfig)) listCurvature = cfg.lCurv; if (cfg.lZmCtr > 0 || lidos == sizeof(LayoutConfig)) listZoomCentro = cfg.lZmCtr;
             if (listCurvature <= 0 && lidos < sizeof(LayoutConfig)) listCurvature = 15; if (listZoomCentro <= 0 && lidos < sizeof(LayoutConfig)) listZoomCentro = 15;
             if (lidos >= sizeof(LayoutConfig) - 32) { if (cfg.picW > 0) { picX = cfg.picX; picY = cfg.picY; picW = cfg.picW; picH = cfg.picH; } }
+            // VERIFICA SE EXISTE CONFIGURAÇÃO DA GRADE SALVA
+            if (lidos >= sizeof(LayoutConfig) - 28) {
+                if (cfg.gCols > 0) {
+                    gridX = cfg.gX; gridY = cfg.gY; gridItemW = cfg.gIW; gridItemH = cfg.gIH;
+                    gridCols = cfg.gCols; gridSpcX = cfg.gSpcX; gridSpcY = cfg.gSpcY;
+                    if (cfg.gLins > 0) gridLins = cfg.gLins;
+                }
+            }
             for (int i = 0; i < 100; i++) { anim_frameOffsetX[i] = cfg.a_frameOffX[i]; anim_frameOffsetY[i] = cfg.a_frameOffY[i]; }
         } fclose(f);
     } carregarCustomUI();
@@ -135,7 +148,7 @@ void carregarConfiguracao() {
 
 void preencherMenuEditar() {
     memset(nomes, 0, sizeof(nomes));
-    strcpy(nomes[0], "LISTA"); strcpy(nomes[1], "CAPA"); strcpy(nomes[2], "DISCO");
+    strcpy(nomes[0], "LISTA E GRADE"); strcpy(nomes[1], "CAPA"); strcpy(nomes[2], "DISCO");
     strcpy(nomes[3], "CAPA DE VIDEO");
     strcpy(nomes[4], "FUNDO"); strcpy(nomes[5], "BARRA LOAD"); strcpy(nomes[6], "MENU AUDIO"); strcpy(nomes[7], "MENU UPLOAD"); strcpy(nomes[8], "FONTE (TEXTO)"); strcpy(nomes[9], "NOTIFICACOES"); strcpy(nomes[10], "EXPLORAR"); strcpy(nomes[11], "ELEMENTO FIXO"); strcpy(nomes[12], "ELEMENTO CTRL"); strcpy(nomes[13], "PONTEIRO"); strcpy(nomes[14], "ELEMENTOS SONOROS");
     strcpy(nomes[15], "ANIMACAO (SPRITES)");
@@ -198,15 +211,36 @@ void preencherMenuEditTarget() {
         strcpy(nomes[totalItens], "SELECIONAR COR PARA EXCLUIR (MIRA)"); mapAcoes[totalItens++] = 44; strcpy(nomes[totalItens], "INICIAR ANIMACAO CONTINUA"); mapAcoes[totalItens++] = 30; strcpy(nomes[totalItens], "LIGAR / DESLIGAR VISUAL"); mapAcoes[totalItens++] = 31; strcpy(nomes[totalItens], "TOLERANCIA DE EXCLUSAO DA COR"); mapAcoes[totalItens++] = 42; strcpy(nomes[totalItens], "AUTO-CENTRALIZAR X (INTELIGENTE)"); mapAcoes[totalItens++] = 40; strcpy(nomes[totalItens], "SALVAR ANIMACAO E EXPORTAR UNITY"); mapAcoes[totalItens++] = 41;
     }
     else {
-        strcpy(nomes[totalItens], "POSICAO"); mapAcoes[totalItens++] = 0;
-        if (editTarget == 9) { strcpy(nomes[totalItens], "TAMANHO DA FONTE"); mapAcoes[totalItens++] = 1; }
-        else { strcpy(nomes[totalItens], "TAMANHO"); mapAcoes[totalItens++] = 1; strcpy(nomes[totalItens], "ESTICAR"); mapAcoes[totalItens++] = 2; }
+        if (editTarget == 0) { // LISTA
+            strcpy(nomes[totalItens], "POSICAO"); mapAcoes[totalItens++] = 0;
+            strcpy(nomes[totalItens], "TAMANHO (LARGURA / ALTURA)"); mapAcoes[totalItens++] = 1;
+            strcpy(nomes[totalItens], "ESTILO DE LISTA / GRADE (6 OPCOES)"); mapAcoes[totalItens++] = 45;
 
-        if (editTarget == 0) {
-            strcpy(nomes[totalItens], "ESTILO DE LISTA (5 OPCOES)"); mapAcoes[totalItens++] = 45; strcpy(nomes[totalItens], "CURVATURA DA ROLETA"); mapAcoes[totalItens++] = 47; strcpy(nomes[totalItens], "ZOOM DO SELETOR"); mapAcoes[totalItens++] = 48; strcpy(nomes[totalItens], "COR DE FUNDO"); mapAcoes[totalItens++] = 3; strcpy(nomes[totalItens], "ESPACAMENTO"); mapAcoes[totalItens++] = 4; strcpy(nomes[totalItens], "ORIENTACAO"); mapAcoes[totalItens++] = 5;
+            if (listStyle == 4 || listStyle == 5) {
+                strcpy(nomes[totalItens], "COLUNAS E LINHAS DA GRADE"); mapAcoes[totalItens++] = 77;
+                strcpy(nomes[totalItens], "ESPACAMENTO ENTRE ITENS"); mapAcoes[totalItens++] = 78;
+            }
+            else {
+                strcpy(nomes[totalItens], "ESTICAR LARGURA"); mapAcoes[totalItens++] = 2;
+                strcpy(nomes[totalItens], "CURVATURA DA ROLETA"); mapAcoes[totalItens++] = 47;
+                strcpy(nomes[totalItens], "ZOOM DO SELETOR"); mapAcoes[totalItens++] = 48;
+                strcpy(nomes[totalItens], "ESPACAMENTO VERTICAL"); mapAcoes[totalItens++] = 4;
+                strcpy(nomes[totalItens], "ORIENTACAO"); mapAcoes[totalItens++] = 5;
+            }
+            strcpy(nomes[totalItens], "COR DE FUNDO"); mapAcoes[totalItens++] = 3;
         }
-        else if (editTarget == 4 || editTarget == 5) { strcpy(nomes[totalItens], "COR DE FUNDO"); mapAcoes[totalItens++] = 3; strcpy(nomes[totalItens], "COR PREENCH"); mapAcoes[totalItens++] = 8; }
-        else if (editTarget == 6 || editTarget == 7) { strcpy(nomes[totalItens], "COR DE FUNDO"); mapAcoes[totalItens++] = 3; }
+        else if (editTarget == 1) { // CAPA
+            strcpy(nomes[totalItens], "POSICAO DA CAPA"); mapAcoes[totalItens++] = 0;
+            strcpy(nomes[totalItens], "TAMANHO DA CAPA"); mapAcoes[totalItens++] = 1;
+            strcpy(nomes[totalItens], "ESTICAR"); mapAcoes[totalItens++] = 2;
+        }
+        else {
+            strcpy(nomes[totalItens], "POSICAO"); mapAcoes[totalItens++] = 0;
+            if (editTarget == 9) { strcpy(nomes[totalItens], "TAMANHO DA FONTE"); mapAcoes[totalItens++] = 1; }
+            else { strcpy(nomes[totalItens], "TAMANHO"); mapAcoes[totalItens++] = 1; strcpy(nomes[totalItens], "ESTICAR"); mapAcoes[totalItens++] = 2; }
+            if (editTarget == 4 || editTarget == 5) { strcpy(nomes[totalItens], "COR DE FUNDO"); mapAcoes[totalItens++] = 3; strcpy(nomes[totalItens], "COR PREENCH"); mapAcoes[totalItens++] = 8; }
+            else if (editTarget == 6 || editTarget == 7) { strcpy(nomes[totalItens], "COR DE FUNDO"); mapAcoes[totalItens++] = 3; }
+        }
     }
     strcpy(nomes[totalItens], "RESETAR ESTE ITEM"); mapAcoes[totalItens++] = 9; menuAtual = MENU_EDIT_TARGET;
 }
