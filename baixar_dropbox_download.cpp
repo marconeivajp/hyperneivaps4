@@ -8,7 +8,7 @@
 #include <stdarg.h>
 #include <pthread.h>
 #include <unistd.h>
-#include <sys/stat.h> // <-- A BIBLIOTECA QUE CORRIGE O BUG DAS PASTAS!
+#include <sys/stat.h>
 
 #include <orbis/libkernel.h>
 #include <orbis/Http.h>
@@ -59,7 +59,6 @@ volatile bool processandoFilaUpload = false;
 pthread_mutex_t filaMutex = PTHREAD_MUTEX_INITIALIZER;
 const char* caminhoFila = "/data/HyperNeiva/configuracao/temporario/fila_downloads.txt";
 const char* caminhoFilaTemp = "/data/HyperNeiva/configuracao/temporario/fila_temp.txt";
-
 const char* caminhoFilaUpload = "/data/HyperNeiva/configuracao/temporario/fila_uploads.txt";
 
 int obterTamanhoFila() {
@@ -76,6 +75,113 @@ int obterTamanhoFila() {
 }
 
 // ==============================================================
+// LÓGICA INTELIGENTE DE RENOVAÇÃO DO DROPBOX TOKEN (OAUTH2)
+// ==============================================================
+static char tokenAcessoGlobal[2048] = { 0 };
+
+void obterTokenValido(char* outToken) {
+    // Se já temos um token válido carregado na memória, não precisamos renovar nesta sessão.
+    if (strlen(tokenAcessoGlobal) > 10) {
+        strcpy(outToken, tokenAcessoGlobal);
+        return;
+    }
+
+    char txt_token[2048] = { 0 };
+    FILE* fToken = fopen("/data/HyperNeiva/configuracao/dropbox_token.txt", "rb");
+    if (fToken) {
+        fseek(fToken, 0, SEEK_END); long sz = ftell(fToken); fseek(fToken, 0, SEEK_SET);
+        if (sz > 0 && sz < 2047) { fread(txt_token, 1, sz, fToken); txt_token[sz] = '\0'; }
+        fclose(fToken);
+    }
+
+    if (strlen(txt_token) < 15) {
+        strcpy(outToken, "");
+        return;
+    }
+
+    // CREDENCIAIS PADRÃO DO HYPER NEIVA
+    char appKey[128] = "345xl81u5bdp9x2";
+    char appSecret[128] = "bhh9nfd8t7rvfuq";
+    char refreshToken[512] = { 0 };
+    bool temLabels = false;
+
+    // Fazemos uma cópia para o strtok quebrar as linhas
+    char txtCopy[2048];
+    strcpy(txtCopy, txt_token);
+
+    // Leitura inteligente Linha por Linha
+    char* linha = strtok(txtCopy, "\r\n");
+    while (linha) {
+        if (strstr(linha, "Appkey:") || strstr(linha, "App key:") || strstr(linha, "AppKey:")) {
+            char* val = strchr(linha, ':');
+            if (val) sscanf(val + 1, " %s", appKey); // Puxa só a palavra, ignorando espaços
+            temLabels = true;
+        }
+        else if (strstr(linha, "App secret:") || strstr(linha, "Appsecret:") || strstr(linha, "App Secret:")) {
+            char* val = strchr(linha, ':');
+            if (val) sscanf(val + 1, " %s", appSecret);
+            temLabels = true;
+        }
+        else if (strstr(linha, "Token refresh:") || strstr(linha, "Tokenrefresh:") || strstr(linha, "Token Refresh:")) {
+            char* val = strchr(linha, ':');
+            if (val) sscanf(val + 1, " %s", refreshToken);
+            temLabels = true;
+        }
+        linha = strtok(NULL, "\r\n");
+    }
+
+    // Se o TXT só tiver 1 linha sem labels, assumimos que é o Refresh Token (e usamos a Key e Secret Padrão)
+    if (!temLabels) {
+        sscanf(txt_token, "%s", refreshToken);
+    }
+
+    sprintf(msgStatus, "VERIFICANDO TOKEN E CONECTANDO...");
+
+    int tpl = sceHttpCreateTemplate(httpCtxId, "HyperNeiva/1.0", ORBIS_HTTP_VERSION_1_1, 1);
+    sceHttpsSetSslCallback(tpl, skipSslCallback, NULL);
+    sceHttpSetAutoRedirect();
+
+    const char* apiUrl = "https://api.dropboxapi.com/oauth2/token";
+    int conn = sceHttpCreateConnectionWithURL(tpl, apiUrl, 1);
+    int req = sceHttpCreateRequestWithURL(conn, ORBIS_METHOD_POST, apiUrl, 0);
+
+    char postData[1024];
+    sprintf(postData, "grant_type=refresh_token&refresh_token=%s&client_id=%s&client_secret=%s", refreshToken, appKey, appSecret);
+
+    sceHttpAddRequestHeader(req, "Content-Type", "application/x-www-form-urlencoded", 1);
+    sceHttpSetRequestContentLength(req, strlen(postData));
+
+    bool isRefreshToken = false;
+
+    if (sceHttpSendRequest(req, postData, strlen(postData)) >= 0) {
+        unsigned char buf[4096]; memset(buf, 0, sizeof(buf));
+        if (sceHttpReadData(req, buf, sizeof(buf) - 1) > 0) {
+            char* tokenStart = strstr((char*)buf, "\"access_token\": \"");
+            if (tokenStart) {
+                tokenStart += 17;
+                char* tokenEnd = strchr(tokenStart, '\"');
+                if (tokenEnd) {
+                    int tokenLen = tokenEnd - tokenStart;
+                    strncpy(tokenAcessoGlobal, tokenStart, tokenLen);
+                    tokenAcessoGlobal[tokenLen] = '\0';
+                    isRefreshToken = true;
+                }
+            }
+        }
+    }
+    sceHttpDeleteRequest(req); sceHttpDeleteConnection(conn); sceHttpDeleteTemplate(tpl);
+
+    // Se a Dropbox não devolveu o Access_Token, significa que a string que mandámos NÃO ERA um Refresh Token.
+    // Logo, assumimos que o utilizador colou o Token Temporário (ou o Token Legado antigo) diretamente, e usamos ele!
+    if (!isRefreshToken) {
+        strcpy(tokenAcessoGlobal, refreshToken);
+    }
+
+    strcpy(outToken, tokenAcessoGlobal);
+}
+
+
+// ==============================================================
 // LÓGICA DA NOVA FILA DE UPLOAD 
 // ==============================================================
 void adicionarNaFilaUpload(const char* localPath, const char* remotePath) {
@@ -90,9 +196,8 @@ void adicionarNaFilaUpload(const char* localPath, const char* remotePath) {
 }
 
 void fazerUploadArquivoParaNuvem(const char* localPath, const char* remoteFilePath) {
-    char token[2048] = { 0 }; FILE* fToken = fopen("/data/HyperNeiva/configuracao/dropbox_token.txt", "rb");
-    if (fToken) { fseek(fToken, 0, SEEK_END); long sz = ftell(fToken); fseek(fToken, 0, SEEK_SET); if (sz > 0 && sz < 2047) { fread(token, 1, sz, fToken); token[sz] = '\0'; } fclose(fToken); }
-    for (int i = 0; i < strlen(token); i++) if (token[i] == '\r' || token[i] == '\n') token[i] = '\0';
+    char token[2048] = { 0 };
+    obterTokenValido(token);
     if (strlen(token) < 15) return;
 
     FILE* fLocal = fopen(localPath, "rb"); if (!fLocal) return;
@@ -199,8 +304,31 @@ void* threadProcessarFilaUpload(void* arg) {
 }
 
 // ==============================================================
-// MAPEAMENTO (PREPARA A FILA) - AGORA VERIFICA PASTAS CORRETAMENTE
+// MAPEAMENTO (PREPARA A FILA)
 // ==============================================================
+void criarPastaDropbox(const char* remotePath) {
+    char token[2048] = { 0 };
+    obterTokenValido(token);
+    if (strlen(token) < 15) return;
+
+    int tpl = sceHttpCreateTemplate(httpCtxId, "HyperNeiva/1.0", ORBIS_HTTP_VERSION_1_1, 1);
+    sceHttpsSetSslCallback(tpl, skipSslCallback, NULL); sceHttpSetAutoRedirect();
+
+    const char* apiUrl = "https://api.dropboxapi.com/2/files/create_folder_v2";
+    int conn = sceHttpCreateConnectionWithURL(tpl, apiUrl, 1);
+    int req = sceHttpCreateRequestWithURL(conn, ORBIS_METHOD_POST, apiUrl, 0);
+
+    char authHeader[2048]; sprintf(authHeader, "Bearer %s", token);
+    sceHttpAddRequestHeader(req, "Authorization", authHeader, 1);
+    sceHttpAddRequestHeader(req, "Content-Type", "application/json", 1);
+
+    char postData[1024]; sprintf(postData, "{\"path\": \"%s\", \"autorename\": false}", remotePath);
+    sceHttpSetRequestContentLength(req, strlen(postData));
+
+    sceHttpSendRequest(req, postData, strlen(postData));
+    sceHttpDeleteRequest(req); sceHttpDeleteConnection(conn); sceHttpDeleteTemplate(tpl);
+}
+
 void mapearPastaParaUploadRecursivo(const char* localRoot, const char* currentLocal, const char* remoteBase) {
     DIR* d = opendir(currentLocal);
     if (!d) return;
@@ -215,7 +343,6 @@ void mapearPastaParaUploadRecursivo(const char* localRoot, const char* currentLo
             char fullPath[512];
             snprintf(fullPath, sizeof(fullPath), "%s/%s", currentLocal, dir->d_name);
 
-            // CORREÇÃO CRÍTICA PARA PASTAS INTERNAS DO PS4
             struct stat st;
             bool isDir = false;
             if (dir->d_type == DT_DIR || (dir->d_type == DT_UNKNOWN && stat(fullPath, &st) == 0 && S_ISDIR(st.st_mode))) {
@@ -241,7 +368,7 @@ void mapearPastaParaUploadRecursivo(const char* localRoot, const char* currentLo
 }
 
 // ==============================================================
-// O BACKUP GERAL COM OS NOVOS CAMINHOS APROPRIADOS!
+// O BACKUP GERAL 
 // ==============================================================
 void* threadBackupTodos(void* arg) {
     unlink(caminhoFilaUpload);
@@ -256,7 +383,6 @@ void* threadBackupTodos(void* arg) {
 
     sprintf(msgDownloadBg, "INICIANDO VARREDURA DOS ARQUIVOS...");
 
-    // AS PASTAS DE BACKUP
     mapearPastaParaUploadRecursivo("/user/appmeta", "/user/appmeta", "/HyperNeiva_Uploads/backup/user/appmeta");
     mapearPastaParaUploadRecursivo("/user/av_contents", "/user/av_contents", "/HyperNeiva_Uploads/backup/user/av_contents");
     mapearPastaParaUploadRecursivo("/user/home", "/user/home", "/HyperNeiva_Uploads/backup/user/home");
@@ -266,7 +392,6 @@ void* threadBackupTodos(void* arg) {
     mapearPastaParaUploadRecursivo("/system_data/priv/cache/profile", "/system_data/priv/cache/profile", "/HyperNeiva_Uploads/backup/system_data/priv/cache/profile");
     mapearPastaParaUploadRecursivo("/system_data/priv/home", "/system_data/priv/home", "/HyperNeiva_Uploads/backup/system_data/priv/home");
 
-    // ARQUIVOS DB ESPECIFICOS FORÇADOS
     adicionarNaFilaUpload("/system_data/priv/mms/app.db", "/HyperNeiva_Uploads/backup/system_data/priv/mms/app.db"); totalFilaSessao++;
     adicionarNaFilaUpload("/system_data/priv/mms/addcont.db", "/HyperNeiva_Uploads/backup/system_data/priv/mms/addcont.db"); totalFilaSessao++;
     adicionarNaFilaUpload("/system_data/priv/mms/av_content_bg.db", "/HyperNeiva_Uploads/backup/system_data/priv/mms/av_content_bg.db"); totalFilaSessao++;
@@ -487,9 +612,8 @@ void acessarDropbox(const char* path) {
     for (int i = 0; i < strlen(cleanPath); i++) { if (cleanPath[i] == '\r' || cleanPath[i] == '\n') cleanPath[i] = '\0'; }
     strcpy(currentDropboxPath, cleanPath);
 
-    char token[2048] = { 0 }; FILE* fToken = fopen("/data/HyperNeiva/configuracao/dropbox_token.txt", "rb");
-    if (fToken) { fseek(fToken, 0, SEEK_END); long sz = ftell(fToken); fseek(fToken, 0, SEEK_SET); if (sz > 0 && sz < 2047) { fread(token, 1, sz, fToken); token[sz] = '\0'; } fclose(fToken); }
-    for (int i = 0; i < strlen(token); i++) { if (token[i] == '\r' || token[i] == '\n') token[i] = '\0'; }
+    char token[2048] = { 0 };
+    obterTokenValido(token);
 
     if (strlen(token) < 15) { sprintf(msgStatus, "ERRO: TOKEN NO TXT INVALIDO"); memset(nomes, 0, sizeof(nomes)); strcpy(nomes[0], "Verifique o arquivo .txt"); totalItens = 1; menuAtual = MENU_BAIXAR_DROPBOX_LISTA; sel = 0; off = 0; return; }
 
@@ -622,9 +746,8 @@ void* threadDownloadBackground(void* arg) {
 
         int tpl = sceHttpCreateTemplate(httpCtxId, "HyperNeiva/1.0", ORBIS_HTTP_VERSION_1_1, 1); sceHttpsSetSslCallback(tpl, skipSslCallback, NULL); sceHttpSetAutoRedirect(); int conn, req;
         if (urlDownloadBg[0] == '/') {
-            char token[2048] = { 0 }; FILE* fToken = fopen("/data/HyperNeiva/configuracao/dropbox_token.txt", "rb");
-            if (fToken) { fseek(fToken, 0, SEEK_END); long sz = ftell(fToken); fseek(fToken, 0, SEEK_SET); if (sz > 0 && sz < 2047) { fread(token, 1, sz, fToken); token[sz] = '\0'; } fclose(fToken); }
-            for (int i = 0; i < strlen(token); i++) if (token[i] == '\r' || token[i] == '\n') token[i] = '\0';
+            char token[2048] = { 0 };
+            obterTokenValido(token);
             const char* apiUrl = "https://content.dropboxapi.com/2/files/download"; conn = sceHttpCreateConnectionWithURL(tpl, apiUrl, 1); req = sceHttpCreateRequestWithURL(conn, ORBIS_METHOD_POST, apiUrl, 0);
             char authHeader[2048]; sprintf(authHeader, "Bearer %s", token); sceHttpAddRequestHeader(req, "Authorization", authHeader, 1);
             char apiArg[1024]; sprintf(apiArg, "{\"path\": \"%s\"}", urlDownloadBg); sceHttpAddRequestHeader(req, "Dropbox-API-Arg", apiArg, 1);
@@ -730,9 +853,8 @@ void listarArquivosUpload(const char* dirPath) {
 }
 
 void fazerDownloadArquivoDaNuvem(const char* remotePath, const char* localPath) {
-    char token[2048] = { 0 }; FILE* fToken = fopen("/data/HyperNeiva/configuracao/dropbox_token.txt", "rb");
-    if (fToken) { fseek(fToken, 0, SEEK_END); long sz = ftell(fToken); fseek(fToken, 0, SEEK_SET); if (sz > 0 && sz < 2047) { fread(token, 1, sz, fToken); token[sz] = '\0'; } fclose(fToken); }
-    for (int i = 0; i < strlen(token); i++) if (token[i] == '\r' || token[i] == '\n') token[i] = '\0';
+    char token[2048] = { 0 };
+    obterTokenValido(token);
     if (strlen(token) < 15) return;
     char* nomeArquivo = strrchr(remotePath, '/'); if (nomeArquivo) nomeArquivo++; else nomeArquivo = (char*)remotePath;
     sprintf(msgStatus, "BAIXANDO: %s", nomeArquivo); atualizarBarra(0.5f);
@@ -745,9 +867,8 @@ void fazerDownloadArquivoDaNuvem(const char* remotePath, const char* localPath) 
 }
 
 void processarDownloadPastaRecursiva(const char* remotePath, const char* localPath) {
-    char token[2048] = { 0 }; FILE* fToken = fopen("/data/HyperNeiva/configuracao/dropbox_token.txt", "rb");
-    if (fToken) { fseek(fToken, 0, SEEK_END); long sz = ftell(fToken); fseek(fToken, 0, SEEK_SET); if (sz > 0 && sz < 2047) { fread(token, 1, sz, fToken); token[sz] = '\0'; } fclose(fToken); }
-    for (int i = 0; i < strlen(token); i++) if (token[i] == '\r' || token[i] == '\n') token[i] = '\0';
+    char token[2048] = { 0 };
+    obterTokenValido(token);
     if (strlen(token) < 15) return;
     sceKernelMkdir(localPath, 0777);
     int tpl = sceHttpCreateTemplate(httpCtxId, "HyperNeiva/1.0", ORBIS_HTTP_VERSION_1_1, 1); sceHttpsSetSslCallback(tpl, skipSslCallback, NULL); sceHttpSetAutoRedirect();
