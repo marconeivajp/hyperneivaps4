@@ -17,6 +17,9 @@ extern int sfxLigado, sfxVolume; extern int upBg, upTextNorm, upTextSel;
 extern int picX, picY, picW, picH;
 extern int listStyle, fontAnim, listCurvature, listZoomCentro;
 
+// VARIAVEIS DA GRADE
+extern int gridX, gridY, gridItemW, gridItemH, gridCols, gridLins, gridSpcX, gridSpcY;
+
 extern void salvarConfiguracao(); extern void preencherMenuEditTarget(); extern void preencherMenuEditar(); extern void preencherRoot();
 extern void preencherExplorerHome(); extern void salvarAnimacaoComNome(const char*); extern void salvarAnimacaoUnity(const char*);
 
@@ -79,6 +82,7 @@ void acaoCross_Editar() {
     if (menuAtual == MENU_EDITAR) {
         if (sel == 17) {
             listXV = 1054; listYV = 204; listSpcV = 120; listXH = 50; listYH = 800; listSpcH = 300; listW = 550; listH = 80; capaX = 150; capaY = 640; capaW = 300; capaH = 400; discoX = 555; discoY = 650; discoW = 300; discoH = 300; backX = 0; backY = 0; backW = 1920; backH = 1080; barX = 95; barY = 911; barW = 345; barH = 15; audioX = 545; audioY = 632; audioW = 321; audioH = 378; upX = 545; upY = 632; upW = 321; upH = 378; fontTam = 35; msgX = 100; msgY = 970; msgTam = 40; listOri = 0; listBg = 0; barBg = 6; barFill = 7; listMark = 8; listHoverMark = 9; fontAlign = 0; fontScroll = 0; elem1X = 100; elem1Y = 358; elem1W = 200; elem1H = 200; elem1On = 0; ctrl1X = 724; ctrl1Y = 361; ctrl1W = 200; ctrl1H = 200; ctrl1On = 0; pont1X = 0; pont1Y = 0; pont1W = 50; pont1H = 50; pont1On = 0; pont1Modo = 0; pont1Lado = 0; sfxLigado = 1; sfxVolume = 100; upBg = 0; upTextNorm = 12; upTextSel = 8; picX = 150; picY = 100; picW = 730; picH = 410; anim_ativo = false; anim_usarColorKey = true; anim_posX = 445; anim_posY = -130; anim_colunas = 24; anim_linhas = 19; anim_velocidade = 100; anim_escala = 4.5f; anim_keyR = 55; anim_keyG = 39; anim_keyB = 130; anim_offsetX = 65; anim_offsetY = 0; anim_frameInicial = 0; anim_frameFinal = 7; anim_modoTeste = false; anim_usarColorKey2 = true; anim_keyR2 = 0; anim_keyG2 = 0; anim_keyB2 = 255; anim_autoCenter = false; anim_tolerancia = 100; listStyle = 0; fontAnim = 0; listCurvature = 15; listZoomCentro = 15;
+            gridX = 220; gridY = 200; gridItemW = 340; gridItemH = 400; gridCols = 4; gridLins = 3; gridSpcX = 40; gridSpcY = 60;
             for (int i = 0; i < 100; i++) { anim_frameOffsetX[i] = 0; anim_frameOffsetY[i] = 0; }
             salvarConfiguracao();
         }
@@ -104,6 +108,7 @@ void acaoCross_Editar() {
         else if (acaoReal >= 62 && acaoReal <= 71) { editType = acaoReal; editMode = true; crossReleaseRequired = true; circleReleaseRequired = true; }
         else if (acaoReal == 9) { salvarConfiguracao(); }
         else if (acaoReal == 41) { abrirTecladoIme(); }
+        else if (acaoReal == 45) { editType = acaoReal; editMode = true; crossReleaseRequired = true; circleReleaseRequired = true; }
         else if (acaoReal == 29 || acaoReal == 44) { extern int wSprite, hSprite; editType = acaoReal; editMode = true; crossReleaseRequired = true; circleReleaseRequired = true; int frameW = wSprite / (anim_colunas > 0 ? anim_colunas : 1); int frameH = hSprite / (anim_linhas > 0 ? anim_linhas : 1); anim_cursorX = anim_posX + (int)((frameW * anim_escala) / 2.0f); anim_cursorY = anim_posY + (int)((frameH * anim_escala) / 2.0f); anim_editandoPivoVisual = false; }
         else { editType = acaoReal; editMode = true; crossReleaseRequired = true; circleReleaseRequired = true; }
     }
@@ -127,7 +132,11 @@ void processarControlesEdicao(unsigned int buttons) {
     if (!(buttons & ORBIS_PAD_BUTTON_CIRCLE)) circleReleaseRequired = false;
 
     int* tX = &listXV, * tY = &listYV, * tW = &listW, * tH = &listH;
-    if (editTarget == 0) { tX = (listOri == 0) ? &listXV : &listXH; tY = (listOri == 0) ? &listYV : &listYH; tW = &listW; tH = &listH; }
+
+    if (editTarget == 0) {
+        if (listStyle == 4 || listStyle == 5) { tX = &gridX; tY = &gridY; tW = &gridItemW; tH = &gridItemH; }
+        else { tX = (listOri == 0) ? &listXV : &listXH; tY = (listOri == 0) ? &listYV : &listYH; tW = &listW; tH = &listH; }
+    }
     else if (editTarget == 1) { tX = &capaX; tY = &capaY; tW = &capaW; tH = &capaH; }
     else if (editTarget == 2) { tX = &discoX; tY = &discoY; tW = &discoW; tH = &discoH; }
     else if (editTarget == 3) { tX = &picX; tY = &picY; tW = &picW; tH = &picH; }
@@ -141,7 +150,6 @@ void processarControlesEdicao(unsigned int buttons) {
     else if (editTarget == 12) { tX = &ctrl1X; tY = &ctrl1Y; tW = &ctrl1W; tH = &ctrl1H; }
     else if (editTarget == 13) { tX = &pont1X; tY = &pont1Y; tW = &pont1W; tH = &pont1H; }
 
-    // MENUS REGULARES
     if (editType == 3) { if (editTarget == 5) { if (buttons & ORBIS_PAD_BUTTON_LEFT) { barBg--; if (barBg < 0) barBg = 14; } if (buttons & ORBIS_PAD_BUTTON_RIGHT) { barBg++; if (barBg > 14) barBg = 0; } } else { if (buttons & ORBIS_PAD_BUTTON_LEFT) { listBg--; if (listBg < 0) listBg = 14; } if (buttons & ORBIS_PAD_BUTTON_RIGHT) { listBg++; if (listBg > 14) listBg = 0; } } }
     else if (editType == 4) { int* tSpc = (listOri == 0) ? &listSpcV : &listSpcH; if (buttons & ORBIS_PAD_BUTTON_UP) (*tSpc) -= 5; if (buttons & ORBIS_PAD_BUTTON_DOWN) (*tSpc) += 5; if (buttons & ORBIS_PAD_BUTTON_LEFT) (*tSpc) -= 1; if (buttons & ORBIS_PAD_BUTTON_RIGHT) (*tSpc) += 1; }
     else if (editType == 5) { if (buttons & (ORBIS_PAD_BUTTON_LEFT | ORBIS_PAD_BUTTON_RIGHT)) listOri = (listOri == 0) ? 1 : 0; }
@@ -150,6 +158,12 @@ void processarControlesEdicao(unsigned int buttons) {
     else if (editType == 8) { if (buttons & ORBIS_PAD_BUTTON_LEFT) { barFill--; if (barFill < 0) barFill = 14; } if (buttons & ORBIS_PAD_BUTTON_RIGHT) { barFill++; if (barFill > 14) barFill = 0; } }
     else if (editType == 10) { if (buttons & ORBIS_PAD_BUTTON_LEFT) { fontAlign--; if (fontAlign < 0) fontAlign = 2; } if (buttons & ORBIS_PAD_BUTTON_RIGHT) { fontAlign++; if (fontAlign > 2) fontAlign = 0; } }
     else if (editType == 11) { if (buttons & (ORBIS_PAD_BUTTON_LEFT | ORBIS_PAD_BUTTON_RIGHT)) fontScroll = (fontScroll == 0) ? 1 : 0; }
+
+    // OPÇÕES DA GRADE
+    else if (editType == 45) { if (pDelay == 0) { if (buttons & ORBIS_PAD_BUTTON_LEFT) { listStyle -= 1; if (listStyle < 0) listStyle = 5; pDelay = 8; preencherMenuEditTarget(); } if (buttons & ORBIS_PAD_BUTTON_RIGHT) { listStyle += 1; if (listStyle > 5) listStyle = 0; pDelay = 8; preencherMenuEditTarget(); } } }
+    else if (editType == 77) { if (pDelay == 0) { if (buttons & ORBIS_PAD_BUTTON_LEFT) { gridCols--; if (gridCols < 1)gridCols = 1; pDelay = 6; } if (buttons & ORBIS_PAD_BUTTON_RIGHT) { gridCols++; pDelay = 6; } if (buttons & ORBIS_PAD_BUTTON_UP) { gridLins--; if (gridLins < 1)gridLins = 1; pDelay = 6; } if (buttons & ORBIS_PAD_BUTTON_DOWN) { gridLins++; pDelay = 6; } } }
+    else if (editType == 78) { if (buttons & ORBIS_PAD_BUTTON_LEFT) gridSpcX -= 2; if (buttons & ORBIS_PAD_BUTTON_RIGHT) gridSpcX += 2; if (buttons & ORBIS_PAD_BUTTON_UP) gridSpcY -= 2; if (buttons & ORBIS_PAD_BUTTON_DOWN) gridSpcY += 2; }
+
     else if (editType == 12) { if (buttons & (ORBIS_PAD_BUTTON_LEFT | ORBIS_PAD_BUTTON_RIGHT)) { if (editTarget == 11) elem1On = (elem1On == 0) ? 1 : 0; else if (editTarget == 12) ctrl1On = (ctrl1On == 0) ? 1 : 0; else if (editTarget == 13) pont1On = (pont1On == 0) ? 1 : 0; } }
     else if (editType == 13) { if (buttons & (ORBIS_PAD_BUTTON_LEFT | ORBIS_PAD_BUTTON_RIGHT)) pont1Modo = (pont1Modo == 0) ? 1 : 0; }
     else if (editType == 14) { if (buttons & ORBIS_PAD_BUTTON_LEFT) { pont1Lado--; if (pont1Lado < 0) pont1Lado = 3; } if (buttons & ORBIS_PAD_BUTTON_RIGHT) { pont1Lado++; if (pont1Lado > 3) pont1Lado = 0; } }
@@ -162,7 +176,6 @@ void processarControlesEdicao(unsigned int buttons) {
     else if (editType == 21) { if (buttons & ORBIS_PAD_BUTTON_LEFT) { upTextNorm--; if (upTextNorm < 0) upTextNorm = 14; } if (buttons & ORBIS_PAD_BUTTON_RIGHT) { upTextNorm++; if (upTextNorm > 14) upTextNorm = 0; } }
     else if (editType == 22) { if (buttons & ORBIS_PAD_BUTTON_LEFT) { upTextSel--; if (upTextSel < 0) upTextSel = 14; } if (buttons & ORBIS_PAD_BUTTON_RIGHT) { upTextSel++; if (upTextSel > 14) upTextSel = 0; } }
 
-    // ANIMAÇÃO E CHROMA KEYS
     else if (editType == 23) { if (buttons & ORBIS_PAD_BUTTON_UP) anim_posY -= 5; if (buttons & ORBIS_PAD_BUTTON_DOWN) anim_posY += 5; if (buttons & ORBIS_PAD_BUTTON_LEFT) anim_posX -= 5; if (buttons & ORBIS_PAD_BUTTON_RIGHT) anim_posX += 5; }
     else if (editType == 24) { if (buttons & ORBIS_PAD_BUTTON_UP) anim_escala += 0.1f; if (buttons & ORBIS_PAD_BUTTON_DOWN) { anim_escala -= 0.1f; if (anim_escala < 0.1f) anim_escala = 0.1f; } }
     else if (editType == 25) { if (buttons & ORBIS_PAD_BUTTON_LEFT) anim_velocidade -= 5; if (buttons & ORBIS_PAD_BUTTON_RIGHT) anim_velocidade += 5; if (buttons & ORBIS_PAD_BUTTON_UP) anim_velocidade += 20; if (buttons & ORBIS_PAD_BUTTON_DOWN) anim_velocidade -= 20; if (anim_velocidade < 1) anim_velocidade = 1; }
@@ -178,12 +191,10 @@ void processarControlesEdicao(unsigned int buttons) {
     else if (editType == 39) { if (buttons & ORBIS_PAD_BUTTON_LEFT) { anim_keyB2 -= 5; if (anim_keyB2 < 0) anim_keyB2 = 0; } if (buttons & ORBIS_PAD_BUTTON_RIGHT) { anim_keyB2 += 5; if (anim_keyB2 > 255) anim_keyB2 = 255; } }
     else if (editType == 40) { if (pDelay == 0 && (buttons & (ORBIS_PAD_BUTTON_LEFT | ORBIS_PAD_BUTTON_RIGHT))) { anim_autoCenter = !anim_autoCenter; pDelay = 10; } }
     else if (editType == 42) { if (buttons & ORBIS_PAD_BUTTON_LEFT) { anim_tolerancia -= 50; if (anim_tolerancia < 0) anim_tolerancia = 0; } if (buttons & ORBIS_PAD_BUTTON_RIGHT) anim_tolerancia += 50; if (buttons & ORBIS_PAD_BUTTON_UP) anim_tolerancia += 500; if (buttons & ORBIS_PAD_BUTTON_DOWN) { anim_tolerancia -= 500; if (anim_tolerancia < 0) anim_tolerancia = 0; } }
-    else if (editType == 45) { if (pDelay == 0) { if (buttons & ORBIS_PAD_BUTTON_LEFT) { listStyle -= 1; if (listStyle < 0) listStyle = 4; pDelay = 8; } if (buttons & ORBIS_PAD_BUTTON_RIGHT) { listStyle += 1; if (listStyle > 4) listStyle = 0; pDelay = 8; } } }
     else if (editType == 46) { if (pDelay == 0) { if (buttons & ORBIS_PAD_BUTTON_LEFT) { fontAnim -= 1; if (fontAnim < 0) fontAnim = 3; pDelay = 8; } if (buttons & ORBIS_PAD_BUTTON_RIGHT) { fontAnim += 1; if (fontAnim > 3) fontAnim = 0; pDelay = 8; } } }
     else if (editType == 47) { if (pDelay == 0) { if (buttons & ORBIS_PAD_BUTTON_LEFT) { listCurvature -= 1; if (listCurvature < 0) listCurvature = 0; pDelay = 2; } if (buttons & ORBIS_PAD_BUTTON_RIGHT) { listCurvature += 1; if (listCurvature > 100) listCurvature = 100; pDelay = 2; } if (buttons & ORBIS_PAD_BUTTON_UP) { listCurvature += 5; pDelay = 4; } if (buttons & ORBIS_PAD_BUTTON_DOWN) { listCurvature -= 5; if (listCurvature < 0) listCurvature = 0; pDelay = 4; } } }
     else if (editType == 48) { if (pDelay == 0) { if (buttons & ORBIS_PAD_BUTTON_LEFT) { listZoomCentro -= 1; if (listZoomCentro < 0) listZoomCentro = 0; pDelay = 2; } if (buttons & ORBIS_PAD_BUTTON_RIGHT) { listZoomCentro += 1; if (listZoomCentro > 100) listZoomCentro = 100; pDelay = 2; } if (buttons & ORBIS_PAD_BUTTON_UP) { listZoomCentro += 5; pDelay = 4; } if (buttons & ORBIS_PAD_BUTTON_DOWN) { listZoomCentro -= 5; if (listZoomCentro < 0) listZoomCentro = 0; pDelay = 4; } } }
 
-    // MODO TESTE
     else if (editType == 29) {
         extern int wSprite, hSprite; anim_modoTeste = true; static int fDelay = 0; if (fDelay > 0) fDelay--; static bool pSqEdit = false; static bool pCrossEdit29 = false;
         int frameDrawW = (wSprite / (anim_colunas > 0 ? anim_colunas : 1)) * anim_escala; int frameDrawH = (hSprite / (anim_linhas > 0 ? anim_linhas : 1)) * anim_escala; int centroBoxX = anim_posX + frameDrawW / 2; int centroBoxY = anim_posY + frameDrawH / 2;
@@ -221,7 +232,6 @@ void processarControlesEdicao(unsigned int buttons) {
         else if (buttons & ORBIS_PAD_BUTTON_CROSS) { if (!pCrossEdit) { if (buttons & ORBIS_PAD_BUTTON_L2) { pegarCorNoCursor(true); salvarConfiguracao(); strcpy(msgStatus, "COR SECUNDARIA EXCLUIDA E SALVA!"); msgTimer = 90; } pCrossEdit = true; } }
     }
 
-    // --- CONTROLES CUSTOM UI ---
     else if (editType == 62) { CustomElementDef* el = &customUI[interfaceTelaAlvo][interfaceElementoAlvo]; int vel = (buttons & ORBIS_PAD_BUTTON_R1) ? 20 : 4; if (buttons & ORBIS_PAD_BUTTON_UP) el->pY -= vel; if (buttons & ORBIS_PAD_BUTTON_DOWN) el->pY += vel; if (buttons & ORBIS_PAD_BUTTON_LEFT) el->pX -= vel; if (buttons & ORBIS_PAD_BUTTON_RIGHT) el->pX += vel; }
     else if (editType == 63) { CustomElementDef* el = &customUI[interfaceTelaAlvo][interfaceElementoAlvo]; int vel = (buttons & ORBIS_PAD_BUTTON_R1) ? 20 : 4; float aspect = 1.0f; if (uiH[interfaceElementoAlvo] > 0) aspect = (float)uiW[interfaceElementoAlvo] / (float)uiH[interfaceElementoAlvo]; else if (el->pH > 0) aspect = (float)el->pW / (float)el->pH; if (aspect <= 0.1f) aspect = 1.0f; if (buttons & ORBIS_PAD_BUTTON_UP) { el->pH -= vel; el->pW = (int)(el->pH * aspect); } if (buttons & ORBIS_PAD_BUTTON_DOWN) { el->pH += vel; el->pW = (int)(el->pH * aspect); } if (buttons & ORBIS_PAD_BUTTON_LEFT) { el->pW -= vel; el->pH = (int)(el->pW / aspect); } if (buttons & ORBIS_PAD_BUTTON_RIGHT) { el->pW += vel; el->pH = (int)(el->pW / aspect); } if (el->pW < 10) el->pW = 10; if (el->pH < 10) el->pH = 10; }
     else if (editType == 64) { CustomElementDef* el = &customUI[interfaceTelaAlvo][interfaceElementoAlvo]; int vel = (buttons & ORBIS_PAD_BUTTON_R1) ? 20 : 4; if (buttons & ORBIS_PAD_BUTTON_UP) el->pH -= vel; if (buttons & ORBIS_PAD_BUTTON_DOWN) el->pH += vel; if (buttons & ORBIS_PAD_BUTTON_LEFT) el->pW -= vel; if (buttons & ORBIS_PAD_BUTTON_RIGHT) el->pW += vel; if (el->pW < 10) el->pW = 10; if (el->pH < 10) el->pH = 10; }
@@ -234,10 +244,11 @@ void processarControlesEdicao(unsigned int buttons) {
     else if (editType == 31) { if (pDelay == 0 && (buttons & (ORBIS_PAD_BUTTON_LEFT | ORBIS_PAD_BUTTON_RIGHT))) { anim_ativo = !anim_ativo; pDelay = 10; } }
 
     else {
-        if (buttons & ORBIS_PAD_BUTTON_UP) { if (editType == 1) { (*tH)--; if (tW != tH) (*tW)--; } else if (editType == 2) (*tH)--; else (*tY)--; }
-        if (buttons & ORBIS_PAD_BUTTON_DOWN) { if (editType == 1) { (*tH)++; if (tW != tH) (*tW)++; } else if (editType == 2) (*tH)++; else (*tY)++; }
-        if (buttons & ORBIS_PAD_BUTTON_LEFT) { if (editType == 2) (*tW)--; else if (editType == 0) (*tX)--; }
-        if (buttons & ORBIS_PAD_BUTTON_RIGHT) { if (editType == 2) (*tW)++; else if (editType == 0) (*tX)++; }
+        int vel = (buttons & ORBIS_PAD_BUTTON_R1) ? 20 : 1;
+        if (buttons & ORBIS_PAD_BUTTON_UP) { if (editType == 1 || editType == 76) { (*tH) -= vel; if (tW != tH) (*tW) -= vel; } else if (editType == 2) (*tH) -= vel; else (*tY) -= vel; }
+        if (buttons & ORBIS_PAD_BUTTON_DOWN) { if (editType == 1 || editType == 76) { (*tH) += vel; if (tW != tH) (*tW) += vel; } else if (editType == 2) (*tH) += vel; else (*tY) += vel; }
+        if (buttons & ORBIS_PAD_BUTTON_LEFT) { if (editType == 2) (*tW) -= vel; else if (editType == 0 || editType == 75) (*tX) -= vel; }
+        if (buttons & ORBIS_PAD_BUTTON_RIGHT) { if (editType == 2) (*tW) += vel; else if (editType == 0 || editType == 75) (*tX) += vel; }
     }
 
     if (buttons & ORBIS_PAD_BUTTON_CROSS) {

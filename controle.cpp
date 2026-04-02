@@ -32,7 +32,6 @@
 #include "bloco_de_notas.h"
 #include "ftp.h" 
 
-// NOVOS MENUS
 #include "extra.h"
 #include "informacao.h"
 
@@ -101,6 +100,11 @@ extern CustomElementDef customUI[6][10];
 extern int interfaceTelaAlvo;
 extern int interfaceElementoAlvo;
 
+// IMPORTA AS CONFIGS DA GRADE
+extern int listStyle;
+extern int gridCols;
+extern int gridLins;
+
 #define MAX_NAV_STACK 100
 struct EstadoNavegacao {
     MenuLevel menu; char path[256]; int sel; int off;
@@ -134,26 +138,26 @@ void processarNavegacaoDPad(uint32_t botoes) {
         }
     }
 
-    if (botoes & (btnNext | btnPrev | ORBIS_PAD_BUTTON_DOWN | ORBIS_PAD_BUTTON_UP)) {
+    if (botoes & (ORBIS_PAD_BUTTON_RIGHT | ORBIS_PAD_BUTTON_LEFT | ORBIS_PAD_BUTTON_DOWN | ORBIS_PAD_BUTTON_UP)) {
         if (cd <= 0) {
             bool movNext = (botoes & btnNext) || (!isHoriz && (botoes & ORBIS_PAD_BUTTON_DOWN));
             bool movPrev = (botoes & btnPrev) || (!isHoriz && (botoes & ORBIS_PAD_BUTTON_UP));
 
-            if (movNext) tocarSom(SFX_DOWN);
-            else if (movPrev) tocarSom(SFX_UP);
-
             if (menuAtual == MENU_NOTEPAD) {
+                if (movNext) tocarSom(SFX_DOWN); else if (movPrev) tocarSom(SFX_UP);
                 if (estadoNotepad == 0) {
                     if (movNext) { if (linhaSelecionada < 4999) { linhaSelecionada++; if (linhaSelecionada >= totalLinhasNotepad && !notepadSomenteLeitura) totalLinhasNotepad = linhaSelecionada + 1; } }
                     else if (movPrev && linhaSelecionada > 0) linhaSelecionada--;
                 }
             }
             else if (showUploadOpcoes && (menuAtual == MENU_BAIXAR_DROPBOX_UPLOAD || menuAtual == MENU_BAIXAR_DROPBOX_LISTA)) {
+                if (movNext) tocarSom(SFX_DOWN); else if (movPrev) tocarSom(SFX_UP);
                 int maxV = (upH - 50) / 45; if (maxV < 1) maxV = 1;
                 if (movNext) { if (selUploadOpcao < 2) { selUploadOpcao++; if (selUploadOpcao >= offUploadOpcao + maxV) offUploadOpcao++; } else { selUploadOpcao = 0; offUploadOpcao = 0; } }
                 else if (movPrev) { if (selUploadOpcao > 0) { selUploadOpcao--; if (selUploadOpcao < offUploadOpcao) offUploadOpcao--; } else { selUploadOpcao = 2; offUploadOpcao = 3 - maxV; if (offUploadOpcao < 0) offUploadOpcao = 0; } }
             }
             else if (showOpcoes) {
+                if (movNext) tocarSom(SFX_DOWN); else if (movPrev) tocarSom(SFX_UP);
                 if (menuAtual == MENU_AUDIO_OPCOES) {
                     int maxV = (audioH - 50) / 45; if (maxV < 1) maxV = 1;
                     if (movNext) { if (selAudioOpcao < 10) { selAudioOpcao++; if (selAudioOpcao >= offAudioOpcao + maxV) offAudioOpcao++; } else { selAudioOpcao = 0; offAudioOpcao = 0; } }
@@ -169,15 +173,56 @@ void processarNavegacaoDPad(uint32_t botoes) {
                 bool ehEsq = (painelDuplo && painelAtivo == 0 && (menuAtual == MENU_EXPLORAR || menuAtual == MENU_EXPLORAR_HOME || menuAtual == MENU_BAIXAR_FTP_LISTA));
                 int* sAtual = ehEsq ? &selEsq : &sel; int* oAtual = ehEsq ? &offEsq : &off; int tItens = ehEsq ? totalItensEsq : totalItens;
 
-                if (movNext) {
-                    if (*sAtual < (tItens - 1)) { (*sAtual)++; if (*sAtual >= (*oAtual + 6)) (*oAtual)++; }
-                    else if (tItens > 0) { *sAtual = 0; *oAtual = 0; }
+                // ========================================================
+                // NAVEGAÇÃO DA GRADE INTELIGENTE (PULO XADREZ)
+                // ========================================================
+                bool isGameMenu = (menuAtual == MENU_JOGAR_PS4 || menuAtual == JOGAR_XML || menuAtual == SCRAPER_LIST);
+                bool isGrid = ((listStyle == 4 || listStyle == 5) && isGameMenu && !showOpcoes && !showUploadOpcoes && menuAtual != MENU_NOTEPAD && menuAtual != MENU_AUDIO_OPCOES);
+
+                if (isGrid) {
+                    int cols = gridCols; if (cols < 1) cols = 1;
+                    if (listStyle == 5) cols = 3;
+
+                    if (botoes & ORBIS_PAD_BUTTON_DOWN) {
+                        if (*sAtual + cols < tItens) { *sAtual += cols; tocarSom(SFX_DOWN); }
+                        else { *sAtual = 0; tocarSom(SFX_DOWN); } // LOOP
+                    }
+                    else if (botoes & ORBIS_PAD_BUTTON_UP) {
+                        if (*sAtual - cols >= 0) { *sAtual -= cols; tocarSom(SFX_UP); }
+                        else { *sAtual = tItens - 1; tocarSom(SFX_UP); } // LOOP INVERSO
+                    }
+                    else if (botoes & ORBIS_PAD_BUTTON_RIGHT) {
+                        if (*sAtual < tItens - 1) { (*sAtual)++; tocarSom(SFX_DOWN); }
+                        else { *sAtual = 0; tocarSom(SFX_DOWN); }
+                    }
+                    else if (botoes & ORBIS_PAD_BUTTON_LEFT) {
+                        if (*sAtual > 0) { (*sAtual)--; tocarSom(SFX_UP); }
+                        else { *sAtual = tItens - 1; tocarSom(SFX_UP); }
+                    }
+
+                    int currentRow = *sAtual / cols;
+                    int currentOffRow = *oAtual / cols;
+                    int lins = gridLins; if (lins < 1) lins = 1;
+
+                    if (currentRow < currentOffRow) *oAtual = currentRow * cols;
+                    else if (currentRow >= currentOffRow + lins) *oAtual = (currentRow - lins + 1) * cols;
+
+                    timeToLoadCapa = 10;
                 }
-                else if (movPrev) {
-                    if (*sAtual > 0) { (*sAtual)--; if (*sAtual < *oAtual) (*oAtual)--; }
-                    else if (tItens > 0) { *sAtual = tItens - 1; *oAtual = tItens - 6; if (*oAtual < 0) *oAtual = 0; }
+                else {
+                    // NAVEGAÇÃO CLÁSSICA (LISTAS NORMAIS)
+                    if (movNext) tocarSom(SFX_DOWN); else if (movPrev) tocarSom(SFX_UP);
+                    if (movNext) {
+                        if (*sAtual < (tItens - 1)) { (*sAtual)++; if (*sAtual >= (*oAtual + 6)) (*oAtual)++; }
+                        else if (tItens > 0) { *sAtual = 0; *oAtual = 0; }
+                        timeToLoadCapa = 10;
+                    }
+                    else if (movPrev) {
+                        if (*sAtual > 0) { (*sAtual)--; if (*sAtual < *oAtual) (*oAtual)--; }
+                        else if (tItens > 0) { *sAtual = tItens - 1; *oAtual = tItens - 6; if (*oAtual < 0) *oAtual = 0; }
+                        timeToLoadCapa = 10;
+                    }
                 }
-                timeToLoadCapa = 10;
             }
             cd = 10;
         }
@@ -254,13 +299,12 @@ void processarNavegacaoDPad(uint32_t botoes) {
 void processarControles(uint32_t botoes, int32_t uId, OrbisImeDialogSetting* imeSetting, uint16_t* imeTitle) {
     globalUserId = uId;
 
-    // SAIDA IMEDIATA SE FOR A TELA DO TESTE OU PIANO
     if (menuAtual == MENU_CONTROLE_TESTE || menuAtual == MENU_INSTRUMENTOS) {
         if (botoes & ORBIS_PAD_BUTTON_OPTIONS) {
             extern void preencherMenuExtra();
             preencherMenuExtra();
         }
-        return; // IGNORA TUDO O RESTO PARA NÃO INTERFERIR COM O TESTE OU PIANO
+        return;
     }
 
     if (totalItens <= 0) { sel = 0; off = 0; }
@@ -269,7 +313,6 @@ void processarControles(uint32_t botoes, int32_t uId, OrbisImeDialogSetting* ime
 
     if (editMode && menuAtual != MENU_NOTEPAD) { processarControlesEdicao(botoes); return; }
 
-    // Nao navega se for ecra de informacao
     if (menuAtual != MENU_INFORMACAO) {
         processarNavegacaoDPad(botoes);
     }
