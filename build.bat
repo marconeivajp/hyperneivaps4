@@ -103,7 +103,7 @@ for %%f in (assets\audio\*) do set asset_audio_files=!asset_audio_files! assets/
 
 echo.
 echo [7/7] Criacao do GP4 e Build do PKG...
-"C:\OpenOrbis\bin\windows\create-gp4.exe" -out pkg.gp4 --content-id=UP0001-MARC00001_00-0000000000000000 --files "eboot.bin sce_sys/param.sfo sce_sys/icon0.png sce_module/libc.prx sce_module/libSceFios2.prx assets/lista.xml assets/sp.xml assets/Sega_Master_System.xml assets/dropbox_token.txt !asset_images_files! !asset_fonts_files! !asset_audio_files!"
+"C:\OpenOrbis\bin\windows\create-gp4.exe" -out pkg.gp4 --content-id=UP0001-MARC00001_00-0000000000000000 --files "eboot.bin sce_sys/param.sfo sce_sys/icon0.png sce_module/libc.prx sce_module/libSceFios2.prx assets/system.xml assets/sp.xml assets/Sega_Master_System.xml assets/dropbox_token.txt !asset_images_files! !asset_fonts_files! !asset_audio_files!"
 "C:\OpenOrbis\bin\windows\PkgTool.Core.exe" pkg_build pkg.gp4 .
 
 echo.
