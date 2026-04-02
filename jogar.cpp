@@ -33,8 +33,49 @@ struct app_launch_ctx {
 
 char xmlCaminhoAtual[256] = "";
 
-void carregarXML(const char* path) {
-    FILE* fp = fopen(path, "rb"); if (!fp) return;
+// =========================================================================
+// O NOVO MOTOR INTELIGENTE QUE COPIA E SALVA OS XML ANTES DE LER
+// =========================================================================
+void carregarXML(const char* nomeArquivoXML) {
+    char pathConfig[512];
+    // Aponta para a pasta de configuracao no HDD do PS4
+    sprintf(pathConfig, "/data/HyperNeiva/configuracao/%s", nomeArquivoXML);
+
+    FILE* fp = fopen(pathConfig, "rb");
+
+    // Se o ficheiro não estiver salvo no PS4, ele extrai do PKG original!
+    if (!fp) {
+        char pathApp0[512];
+        sprintf(pathApp0, "/app0/assets/%s", nomeArquivoXML);
+        FILE* fApp0 = fopen(pathApp0, "rb");
+        if (fApp0) {
+            fseek(fApp0, 0, SEEK_END); long sz = ftell(fApp0); fseek(fApp0, 0, SEEK_SET);
+            char* bTemp = (char*)malloc(sz);
+            fread(bTemp, 1, sz, fApp0);
+            fclose(fApp0);
+
+            sceKernelMkdir("/data/HyperNeiva/configuracao", 0777);
+
+            // Salva na pasta configuracao!
+            FILE* fSave = fopen(pathConfig, "wb");
+            if (fSave) {
+                fwrite(bTemp, 1, sz, fSave);
+                fclose(fSave);
+            }
+            free(bTemp);
+
+            // Agora abre o ficheiro definitivo no HDD
+            fp = fopen(pathConfig, "rb");
+        }
+    }
+
+    // Se mesmo assim não existir, cancela e avisa o erro.
+    if (!fp) {
+        sprintf(msgStatus, "ERRO: %s NAO ENCONTRADO!", nomeArquivoXML);
+        msgTimer = 180;
+        return;
+    }
+
     fseek(fp, 0, SEEK_END); long sz = ftell(fp); fseek(fp, 0, SEEK_SET);
     char* b = (char*)malloc(sz + 1); fread(b, 1, sz, fp); b[sz] = '\0'; fclose(fp);
 
@@ -56,7 +97,7 @@ void carregarXML(const char* path) {
     }
     free(b);
     menuAtual = JOGAR_XML;
-    strcpy(xmlCaminhoAtual, path);
+    strcpy(xmlCaminhoAtual, pathConfig);
 }
 
 void chamarJogo(const char* titleId, const char* romPath) {

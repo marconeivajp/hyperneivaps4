@@ -66,8 +66,22 @@ void inicializarPastas() {
     // Extra (Musicas Root)
     sceKernelMkdir("/data/HyperNeiva/Musicas", 0777);
 
-    // ARQUIVOS INICIAIS
+    // =========================================================
+    // ARQUIVOS INICIAIS DE SISTEMA (XMLS)
+    // =========================================================
+
+    // Copia para a raiz do "configuracao" (Onde o jogar.cpp vai procurar)
+    copiarArquivoSeNaoExistir("/app0/assets/system.xml", "/data/HyperNeiva/configuracao/system.xml");
+    copiarArquivoSeNaoExistir("/app0/assets/lista.xml", "/data/HyperNeiva/configuracao/lista.xml");
+    copiarArquivoSeNaoExistir("/app0/assets/sp.xml", "/data/HyperNeiva/configuracao/sp.xml");
+    copiarArquivoSeNaoExistir("/app0/assets/Sega_Master_System.xml", "/data/HyperNeiva/configuracao/Sega_Master_System.xml");
+
+    // Copia para a pasta "repositorios" (Para o menu de Baixar Repos achar)
+    copiarArquivoSeNaoExistir("/app0/assets/system.xml", "/data/HyperNeiva/configuracao/repositorios/system.xml");
+    copiarArquivoSeNaoExistir("/app0/assets/lista.xml", "/data/HyperNeiva/configuracao/repositorios/lista.xml");
+    copiarArquivoSeNaoExistir("/app0/assets/sp.xml", "/data/HyperNeiva/configuracao/repositorios/sp.xml");
     copiarArquivoSeNaoExistir("/app0/assets/Sega_Master_System.xml", "/data/HyperNeiva/configuracao/repositorios/Sega_Master_System.xml");
+
 
     // O TOKEN DO DROPBOX É COPIADO AQUI (Garantindo que a pasta configuracao já existe!)
     copiarArquivoSeNaoExistir("/app0/assets/dropbox_token.txt", "/data/HyperNeiva/configuracao/dropbox_token.txt");

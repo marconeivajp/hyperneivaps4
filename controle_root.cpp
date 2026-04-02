@@ -238,10 +238,6 @@ void acaoCross_Root() {
                 struct dirent* dir;
                 while ((dir = readdir(d)) != NULL && cont < 2900) {
 
-                    // =========================================================
-                    // MÁGICA AQUI: Aceita QUALQUER pasta de TitleID (com tamanho 9 ou mais)
-                    // Sem ser engessado só com 'CUSA'!
-                    // =========================================================
                     if (strcmp(dir->d_name, ".") != 0 && strcmp(dir->d_name, "..") != 0 && strlen(dir->d_name) >= 8) {
 
                         char idLimpo[16]; memset(idLimpo, 0, sizeof(idLimpo));
@@ -264,7 +260,12 @@ void acaoCross_Root() {
 
             sel = 0; off = 0; menuAtual = MENU_JOGAR_PS4; timeToLoadCapa = 5;
         }
-        else if (sel == 1) { carregarXML("/app0/assets/lista.xml"); }
+        else if (sel == 1) {
+            // -----------------------------------------------------
+            // AGORA MANDA APENAS O NOME, O MOTOR TRATA DE COPIAR!
+            // -----------------------------------------------------
+            carregarXML("system.xml");
+        }
     }
 
     else if (menuAtual == MENU_JOGAR_PS4) {
@@ -279,7 +280,25 @@ void acaoCross_Root() {
         }
     }
 
-    else if (menuAtual == JOGAR_XML && strcasecmp(nomes[sel], "sp") == 0) { carregarXML("/app0/assets/sp.xml"); }
+    else if (menuAtual == JOGAR_XML) {
+        // Se estamos dentro do system.xml e clicamos num nome
+        if (strstr(caminhoXMLAtual, "system.xml") != NULL) {
+            char caminhoNovoXML[512];
+            sprintf(caminhoNovoXML, "%s.xml", nomes[sel]);
+            carregarXML(caminhoNovoXML);
+            sel = 0;
+            off = 0;
+        }
+        // Atalho legado para SP, por segurança!
+        else if (strcasecmp(nomes[sel], "sp") == 0) {
+            carregarXML("sp.xml");
+            sel = 0; off = 0;
+        }
+        else {
+            sprintf(msgStatus, "PREPARANDO PARA JOGAR: %s", nomes[sel]);
+            msgTimer = 120;
+        }
+    }
 
     else if (menuAtual == MENU_MIDIA) {
         if (strcmp(nomes[sel], "Pasta vazia") == 0) return;
@@ -324,9 +343,20 @@ void acaoCircle_Root() {
 
     if (menuAtual == MENU_TIPO_JOGO) { preencherRoot(); }
     else if (menuAtual == MENU_JOGAR_PS4) { memset(nomes, 0, sizeof(nomes)); strcpy(nomes[0], "Jogos de PS4 Nativo"); strcpy(nomes[1], "Listas XML (Retro)"); totalItens = 2; sel = 0; off = 0; menuAtual = MENU_TIPO_JOGO; }
-    else if (menuAtual == JOGAR_XML) { if (strstr(caminhoXMLAtual, "sp.xml")) carregarXML("/app0/assets/lista.xml"); else { memset(nomes, 0, sizeof(nomes)); strcpy(nomes[0], "Jogos de PS4 Nativo"); strcpy(nomes[1], "Listas XML (Retro)"); totalItens = 2; sel = 0; off = 0; menuAtual = MENU_TIPO_JOGO; } }
+    else if (menuAtual == JOGAR_XML) {
+        if (strstr(caminhoXMLAtual, "system.xml") == NULL) {
+            carregarXML("system.xml");
+            sel = 0; off = 0;
+        }
+        else {
+            memset(nomes, 0, sizeof(nomes));
+            strcpy(nomes[0], "Jogos de PS4 Nativo");
+            strcpy(nomes[1], "Listas XML (Retro)");
+            totalItens = 2; sel = 0; off = 0;
+            menuAtual = MENU_TIPO_JOGO;
+        }
+    }
     else if (menuAtual == MENU_MIDIA) { if (strcmp(caminhoMidiaAtual, "/data/HyperNeiva/midia") == 0) { preencherRoot(); } else { char* ultimaBarra = strrchr(caminhoMidiaAtual, '/'); if (ultimaBarra != NULL) { *ultimaBarra = '\0'; } abrirPastaMidia(caminhoMidiaAtual); } }
 
-    // RETORNO DOS NOVOS MENUS PARA A HOME (BOLINHA VOLTA AQUI)
     else if (menuAtual == MENU_EXTRA || menuAtual == MENU_INFORMACAO) { preencherRoot(); }
 }
