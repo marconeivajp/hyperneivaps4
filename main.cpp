@@ -91,7 +91,6 @@ int main(void) {
     int32_t uId; sceUserServiceGetInitialUser(&uId);
 
     scePadInit();
-    // MÁGICA AQUI: Salva a porta do comando numa variavel global!
     globalPadHandle = scePadOpen(uId, 0, 0, NULL);
     int pad = globalPadHandle;
 
@@ -138,6 +137,17 @@ int main(void) {
 
     sceKernelChmod("/mnt/usb0", 0777); sceKernelChmod("/mnt/usb1", 0777);
     preencherRoot();
+
+    // =========================================================================
+    // ESCONDER A SPLASH SCREEN (O PS4 EXIGE ESTE COMANDO PARA FECHAR A IMAGEM)
+    // =========================================================================
+    int libSys = sceKernelLoadStartModule("libSceSystemService.sprx", 0, NULL, 0, NULL, NULL);
+    if (libSys >= 0) {
+        typedef int (*HideSplashFunc)();
+        HideSplashFunc hideSplash = NULL;
+        sceKernelDlsym(libSys, "sceSystemServiceHideSplashScreen", (void**)&hideSplash);
+        if (hideSplash) hideSplash();
+    }
 
     for (;;) {
         OrbisPadData pData;

@@ -31,7 +31,9 @@ struct app_launch_ctx {
     uint32_t check_flag;
 } __attribute__((packed));
 
-char xmlCaminhoAtual[256] = "";
+// === A CORREÇÃO ESTÁ AQUI ===
+// O nome da variável tem de ser exatamente igual ao do controle_root.cpp!
+extern char caminhoXMLAtual[256];
 
 // =========================================================================
 // O NOVO MOTOR INTELIGENTE QUE COPIA E SALVA OS XML ANTES DE LER
@@ -97,7 +99,7 @@ void carregarXML(const char* nomeArquivoXML) {
     }
     free(b);
     menuAtual = JOGAR_XML;
-    strcpy(xmlCaminhoAtual, pathConfig);
+    strcpy(caminhoXMLAtual, pathConfig); // ATUALIZA A VARIÁVEL CORRETA!
 }
 
 void chamarJogo(const char* titleId, const char* romPath) {

@@ -3,7 +3,7 @@
 	<volume>
 		<volume_type>pkg_ps4_app</volume_type>
 		<volume_id>PS4VOLUME</volume_id>
-		<volume_ts>2026-04-02 17:53:24</volume_ts>
+		<volume_ts>2026-04-02 19:55:22</volume_ts>
 		<package content_id="UP0001-MARC00001_00-0000000000000000" passcode="00000000000000000000000000000000"
 			storage_type="digital50" app_type="full" />
 		<chunk_info chunk_count="1" scenario_count="1">
@@ -19,6 +19,7 @@
 		<file targ_path="eboot.bin" orig_path="eboot.bin" />
 		<file targ_path="sce_sys/param.sfo" orig_path="sce_sys/param.sfo" />
 		<file targ_path="sce_sys/icon0.png" orig_path="sce_sys/icon0.png" />
+		<file targ_path="sce_sys/pic1.png" orig_path="sce_sys/pic1.png" />
 		<file targ_path="sce_module/libc.prx" orig_path="sce_module/libc.prx" />
 		<file targ_path="sce_module/libSceFios2.prx" orig_path="sce_module/libSceFios2.prx" />
 		<file targ_path="assets/system.xml" orig_path="assets/system.xml" />
