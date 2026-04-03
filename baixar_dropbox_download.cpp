@@ -80,7 +80,6 @@ int obterTamanhoFila() {
 static char tokenAcessoGlobal[2048] = { 0 };
 
 void obterTokenValido(char* outToken) {
-    // Se já temos um token válido carregado na memória, não precisamos renovar nesta sessão.
     if (strlen(tokenAcessoGlobal) > 10) {
         strcpy(outToken, tokenAcessoGlobal);
         return;
@@ -99,22 +98,19 @@ void obterTokenValido(char* outToken) {
         return;
     }
 
-    // CREDENCIAIS PADRÃO DO HYPER NEIVA
     char appKey[128] = "345xl81u5bdp9x2";
     char appSecret[128] = "bhh9nfd8t7rvfuq";
     char refreshToken[512] = { 0 };
     bool temLabels = false;
 
-    // Fazemos uma cópia para o strtok quebrar as linhas
     char txtCopy[2048];
     strcpy(txtCopy, txt_token);
 
-    // Leitura inteligente Linha por Linha
     char* linha = strtok(txtCopy, "\r\n");
     while (linha) {
         if (strstr(linha, "Appkey:") || strstr(linha, "App key:") || strstr(linha, "AppKey:")) {
             char* val = strchr(linha, ':');
-            if (val) sscanf(val + 1, " %s", appKey); // Puxa só a palavra, ignorando espaços
+            if (val) sscanf(val + 1, " %s", appKey);
             temLabels = true;
         }
         else if (strstr(linha, "App secret:") || strstr(linha, "Appsecret:") || strstr(linha, "App Secret:")) {
@@ -130,7 +126,6 @@ void obterTokenValido(char* outToken) {
         linha = strtok(NULL, "\r\n");
     }
 
-    // Se o TXT só tiver 1 linha sem labels, assumimos que é o Refresh Token (e usamos a Key e Secret Padrão)
     if (!temLabels) {
         sscanf(txt_token, "%s", refreshToken);
     }
@@ -171,8 +166,6 @@ void obterTokenValido(char* outToken) {
     }
     sceHttpDeleteRequest(req); sceHttpDeleteConnection(conn); sceHttpDeleteTemplate(tpl);
 
-    // Se a Dropbox não devolveu o Access_Token, significa que a string que mandámos NÃO ERA um Refresh Token.
-    // Logo, assumimos que o utilizador colou o Token Temporário (ou o Token Legado antigo) diretamente, e usamos ele!
     if (!isRefreshToken) {
         strcpy(tokenAcessoGlobal, refreshToken);
     }
@@ -388,9 +381,19 @@ void* threadBackupTodos(void* arg) {
     mapearPastaParaUploadRecursivo("/user/home", "/user/home", "/HyperNeiva_Uploads/backup/user/home");
     mapearPastaParaUploadRecursivo("/user/trophy", "/user/trophy", "/HyperNeiva_Uploads/backup/user/trophy");
     mapearPastaParaUploadRecursivo("/data/HyperNeiva/configuracao", "/data/HyperNeiva/configuracao", "/HyperNeiva_Uploads/backup/data/HyperNeiva/configuracao");
-    mapearPastaParaUploadRecursivo("/data/retroarch", "/data/retroarch", "/HyperNeiva_Uploads/backup/data/retroarch");
     mapearPastaParaUploadRecursivo("/system_data/priv/cache/profile", "/system_data/priv/cache/profile", "/HyperNeiva_Uploads/backup/system_data/priv/cache/profile");
     mapearPastaParaUploadRecursivo("/system_data/priv/home", "/system_data/priv/home", "/HyperNeiva_Uploads/backup/system_data/priv/home");
+
+    // =========================================================
+    // O NOVO BACKUP DO RETROARCH (SÓ OS ARQUIVOS VITAIS!)
+    // =========================================================
+    mapearPastaParaUploadRecursivo("/data/retroarch/savefiles", "/data/retroarch/savefiles", "/HyperNeiva_Uploads/backup/data/retroarch/savefiles");
+    mapearPastaParaUploadRecursivo("/data/retroarch/savestates", "/data/retroarch/savestates", "/HyperNeiva_Uploads/backup/data/retroarch/savestates");
+    mapearPastaParaUploadRecursivo("/data/retroarch/system", "/data/retroarch/system", "/HyperNeiva_Uploads/backup/data/retroarch/system");
+    mapearPastaParaUploadRecursivo("/data/retroarch/playlists", "/data/retroarch/playlists", "/HyperNeiva_Uploads/backup/data/retroarch/playlists");
+    mapearPastaParaUploadRecursivo("/data/retroarch/config", "/data/retroarch/config", "/HyperNeiva_Uploads/backup/data/retroarch/config");
+    adicionarNaFilaUpload("/data/retroarch/retroarch-core-options.cfg", "/HyperNeiva_Uploads/backup/data/retroarch/retroarch-core-options.cfg"); totalFilaSessao++;
+    adicionarNaFilaUpload("/data/retroarch/retroarch.cfg", "/HyperNeiva_Uploads/backup/data/retroarch/retroarch.cfg"); totalFilaSessao++;
 
     adicionarNaFilaUpload("/system_data/priv/mms/app.db", "/HyperNeiva_Uploads/backup/system_data/priv/mms/app.db"); totalFilaSessao++;
     adicionarNaFilaUpload("/system_data/priv/mms/addcont.db", "/HyperNeiva_Uploads/backup/system_data/priv/mms/addcont.db"); totalFilaSessao++;
@@ -513,29 +516,6 @@ void fazerUploadPastaRecursivo(const char* dirPath) {
     pthread_detach(t);
 }
 
-// ==============================================================
-// MENU PRINCIPAL DE CAMINHOS COMPLETOS DO EXPLORER
-// ==============================================================
-void preencherMenuBackup() {
-    memset(nomes, 0, sizeof(nomes));
-
-    // Explore: Opções 0, 1, 2, 3
-    strcpy(nomes[0], "Hyper Neiva");
-    strcpy(nomes[1], "Raiz");
-    strcpy(nomes[2], "USB 0");
-    strcpy(nomes[3], "USB 1");
-    // Backup Direto: Opções 4, 5, 6, 7, 8
-    strcpy(nomes[4], "Backup Automatico (Tudo)");
-    strcpy(nomes[5], "Backup Saves");
-    strcpy(nomes[6], "Backup Metadados");
-    strcpy(nomes[7], "Backup Perfis");
-    strcpy(nomes[8], "Backup Banco de Dados");
-
-    totalItens = 9;
-    menuAtual = MENU_BAIXAR_DROPBOX_BACKUP;
-    sel = 0;
-    off = 0;
-}
 
 // O RESTO DO DOWNLOAD FUNCIONA NORMALMENTE!
 void processarPastaRecursiva(const char* localRoot, const char* currentLocal) {}
@@ -870,7 +850,10 @@ void processarDownloadPastaRecursiva(const char* remotePath, const char* localPa
     char token[2048] = { 0 };
     obterTokenValido(token);
     if (strlen(token) < 15) return;
-    sceKernelMkdir(localPath, 0777);
+
+    // Se não for a raiz do sistema, cria a pasta
+    if (strlen(localPath) > 0) sceKernelMkdir(localPath, 0777);
+
     int tpl = sceHttpCreateTemplate(httpCtxId, "HyperNeiva/1.0", ORBIS_HTTP_VERSION_1_1, 1); sceHttpsSetSslCallback(tpl, skipSslCallback, NULL); sceHttpSetAutoRedirect();
     const char* apiUrl = "https://api.dropboxapi.com/2/files/list_folder"; int conn = sceHttpCreateConnectionWithURL(tpl, apiUrl, 1); int req = sceHttpCreateRequestWithURL(conn, ORBIS_METHOD_POST, apiUrl, 0);
     char postData[512]; sprintf(postData, "{\"path\": \"%s\"}", remotePath); char authHeader[2048]; sprintf(authHeader, "Bearer %s", token);
@@ -897,8 +880,21 @@ void processarDownloadPastaRecursiva(const char* remotePath, const char* localPa
                             else if (!isFolder && numFiles < 200) { strncpy(files[numFiles], pathPtr, pathLen); files[numFiles][pathLen] = '\0'; strncpy(filesNames[numFiles], namePtr, nameLen); filesNames[numFiles][nameLen] = '\0'; numFiles++; }
                         } p = pathEnd;
                     } free(h);
-                    for (int i = 0; i < numSubFolders; i++) { char nextLocal[512]; sprintf(nextLocal, "%s/%s", localPath, subFoldersNames[i]); processarDownloadPastaRecursiva(subFolders[i], nextLocal); }
-                    for (int i = 0; i < numFiles; i++) { char nextLocal[512]; sprintf(nextLocal, "%s/%s", localPath, filesNames[i]); fazerDownloadArquivoDaNuvem(files[i], nextLocal); }
+
+                    // A mágica: Se localPath for a raiz (""), ele vai criar "/user", "/data" perfeitamente
+                    for (int i = 0; i < numSubFolders; i++) {
+                        char nextLocal[512];
+                        if (strlen(localPath) == 0) sprintf(nextLocal, "/%s", subFoldersNames[i]);
+                        else sprintf(nextLocal, "%s/%s", localPath, subFoldersNames[i]);
+                        processarDownloadPastaRecursiva(subFolders[i], nextLocal);
+                    }
+                    for (int i = 0; i < numFiles; i++) {
+                        char nextLocal[512];
+                        if (strlen(localPath) == 0) sprintf(nextLocal, "/%s", filesNames[i]);
+                        else sprintf(nextLocal, "%s/%s", localPath, filesNames[i]);
+                        fazerDownloadArquivoDaNuvem(files[i], nextLocal);
+                    }
+
                     for (int i = 0; i < 100; i++) { free(subFolders[i]); free(subFoldersNames[i]); } for (int i = 0; i < 200; i++) { free(files[i]); free(filesNames[i]); }
                     free(subFolders); free(files); free(subFoldersNames); free(filesNames);
                 } fclose(f2);
@@ -912,4 +908,34 @@ void fazerDownloadPastaRecursivo(const char* remotePath, const char* folderName)
     char localRoot[512]; sceKernelMkdir("/data/HyperNeiva/baixado/dropbox", 0777); sprintf(localRoot, "/data/HyperNeiva/baixado/dropbox/%s", folderName);
     processarDownloadPastaRecursiva(remotePath, localRoot);
     sprintf(msgStatus, "DOWNLOAD DE PASTA CONCLUIDO!"); atualizarBarra(1.0f); msgTimer = 240;
+}
+
+// ==============================================================
+// RESTAURAÇÃO TOTAL DO SISTEMA
+// ==============================================================
+void* threadRestaurarBackup(void* arg) {
+    downloadEmSegundoPlano = true;
+    sprintf(msgStatus, "RESTAURANDO BACKUP (NUVEM -> PS4)...");
+    msgTimer = 900;
+
+    // O Dropbox tem a raiz do backup em /HyperNeiva_Uploads/backup.
+    // Se passarmos a string vazia "", o script vai reconstruir as pastas /data, /user, etc nativamente!
+    processarDownloadPastaRecursiva("/HyperNeiva_Uploads/backup", "");
+
+    downloadEmSegundoPlano = false;
+    sprintf(msgStatus, "RESTAURACAO CONCLUIDA! REINICIE O CONSOLE.");
+    msgTimer = 600;
+    return NULL;
+}
+
+void executarRestaurarBackup() {
+    if (processandoFilaUpload || downloadEmSegundoPlano) {
+        sprintf(msgStatus, "AGUARDE AS TAREFAS ATUAIS TERMINAREM!"); msgTimer = 180; return;
+    }
+    sprintf(msgStatus, "INICIANDO RESTAURACAO DO SISTEMA...");
+    msgTimer = 180;
+
+    pthread_t tRes;
+    pthread_create(&tRes, NULL, threadRestaurarBackup, NULL);
+    pthread_detach(tRes);
 }

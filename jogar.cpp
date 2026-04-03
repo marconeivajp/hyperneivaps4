@@ -31,17 +31,16 @@ struct app_launch_ctx {
     uint32_t check_flag;
 } __attribute__((packed));
 
-// === A CORREÇÃO ESTÁ AQUI ===
-// O nome da variável tem de ser exatamente igual ao do controle_root.cpp!
 extern char caminhoXMLAtual[256];
 
 // =========================================================================
-// O NOVO MOTOR INTELIGENTE QUE COPIA E SALVA OS XML ANTES DE LER
+// O NOVO MOTOR AGORA SALVA TUDO DENTRO DA PASTA /jogar/
 // =========================================================================
 void carregarXML(const char* nomeArquivoXML) {
     char pathConfig[512];
-    // Aponta para a pasta de configuracao no HDD do PS4
-    sprintf(pathConfig, "/data/HyperNeiva/configuracao/%s", nomeArquivoXML);
+
+    // Aponta para a nova pasta 'jogar' no HDD
+    sprintf(pathConfig, "/data/HyperNeiva/configuracao/jogar/%s", nomeArquivoXML);
 
     FILE* fp = fopen(pathConfig, "rb");
 
@@ -56,9 +55,11 @@ void carregarXML(const char* nomeArquivoXML) {
             fread(bTemp, 1, sz, fApp0);
             fclose(fApp0);
 
+            // Cria as pastas em cascata por segurança
             sceKernelMkdir("/data/HyperNeiva/configuracao", 0777);
+            sceKernelMkdir("/data/HyperNeiva/configuracao/jogar", 0777);
 
-            // Salva na pasta configuracao!
+            // Salva na pasta jogar!
             FILE* fSave = fopen(pathConfig, "wb");
             if (fSave) {
                 fwrite(bTemp, 1, sz, fSave);
@@ -71,7 +72,6 @@ void carregarXML(const char* nomeArquivoXML) {
         }
     }
 
-    // Se mesmo assim não existir, cancela e avisa o erro.
     if (!fp) {
         sprintf(msgStatus, "ERRO: %s NAO ENCONTRADO!", nomeArquivoXML);
         msgTimer = 180;
@@ -99,7 +99,7 @@ void carregarXML(const char* nomeArquivoXML) {
     }
     free(b);
     menuAtual = JOGAR_XML;
-    strcpy(caminhoXMLAtual, pathConfig); // ATUALIZA A VARIÁVEL CORRETA!
+    strcpy(caminhoXMLAtual, pathConfig);
 }
 
 void chamarJogo(const char* titleId, const char* romPath) {
@@ -121,7 +121,6 @@ void chamarJogo(const char* titleId, const char* romPath) {
 
     if (launchAppReal == NULL) return;
 
-    // Desligamos o motor de áudio do Hyper Neiva para liberar a porta do PS4.
     pararAudio();
 
     struct app_launch_ctx ctx;
@@ -135,7 +134,6 @@ void chamarJogo(const char* titleId, const char* romPath) {
     int launchRes = 0;
 
     if (strcmp(titleId, "SSNE10000") == 0) {
-        // TRUQUE DE CONFIGURAÇÃO DO RETROARCH
         FILE* cfg = fopen("/data/retroarch/retroarch.cfg", "a");
         if (cfg) {
             fprintf(cfg, "\nlibretro_path = \"/data/self/retroarch/cores/genesis_plus_gx_libretro_ps4.self\"\n");
@@ -159,19 +157,12 @@ void chamarJogo(const char* titleId, const char* romPath) {
     if (launchRes < 0) {
         sprintf(msgStatus, "ERRO: %s (0x%08X)", titleId, launchRes);
         msgTimer = 400;
-
-        // Se falhar, liga o som do menu de volta
         inicializarAudio();
     }
     else {
         sprintf(msgStatus, "FECHANDO FRONTEND...");
-
-        // Dá meio segundo para o PS4 assumir o controle da tela
         sceKernelUsleep(500000);
 
-        // =====================================================================
-        // BUSCA DINÂMICA DA FUNÇÃO DE SAÍDA (Resolve o erro do ld.lld)
-        // =====================================================================
         typedef void (*ExitProcessFunc)(int);
         ExitProcessFunc exitProcessReal = NULL;
 
@@ -181,10 +172,10 @@ void chamarJogo(const char* titleId, const char* romPath) {
         }
 
         if (exitProcessReal != NULL) {
-            exitProcessReal(0); // Morte Limpa pelo Kernel
+            exitProcessReal(0);
         }
         else {
-            exit(0); // Plano B (Padrão C++)
+            exit(0);
         }
     }
 }

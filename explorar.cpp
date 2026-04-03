@@ -1,3 +1,9 @@
+#ifdef __INTELLISENSE__
+#ifndef __builtin_va_list
+#define __builtin_va_list void*
+#endif
+#endif
+
 #include "explorar.h"
 #include <stdio.h>
 #include <string.h>
@@ -7,20 +13,23 @@
 #include <unistd.h>
 #include <ctype.h> 
 #include <orbis/libkernel.h>
-#include "ImeDialog.h"
-#include "CommonDialog.h"
+#include <orbis/ImeDialog.h>
+#include <orbis/CommonDialog.h>
 #include "bloco_de_notas.h" 
 #include <errno.h> 
 
 #include "miniz.h" 
 #include "stb_image.h" 
+#define STB_IMAGE_WRITE_IMPLEMENTATION
+#include "stb_image_write.h"
 
+// ==========================================
+// STATUS DO TECLADO
+// ==========================================
 #define IME_STATUS_RUNNING 1
-#define IME_STATUS_FINISHED 2
 
 extern void atualizarBarra(float progresso);
 
-// Variáveis importadas do visualizador de imagens
 extern bool visualizandoMidiaImagem;
 char caminhoImagemAberta[512] = "";
 extern unsigned char* imgMidia;
@@ -47,14 +56,13 @@ bool clipboardIsCut = false;
 bool showOpcoes = false;
 int selOpcao = 0;
 
-// ARRAYS AUMENTADOS PARA SUPORTAR DEZENAS DE JOGOS E PERFIS
 const char* listaOpcoes[150] = { "" };
 int mapOpcoes[150] = { -1 };
 int totalOpcoes = 0;
 
 char caminhoPerfilAlvo[150][64];
 char menuStrDinamico[150][128];
-int acaoJogoEscolhida = 0; // Guarda qual imagem o utilizador quer alterar (icon0, pic1, etc)
+int acaoJogoEscolhida = 0;
 
 bool esperandoNomePasta = false;
 bool esperandoRenomear = false;
@@ -62,6 +70,7 @@ wchar_t textoTeclado[256] = L"";
 char oldPathParaRenomear[512] = "";
 char oldExtParaRenomear[64] = "";
 bool ehPastaParaRenomear = false;
+
 
 // ====================================================================
 // LEITOR DE PARAM.SFO (Extrai o Nome Real do Jogo)
@@ -74,7 +83,7 @@ void obterNomeJogoSFO(const char* cusa, char* nomeSaida) {
     if (!f) return;
 
     unsigned int magic; fread(&magic, 4, 1, f);
-    if (magic != 0x46535000) { fclose(f); return; } // Verifica se é "\0PSF"
+    if (magic != 0x46535000) { fclose(f); return; }
 
     fseek(f, 0x08, SEEK_SET);
     unsigned int keyOffset, dataOffset, entries;
@@ -102,29 +111,56 @@ void obterNomeJogoSFO(const char* cusa, char* nomeSaida) {
 }
 
 // ====================================================================
-// CONVERSOR DDS XRGB 
+// CONVERSOR DDS XRGB E REDIMENSIONADOR (CORRIGIDOS PARA O PS4)
 // ====================================================================
 void redimensionarImagem(unsigned char* src, int sw, int sh, unsigned char* dst, int dw, int dh) {
     for (int y = 0; y < dh; y++) {
         for (int x = 0; x < dw; x++) {
             int srcX = (x * sw) / dw; int srcY = (y * sh) / dh;
             int srcIndex = (srcY * sw + srcX) * 4; int dstIndex = (y * dw + x) * 4;
-            dst[dstIndex] = src[srcIndex]; dst[dstIndex + 1] = src[srcIndex + 1];
-            dst[dstIndex + 2] = src[srcIndex + 2]; dst[dstIndex + 3] = 255;
+            dst[dstIndex] = src[srcIndex];
+            dst[dstIndex + 1] = src[srcIndex + 1];
+            dst[dstIndex + 2] = src[srcIndex + 2];
+            dst[dstIndex + 3] = src[srcIndex + 3]; // Preserva a transparência real
         }
     }
 }
+
 void salvarComoDDS(const char* filepath, unsigned char* img, int w, int h) {
     FILE* f = fopen(filepath, "wb"); if (!f) return;
     unsigned int header[32]; memset(header, 0, sizeof(header));
-    header[0] = 0x20534444; header[1] = 124; header[2] = 0x100F; header[3] = h; header[4] = w; header[5] = w * 4;
-    header[19] = 32; header[20] = 0x40; header[22] = 32; header[23] = 0x00FF0000; header[24] = 0x0000FF00; header[25] = 0x000000FF; header[26] = 0x00000000;
+
+    // CABEÇALHO DDS PERFEITO PRO PS4 (ARGB8888 COM TEXTURA DECLARADA)
+    header[0] = 0x20534444;  // "DDS "
+    header[1] = 124;         // Header size
+    header[2] = 0x100F;      // DDSD_CAPS | DDSD_HEIGHT | DDSD_WIDTH | DDSD_PITCH | DDSD_PIXELFORMAT
+    header[3] = h;           // Height
+    header[4] = w;           // Width
+    header[5] = w * 4;       // Pitch
+    header[19] = 32;         // pfSize
+    header[20] = 0x41;       // pfFlags: DDPF_RGB | DDPF_ALPHAPIXELS (Transparência ligada)
+    header[22] = 32;         // pfRGBBitCount
+    header[23] = 0x00FF0000; // pfRBitMask
+    header[24] = 0x0000FF00; // pfGBitMask
+    header[25] = 0x000000FF; // pfBBitMask
+    header[26] = 0xFF000000; // pfABitMask (AQUI ESTAVA O ERRO DE INVISIBILIDADE!)
+    header[27] = 0x1000;     // caps1: DDSCAPS_TEXTURE (PS4 obriga isso)
+
     fwrite(header, 1, 128, f);
-    int totalPixels = w * h; unsigned char* bgra = (unsigned char*)malloc(totalPixels * 4);
+
+    int totalPixels = w * h;
+    unsigned char* bgra = (unsigned char*)malloc(totalPixels * 4);
     if (bgra) {
-        for (int i = 0; i < totalPixels * 4; i += 4) { bgra[i] = img[i + 2]; bgra[i + 1] = img[i + 1]; bgra[i + 2] = img[i]; bgra[i + 3] = 255; }
-        fwrite(bgra, 1, totalPixels * 4, f); free(bgra);
-    } fclose(f);
+        for (int i = 0; i < totalPixels * 4; i += 4) {
+            bgra[i] = img[i + 2];
+            bgra[i + 1] = img[i + 1];
+            bgra[i + 2] = img[i];
+            bgra[i + 3] = img[i + 3];
+        }
+        fwrite(bgra, 1, totalPixels * 4, f);
+        free(bgra);
+    }
+    fclose(f);
 }
 
 // ====================================================================
@@ -365,11 +401,32 @@ void acaoArquivo(int idxOpcao) {
             fclose(src); msgTimer = 180;
         } visualizandoMidiaImagem = false; if (imgMidia) { stbi_image_free(imgMidia); imgMidia = NULL; } break;
     }
-    case 11: { sprintf(msgStatus, "Funcao Fundo PS4 em breve!"); msgTimer = 120; visualizandoMidiaImagem = false; if (imgMidia) { stbi_image_free(imgMidia); imgMidia = NULL; } break; }
+    case 11: {
+        DIR* d = opendir("/system_data/priv/home");
+        if (d) {
+            int pCount = 0; struct dirent* dir;
+            while ((dir = readdir(d)) != NULL && pCount < 150) {
+                if (dir->d_name[0] == '1' || dir->d_name[0] == '0') {
+                    sprintf(menuStrDinamico[pCount], "Aplicar a: Conta ID %s", dir->d_name);
+                    strcpy(caminhoPerfilAlvo[pCount], dir->d_name);
+                    listaOpcoes[pCount] = menuStrDinamico[pCount];
+                    mapOpcoes[pCount] = 200 + pCount;
+                    pCount++;
+                }
+            } closedir(d);
 
-           // ====================================================================
-           // MAGIA DOS JOGOS (Appmeta e Savedata)
-           // ====================================================================
+            if (pCount > 0) {
+                for (int k = pCount; k < 150; k++) { listaOpcoes[k] = ""; mapOpcoes[k] = -1; }
+                totalOpcoes = pCount; showOpcoes = true; selOpcao = 0; return;
+            }
+            else { sprintf(msgStatus, "NENHUMA CONTA ENCONTRADA!"); msgTimer = 180; }
+        }
+        else { sprintf(msgStatus, "ERRO AO LER PASTAS DAS CONTAS!"); msgTimer = 180; }
+
+        visualizandoMidiaImagem = false; if (imgMidia) { stbi_image_free(imgMidia); imgMidia = NULL; }
+        break;
+    }
+
     case 30: {
         listaOpcoes[0] = "icone do jogo (icon0)"; mapOpcoes[0] = 31;
         listaOpcoes[1] = "fundo do jogo (pic1)"; mapOpcoes[1] = 32;
@@ -391,7 +448,7 @@ void acaoArquivo(int idxOpcao) {
                     char gameName[100];
                     obterNomeJogoSFO(dir->d_name, gameName);
                     sprintf(menuStrDinamico[pCount], "%s (%s)", gameName, dir->d_name);
-                    strcpy(caminhoPerfilAlvo[pCount], dir->d_name); // Reutilizamos o array para poupar memoria
+                    strcpy(caminhoPerfilAlvo[pCount], dir->d_name);
                     listaOpcoes[pCount] = menuStrDinamico[pCount];
                     mapOpcoes[pCount] = 400 + pCount;
                     pCount++;
@@ -477,7 +534,6 @@ void acaoArquivo(int idxOpcao) {
     }
 
     default: {
-        // LIDAR COM AVATARES (20 até 169)
         if (op >= 20 && op < 170) {
             int pIdx = op - 20; char profileDir[512]; sprintf(profileDir, "/system_data/priv/cache/profile/%s", caminhoPerfilAlvo[pIdx]);
 
@@ -507,35 +563,38 @@ void acaoArquivo(int idxOpcao) {
                 }
             }
             else {
-                char destPng[1024];
-                sprintf(destPng, "%s/avatar.png", profileDir); copiarArquivoReal(caminhoImagemAberta, destPng);
-
                 int tw, th, tc;
                 unsigned char* tempImg = stbi_load(caminhoImagemAberta, &tw, &th, &tc, 4);
                 if (tempImg) {
-                    char ddsPath[1024];
-
-                    unsigned char* img64 = (unsigned char*)malloc(64 * 64 * 4);
-                    redimensionarImagem(tempImg, tw, th, img64, 64, 64);
-                    sprintf(ddsPath, "%s/avatar64.dds", profileDir); salvarComoDDS(ddsPath, img64, 64, 64);
-                    free(img64);
-
-                    unsigned char* img128 = (unsigned char*)malloc(128 * 128 * 4);
-                    redimensionarImagem(tempImg, tw, th, img128, 128, 128);
-                    sprintf(ddsPath, "%s/avatar128.dds", profileDir); salvarComoDDS(ddsPath, img128, 128, 128);
-                    free(img128);
-
-                    unsigned char* img260 = (unsigned char*)malloc(260 * 260 * 4);
-                    redimensionarImagem(tempImg, tw, th, img260, 260, 260);
-                    sprintf(ddsPath, "%s/avatar.dds", profileDir); salvarComoDDS(ddsPath, img260, 260, 260);
-                    sprintf(ddsPath, "%s/avatar260.dds", profileDir); salvarComoDDS(ddsPath, img260, 260, 260);
-                    free(img260);
+                    char destPng[1024]; char ddsPath[1024];
+                    sprintf(destPng, "%s/avatar.png", profileDir);
 
                     unsigned char* img440 = (unsigned char*)malloc(440 * 440 * 4);
-                    redimensionarImagem(tempImg, tw, th, img440, 440, 440);
-                    sprintf(ddsPath, "%s/avatar440.dds", profileDir); salvarComoDDS(ddsPath, img440, 440, 440);
-                    free(img440);
+                    if (img440) {
+                        redimensionarImagem(tempImg, tw, th, img440, 440, 440);
 
+                        stbi_write_png(destPng, 440, 440, 4, img440, 440 * 4);
+
+                        sprintf(ddsPath, "%s/avatar440.dds", profileDir); salvarComoDDS(ddsPath, img440, 440, 440);
+
+                        unsigned char* img64 = (unsigned char*)malloc(64 * 64 * 4);
+                        redimensionarImagem(tempImg, tw, th, img64, 64, 64);
+                        sprintf(ddsPath, "%s/avatar64.dds", profileDir); salvarComoDDS(ddsPath, img64, 64, 64);
+                        free(img64);
+
+                        unsigned char* img128 = (unsigned char*)malloc(128 * 128 * 4);
+                        redimensionarImagem(tempImg, tw, th, img128, 128, 128);
+                        sprintf(ddsPath, "%s/avatar128.dds", profileDir); salvarComoDDS(ddsPath, img128, 128, 128);
+                        free(img128);
+
+                        unsigned char* img260 = (unsigned char*)malloc(260 * 260 * 4);
+                        redimensionarImagem(tempImg, tw, th, img260, 260, 260);
+                        sprintf(ddsPath, "%s/avatar.dds", profileDir); salvarComoDDS(ddsPath, img260, 260, 260);
+                        sprintf(ddsPath, "%s/avatar260.dds", profileDir); salvarComoDDS(ddsPath, img260, 260, 260);
+                        free(img260);
+
+                        free(img440);
+                    }
                     stbi_image_free(tempImg);
                 }
 
@@ -554,7 +613,49 @@ void acaoArquivo(int idxOpcao) {
             visualizandoMidiaImagem = false; if (imgMidia) { stbi_image_free(imgMidia); imgMidia = NULL; } break;
         }
 
-        // LIDAR COM INJEÇÃO DE JOGOS (400 até 550)
+        else if (op >= 200 && op < 350) {
+            int pIdx = op - 200;
+            char contaHomeDir[512];
+            sprintf(contaHomeDir, "/system_data/priv/home/%s", caminhoPerfilAlvo[pIdx]);
+
+            DIR* dh = opendir(contaHomeDir);
+            if (dh) {
+                closedir(dh);
+                char themeDir[512];
+                sprintf(themeDir, "%s/theme", contaHomeDir);
+                sceKernelMkdir(themeDir, 0777);
+
+                int tw, th, tc;
+                unsigned char* tempImg = stbi_load(caminhoImagemAberta, &tw, &th, &tc, 4);
+                if (tempImg) {
+                    char finalWallPath[1024];
+                    sprintf(finalWallPath, "%s/wallpaper.png", themeDir);
+
+                    unsigned char* img1080p = (unsigned char*)malloc(1920 * 1080 * 4);
+                    if (img1080p) {
+                        redimensionarImagem(tempImg, tw, th, img1080p, 1920, 1080);
+                        stbi_write_png(finalWallPath, 1920, 1080, 4, img1080p, 1920 * 4);
+                        sprintf(msgStatus, "FUNDO DO PS4 APLICADO! (CONTA %s)", caminhoPerfilAlvo[pIdx]);
+                        free(img1080p);
+                    }
+                    else {
+                        sprintf(msgStatus, "ERRO DE MEMORIA AO REDIMENSIONAR!");
+                    }
+                    stbi_image_free(tempImg);
+                }
+                else {
+                    sprintf(msgStatus, "ERRO AO LER IMAGEM ORIGEM!");
+                }
+            }
+            else {
+                sprintf(msgStatus, "ERRO: CONTA INACESSIVEL!");
+            }
+            msgTimer = 240;
+            visualizandoMidiaImagem = false;
+            if (imgMidia) { stbi_image_free(imgMidia); imgMidia = NULL; }
+            break;
+        }
+
         else if (op >= 400 && op < 550) {
             int pIdx = op - 400;
             char cusaAlvo[64]; strcpy(cusaAlvo, caminhoPerfilAlvo[pIdx]);
@@ -565,7 +666,6 @@ void acaoArquivo(int idxOpcao) {
             else if (acaoJogoEscolhida == 33) sprintf(destPath, "/user/appmeta/%s/pic0.png", cusaAlvo);
             else if (acaoJogoEscolhida == 34) sprintf(destPath, "/user/appmeta/%s/splash.png", cusaAlvo);
             else if (acaoJogoEscolhida == 35) {
-                // Injeção cega de Saves - Procura em todas as pastas de users
                 DIR* dh = opendir("/user/home");
                 bool foundSave = false;
                 if (dh) {
@@ -597,7 +697,7 @@ void acaoArquivo(int idxOpcao) {
         }
         break;
     }
-    } // fim switch
+    }
 
     if (!esperandoNomePasta && !esperandoRenomear && menuAtual != MENU_NOTEPAD && menuAtualEsq != MENU_NOTEPAD) {
         showOpcoes = false; msgTimer = 120;
