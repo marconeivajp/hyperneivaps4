@@ -166,6 +166,12 @@
     <ClCompile Include="informacao.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="instrumentos.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="pdf.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <Image Include="sce_sys\icon0.png">
@@ -303,6 +309,9 @@
     </ClInclude>
     <ClInclude Include="informacao.h">
       <Filter>Source Files</Filter>
+    </ClInclude>
+    <ClInclude Include="instrumentos.h">
+      <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>
 </Project>

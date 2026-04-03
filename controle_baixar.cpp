@@ -62,6 +62,34 @@ extern "C" void stbi_image_free(void*);
 
 static char caminhoMusicaTocandoBaixar[512] = "";
 
+// Para acessar as novas funcões de restore
+extern void executarRestaurarBackup();
+
+// ==============================================================
+// MENU PRINCIPAL DO BACKUP DO DROPBOX
+// ==============================================================
+void preencherMenuBackup() {
+    memset(nomes, 0, sizeof(nomes));
+
+    // Explore: Opções 0, 1, 2, 3
+    strcpy(nomes[0], "Hyper Neiva");
+    strcpy(nomes[1], "Raiz");
+    strcpy(nomes[2], "USB 0");
+    strcpy(nomes[3], "USB 1");
+    // Backup Direto: Opções 4, 5, 6, 7, 8, 9
+    strcpy(nomes[4], "Backup Automatico (Tudo)");
+    strcpy(nomes[5], "Backup Saves");
+    strcpy(nomes[6], "Backup Metadados");
+    strcpy(nomes[7], "Backup Perfis");
+    strcpy(nomes[8], "Backup Banco de Dados");
+    strcpy(nomes[9], "Restaurar Backup"); // OPÇÃO NOVA AQUI!
+
+    totalItens = 10;
+    menuAtual = MENU_BAIXAR_DROPBOX_BACKUP;
+    sel = 0;
+    off = 0;
+}
+
 void acaoCross_Baixar(int32_t uId, OrbisImeDialogSetting* imeSetting, uint16_t* imeTitle) {
     if (menuAtual == MENU_BAIXAR) {
         if (!emSubmenuLojas && !emSubmenuDropbox && !emSubmenuFTP) {
@@ -215,7 +243,7 @@ void acaoCross_Baixar(int32_t uId, OrbisImeDialogSetting* imeSetting, uint16_t* 
         }
     }
     // ==========================================
-    // LOGICA NOVA DE BACKUP / EXPLORER DROPBOX
+    // LOGICA NOVA DE BACKUP E RESTAURAÇÃO
     // ==========================================
     else if (menuAtual == MENU_BAIXAR_DROPBOX_BACKUP) {
         if (sel == 0) listarArquivosUpload("/data/HyperNeiva");
@@ -228,6 +256,9 @@ void acaoCross_Baixar(int32_t uId, OrbisImeDialogSetting* imeSetting, uint16_t* 
         else if (sel == 6) fazerUploadPastaRecursivo("/user/appmeta");
         else if (sel == 7) fazerUploadPastaRecursivo("/system_data/priv/cache/profile");
         else if (sel == 8) fazerUploadPastaRecursivo("/system_data/priv/mms");
+
+        // O COMANDO DE RESTAURAÇÃO ESTÁ AQUI
+        else if (sel == 9) executarRestaurarBackup();
     }
     else if (menuAtual == MENU_BAIXAR_DROPBOX_LISTA) {
         char urlSel[1024]; strcpy(urlSel, linksAtuais[sel]); int tam = strlen(urlSel);
@@ -252,7 +283,9 @@ void acaoCross_Baixar(int32_t uId, OrbisImeDialogSetting* imeSetting, uint16_t* 
             else { fazerUploadDropbox(urlSel); }
         }
     }
-    else if (menuAtual == MENU_BAIXAR_REPOS) { if (sel == 0) listarXMLsRepositorio(); }
+    else if (menuAtual == MENU_BAIXAR_REPOS) {
+        listarXMLsRepositorio();
+    }
     else if (menuAtual == MENU_BAIXAR_GAMES_XMLS) { if (strstr(nomes[sel], ".xml")) abrirXMLRepositorio(nomes[sel]); }
     else if (menuAtual == MENU_BAIXAR_GAMES_LIST) mostrarLinksJogo(sel);
     else if (menuAtual == MENU_BAIXAR_LINKS) {

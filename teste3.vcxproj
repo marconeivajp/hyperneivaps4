@@ -93,6 +93,7 @@
     <ClCompile Include="menu_upload.cpp" />
     <ClCompile Include="menu_video.cpp" />
     <ClCompile Include="network.cpp" />
+    <ClCompile Include="pdf.cpp" />
     <ClCompile Include="pesquisar.cpp" />
     <ClCompile Include="stb_implementations.cpp" />
     <ClCompile Include="teclado.cpp" />

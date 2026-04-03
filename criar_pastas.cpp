@@ -20,14 +20,19 @@ void copiarArquivoSeNaoExistir(const char* srcPath, const char* dstPath) {
 void inicializarPastas() {
     sceKernelMkdir("/data/HyperNeiva", 0777);
 
-    // CONFIGURAÇÃO
+    // CONFIGURAÇÃO E SUBPASTAS
     sceKernelMkdir("/data/HyperNeiva/configuracao", 0777);
     sceKernelMkdir("/data/HyperNeiva/configuracao/temporario", 0777);
     sceKernelMkdir("/data/HyperNeiva/configuracao/imagens", 0777);
     sceKernelMkdir("/data/HyperNeiva/configuracao/audios", 0777);
     sceKernelMkdir("/data/HyperNeiva/configuracao/jogar", 0777);
-    sceKernelMkdir("/data/HyperNeiva/configuracao/repositorios", 0777);
     sceKernelMkdir("/data/HyperNeiva/configuracao/settings", 0777);
+
+    // REPOSITÓRIOS E SUAS NOVAS SUBPASTAS (LOJAS)
+    sceKernelMkdir("/data/HyperNeiva/configuracao/repositorios", 0777);
+    sceKernelMkdir("/data/HyperNeiva/configuracao/repositorios/games", 0777);
+    sceKernelMkdir("/data/HyperNeiva/configuracao/repositorios/imagens para perfil", 0777);
+    sceKernelMkdir("/data/HyperNeiva/configuracao/repositorios/xml games", 0777);
 
     // BAIXADO E SUBPASTAS
     sceKernelMkdir("/data/HyperNeiva/baixado", 0777);
@@ -66,24 +71,31 @@ void inicializarPastas() {
     // Extra (Musicas Root)
     sceKernelMkdir("/data/HyperNeiva/Musicas", 0777);
 
+
     // =========================================================
-    // ARQUIVOS INICIAIS DE SISTEMA (XMLS)
+    // ARQUIVOS DO JOGAR (HOMEBREWS/RETRO)
     // =========================================================
+    copiarArquivoSeNaoExistir("/app0/assets/system.xml", "/data/HyperNeiva/configuracao/jogar/system.xml");
+    copiarArquivoSeNaoExistir("/app0/assets/lista.xml", "/data/HyperNeiva/configuracao/jogar/lista.xml");
+    copiarArquivoSeNaoExistir("/app0/assets/sp.xml", "/data/HyperNeiva/configuracao/jogar/sp.xml");
+    copiarArquivoSeNaoExistir("/app0/assets/Sega_Master_System.xml", "/data/HyperNeiva/configuracao/jogar/Sega_Master_System.xml");
 
-    // Copia para a raiz do "configuracao" (Onde o jogar.cpp vai procurar)
-    copiarArquivoSeNaoExistir("/app0/assets/system.xml", "/data/HyperNeiva/configuracao/system.xml");
-    copiarArquivoSeNaoExistir("/app0/assets/lista.xml", "/data/HyperNeiva/configuracao/lista.xml");
-    copiarArquivoSeNaoExistir("/app0/assets/sp.xml", "/data/HyperNeiva/configuracao/sp.xml");
-    copiarArquivoSeNaoExistir("/app0/assets/Sega_Master_System.xml", "/data/HyperNeiva/configuracao/Sega_Master_System.xml");
+    // =========================================================
+    // ARQUIVOS DOS REPOSITÓRIOS (AS 3 LOJAS)
+    // =========================================================
+    copiarArquivoSeNaoExistir("/app0/assets/systemas+zipados.xml", "/data/HyperNeiva/configuracao/repositorios/games/systemas+zipados.xml");
+    copiarArquivoSeNaoExistir("/app0/assets/Sega_Master_System.xml", "/data/HyperNeiva/configuracao/repositorios/games/Sega_Master_System.xml"); // <-- MASTER SYSTEM AGORA ESTÁ AQUI
+    copiarArquivoSeNaoExistir("/app0/assets/xavatar.xml", "/data/HyperNeiva/configuracao/repositorios/imagens para perfil/xavatar.xml");
+    copiarArquivoSeNaoExistir("/app0/assets/xml.xml", "/data/HyperNeiva/configuracao/repositorios/xml games/xml.xml");
 
-    // Copia para a pasta "repositorios" (Para o menu de Baixar Repos achar)
-    copiarArquivoSeNaoExistir("/app0/assets/system.xml", "/data/HyperNeiva/configuracao/repositorios/system.xml");
-    copiarArquivoSeNaoExistir("/app0/assets/lista.xml", "/data/HyperNeiva/configuracao/repositorios/lista.xml");
-    copiarArquivoSeNaoExistir("/app0/assets/sp.xml", "/data/HyperNeiva/configuracao/repositorios/sp.xml");
-    copiarArquivoSeNaoExistir("/app0/assets/Sega_Master_System.xml", "/data/HyperNeiva/configuracao/repositorios/Sega_Master_System.xml");
+    // LIXEIRO: Remove os arquivos antigos que ficaram presos na pasta geral do PS4
+    remove("/data/HyperNeiva/configuracao/repositorios/system.xml");
+    remove("/data/HyperNeiva/configuracao/repositorios/lista.xml");
+    remove("/data/HyperNeiva/configuracao/repositorios/sp.xml");
+    remove("/data/HyperNeiva/configuracao/repositorios/Sega_Master_System.xml");
 
 
-    // O TOKEN DO DROPBOX É COPIADO AQUI (Garantindo que a pasta configuracao já existe!)
+    // O TOKEN DO DROPBOX É COPIADO AQUI
     copiarArquivoSeNaoExistir("/app0/assets/dropbox_token.txt", "/data/HyperNeiva/configuracao/dropbox_token.txt");
 
     // IMAGENS PADRÃO (Configuração)

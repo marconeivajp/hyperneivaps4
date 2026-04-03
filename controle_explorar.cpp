@@ -229,7 +229,6 @@ void acaoCross_Explorar() {
                 else { tocarMusicaNova(caminhoArquivo); strcpy(caminhoMusicaTocando, caminhoArquivo); sprintf(msgStatus, "Reproduzindo Audio"); msgTimer = 90; }
             }
             else if (strstr(nomeBlindado, ".txt") || strstr(nomeBlindado, ".xml") || strstr(nomeBlindado, ".json") || strstr(nomeBlindado, ".ini") || strstr(nomeBlindado, ".cfg") || strstr(nomeBlindado, ".log") || strstr(nomeBlindado, ".cpp") || strstr(nomeBlindado, ".h")) {
-                // VOLTA A USAR 100% A SUA LOGICA DO BLOCO DE NOTAS ORIGINAL!
                 extern void editarArquivoExistente(const char* pPasta, const char* nArquivo);
                 editarArquivoExistente(pExplorar, nItems[sAtual]);
                 if (ehEsq) menuAtualEsq = MENU_NOTEPAD; else menuAtual = MENU_NOTEPAD;
