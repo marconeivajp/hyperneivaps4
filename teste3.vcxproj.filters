@@ -313,5 +313,8 @@
     <ClInclude Include="instrumentos.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="pdf.h">
+      <Filter>Source Files</Filter>
+    </ClInclude>
   </ItemGroup>
 </Project>

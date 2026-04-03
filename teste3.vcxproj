@@ -147,6 +147,7 @@
     <ClInclude Include="menu_grafico.h" />
     <ClInclude Include="menu_upload.h" />
     <ClInclude Include="network.h" />
+    <ClInclude Include="pdf.h" />
     <ClInclude Include="stb_image.h" />
     <ClInclude Include="teclado.h" />
     <ClInclude Include="upload.h" />
