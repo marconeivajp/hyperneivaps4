@@ -187,6 +187,13 @@ int main(void) {
         }
 
         desenharInterface(p);
+
+        // ==========================================
+        // DESENHA O LEITOR DE PDF POR CIMA DE TUDO
+        // ==========================================
+        extern void desenharPDFnaTela(uint32_t * pixels);
+        desenharPDFnaTela(p);
+
         submeterTela();
     }
 }

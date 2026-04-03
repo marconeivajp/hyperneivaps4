@@ -31,6 +31,7 @@
 #include "graphics.h"
 #include "bloco_de_notas.h"
 #include "ftp.h" 
+#include "pdf.h" // NOSSO LEITOR DE PDF E MANGAS
 
 #include "extra.h"
 #include "informacao.h"
@@ -297,13 +298,23 @@ void processarNavegacaoDPad(uint32_t botoes) {
 }
 
 void processarControles(uint32_t botoes, int32_t uId, OrbisImeDialogSetting* imeSetting, uint16_t* imeTitle) {
+    // Memória dos botões para o sistema conseguir detetar "cliques" e "segurar" no Leitor de PDF
+    static uint32_t botoesAntigos = 0;
+
     globalUserId = uId;
+
+    // TRAVA DO LEITOR: Se o leitor estiver aberto, ele rouba os controlos para ele e bloqueia o menu atrás!
+    if (processarControlesLeitor(botoes, botoesAntigos)) {
+        botoesAntigos = botoes;
+        return;
+    }
 
     if (menuAtual == MENU_CONTROLE_TESTE || menuAtual == MENU_INSTRUMENTOS) {
         if (botoes & ORBIS_PAD_BUTTON_OPTIONS) {
             extern void preencherMenuExtra();
             preencherMenuExtra();
         }
+        botoesAntigos = botoes;
         return;
     }
 
@@ -311,7 +322,7 @@ void processarControles(uint32_t botoes, int32_t uId, OrbisImeDialogSetting* ime
     else if (sel >= totalItens) { sel = totalItens - 1; if (sel < off) off = sel; else if (sel >= off + 6) off = sel - 5; if (off < 0) off = 0; }
     if (painelDuplo) { if (totalItensEsq <= 0) { selEsq = 0; offEsq = 0; } else if (selEsq >= totalItensEsq) { selEsq = totalItensEsq - 1; if (selEsq < offEsq) offEsq = selEsq; else if (selEsq >= offEsq + 6) offEsq = selEsq - 5; if (offEsq < 0) offEsq = 0; } }
 
-    if (editMode && menuAtual != MENU_NOTEPAD) { processarControlesEdicao(botoes); return; }
+    if (editMode && menuAtual != MENU_NOTEPAD) { processarControlesEdicao(botoes); botoesAntigos = botoes; return; }
 
     if (menuAtual != MENU_INFORMACAO) {
         processarNavegacaoDPad(botoes);
@@ -490,4 +501,6 @@ void processarControles(uint32_t botoes, int32_t uId, OrbisImeDialogSetting* ime
     else pSquare = false;
 
     if (menuAtual == ROOT && navTopo > 0) navTopo = 0;
+
+    botoesAntigos = botoes;
 }

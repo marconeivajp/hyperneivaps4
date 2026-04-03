@@ -24,7 +24,7 @@
 #include "stb_image_write.h"
 
 // ==========================================
-// STATUS DO TECLADO
+// STATUS DO TECLADO DEFINIDO CORRETAMENTE
 // ==========================================
 #define IME_STATUS_RUNNING 1
 
@@ -111,7 +111,7 @@ void obterNomeJogoSFO(const char* cusa, char* nomeSaida) {
 }
 
 // ====================================================================
-// CONVERSOR DDS XRGB E REDIMENSIONADOR (CORRIGIDOS PARA O PS4)
+// CONVERSOR DDS XRGB 
 // ====================================================================
 void redimensionarImagem(unsigned char* src, int sw, int sh, unsigned char* dst, int dw, int dh) {
     for (int y = 0; y < dh; y++) {
@@ -121,7 +121,7 @@ void redimensionarImagem(unsigned char* src, int sw, int sh, unsigned char* dst,
             dst[dstIndex] = src[srcIndex];
             dst[dstIndex + 1] = src[srcIndex + 1];
             dst[dstIndex + 2] = src[srcIndex + 2];
-            dst[dstIndex + 3] = src[srcIndex + 3]; // Preserva a transparência real
+            dst[dstIndex + 3] = src[srcIndex + 3];
         }
     }
 }
@@ -130,21 +130,20 @@ void salvarComoDDS(const char* filepath, unsigned char* img, int w, int h) {
     FILE* f = fopen(filepath, "wb"); if (!f) return;
     unsigned int header[32]; memset(header, 0, sizeof(header));
 
-    // CABEÇALHO DDS PERFEITO PRO PS4 (ARGB8888 COM TEXTURA DECLARADA)
-    header[0] = 0x20534444;  // "DDS "
-    header[1] = 124;         // Header size
-    header[2] = 0x100F;      // DDSD_CAPS | DDSD_HEIGHT | DDSD_WIDTH | DDSD_PITCH | DDSD_PIXELFORMAT
-    header[3] = h;           // Height
-    header[4] = w;           // Width
-    header[5] = w * 4;       // Pitch
-    header[19] = 32;         // pfSize
-    header[20] = 0x41;       // pfFlags: DDPF_RGB | DDPF_ALPHAPIXELS (Transparência ligada)
-    header[22] = 32;         // pfRGBBitCount
-    header[23] = 0x00FF0000; // pfRBitMask
-    header[24] = 0x0000FF00; // pfGBitMask
-    header[25] = 0x000000FF; // pfBBitMask
-    header[26] = 0xFF000000; // pfABitMask (AQUI ESTAVA O ERRO DE INVISIBILIDADE!)
-    header[27] = 0x1000;     // caps1: DDSCAPS_TEXTURE (PS4 obriga isso)
+    header[0] = 0x20534444;
+    header[1] = 124;
+    header[2] = 0x100F;
+    header[3] = h;
+    header[4] = w;
+    header[5] = w * 4;
+    header[19] = 32;
+    header[20] = 0x41;
+    header[22] = 32;
+    header[23] = 0x00FF0000;
+    header[24] = 0x0000FF00;
+    header[25] = 0x000000FF;
+    header[26] = 0xFF000000;
+    header[27] = 0x1000;
 
     fwrite(header, 1, 128, f);
 
@@ -184,14 +183,25 @@ void preencherOpcoesContexto(const char* nomeArquivo) {
     listaOpcoes[8] = "selecionar tudo"; mapOpcoes[8] = 9;
 
     bool isZip = false;
+    bool isPdfOuManga = false; // NOVA VARIÁVEL DE LEITURA
+
     if (nomeArquivo) {
         char temp[256]; strcpy(temp, nomeArquivo);
         for (int i = 0; temp[i]; i++) temp[i] = tolower(temp[i]);
         if (strstr(temp, ".zip") != NULL || strstr(temp, ".xavatar") != NULL) isZip = true;
+        // Deteta arquivos PDF, CBZ (Mangás/HQ)
+        if (strstr(temp, ".pdf") != NULL || strstr(temp, ".cbz") != NULL) isPdfOuManga = true;
     }
 
     if (isZip) { listaOpcoes[9] = "extrair zip / avatar"; mapOpcoes[9] = 7; totalOpcoes = 10; }
     else { totalOpcoes = 9; }
+
+    // ADICIONA A OPÇÃO DE LER SE FOR PDF OU MANGÁ!
+    if (isPdfOuManga) {
+        listaOpcoes[totalOpcoes] = "ler documento";
+        mapOpcoes[totalOpcoes] = 40;
+        totalOpcoes++;
+    }
 }
 
 void copiarArquivoReal(const char* origem, const char* destino) {
@@ -531,6 +541,20 @@ void acaoArquivo(int idxOpcao) {
         int canais; imgMidia = stbi_load(caminhoImagemAberta, &wM, &hM, &canais, 4);
         if (imgMidia) { visualizandoMidiaImagem = true; zoomMidia = 1.0f; fullscreenMidia = false; }
         else { sprintf(msgStatus, "ERRO AO CARREGAR IMAGEM"); msgTimer = 90; } break;
+    }
+
+           // ==========================================
+           // NOVA OPÇÃO: LER DOCUMENTOS (PDF / CBZ / ZIP)
+           // ==========================================
+    case 40: {
+        int alvo = sAtual; for (int i = 0; i < tItens; i++) if (mItems[i]) { alvo = i; break; }
+        char* nomeReal = nItems[alvo]; if (nomeReal[0] == '[') break; // Ignora se for pasta
+        char caminhoArquivo[512]; sprintf(caminhoArquivo, "%s/%s", pExplorar, nomeReal);
+
+        extern void abrirLeitor(const char* caminho);
+        abrirLeitor(caminhoArquivo);
+        showOpcoes = false;
+        break;
     }
 
     default: {

@@ -228,6 +228,14 @@ void acaoCross_Explorar() {
                 if (strcmp(caminhoMusicaTocando, caminhoArquivo) == 0) { tocarMusicaNova("PARADO"); strcpy(caminhoMusicaTocando, ""); sprintf(msgStatus, "Musica Parada"); msgTimer = 90; }
                 else { tocarMusicaNova(caminhoArquivo); strcpy(caminhoMusicaTocando, caminhoArquivo); sprintf(msgStatus, "Reproduzindo Audio"); msgTimer = 90; }
             }
+            // ==========================================================
+            // LOGICA PARA ABRIR ARQUIVOS PDF OU CBZ
+            // ==========================================================
+            else if (strstr(nomeBlindado, ".pdf") || strstr(nomeBlindado, ".cbz")) {
+                extern void abrirLeitor(const char* caminho);
+                abrirLeitor(caminhoArquivo);
+            }
+            // ==========================================================
             else if (strstr(nomeBlindado, ".txt") || strstr(nomeBlindado, ".xml") || strstr(nomeBlindado, ".json") || strstr(nomeBlindado, ".ini") || strstr(nomeBlindado, ".cfg") || strstr(nomeBlindado, ".log") || strstr(nomeBlindado, ".cpp") || strstr(nomeBlindado, ".h")) {
                 extern void editarArquivoExistente(const char* pPasta, const char* nArquivo);
                 editarArquivoExistente(pExplorar, nItems[sAtual]);

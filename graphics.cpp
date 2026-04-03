@@ -1,10 +1,14 @@
 #include "graphics.h"
 #include <stdlib.h>
 #include <string.h>
+#include <stdio.h>
 
 // Headers do SDK do PS4 (OpenOrbis) necessários para o vídeo
 #include <orbis/libkernel.h>
 #include <orbis/VideoOut.h>
+
+// INCLUSÃO DO LEITOR DE PDF E MANGÁ
+#include "pdf.h"
 
 // Instanciação das variáveis da fonte
 stbtt_fontinfo font;
@@ -122,5 +126,42 @@ void desenharTexto(uint32_t* pixels, const char* texto, int tam, int x, int y, u
             free(b);
         }
         curX += (int)(adv * s);
+    }
+}
+
+// =========================================================================
+// FUNÇÃO PARA RENDERIZAR O PDF/MANGÁ NA TELA
+// =========================================================================
+void desenharPDFnaTela(uint32_t* pixels) {
+    if (visualizandoPDF && imgPaginaAtual != NULL) {
+        // Pinta um fundo Cinza Escuro sólido atrás do PDF
+        for (int y = 0; y < 1080; y++) {
+            for (int x = 0; x < 1920; x++) {
+                pixels[y * 1920 + x] = 0xFF151515;
+            }
+        }
+
+        // Calcula as dimensões finais com o nível de Zoom
+        int dW = (int)(pdfImgW * pdfZoom);
+        int dH = (int)(pdfImgH * pdfZoom);
+
+        // Centraliza a imagem e aplica o offset das setas direcionais
+        int posX = (1920 - dW) / 2 + pdfOffsetX;
+        int posY = (1080 - dH) / 2 + pdfOffsetY;
+
+        // Pinta a página renderizada na tela
+        desenharRedimensionado(pixels, imgPaginaAtual, pdfImgW, pdfImgH, dW, dH, posX, posY);
+
+        // Desenha a Interface do Leitor (Texto)
+        char txtPagina[100];
+        sprintf(txtPagina, "PAGINA: %d / %d   |   ZOOM: %d%%", pdfPaginaAtual, pdfTotalPaginas, (int)(pdfZoom * 100));
+
+        // Sombra do Texto
+        desenharTexto(pixels, txtPagina, 30, 52, 1022, 0xFF000000);
+        desenharTexto(pixels, "[BOLINHA] Fechar | [L1] Voltar | [R1] Avancar | [L2]/[R2] Zoom | [SETAS] Mover", 24, 52, 1052, 0xFF000000);
+
+        // Texto Branco Principal
+        desenharTexto(pixels, txtPagina, 30, 50, 1020, 0xFFFFFFFF);
+        desenharTexto(pixels, "[BOLINHA] Fechar | [L1] Voltar | [R1] Avancar | [L2]/[R2] Zoom | [SETAS] Mover", 24, 50, 1050, 0xFFAAAAAA);
     }
 }
