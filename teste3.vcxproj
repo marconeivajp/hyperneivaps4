@@ -90,6 +90,9 @@
     <ClCompile Include="menu_audio.cpp" />
     <ClCompile Include="menu_explorar.cpp" />
     <ClCompile Include="menu_grafico.cpp" />
+    <ClCompile Include="menu_grafico_cache_grafico.cpp" />
+    <ClCompile Include="menu_grafico_layout.cpp" />
+    <ClCompile Include="menu_grafico_render_texto.cpp" />
     <ClCompile Include="menu_upload.cpp" />
     <ClCompile Include="menu_video.cpp" />
     <ClCompile Include="network.cpp" />
@@ -99,6 +102,7 @@
     <ClCompile Include="teclado.cpp" />
     <ClCompile Include="upload.cpp" />
     <ClCompile Include="video.cpp" />
+    <ClCompile Include="menu_grafico_visualizadores.cpp" />
   </ItemGroup>
   <ItemGroup>
     <Image Include="sce_sys\icon0.png" />
@@ -145,12 +149,16 @@
     <ClInclude Include="menu.h" />
     <ClInclude Include="menu_audio.h" />
     <ClInclude Include="menu_grafico.h" />
+    <ClInclude Include="menu_grafico_cache_grafico.h" />
+    <ClInclude Include="menu_grafico_layout.h" />
+    <ClInclude Include="menu_grafico_render_texto.h" />
     <ClInclude Include="menu_upload.h" />
     <ClInclude Include="network.h" />
     <ClInclude Include="pdf.h" />
     <ClInclude Include="stb_image.h" />
     <ClInclude Include="teclado.h" />
     <ClInclude Include="upload.h" />
+    <ClInclude Include="menu_grafico_visualizadores.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

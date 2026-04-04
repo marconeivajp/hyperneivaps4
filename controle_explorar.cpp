@@ -76,7 +76,8 @@ extern bool selecionandoMidiaElemento;
 extern void listarDiretorio(const char*);
 extern void listarDiretorioEsq(const char*);
 
-void carregarPreviewArquivo(const char* caminhoAbsoluto) {
+// Adicionado static para otimizar memoria 
+static void carregarPreviewArquivo(const char* caminhoAbsoluto) {
     if (imgPreview) { stbi_image_free(imgPreview); imgPreview = NULL; }
     char tempPathAbs[512]; strcpy(tempPathAbs, caminhoAbsoluto);
     for (int i = 0; tempPathAbs[i]; i++) { tempPathAbs[i] = tolower(tempPathAbs[i]); }
@@ -106,7 +107,9 @@ void carregarPreviewArquivo(const char* caminhoAbsoluto) {
 }
 
 char caminhoPkgAtual[512] = ""; bool servidorRodando = false;
-void* handle_client(void* arg) {
+
+// Adicionado static para otimizar memoria 
+static void* handle_client(void* arg) {
     int client_fd = *(int*)arg; free(arg); int set = 1;
     setsockopt(client_fd, SOL_SOCKET, SO_NOSIGPIPE, (void*)&set, sizeof(int));
     char buffer_req[2048]; memset(buffer_req, 0, sizeof(buffer_req));
@@ -134,7 +137,8 @@ void* handle_client(void* arg) {
     } close(client_fd); return NULL;
 }
 
-void* threadServidorHTTP(void* arg) {
+// Adicionado static para otimizar memoria 
+static void* threadServidorHTTP(void* arg) {
     int server_fd = socket(AF_INET, SOCK_STREAM, 0); struct sockaddr_in addr; addr.sin_family = AF_INET; addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK); addr.sin_port = htons(8080);
     int opt = 1; setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
     if (bind(server_fd, (struct sockaddr*)&addr, sizeof(addr)) < 0) return NULL; listen(server_fd, 10);
@@ -142,7 +146,8 @@ void* threadServidorHTTP(void* arg) {
     return NULL;
 }
 
-void ligarServidorSeNecessario() {
+// Adicionado static para otimizar memoria 
+static void ligarServidorSeNecessario() {
     if (!servidorRodando) { pthread_t tid; pthread_create(&tid, NULL, threadServidorHTTP, NULL); servidorRodando = true; }
 }
 
