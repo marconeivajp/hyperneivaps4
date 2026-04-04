@@ -78,6 +78,8 @@
     <ClCompile Include="elementos_animados_sprite_sheet.cpp" />
     <ClCompile Include="elementos_sonoros.cpp" />
     <ClCompile Include="explorar.cpp" />
+    <ClCompile Include="explorar_conversor.cpp" />
+    <ClCompile Include="explorar_utilitarios.cpp" />
     <ClCompile Include="extra.cpp" />
     <ClCompile Include="ftp.cpp" />
     <ClCompile Include="gestor_de_saves.cpp" />
@@ -140,6 +142,8 @@
     <ClInclude Include="elementos_animados_sprite_sheet.h" />
     <ClInclude Include="elementos_sonoros.h" />
     <ClInclude Include="explorar.h" />
+    <ClInclude Include="explorar_conversor.h" />
+    <ClInclude Include="explorar_utilitarios.h" />
     <ClInclude Include="extra.h" />
     <ClInclude Include="ftp.h" />
     <ClInclude Include="graphics.h" />

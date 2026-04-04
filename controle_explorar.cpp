@@ -76,7 +76,6 @@ extern bool selecionandoMidiaElemento;
 extern void listarDiretorio(const char*);
 extern void listarDiretorioEsq(const char*);
 
-// Adicionado static para otimizar memoria 
 static void carregarPreviewArquivo(const char* caminhoAbsoluto) {
     if (imgPreview) { stbi_image_free(imgPreview); imgPreview = NULL; }
     char tempPathAbs[512]; strcpy(tempPathAbs, caminhoAbsoluto);
@@ -108,7 +107,6 @@ static void carregarPreviewArquivo(const char* caminhoAbsoluto) {
 
 char caminhoPkgAtual[512] = ""; bool servidorRodando = false;
 
-// Adicionado static para otimizar memoria 
 static void* handle_client(void* arg) {
     int client_fd = *(int*)arg; free(arg); int set = 1;
     setsockopt(client_fd, SOL_SOCKET, SO_NOSIGPIPE, (void*)&set, sizeof(int));
@@ -137,7 +135,6 @@ static void* handle_client(void* arg) {
     } close(client_fd); return NULL;
 }
 
-// Adicionado static para otimizar memoria 
 static void* threadServidorHTTP(void* arg) {
     int server_fd = socket(AF_INET, SOCK_STREAM, 0); struct sockaddr_in addr; addr.sin_family = AF_INET; addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK); addr.sin_port = htons(8080);
     int opt = 1; setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
@@ -146,7 +143,6 @@ static void* threadServidorHTTP(void* arg) {
     return NULL;
 }
 
-// Adicionado static para otimizar memoria 
 static void ligarServidorSeNecessario() {
     if (!servidorRodando) { pthread_t tid; pthread_create(&tid, NULL, threadServidorHTTP, NULL); servidorRodando = true; }
 }
@@ -170,7 +166,22 @@ void instalarPkgLocal(const char* caminhoAbsoluto) {
     msgTimer = 400;
 }
 
-void acaoL2_Explorar() { if (visualizandoMidiaImagem) return; painelDuplo = !painelDuplo; if (painelDuplo) { painelAtivo = 0; menuAtualEsq = MENU_EXPLORAR_HOME; selEsq = 0; } else { painelAtivo = 1; } }
+void acaoL2_Explorar() {
+    if (visualizandoMidiaImagem) return;
+    painelDuplo = !painelDuplo;
+    if (painelDuplo) {
+        painelAtivo = 0;
+        menuAtualEsq = MENU_EXPLORAR_HOME;
+        selEsq = 0;
+        offEsq = 0;
+        extern int totalItensEsq;
+        totalItensEsq = 0; // MÁGICA 1: Força redesenhar o menu ao abrir!
+    }
+    else {
+        painelAtivo = 1;
+    }
+}
+
 void alternarPainelAtivo() { if (visualizandoMidiaImagem) return; if (painelDuplo && !showOpcoes) painelAtivo = (painelAtivo == 0) ? 1 : 0; }
 
 void acaoCross_Explorar() {
@@ -256,10 +267,39 @@ void acaoCircle_Explorar() {
     if (esperandoNomePasta || esperandoRenomear) return;
     if (showOpcoes) { showOpcoes = false; return; }
 
-    bool ehEsq = (painelDuplo && painelAtivo == 0); MenuLevel mAtual = ehEsq ? menuAtualEsq : menuAtual; char* pExplorar = ehEsq ? pathExplorarEsq : pathExplorar;
+    bool ehEsq = (painelDuplo && painelAtivo == 0);
+    MenuLevel mAtual = ehEsq ? menuAtualEsq : menuAtual;
+    char* pExplorar = ehEsq ? pathExplorarEsq : pathExplorar;
 
-    if (mAtual == MENU_EXPLORAR_HOME) { if (painelDuplo) { painelDuplo = false; painelAtivo = 1; } if (!ehEsq) preencherRoot(); }
-    else if (mAtual == MENU_EXPLORAR) { if (strcmp(pExplorar, baseRaiz) == 0 || strcmp(pExplorar, "/") == 0 || strcmp(pExplorar, "/mnt/usb0") == 0 || strcmp(pExplorar, "/mnt/usb1") == 0) { if (ehEsq) menuAtualEsq = MENU_EXPLORAR_HOME; else preencherExplorerHome(); } else { char temp[256]; strcpy(temp, pExplorar); char* last = strrchr(temp, '/'); if (last) { if (last == temp) strcpy(temp, "/"); else *last = '\0'; if (ehEsq) listarDiretorioEsq(temp); else listarDiretorio(temp); } } }
+    if (mAtual == MENU_EXPLORAR_HOME) {
+        if (painelDuplo && ehEsq) { // Segurança extra: só fechar se estiver na esquerda
+            painelDuplo = false;
+            painelAtivo = 1;
+        }
+        if (!ehEsq) preencherRoot();
+    }
+    else if (mAtual == MENU_EXPLORAR) {
+        // MÁGICA 2: Garantir que "/data/HyperNeiva" e outros caminhos raizes do L2 acionem a volta para o Menu Home
+        if (strcmp(pExplorar, baseRaiz) == 0 || strcmp(pExplorar, "/data/HyperNeiva") == 0 || strcmp(pExplorar, "/") == 0 || strcmp(pExplorar, "/mnt/usb0") == 0 || strcmp(pExplorar, "/mnt/usb1") == 0) {
+            if (ehEsq) {
+                menuAtualEsq = MENU_EXPLORAR_HOME;
+                extern int totalItensEsq;
+                totalItensEsq = 0; // MÁGICA 3: Força o motor gráfico a redesenhar a lista inicial do painel esquerdo!!
+                selEsq = 0;
+                offEsq = 0;
+            }
+            else {
+                preencherExplorerHome();
+            }
+        }
+        else {
+            char temp[256]; strcpy(temp, pExplorar); char* last = strrchr(temp, '/');
+            if (last) {
+                if (last == temp) strcpy(temp, "/"); else *last = '\0';
+                if (ehEsq) listarDiretorioEsq(temp); else listarDiretorio(temp);
+            }
+        }
+    }
 }
 
 void acaoTriangle_Explorar() {
