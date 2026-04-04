@@ -23,10 +23,9 @@
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include "stb_image_write.h"
 
-// ==========================================
-// STATUS DO TECLADO DEFINIDO CORRETAMENTE
-// ==========================================
+#ifndef IME_STATUS_RUNNING
 #define IME_STATUS_RUNNING 1
+#endif
 
 extern void atualizarBarra(float progresso);
 
@@ -71,7 +70,6 @@ char oldPathParaRenomear[512] = "";
 char oldExtParaRenomear[64] = "";
 bool ehPastaParaRenomear = false;
 
-
 // ====================================================================
 // LEITOR DE PARAM.SFO (Extrai o Nome Real do Jogo)
 // ====================================================================
@@ -86,7 +84,7 @@ void obterNomeJogoSFO(const char* cusa, char* nomeSaida) {
     if (magic != 0x46535000) { fclose(f); return; }
 
     fseek(f, 0x08, SEEK_SET);
-    unsigned int keyOffset, dataOffset, entries;
+    unsigned int keyOffset = 0, dataOffset = 0, entries = 0;
     fread(&keyOffset, 4, 1, f); fread(&dataOffset, 4, 1, f); fread(&entries, 4, 1, f);
 
     for (unsigned int i = 0; i < entries; i++) {
@@ -111,57 +109,109 @@ void obterNomeJogoSFO(const char* cusa, char* nomeSaida) {
 }
 
 // ====================================================================
-// CONVERSOR DDS XRGB 
+// COMPRESSOR DXT1 AVANÇADO (Obrigatório para Avatares do PS4)
 // ====================================================================
 void redimensionarImagem(unsigned char* src, int sw, int sh, unsigned char* dst, int dw, int dh) {
     for (int y = 0; y < dh; y++) {
         for (int x = 0; x < dw; x++) {
-            int srcX = (x * sw) / dw; int srcY = (y * sh) / dh;
-            int srcIndex = (srcY * sw + srcX) * 4; int dstIndex = (y * dw + x) * 4;
+            int srcX = (x * sw) / dw;
+            int srcY = (y * sh) / dh;
+            int srcIndex = (srcY * sw + srcX) * 4;
+            int dstIndex = (y * dw + x) * 4;
             dst[dstIndex] = src[srcIndex];
             dst[dstIndex + 1] = src[srcIndex + 1];
             dst[dstIndex + 2] = src[srcIndex + 2];
-            dst[dstIndex + 3] = src[srcIndex + 3];
+            dst[dstIndex + 3] = src[srcIndex + 3]; // Mantém o Alpha no PNG
         }
     }
+}
+
+unsigned short colorTo565(int r, int g, int b) {
+    return (unsigned short)(((r >> 3) << 11) | ((g >> 2) << 5) | (b >> 3));
+}
+
+int colorDistance(int r1, int g1, int b1, int r2, int g2, int b2) {
+    return (r1 - r2) * (r1 - r2) + (g1 - g2) * (g1 - g2) + (b1 - b2) * (b1 - b2);
 }
 
 void salvarComoDDS(const char* filepath, unsigned char* img, int w, int h) {
-    FILE* f = fopen(filepath, "wb"); if (!f) return;
-    unsigned int header[32]; memset(header, 0, sizeof(header));
+    FILE* f = fopen(filepath, "wb");
+    if (!f) return;
 
-    header[0] = 0x20534444;
-    header[1] = 124;
-    header[2] = 0x100F;
-    header[3] = h;
-    header[4] = w;
-    header[5] = w * 4;
-    header[19] = 32;
-    header[20] = 0x41;
-    header[22] = 32;
-    header[23] = 0x00FF0000;
-    header[24] = 0x0000FF00;
-    header[25] = 0x000000FF;
-    header[26] = 0xFF000000;
-    header[27] = 0x1000;
+    unsigned int header[32];
+    memset(header, 0, sizeof(header));
+    header[0] = 0x20534444; // Magia "DDS "
+    header[1] = 124;        // Tamanho do Header
+    header[2] = 0x00081007; // Flags
+    header[3] = h;          // Altura
+    header[4] = w;          // Largura
+    header[5] = (w > 4 ? w : 4) * (h > 4 ? h : 4) / 2; // LinearSize para DXT1
+    header[19] = 32;        // Tamanho do PixelFormat
+    header[20] = 0x00000004; // DDPF_FOURCC
+    header[21] = 0x31545844; // Assinatura "DXT1" (Requisito estrito da PS4)
+    header[27] = 0x1000;    // Caps
 
     fwrite(header, 1, 128, f);
 
-    int totalPixels = w * h;
-    unsigned char* bgra = (unsigned char*)malloc(totalPixels * 4);
-    if (bgra) {
-        for (int i = 0; i < totalPixels * 4; i += 4) {
-            bgra[i] = img[i + 2];
-            bgra[i + 1] = img[i + 1];
-            bgra[i + 2] = img[i];
-            bgra[i + 3] = img[i + 3];
+    // Compressão de Blocos DXT1
+    for (int by = 0; by < h / 4; by++) {
+        for (int bx = 0; bx < w / 4; bx++) {
+            int minR = 255, minG = 255, minB = 255;
+            int maxR = 0, maxG = 0, maxB = 0;
+            unsigned char block[16][3];
+
+            for (int y = 0; y < 4; y++) {
+                for (int x = 0; x < 4; x++) {
+                    int px = bx * 4 + x;
+                    int py = by * 4 + y;
+                    int idx = (py * w + px) * 4;
+                    unsigned char r = img[idx];
+                    unsigned char g = img[idx + 1];
+                    unsigned char b = img[idx + 2];
+                    block[y * 4 + x][0] = r;
+                    block[y * 4 + x][1] = g;
+                    block[y * 4 + x][2] = b;
+
+                    if (r < minR) minR = r; if (g < minG) minG = g; if (b < minB) minB = b;
+                    if (r > maxR) maxR = r; if (g > maxG) maxG = g; if (b > maxB) maxB = b;
+                }
+            }
+
+            unsigned short c0 = colorTo565(maxR, maxG, maxB);
+            unsigned short c1 = colorTo565(minR, minG, minB);
+
+            // Força o modo OPACO no DXT1
+            if (c0 < c1) {
+                unsigned short temp = c0; c0 = c1; c1 = temp;
+                int tr = maxR, tg = maxG, tb = maxB;
+                maxR = minR; maxG = minG; maxB = minB;
+                minR = tr; minG = tg; minB = tb;
+            }
+            else if (c0 == c1) {
+                if (c0 > 0) c1 = c0 - 1; else c0 = 1;
+            }
+
+            unsigned int indices = 0;
+            for (int i = 0; i < 16; i++) {
+                int d0 = colorDistance(block[i][0], block[i][1], block[i][2], maxR, maxG, maxB);
+                int d1 = colorDistance(block[i][0], block[i][1], block[i][2], minR, minG, minB);
+                int d2 = colorDistance(block[i][0], block[i][1], block[i][2], (2 * maxR + minR) / 3, (2 * maxG + minG) / 3, (2 * maxB + minB) / 3);
+                int d3 = colorDistance(block[i][0], block[i][1], block[i][2], (maxR + 2 * minR) / 3, (maxG + 2 * minG) / 3, (maxB + 2 * minB) / 3);
+
+                unsigned int idx = 0; int minD = d0;
+                if (d1 < minD) { minD = d1; idx = 1; }
+                if (d2 < minD) { minD = d2; idx = 2; }
+                if (d3 < minD) { minD = d3; idx = 3; }
+                indices |= (idx << (i * 2));
+            }
+
+            fwrite(&c0, 2, 1, f);
+            fwrite(&c1, 2, 1, f);
+            fwrite(&indices, 4, 1, f);
         }
-        fwrite(bgra, 1, totalPixels * 4, f);
-        free(bgra);
     }
     fclose(f);
 }
-
 // ====================================================================
 
 void preencherOpcoesContexto(const char* nomeArquivo) {
@@ -183,20 +233,18 @@ void preencherOpcoesContexto(const char* nomeArquivo) {
     listaOpcoes[8] = "selecionar tudo"; mapOpcoes[8] = 9;
 
     bool isZip = false;
-    bool isPdfOuManga = false; // NOVA VARIÁVEL DE LEITURA
+    bool isPdfOuManga = false;
 
     if (nomeArquivo) {
         char temp[256]; strcpy(temp, nomeArquivo);
         for (int i = 0; temp[i]; i++) temp[i] = tolower(temp[i]);
         if (strstr(temp, ".zip") != NULL || strstr(temp, ".xavatar") != NULL) isZip = true;
-        // Deteta arquivos PDF, CBZ (Mangás/HQ)
         if (strstr(temp, ".pdf") != NULL || strstr(temp, ".cbz") != NULL) isPdfOuManga = true;
     }
 
     if (isZip) { listaOpcoes[9] = "extrair zip / avatar"; mapOpcoes[9] = 7; totalOpcoes = 10; }
     else { totalOpcoes = 9; }
 
-    // ADICIONA A OPÇÃO DE LER SE FOR PDF OU MANGÁ!
     if (isPdfOuManga) {
         listaOpcoes[totalOpcoes] = "ler documento";
         mapOpcoes[totalOpcoes] = 40;
@@ -526,7 +574,7 @@ void acaoArquivo(int idxOpcao) {
                 }
             }
             if (extraiu) {
-                int canais; imgMidia = stbi_load(tempPath, &wM, &hM, &canais, 4);
+                int canais = 0; imgMidia = stbi_load(tempPath, &wM, &hM, &canais, 4);
                 if (imgMidia) { visualizandoMidiaImagem = true; zoomMidia = 1.0f; fullscreenMidia = false; strcpy(caminhoImagemAberta, tempPath); }
                 else { sprintf(msgStatus, "ERRO AO PROCESSAR A IMAGEM"); msgTimer = 120; }
             }
@@ -538,14 +586,11 @@ void acaoArquivo(int idxOpcao) {
 
     case 14: {
         if (imgMidia) { stbi_image_free(imgMidia); imgMidia = NULL; }
-        int canais; imgMidia = stbi_load(caminhoImagemAberta, &wM, &hM, &canais, 4);
+        int canais = 0; imgMidia = stbi_load(caminhoImagemAberta, &wM, &hM, &canais, 4);
         if (imgMidia) { visualizandoMidiaImagem = true; zoomMidia = 1.0f; fullscreenMidia = false; }
         else { sprintf(msgStatus, "ERRO AO CARREGAR IMAGEM"); msgTimer = 90; } break;
     }
 
-           // ==========================================
-           // NOVA OPÇÃO: LER DOCUMENTOS (PDF / CBZ / ZIP)
-           // ==========================================
     case 40: {
         int alvo = sAtual; for (int i = 0; i < tItens; i++) if (mItems[i]) { alvo = i; break; }
         char* nomeReal = nItems[alvo]; if (nomeReal[0] == '[') break; // Ignora se for pasta
@@ -587,19 +632,21 @@ void acaoArquivo(int idxOpcao) {
                 }
             }
             else {
-                int tw, th, tc;
+                int tw = 0, th = 0, tc = 0;
                 unsigned char* tempImg = stbi_load(caminhoImagemAberta, &tw, &th, &tc, 4);
                 if (tempImg) {
                     char destPng[1024]; char ddsPath[1024];
                     sprintf(destPng, "%s/avatar.png", profileDir);
 
+                    // SALVA O PNG GIGANTE
                     unsigned char* img440 = (unsigned char*)malloc(440 * 440 * 4);
                     if (img440) {
                         redimensionarImagem(tempImg, tw, th, img440, 440, 440);
-
                         stbi_write_png(destPng, 440, 440, 4, img440, 440 * 4);
 
+                        // AGORA APLICA DXT1 REAL NOS AVATARES PARA O PS4 LER DIREITO!
                         sprintf(ddsPath, "%s/avatar440.dds", profileDir); salvarComoDDS(ddsPath, img440, 440, 440);
+                        free(img440);
 
                         unsigned char* img64 = (unsigned char*)malloc(64 * 64 * 4);
                         redimensionarImagem(tempImg, tw, th, img64, 64, 64);
@@ -616,8 +663,6 @@ void acaoArquivo(int idxOpcao) {
                         sprintf(ddsPath, "%s/avatar.dds", profileDir); salvarComoDDS(ddsPath, img260, 260, 260);
                         sprintf(ddsPath, "%s/avatar260.dds", profileDir); salvarComoDDS(ddsPath, img260, 260, 260);
                         free(img260);
-
-                        free(img440);
                     }
                     stbi_image_free(tempImg);
                 }
@@ -649,7 +694,7 @@ void acaoArquivo(int idxOpcao) {
                 sprintf(themeDir, "%s/theme", contaHomeDir);
                 sceKernelMkdir(themeDir, 0777);
 
-                int tw, th, tc;
+                int tw = 0, th = 0, tc = 0;
                 unsigned char* tempImg = stbi_load(caminhoImagemAberta, &tw, &th, &tc, 4);
                 if (tempImg) {
                     char finalWallPath[1024];
