@@ -236,7 +236,7 @@ void desenharTextoAlinhadoAnimado(uint32_t* p, const char* textoOriginal, int fT
             desenharTextoClip(p, textoOriginal, fTam, posX - pixelShift, y, cor, xBase + 20, espacoDisponivel);
         }
         else {
-            int maxChars = espacoDisponivel / (fTam * 0.55f);
+            int maxChars = (int)(espacoDisponivel / (fTam * 0.55f));
             if (maxChars < 4) maxChars = 4;
             char txtFinal[512];
             strncpy(txtFinal, textoOriginal, maxChars - 3);
@@ -257,7 +257,7 @@ unsigned char* carregarMediaCaseInsensitive(const char* pastaPath, const char* n
     while ((dir = readdir(d)) != NULL) {
         if (dir->d_name[0] == '.') continue; const char* dot = strrchr(dir->d_name, '.');
         if (dot) {
-            int lenNome = dot - dir->d_name; char nomeBase[256]; if (lenNome >= sizeof(nomeBase)) lenNome = sizeof(nomeBase) - 1; strncpy(nomeBase, dir->d_name, lenNome); nomeBase[lenNome] = '\0';
+            int lenNome = (int)(dot - dir->d_name); char nomeBase[256]; if (lenNome >= sizeof(nomeBase)) lenNome = sizeof(nomeBase) - 1; strncpy(nomeBase, dir->d_name, lenNome); nomeBase[lenNome] = '\0';
             if (strcasecmp(nomeBase, nomeProcurado) == 0) { if (strcasecmp(dot, ".png") == 0 || strcasecmp(dot, ".jpg") == 0 || strcasecmp(dot, ".jpeg") == 0) { snprintf(caminhoEncontrado, sizeof(caminhoEncontrado), "%s/%s", pastaPath, dir->d_name); achou = true; break; } }
         }
     } closedir(d); if (achou) return stbi_load(caminhoEncontrado, w, h, c, 4); return NULL;
@@ -290,10 +290,10 @@ void desenharInterface(uint32_t* p) {
         tentouVidE = true;
     }
 
-    int refP = painelDuplo ? painelAtivo : 1;
-    int sAtivo = (refP == 0) ? selEsq : sel;
-    MenuLevel mAtivo = (refP == 0) ? menuAtualEsq : menuAtual;
-    char* nAtivo = (refP == 0) ? nomesEsq[sAtivo] : nomes[sAtivo];
+    int refP_Top = painelDuplo ? painelAtivo : 1;
+    int sAtivo = (refP_Top == 0) ? selEsq : sel;
+    MenuLevel mAtivo = (refP_Top == 0) ? menuAtualEsq : menuAtual;
+    char* nAtivo = (refP_Top == 0) ? nomesEsq[sAtivo] : nomes[sAtivo];
 
     if (nAtivo == NULL || strlen(nAtivo) == 0 || strcmp(nAtivo, "..") == 0 || strstr(nAtivo, "Desconhecido") != NULL || strstr(nAtivo, "esconhecido") != NULL) {
         if (imgBgDinamico) { stbi_image_free(imgBgDinamico); imgBgDinamico = NULL; }
@@ -465,129 +465,87 @@ void desenharInterface(uint32_t* p) {
 
     if (!esconderElementos) {
 
-        int refPainel = painelDuplo ? painelAtivo : 1;
-        int sAtual = (refPainel == 0) ? selEsq : sel; int oAtual = (refPainel == 0) ? offEsq : off;
-        int tItens = (refPainel == 0) ? totalItensEsq : totalItens; char (*nItems)[64] = (refPainel == 0) ? nomesEsq : nomes; bool* mItems = (refPainel == 0) ? marcadosEsq : marcados; MenuLevel mAtual = (refPainel == 0) ? menuAtualEsq : menuAtual;
+        int numPaineis = painelDuplo ? 2 : 1;
 
-        int currentRenderStyle = listStyle;
-        bool isGameMenu = (mAtual == MENU_JOGAR_PS4 || mAtual == JOGAR_XML || mAtual == SCRAPER_LIST);
+        for (int iterPainel = 0; iterPainel < numPaineis; iterPainel++) {
 
-        if ((currentRenderStyle == 3 || currentRenderStyle == 4 || currentRenderStyle == 5) && !isGameMenu) currentRenderStyle = 1;
+            int currentPainel = painelDuplo ? iterPainel : 1;
 
-        uint32_t corBasePainel = getSysColor(listBg);
-        int curListX = (listOri == 0) ? listXV : listXH; int curListY = (listOri == 0) ? listYV : listYH; int curListSpc = (listOri == 0) ? listSpcV : listSpcH;
-        int larguraBarraDupla = 750; int posX_Base = (painelDuplo) ? ((refPainel == 0) ? capaX : curListX) : curListX; int larguraItem = (painelDuplo) ? larguraBarraDupla : listW;
-        int stepX = (listOri == 1) ? curListSpc : 0; int stepY = (listOri == 0) ? curListSpc : 0;
+            int sAtual = (currentPainel == 0) ? selEsq : sel;
+            int oAtual = (currentPainel == 0) ? offEsq : off;
+            int tItens = (currentPainel == 0) ? totalItensEsq : totalItens;
+            char (*nItems)[64] = (currentPainel == 0) ? nomesEsq : nomes;
+            bool* mItems = (currentPainel == 0) ? marcadosEsq : marcados;
+            MenuLevel mAtual = (currentPainel == 0) ? menuAtualEsq : menuAtual;
 
-        static float smoothSelDir = 0.0f; static float smoothSelEsq = 0.0f; static MenuLevel lastMenu2 = ROOT;
-        if (lastMenu2 != menuAtual) { smoothSelDir = (float)sel; smoothSelEsq = (float)selEsq; lastMenu2 = menuAtual; }
-        float& smoothSel = (refPainel == 0) ? smoothSelEsq : smoothSelDir;
-
-        if (fabs(smoothSel - sAtual) > 20.0f) smoothSel = (float)sAtual;
-        smoothSel += (sAtual - smoothSel) * 0.15f;
-
-        int loadsThisFrame = 0;
-        initCoverCache();
-
-        // ====================================================================
-        // GESTÃO DA GRADE (MODOS 4 E 5)
-        // ====================================================================
-        if (currentRenderStyle == 4 || currentRenderStyle == 5) {
-            int cols = (currentRenderStyle == 5) ? 3 : gridCols;
-            if (cols < 1) cols = 1;
-            int itemW = gridItemW;
-            int itemH = gridItemH;
-            int paddingX = gridSpcX;
-            int paddingY = gridSpcY;
-            int startX = (currentRenderStyle == 5) ? 50 : gridX;
-            int startY = gridY;
-
-            int currentRow = (int)smoothSel / cols;
-            int startIdx = (currentRow > 4 ? currentRow - 4 : 0) * cols;
-            int endIdx = startIdx + (cols * (gridLins + 6));
-            if (endIdx >= tItens) endIdx = tItens - 1;
-
-            cleanOldCache(startIdx, endIdx);
-
-            float smoothCameraY = (smoothSel / cols) * (itemH + paddingY) - startY;
-            if (smoothCameraY < -200) smoothCameraY = -200;
-
-            for (int i = startIdx; i <= endIdx; i++) {
-                int c = i % cols;
-                float globalY = (i / cols) * (itemH + paddingY);
-                int drawX = startX + c * (itemW + paddingX);
-                int drawY = startY + (int)(globalY - smoothCameraY);
-
-                if (drawY > 1280 || drawY + itemH < -200) continue;
-
-                int cacheIdx = getCachedImage(i);
-                if (cacheIdx == -1 && loadsThisFrame < 1) {
-                    int freeSlot = getFreeCacheSlot();
-                    if (freeSlot != -1) {
-                        char cPath[512] = "";
-                        if (mAtual == MENU_JOGAR_PS4) {
-                            sprintf(cPath, "/user/appmeta/%s/icon0.png", linksAtuais[i]);
-                            FILE* f = fopen(cPath, "rb"); if (!f) sprintf(cPath, "/user/app/%s/sce_sys/icon0.png", linksAtuais[i]); else fclose(f);
-                        }
-                        else {
-                            const char* cName = (consoleAtual >= 0 && consoleAtual < 5) ? listaConsoles[consoleAtual].nome : "Unknown";
-                            snprintf(cPath, sizeof(cPath), "/data/HyperNeiva/baixado/capas/%s/Named_Boxarts/%s.png", cName, nItems[i]);
-                        }
-                        coverCache[freeSlot].index = i;
-                        coverCache[freeSlot].img = stbi_load(cPath, &coverCache[freeSlot].w, &coverCache[freeSlot].h, &coverCache[freeSlot].c, 4);
-                        cacheIdx = freeSlot;
-                        loadsThisFrame++;
-                    }
-                }
-
-                if (cacheIdx != -1 && coverCache[cacheIdx].img) {
-                    desenharRedimensionado(p, coverCache[cacheIdx].img, coverCache[cacheIdx].w, coverCache[cacheIdx].h, itemW, itemH, drawX, drawY);
-                }
-                else {
-                    for (int by = 0; by < itemH; by++) for (int bx = 0; bx < itemW; bx++) { int pyy = drawY + by, pxx = drawX + bx; if (pxx >= 0 && pxx < 1920 && pyy >= 0 && pyy < 1080) p[pyy * 1920 + pxx] = 0xAA222222; }
-                    desenharTextoAlinhado(p, nItems[i], 30, drawX + 10, drawY + itemH / 2, itemW - 20, 0xFFFFFFFF);
-                }
-
-                if (i == sAtual) {
-                    for (int by = -5; by < itemH + 5; by++) for (int bx = -5; bx < itemW + 5; bx++) {
-                        if (by < 0 || by >= itemH || bx < 0 || bx >= itemW) {
-                            int pyy = drawY + by, pxx = drawX + bx;
-                            if (pxx >= 0 && pxx < 1920 && pyy >= 0 && pyy < 1080) p[pyy * 1920 + pxx] = 0xFF00FF00;
-                        }
-                    }
-                    if (currentRenderStyle == 4) {
-                        desenharTextoAlinhadoAnimado(p, nItems[i], 40, drawX - 50, drawY + itemH + 30, itemW + 100, 0xFFFFFFFF, true);
-                    }
-                }
+            // --- CORREÇÃO: Povoando menu caso esteja vazio (L2 no Explorar Home) ---
+            if (mAtual == MENU_EXPLORAR_HOME && tItens <= 0) {
+                strcpy(nItems[0], "Hyper Neiva"); strcpy(nItems[1], "Raiz"); strcpy(nItems[2], "USB 0"); strcpy(nItems[3], "USB 1");
+                tItens = 4;
+                if (currentPainel == 0) totalItensEsq = 4; else totalItens = 4;
             }
-        }
-        else if (currentRenderStyle == 3) {
-            int centerW = 400; int centerH = 400;
-            int sideW = 250; int sideH = 250;
-            int centerY = 350; int centerX = 1920 / 2 - centerW / 2;
 
-            int startIdx = sAtual - 4; if (startIdx < 0) startIdx = 0;
-            int endIdx = sAtual + 4; if (endIdx >= tItens) endIdx = tItens - 1;
-            cleanOldCache(startIdx, endIdx);
+            int currentRenderStyle = listStyle;
+            bool isGameMenu = (mAtual == MENU_JOGAR_PS4 || mAtual == JOGAR_XML || mAtual == SCRAPER_LIST);
 
-            for (int offset = 4; offset >= 0; offset--) {
-                for (int dir = -1; dir <= 1; dir += 2) {
-                    if (offset == 0 && dir == 1) continue;
-                    int i = sAtual + (offset * dir);
-                    if (i < 0 || i >= tItens) continue;
+            // --- CORREÇÃO: Forçar renderização de lista simples para explorador e painel duplo ---
+            if (mAtual == MENU_EXPLORAR || mAtual == MENU_EXPLORAR_HOME || mAtual == MENU_BAIXAR_DROPBOX_LISTA || mAtual == MENU_BAIXAR_DROPBOX_UPLOAD || painelDuplo) {
+                currentRenderStyle = 0;
+            }
+            else if ((currentRenderStyle == 3 || currentRenderStyle == 4 || currentRenderStyle == 5) && !isGameMenu) {
+                currentRenderStyle = 1;
+            }
 
-                    int drawW = (offset == 0) ? centerW : sideW;
-                    int drawH = (offset == 0) ? centerH : sideH;
+            uint32_t corBasePainel = getSysColor(listBg);
+            int curListX = (listOri == 0) ? listXV : listXH;
+            int curListY = (listOri == 0) ? listYV : listYH;
+            int curListSpc = (listOri == 0) ? listSpcV : listSpcH;
 
-                    float dist = smoothSel - i;
-                    int drawX = centerX - (int)(dist * (sideW + 50));
-                    if (offset > 0) {
-                        if (i > sAtual) drawX += (centerW - sideW) / 2 + 50;
-                        else drawX -= (centerW - sideW) / 2 + 50;
-                    }
+            int larguraBarraDupla = 750;
+            int posX_Base = (painelDuplo) ? ((currentPainel == 0) ? capaX : curListX) : curListX;
+            int larguraItem = (painelDuplo) ? larguraBarraDupla : listW;
 
-                    int drawY = centerY + (centerH - drawH) / 2;
-                    if (drawX > 1920 || drawX + drawW < 0) continue;
+            int stepX = (listOri == 1) ? curListSpc : 0;
+            int stepY = (listOri == 0) ? curListSpc : 0;
+
+            static float smoothSelDir = 0.0f; static float smoothSelEsq = 0.0f; static MenuLevel lastMenu2 = ROOT;
+            if (lastMenu2 != menuAtual) { smoothSelDir = (float)sel; smoothSelEsq = (float)selEsq; lastMenu2 = menuAtual; }
+            float& smoothSel = (currentPainel == 0) ? smoothSelEsq : smoothSelDir;
+
+            if (fabs(smoothSel - sAtual) > 20.0f) smoothSel = (float)sAtual;
+            smoothSel += (sAtual - smoothSel) * 0.15f;
+
+            int loadsThisFrame = 0;
+            initCoverCache();
+
+            // Renderização das GRIDS (Só vai rodar se currentRenderStyle for 4 ou 5)
+            if (currentRenderStyle == 4 || currentRenderStyle == 5) {
+                int cols = (currentRenderStyle == 5) ? 3 : gridCols;
+                if (cols < 1) cols = 1;
+                int itemW = gridItemW;
+                int itemH = gridItemH;
+                int paddingX = gridSpcX;
+                int paddingY = gridSpcY;
+                int startX = (currentRenderStyle == 5) ? 50 : gridX;
+                int startY = gridY;
+
+                int currentRow = (int)smoothSel / cols;
+                int startIdx = (currentRow > 4 ? currentRow - 4 : 0) * cols;
+                int endIdx = startIdx + (cols * (gridLins + 6));
+                if (endIdx >= tItens) endIdx = tItens - 1;
+
+                cleanOldCache(startIdx, endIdx);
+
+                float smoothCameraY = (smoothSel / cols) * (itemH + paddingY) - startY;
+                if (smoothCameraY < -200) smoothCameraY = -200;
+
+                for (int i = startIdx; i <= endIdx; i++) {
+                    int c = i % cols;
+                    float globalY = (i / cols) * (itemH + paddingY);
+                    int drawX = startX + c * (itemW + paddingX);
+                    int drawY = startY + (int)(globalY - smoothCameraY);
+
+                    if (drawY > 1280 || drawY + itemH < -200) continue;
 
                     int cacheIdx = getCachedImage(i);
                     if (cacheIdx == -1 && loadsThisFrame < 1) {
@@ -610,137 +568,211 @@ void desenharInterface(uint32_t* p) {
                     }
 
                     if (cacheIdx != -1 && coverCache[cacheIdx].img) {
-                        desenharRedimensionado(p, coverCache[cacheIdx].img, coverCache[cacheIdx].w, coverCache[cacheIdx].h, drawW, drawH, drawX, drawY);
+                        desenharRedimensionado(p, coverCache[cacheIdx].img, coverCache[cacheIdx].w, coverCache[cacheIdx].h, itemW, itemH, drawX, drawY);
                     }
                     else {
-                        for (int by = 0; by < drawH; by++) for (int bx = 0; bx < drawW; bx++) { int pyy = drawY + by, pxx = drawX + bx; if (pxx >= 0 && pxx < 1920 && pyy >= 0 && pyy < 1080) p[pyy * 1920 + pxx] = 0xAA222222; }
+                        for (int by = 0; by < itemH; by++) for (int bx = 0; bx < itemW; bx++) { int pyy = drawY + by, pxx = drawX + bx; if (pxx >= 0 && pxx < 1920 && pyy >= 0 && pyy < 1080) p[pyy * 1920 + pxx] = 0xAA222222; }
+                        desenharTextoAlinhado(p, nItems[i], 30, drawX + 10, drawY + itemH / 2, itemW - 20, 0xFFFFFFFF);
                     }
 
-                    if (offset == 0) {
-                        for (int by = -6; by < drawH + 6; by++) for (int bx = -6; bx < drawW + 6; bx++) {
-                            if (by < 0 || by >= drawH || bx < 0 || bx >= drawW) {
+                    if (i == sAtual) {
+                        for (int by = -5; by < itemH + 5; by++) for (int bx = -5; bx < itemW + 5; bx++) {
+                            if (by < 0 || by >= itemH || bx < 0 || bx >= itemW) {
                                 int pyy = drawY + by, pxx = drawX + bx;
-                                if (pxx >= 0 && pxx < 1920 && pyy >= 0 && pyy < 1080) p[pyy * 1920 + pxx] = 0xFF00FFFF;
+                                if (pxx >= 0 && pxx < 1920 && pyy >= 0 && pyy < 1080) p[pyy * 1920 + pxx] = 0xFF00FF00;
                             }
                         }
-                        desenharTextoAlinhadoAnimado(p, nItems[i], 40, centerX - 200, centerY + centerH + 50, centerW + 400, 0xFFFFFFFF, true);
+                        if (currentRenderStyle == 4) {
+                            desenharTextoAlinhadoAnimado(p, nItems[i], 40, drawX - 50, drawY + itemH + 30, itemW + 100, 0xFFFFFFFF, true);
+                        }
                     }
                 }
             }
+            // Renderização da Roleta
+            else if (currentRenderStyle == 3) {
+                int centerW = 400; int centerH = 400;
+                int sideW = 250; int sideH = 250;
+                int centerY = 350; int centerX = 1920 / 2 - centerW / 2;
+
+                int startIdx = sAtual - 4; if (startIdx < 0) startIdx = 0;
+                int endIdx = sAtual + 4; if (endIdx >= tItens) endIdx = tItens - 1;
+                cleanOldCache(startIdx, endIdx);
+
+                for (int offset = 4; offset >= 0; offset--) {
+                    for (int dir = -1; dir <= 1; dir += 2) {
+                        if (offset == 0 && dir == 1) continue;
+                        int i = sAtual + (offset * dir);
+                        if (i < 0 || i >= tItens) continue;
+
+                        int drawW = (offset == 0) ? centerW : sideW;
+                        int drawH = (offset == 0) ? centerH : sideH;
+
+                        float dist = smoothSel - i;
+                        int drawX = centerX - (int)(dist * (sideW + 50));
+                        if (offset > 0) {
+                            if (i > sAtual) drawX += (centerW - sideW) / 2 + 50;
+                            else drawX -= (centerW - sideW) / 2 + 50;
+                        }
+
+                        int drawY = centerY + (centerH - drawH) / 2;
+                        if (drawX > 1920 || drawX + drawW < 0) continue;
+
+                        int cacheIdx = getCachedImage(i);
+                        if (cacheIdx == -1 && loadsThisFrame < 1) {
+                            int freeSlot = getFreeCacheSlot();
+                            if (freeSlot != -1) {
+                                char cPath[512] = "";
+                                if (mAtual == MENU_JOGAR_PS4) {
+                                    sprintf(cPath, "/user/appmeta/%s/icon0.png", linksAtuais[i]);
+                                    FILE* f = fopen(cPath, "rb"); if (!f) sprintf(cPath, "/user/app/%s/sce_sys/icon0.png", linksAtuais[i]); else fclose(f);
+                                }
+                                else {
+                                    const char* cName = (consoleAtual >= 0 && consoleAtual < 5) ? listaConsoles[consoleAtual].nome : "Unknown";
+                                    snprintf(cPath, sizeof(cPath), "/data/HyperNeiva/baixado/capas/%s/Named_Boxarts/%s.png", cName, nItems[i]);
+                                }
+                                coverCache[freeSlot].index = i;
+                                coverCache[freeSlot].img = stbi_load(cPath, &coverCache[freeSlot].w, &coverCache[freeSlot].h, &coverCache[freeSlot].c, 4);
+                                cacheIdx = freeSlot;
+                                loadsThisFrame++;
+                            }
+                        }
+
+                        if (cacheIdx != -1 && coverCache[cacheIdx].img) {
+                            desenharRedimensionado(p, coverCache[cacheIdx].img, coverCache[cacheIdx].w, coverCache[cacheIdx].h, drawW, drawH, drawX, drawY);
+                        }
+                        else {
+                            for (int by = 0; by < drawH; by++) for (int bx = 0; bx < drawW; bx++) { int pyy = drawY + by, pxx = drawX + bx; if (pxx >= 0 && pxx < 1920 && pyy >= 0 && pyy < 1080) p[pyy * 1920 + pxx] = 0xAA222222; }
+                        }
+
+                        if (offset == 0) {
+                            for (int by = -6; by < drawH + 6; by++) for (int bx = -6; bx < drawW + 6; bx++) {
+                                if (by < 0 || by >= drawH || bx < 0 || bx >= drawW) {
+                                    int pyy = drawY + by, pxx = drawX + bx;
+                                    if (pxx >= 0 && pxx < 1920 && pyy >= 0 && pyy < 1080) p[pyy * 1920 + pxx] = 0xFF00FFFF;
+                                }
+                            }
+                            desenharTextoAlinhadoAnimado(p, nItems[i], 40, centerX - 200, centerY + centerH + 50, centerW + 400, 0xFFFFFFFF, true);
+                        }
+                    }
+                }
+            }
+
+            bool showClassicList = true;
+            if (currentRenderStyle == 4 && isGameMenu) showClassicList = false;
+            if (currentRenderStyle == 3 && isGameMenu) showClassicList = false;
+
+            if (showClassicList) {
+                int loopStart = 0; int loopEnd = 6;
+                if (currentRenderStyle == 1) { loopStart = (int)smoothSel - 4; loopEnd = (int)smoothSel + 4; }
+
+                for (int i = loopStart; i <= loopEnd; i++) {
+                    int gIdx = (currentRenderStyle == 1) ? i : (i + oAtual);
+
+                    if (gIdx < 0 || gIdx >= tItens) {
+                        if (currentRenderStyle == 1) continue; else break;
+                    }
+
+                    int currentX = posX_Base; int currentY = curListY;
+                    int animOffsetX = 0; int animOffsetY = 0;
+                    int currentFontTam = fontTam;
+                    float opacityMulti = 1.0f;
+
+                    if (currentRenderStyle == 1) {
+                        float dist = (float)gIdx - smoothSel;
+
+                        int centroX = posX_Base;
+                        int centroY = curListY + (2 * stepY);
+                        if (listOri == 1) centroX = posX_Base + (2 * stepX);
+
+                        currentX = centroX + (int)(dist * stepX);
+                        currentY = centroY + (int)(dist * stepY);
+
+                        int curva = (int)(dist * dist * (float)listCurvature);
+                        if (listOri == 0) animOffsetX = curva;
+                        else animOffsetY = curva;
+
+                        float absDist = fabs(dist);
+                        if (absDist < 1.0f && (!painelDuplo || painelAtivo == currentPainel)) {
+                            currentFontTam += (int)((1.0f - absDist) * (float)listZoomCentro);
+                        }
+
+                        if (absDist > 2.0f) {
+                            opacityMulti = 1.0f - ((absDist - 2.0f) / 1.5f);
+                            if (opacityMulti < 0.0f) opacityMulti = 0.0f;
+                        }
+                    }
+                    else {
+                        currentX = posX_Base + (i * stepX);
+                        currentY = curListY + (i * stepY);
+
+                        if (currentRenderStyle == 2 && gIdx == sAtual && (!painelDuplo || painelAtivo == currentPainel)) {
+                            if (listOri == 0) animOffsetX = 30; else animOffsetY = 30;
+                            currentFontTam += (listZoomCentro / 2);
+                        }
+                        else if (currentRenderStyle == 0 || currentRenderStyle == 5) {
+                            if (gIdx == sAtual && (!painelDuplo || painelAtivo == currentPainel)) currentFontTam += (listZoomCentro / 2);
+                            else currentFontTam -= 6;
+                        }
+                    }
+
+                    bool isPainelAtivo = (!painelDuplo || painelAtivo == currentPainel);
+                    uint32_t corFundo = isPainelAtivo ? corBasePainel : 0xAA111111;
+                    uint32_t corTexto = isPainelAtivo ? 0xFFFFFFFF : 0xFFAAAAAA;
+
+                    bool isMarcado = (mAtual == MENU_EXPLORAR || mAtual == MENU_BAIXAR_DROPBOX_LISTA || mAtual == MENU_BAIXAR_DROPBOX_UPLOAD) && mItems[gIdx];
+                    if (isMarcado) { corFundo = isPainelAtivo ? getSysColor(listMark) : getSysColor(11); }
+
+                    bool isSelected = isPainelAtivo && (gIdx == sAtual);
+
+                    if (isSelected) {
+                        if (isMarcado) corFundo = getSysColor(listHoverMark); else corFundo = getSysColor(10);
+                        corTexto = 0xFF000000;
+
+                        if (fontAnim == 1) { currentFontTam += (int)(sin(frameContadorGlobal * 0.1f) * 6.0f); }
+                        else if (fontAnim == 2) { uint8_t r = (uint8_t)((sin(frameContadorGlobal * 0.05f) + 1.0f) * 127.5f); uint8_t g = (uint8_t)((sin(frameContadorGlobal * 0.05f + 2.0f) + 1.0f) * 127.5f); uint8_t b = (uint8_t)((sin(frameContadorGlobal * 0.05f + 4.0f) + 1.0f) * 127.5f); corTexto = 0xFF000000 | (r << 16) | (g << 8) | b; }
+                        else if (fontAnim == 3) { animOffsetY += (int)(sin(frameContadorGlobal * 0.2f) * 8.0f); }
+                    }
+                    else if (!isPainelAtivo) { corFundo = 0xAA555555; }
+
+                    uint8_t aF = (uint8_t)(((corFundo >> 24) & 0xFF) * opacityMulti); corFundo = (aF << 24) | (corFundo & 0x00FFFFFF);
+                    uint8_t aT = (uint8_t)(((corTexto >> 24) & 0xFF) * opacityMulti); corTexto = (aT << 24) | (corTexto & 0x00FFFFFF);
+
+                    int drawX = currentX + animOffsetX; int drawY = currentY + animOffsetY;
+
+                    if (aF > 10) { for (int by = 0; by < listH; by++) { for (int bx = 0; bx < larguraItem; bx++) { int pxX = drawX + bx; int pyY = drawY + by; if (pxX >= 0 && pxX < 1920 && pyY >= 0 && pyY < 1080) p[pyY * 1920 + pxX] = corFundo; } } }
+
+                    desenharTextoAlinhadoAnimado(p, nItems[gIdx], currentFontTam, drawX, drawY + (listH / 4), larguraItem, corTexto, isSelected);
+                }
+            }
+        } // <-- Fim do Laço de repetição do Painel Duplo
+
+        // --- CORREÇÃO: Função que desenha o Elemento de Controle movida pra FORA do loop
+        // Para focar apenas no painel ativo igual no arquivo que tava perfeito
+        int curListX = (listOri == 0) ? listXV : listXH;
+        int curListY = (listOri == 0) ? listYV : listYH;
+        int curListSpc = (listOri == 0) ? listSpcV : listSpcH;
+        int stepX = (listOri == 1) ? curListSpc : 0;
+        int stepY = (listOri == 0) ? curListSpc : 0;
+
+        int refP = painelDuplo ? painelAtivo : 1;
+        int sAt = (refP == 0) ? selEsq : sel;
+        int oAt = (refP == 0) ? offEsq : off;
+        int posX_B = (painelDuplo) ? ((refP == 0) ? capaX : curListX) : curListX;
+        int wItem = (painelDuplo) ? 750 : listW;
+
+        int selScreenX = posX_B + ((sAt - oAt) * stepX);
+        int selScreenY = curListY + ((sAt - oAt) * stepY);
+
+        if (listStyle == 1 && !painelDuplo && menuAtual != MENU_EXPLORAR && menuAtual != MENU_EXPLORAR_HOME) {
+            selScreenX = posX_B + (listOri == 1 ? (2 * stepX) : 0);
+            selScreenY = curListY + (2 * stepY);
         }
 
-        // ====================================================================
-        // LISTAS CLÁSSICAS (SOMEM NO MODO 4 E 3)
-        // ====================================================================
-        bool showClassicList = true;
-        if (currentRenderStyle == 4 && isGameMenu) showClassicList = false;
-        if (currentRenderStyle == 3 && isGameMenu) showClassicList = false;
-
-        if (showClassicList) {
-            int loopStart = 0; int loopEnd = 6;
-            if (currentRenderStyle == 1) { loopStart = (int)smoothSel - 4; loopEnd = (int)smoothSel + 4; }
-
-            for (int i = loopStart; i <= loopEnd; i++) {
-                int gIdx = (currentRenderStyle == 1) ? i : (i + oAtual);
-
-                if (gIdx < 0 || gIdx >= tItens) {
-                    if (currentRenderStyle == 1) continue; else break;
-                }
-
-                int currentX = posX_Base; int currentY = curListY;
-                int animOffsetX = 0; int animOffsetY = 0;
-                int currentFontTam = fontTam;
-                float opacityMulti = 1.0f;
-
-                if (currentRenderStyle == 1) {
-                    float dist = (float)gIdx - smoothSel;
-
-                    int centroX = posX_Base;
-                    int centroY = curListY + (2 * stepY);
-                    if (listOri == 1) centroX = posX_Base + (2 * stepX);
-
-                    currentX = centroX + (int)(dist * stepX);
-                    currentY = centroY + (int)(dist * stepY);
-
-                    int curva = (int)(dist * dist * (float)listCurvature);
-                    if (listOri == 0) animOffsetX = curva;
-                    else animOffsetY = curva;
-
-                    float absDist = fabs(dist);
-                    if (absDist < 1.0f && (!painelDuplo || painelAtivo == refPainel)) {
-                        currentFontTam += (int)((1.0f - absDist) * (float)listZoomCentro);
-                    }
-
-                    if (absDist > 2.0f) {
-                        opacityMulti = 1.0f - ((absDist - 2.0f) / 1.5f);
-                        if (opacityMulti < 0.0f) opacityMulti = 0.0f;
-                    }
-                }
-                else {
-                    currentX = posX_Base + (i * stepX);
-                    currentY = curListY + (i * stepY);
-
-                    if (currentRenderStyle == 2 && gIdx == sAtual && (!painelDuplo || painelAtivo == refPainel)) {
-                        if (listOri == 0) animOffsetX = 30; else animOffsetY = 30;
-                        currentFontTam += (listZoomCentro / 2);
-                    }
-                    else if (currentRenderStyle == 0 || currentRenderStyle == 5) {
-                        if (gIdx == sAtual && (!painelDuplo || painelAtivo == refPainel)) currentFontTam += (listZoomCentro / 2);
-                        else currentFontTam -= 6;
-                    }
-                }
-
-                bool isPainelAtivo = (!painelDuplo || painelAtivo == refPainel);
-                uint32_t corFundo = isPainelAtivo ? corBasePainel : 0xAA111111;
-                uint32_t corTexto = isPainelAtivo ? 0xFFFFFFFF : 0xFFAAAAAA;
-
-                bool isMarcado = (mAtual == MENU_EXPLORAR || mAtual == MENU_BAIXAR_DROPBOX_LISTA || mAtual == MENU_BAIXAR_DROPBOX_UPLOAD) && mItems[gIdx];
-                if (isMarcado) { corFundo = isPainelAtivo ? getSysColor(listMark) : getSysColor(11); }
-
-                bool isSelected = isPainelAtivo && (gIdx == sAtual);
-
-                if (isSelected) {
-                    if (isMarcado) corFundo = getSysColor(listHoverMark); else corFundo = getSysColor(10);
-                    corTexto = 0xFF000000;
-
-                    if (fontAnim == 1) { currentFontTam += (int)(sin(frameContadorGlobal * 0.1f) * 6.0f); }
-                    else if (fontAnim == 2) { uint8_t r = (uint8_t)((sin(frameContadorGlobal * 0.05f) + 1.0f) * 127.5f); uint8_t g = (uint8_t)((sin(frameContadorGlobal * 0.05f + 2.0f) + 1.0f) * 127.5f); uint8_t b = (uint8_t)((sin(frameContadorGlobal * 0.05f + 4.0f) + 1.0f) * 127.5f); corTexto = 0xFF000000 | (r << 16) | (g << 8) | b; }
-                    else if (fontAnim == 3) { animOffsetY += (int)(sin(frameContadorGlobal * 0.2f) * 8.0f); }
-                }
-                else if (!isPainelAtivo) { corFundo = 0xAA555555; }
-
-                uint8_t aF = (uint8_t)(((corFundo >> 24) & 0xFF) * opacityMulti); corFundo = (aF << 24) | (corFundo & 0x00FFFFFF);
-                uint8_t aT = (uint8_t)(((corTexto >> 24) & 0xFF) * opacityMulti); corTexto = (aT << 24) | (corTexto & 0x00FFFFFF);
-
-                int drawX = currentX + animOffsetX; int drawY = currentY + animOffsetY;
-
-                if (aF > 10) { for (int by = 0; by < listH; by++) { for (int bx = 0; bx < larguraItem; bx++) { int pxX = drawX + bx; int pyY = drawY + by; if (pxX >= 0 && pxX < 1920 && pyY >= 0 && pyY < 1080) p[pyY * 1920 + pxX] = corFundo; } } }
-
-                desenharTextoAlinhadoAnimado(p, nItems[gIdx], currentFontTam, drawX, drawY + (listH / 4), larguraItem, corTexto, isSelected);
-            }
-
-            int curListX2 = (listOri == 0) ? listXV : listXH;
-            int curListY2 = (listOri == 0) ? listYV : listYH;
-            int curListSpc2 = (listOri == 0) ? listSpcV : listSpcH;
-            int stepX2 = (listOri == 1) ? curListSpc2 : 0;
-            int stepY2 = (listOri == 0) ? curListSpc2 : 0;
-            int posX_B2 = (painelDuplo) ? ((refPainel == 0) ? capaX : curListX2) : curListX2;
-            int wItem2 = (painelDuplo) ? 750 : listW;
-            int selScreenX = posX_B2 + ((sAtual - oAtual) * stepX2);
-            int selScreenY = curListY2 + ((sAtual - oAtual) * stepY2);
-
-            if (currentRenderStyle == 1) {
-                selScreenX = posX_B2 + (listOri == 1 ? (2 * stepX2) : 0);
-                selScreenY = curListY2 + (2 * stepY2);
-            }
-            if (selScreenX > -100 && currentRenderStyle != 4 && currentRenderStyle != 3) {
-                desenharElementos(p, selScreenX, selScreenY, wItem2, listH);
-            }
+        if (selScreenX > -100 && listStyle != 4 && listStyle != 3) {
+            desenharElementos(p, selScreenX, selScreenY, wItem, listH);
         }
 
-        // ====================================================================
-        // RENDERIZAÇÃO DA CAPA ÚNICA NORMAL
-        // ====================================================================
+        // APÓS DESENHAR AS DUAS LISTAS, DESENHA AS IMAGENS DO EXPLORADOR
         bool isSavePath = false;
         if (menuAtual == MENU_EXPLORAR || (painelDuplo && menuAtualEsq == MENU_EXPLORAR)) {
             char* pRef = (painelDuplo && painelAtivo == 0) ? pathExplorarEsq : pathExplorar;
@@ -762,6 +794,9 @@ void desenharInterface(uint32_t* p) {
             bool isMenuPS4 = (menuAtual == MENU_JOGAR_PS4);
             bool isEditingCapaCD = ((menuAtual == MENU_EDIT_TARGET || editMode) && (editTarget == 1 || editTarget == 2 || editTarget == 3));
 
+            int currentRenderStyle = listStyle;
+            if ((currentRenderStyle == 3 || currentRenderStyle == 4 || currentRenderStyle == 5) && !isMenuXML && !isMenuPS4) currentRenderStyle = 1;
+
             if (isMenuXML || isMenuPS4 || isEditingCapaCD) {
                 if ((currentRenderStyle != 4 && currentRenderStyle != 5 && currentRenderStyle != 3) || (!isMenuXML && !isMenuPS4 && editTarget != 1)) {
                     if ((menuAtual == MENU_EDIT_TARGET || editMode) && editTarget == 3) {
@@ -773,12 +808,12 @@ void desenharInterface(uint32_t* p) {
                     }
 
                     if (menuAtual == JOGAR_XML || isEditingCapaCD || isMenuPS4) {
-                        if (imgCapaDinamica && !isMenuPS4) { desenharRedimensionado(p, imgCapaDinamica, dynCapaW, dynCapaH, capaW, capaH, capaX, capaY); }
-                        else if (imgPreview) { desenharRedimensionado(p, imgPreview, wP, hP, capaW, capaH, capaX, capaY); }
-                        else if (defaultArtwork1) { desenharRedimensionado(p, defaultArtwork1, wDef1, hDef1, capaW, capaH, capaX, capaY); }
+                        if (imgCapaDinamica && !isMenuPS4 && !painelDuplo) { desenharRedimensionado(p, imgCapaDinamica, dynCapaW, dynCapaH, capaW, capaH, capaX, capaY); }
+                        else if (imgPreview && !painelDuplo) { desenharRedimensionado(p, imgPreview, wP, hP, capaW, capaH, capaX, capaY); }
+                        else if (defaultArtwork1 && !painelDuplo) { desenharRedimensionado(p, defaultArtwork1, wDef1, hDef1, capaW, capaH, capaX, capaY); }
 
-                        if (imgDiscoDinamico && !isMenuPS4) { desenharDiscoRedondo(p, imgDiscoDinamico, dynDiscoW, dynDiscoH, discoW, discoH, discoX, discoY); }
-                        else if (defaultArtwork2) { desenharDiscoRedondo(p, defaultArtwork2, wDef2, hDef2, discoW, discoH, discoX, discoY); }
+                        if (imgDiscoDinamico && !isMenuPS4 && !painelDuplo) { desenharDiscoRedondo(p, imgDiscoDinamico, dynDiscoW, dynDiscoH, discoW, discoH, discoX, discoY); }
+                        else if (defaultArtwork2 && !painelDuplo) { desenharDiscoRedondo(p, defaultArtwork2, wDef2, hDef2, discoW, discoH, discoX, discoY); }
                     }
                 }
             }
@@ -819,10 +854,7 @@ void desenharInterface(uint32_t* p) {
     desenharMenuAudio(p); desenharMenuUpload(p);
 
     if (downloadEmSegundoPlano) {
-        int bX = barX;
-        int bY = barY;
-        int bW = barW;
-        int bH = barH;
+        int bX = barX; int bY = barY; int bW = barW; int bH = barH;
 
         for (int y = bY; y < bY + bH; y++) {
             for (int x = bX; x < bX + bW; x++) {
@@ -844,28 +876,22 @@ void desenharInterface(uint32_t* p) {
             }
         }
 
-        char pctMsg[300];
-        sprintf(pctMsg, "%s", msgDownloadBg);
+        char pctMsg[300]; sprintf(pctMsg, "%s", msgDownloadBg);
         desenharTexto(p, pctMsg, 25, bX, bY - 35, 0xFFFFFFFF);
 
         int porcentagem = (int)(progressoAtualDownload * 100.0f);
         if (porcentagem > 100) porcentagem = 100;
         if (porcentagem < 0) porcentagem = 0;
 
-        char textoFila[128];
-        snprintf(textoFila, sizeof(textoFila), "%d%%   -   %d / %d", porcentagem, baixadosFilaSessao + 1, totalFilaSessao);
+        char textoFila[128]; snprintf(textoFila, sizeof(textoFila), "%d%%   -   %d / %d", porcentagem, baixadosFilaSessao + 1, totalFilaSessao);
         desenharTexto(p, textoFila, 25, bX + bW + 20, bY - 2, 0xFFFFFFFF);
     }
 
     if (menuAtual == MENU_BAIXAR || menuAtual == MENU_BAIXAR_FTP_SERVIDORES || menuAtual == MENU_BAIXAR_FTP_LISTA || menuAtual == MENU_BAIXAR_FTP_UPLOAD || menuAtual == MENU_BAIXAR_FTP_UPLOAD_RAIZES || menuAtual == MENU_BAIXAR_FTP_EDITAR_SERVIDOR) {
-        char textoIP[128];
-        sprintf(textoIP, "IP DO PS4: %s", ipDoPS4);
+        char textoIP[128]; sprintf(textoIP, "IP DO PS4: %s", ipDoPS4);
         desenharTexto(p, textoIP, 25, 1550, 1020, 0xFF00FF00);
     }
 
-    // ===============================================================
-    // RODAPÉ DO MODO DE EDIÇÃO PERFEITAMENTE RESTAURADO!
-    // ===============================================================
     bool showEditBottomBar = false;
     if (editMode || menuAtual == MENU_EDIT_TARGET) showEditBottomBar = true;
 
@@ -930,7 +956,7 @@ void desenharInterface(uint32_t* p) {
         else if (editType == 19) sprintf(txtPos, "MODO EDICAO - MENU OPCOES ESTICAR: W:%d", upW);
         else if (editType == 20) sprintf(txtPos, "MODO EDICAO - MENU OPCOES COR FUNDO");
         else if (editType == 21) sprintf(txtPos, "MODO EDICAO - MENU OPCOES COR DO TEXTO");
-        else if (editType == 22) sprintf(txtPos, "MODO EDICAO - MENU OPCOES COR TEXTO SEL");
+        else if (editType == 22) sprintf(txtPos, "MODO EDICAO - MENU OPCOES COR TEXT SEL");
         else if (editType == 23) sprintf(txtPos, "MODO EDICAO - ANIMACAO: POSICAO X:%d Y:%d", anim_posX, anim_posY);
         else if (editType == 24) sprintf(txtPos, "MODO EDICAO - ANIMACAO: ESCALA: %.1f", anim_escala);
         else if (editType == 25) sprintf(txtPos, "MODO EDICAO - ANIMACAO: VELOCIDADE: %d", anim_velocidade);
