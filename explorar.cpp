@@ -71,9 +71,9 @@ char oldExtParaRenomear[64] = "";
 bool ehPastaParaRenomear = false;
 
 // ====================================================================
-// LEITOR DE PARAM.SFO (Extrai o Nome Real do Jogo)
+// LEITOR DE PARAM.SFO E COMPRESSOR DXT1 AVANÇADO (Mantidos static para não dar erro)
 // ====================================================================
-void obterNomeJogoSFO(const char* cusa, char* nomeSaida) {
+static void obterNomeJogoSFO(const char* cusa, char* nomeSaida) {
     strcpy(nomeSaida, "Desconhecido");
     char pathSfo[512];
     sprintf(pathSfo, "/user/appmeta/%s/param.sfo", cusa);
@@ -108,10 +108,7 @@ void obterNomeJogoSFO(const char* cusa, char* nomeSaida) {
     } fclose(f);
 }
 
-// ====================================================================
-// COMPRESSOR DXT1 AVANÇADO (Obrigatório para Avatares do PS4)
-// ====================================================================
-void redimensionarImagem(unsigned char* src, int sw, int sh, unsigned char* dst, int dw, int dh) {
+static void redimensionarImagem(unsigned char* src, int sw, int sh, unsigned char* dst, int dw, int dh) {
     for (int y = 0; y < dh; y++) {
         for (int x = 0; x < dw; x++) {
             int srcX = (x * sw) / dw;
@@ -121,39 +118,38 @@ void redimensionarImagem(unsigned char* src, int sw, int sh, unsigned char* dst,
             dst[dstIndex] = src[srcIndex];
             dst[dstIndex + 1] = src[srcIndex + 1];
             dst[dstIndex + 2] = src[srcIndex + 2];
-            dst[dstIndex + 3] = src[srcIndex + 3]; // Mantém o Alpha no PNG
+            dst[dstIndex + 3] = src[srcIndex + 3];
         }
     }
 }
 
-unsigned short colorTo565(int r, int g, int b) {
+static unsigned short colorTo565(int r, int g, int b) {
     return (unsigned short)(((r >> 3) << 11) | ((g >> 2) << 5) | (b >> 3));
 }
 
-int colorDistance(int r1, int g1, int b1, int r2, int g2, int b2) {
+static int colorDistance(int r1, int g1, int b1, int r2, int g2, int b2) {
     return (r1 - r2) * (r1 - r2) + (g1 - g2) * (g1 - g2) + (b1 - b2) * (b1 - b2);
 }
 
-void salvarComoDDS(const char* filepath, unsigned char* img, int w, int h) {
+static void salvarComoDDS(const char* filepath, unsigned char* img, int w, int h) {
     FILE* f = fopen(filepath, "wb");
     if (!f) return;
 
     unsigned int header[32];
     memset(header, 0, sizeof(header));
-    header[0] = 0x20534444; // Magia "DDS "
-    header[1] = 124;        // Tamanho do Header
-    header[2] = 0x00081007; // Flags
-    header[3] = h;          // Altura
-    header[4] = w;          // Largura
-    header[5] = (w > 4 ? w : 4) * (h > 4 ? h : 4) / 2; // LinearSize para DXT1
-    header[19] = 32;        // Tamanho do PixelFormat
-    header[20] = 0x00000004; // DDPF_FOURCC
-    header[21] = 0x31545844; // Assinatura "DXT1" (Requisito estrito da PS4)
-    header[27] = 0x1000;    // Caps
+    header[0] = 0x20534444;
+    header[1] = 124;
+    header[2] = 0x00081007;
+    header[3] = h;
+    header[4] = w;
+    header[5] = (w > 4 ? w : 4) * (h > 4 ? h : 4) / 2;
+    header[19] = 32;
+    header[20] = 0x00000004;
+    header[21] = 0x31545844;
+    header[27] = 0x1000;
 
     fwrite(header, 1, 128, f);
 
-    // Compressão de Blocos DXT1
     for (int by = 0; by < h / 4; by++) {
         for (int bx = 0; bx < w / 4; bx++) {
             int minR = 255, minG = 255, minB = 255;
@@ -180,7 +176,6 @@ void salvarComoDDS(const char* filepath, unsigned char* img, int w, int h) {
             unsigned short c0 = colorTo565(maxR, maxG, maxB);
             unsigned short c1 = colorTo565(minR, minG, minB);
 
-            // Força o modo OPACO no DXT1
             if (c0 < c1) {
                 unsigned short temp = c0; c0 = c1; c1 = temp;
                 int tr = maxR, tg = maxG, tb = maxB;
@@ -212,6 +207,7 @@ void salvarComoDDS(const char* filepath, unsigned char* img, int w, int h) {
     }
     fclose(f);
 }
+
 // ====================================================================
 
 void preencherOpcoesContexto(const char* nomeArquivo) {
@@ -252,6 +248,7 @@ void preencherOpcoesContexto(const char* nomeArquivo) {
     }
 }
 
+// Sem 'static' aqui porque estão sendo chamadas pelo controle_explorar e afins
 void copiarArquivoReal(const char* origem, const char* destino) {
     FILE* src = fopen(origem, "rb"); if (!src) return;
     FILE* dst = fopen(destino, "wb"); if (!dst) { fclose(src); return; }
@@ -638,13 +635,11 @@ void acaoArquivo(int idxOpcao) {
                     char destPng[1024]; char ddsPath[1024];
                     sprintf(destPng, "%s/avatar.png", profileDir);
 
-                    // SALVA O PNG GIGANTE
                     unsigned char* img440 = (unsigned char*)malloc(440 * 440 * 4);
                     if (img440) {
                         redimensionarImagem(tempImg, tw, th, img440, 440, 440);
                         stbi_write_png(destPng, 440, 440, 4, img440, 440 * 4);
 
-                        // AGORA APLICA DXT1 REAL NOS AVATARES PARA O PS4 LER DIREITO!
                         sprintf(ddsPath, "%s/avatar440.dds", profileDir); salvarComoDDS(ddsPath, img440, 440, 440);
                         free(img440);
 

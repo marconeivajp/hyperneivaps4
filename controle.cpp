@@ -113,7 +113,10 @@ struct EstadoNavegacao {
 };
 EstadoNavegacao pilhaNav[MAX_NAV_STACK]; int navTopo = 0;
 
-void carregarPreviewLocal(const char* caminhoAbsoluto) {
+// =========================================================
+// Otimização "static" sugerida pelo compilador aplicada!
+// =========================================================
+static void carregarPreviewLocal(const char* caminhoAbsoluto) {
     if (imgPreview) { stbi_image_free(imgPreview); imgPreview = NULL; }
     char temp[512]; strcpy(temp, caminhoAbsoluto);
     for (int i = 0; temp[i]; i++) temp[i] = tolower(temp[i]);
@@ -174,9 +177,6 @@ void processarNavegacaoDPad(uint32_t botoes) {
                 bool ehEsq = (painelDuplo && painelAtivo == 0 && (menuAtual == MENU_EXPLORAR || menuAtual == MENU_EXPLORAR_HOME || menuAtual == MENU_BAIXAR_FTP_LISTA));
                 int* sAtual = ehEsq ? &selEsq : &sel; int* oAtual = ehEsq ? &offEsq : &off; int tItens = ehEsq ? totalItensEsq : totalItens;
 
-                // ========================================================
-                // NAVEGAÇÃO DA GRADE INTELIGENTE (PULO XADREZ)
-                // ========================================================
                 bool isGameMenu = (menuAtual == MENU_JOGAR_PS4 || menuAtual == JOGAR_XML || menuAtual == SCRAPER_LIST);
                 bool isGrid = ((listStyle == 4 || listStyle == 5) && isGameMenu && !showOpcoes && !showUploadOpcoes && menuAtual != MENU_NOTEPAD && menuAtual != MENU_AUDIO_OPCOES);
 
@@ -211,7 +211,6 @@ void processarNavegacaoDPad(uint32_t botoes) {
                     timeToLoadCapa = 10;
                 }
                 else {
-                    // NAVEGAÇÃO CLÁSSICA (LISTAS NORMAIS)
                     if (movNext) tocarSom(SFX_DOWN); else if (movPrev) tocarSom(SFX_UP);
                     if (movNext) {
                         if (*sAtual < (tItens - 1)) { (*sAtual)++; if (*sAtual >= (*oAtual + 6)) (*oAtual)++; }
@@ -298,12 +297,9 @@ void processarNavegacaoDPad(uint32_t botoes) {
 }
 
 void processarControles(uint32_t botoes, int32_t uId, OrbisImeDialogSetting* imeSetting, uint16_t* imeTitle) {
-    // Memória dos botões para o sistema conseguir detetar "cliques" e "segurar" no Leitor de PDF
     static uint32_t botoesAntigos = 0;
-
     globalUserId = uId;
 
-    // TRAVA DO LEITOR: Se o leitor estiver aberto, ele rouba os controlos para ele e bloqueia o menu atrás!
     if (processarControlesLeitor(botoes, botoesAntigos)) {
         botoesAntigos = botoes;
         return;
