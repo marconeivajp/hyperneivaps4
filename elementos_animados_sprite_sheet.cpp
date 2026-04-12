@@ -100,6 +100,13 @@ void carregarSpriteSheetAnimada() {
     }
 }
 
+void liberarSpriteSheetParaEmu() {
+    if (imgSpriteSheet) {
+        stbi_image_free(imgSpriteSheet);
+        imgSpriteSheet = NULL;
+    }
+}
+
 void autoCentralizarFrameAtual() {
     if (!imgSpriteSheet || anim_colunas <= 0 || anim_linhas <= 0) return;
 

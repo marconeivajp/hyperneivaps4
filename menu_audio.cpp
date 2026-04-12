@@ -18,6 +18,8 @@ extern int totalItens;
 
 extern int audioX, audioY, audioW, audioH;
 extern int fontTam, listBg;
+extern bool editMode;
+extern int editTarget;
 
 uint32_t getSysColor(int index);
 extern void desenharTextoAlinhado(uint32_t* p, const char* textoOriginal, int fTam, int xBase, int y, int maxW, uint32_t cor);
@@ -31,7 +33,7 @@ const char* listaOpcoesAudio[11] = {
 };
 
 void desenharMenuAudio(uint32_t* p) {
-    if (menuAtual == MENU_AUDIO_OPCOES && showOpcoes) {
+    if ((menuAtual == MENU_AUDIO_OPCOES && showOpcoes) || (editMode && editTarget == 6)) {
         for (int my = 0; my < audioH; my++) {
             for (int mx = 0; mx < audioW; mx++) {
                 int pxX = audioX + mx;

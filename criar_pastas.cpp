@@ -85,6 +85,7 @@ void inicializarPastas() {
     // =========================================================
     copiarArquivoSeNaoExistir("/app0/assets/systemas+zipados.xml", "/data/HyperNeiva/configuracao/repositorios/games/systemas+zipados.xml");
     copiarArquivoSeNaoExistir("/app0/assets/Sega_Master_System.xml", "/data/HyperNeiva/configuracao/repositorios/games/Sega_Master_System.xml"); // <-- MASTER SYSTEM AGORA ESTÁ AQUI
+    copiarArquivoSeNaoExistir("/app0/assets/retrocast_brasil.xml", "/data/HyperNeiva/configuracao/repositorios/games/retrocast_brasil.xml");
     copiarArquivoSeNaoExistir("/app0/assets/xavatar.xml", "/data/HyperNeiva/configuracao/repositorios/imagens para perfil/xavatar.xml");
     copiarArquivoSeNaoExistir("/app0/assets/xml.xml", "/data/HyperNeiva/configuracao/repositorios/xml games/xml.xml");
 
@@ -121,4 +122,38 @@ void inicializarPastas() {
     copiarArquivoSeNaoExistir("/app0/assets/audio/0_Defalt_direcional_baixo.wav", "/data/HyperNeiva/configuracao/audios/0_Defalt_direcional_baixo.wav");
     copiarArquivoSeNaoExistir("/app0/assets/audio/0_Defalt_x.wav", "/data/HyperNeiva/configuracao/audios/0_Defalt_x.wav");
     copiarArquivoSeNaoExistir("/app0/assets/audio/0_Defalt_bolinha.wav", "/data/HyperNeiva/configuracao/audios/0_Defalt_bolinha.wav");
-}
+
+    // =========================================================
+    // ESTRUTURA RETROARCH (GAMES & THUMBNAILS)
+    // =========================================================
+    sceKernelMkdir("/data/retroarch", 0777);
+    sceKernelMkdir("/data/retroarch/Games", 0777);
+    sceKernelMkdir("/data/retroarch/savefiles", 0777);
+    sceKernelMkdir("/data/retroarch/savestates", 0777);
+
+    // Nintendo
+    sceKernelMkdir("/data/retroarch/Games/Nintendo - Nintendo Entertainment System", 0777);
+    sceKernelMkdir("/data/retroarch/Games/Nintendo - Super Nintendo Entertainment System", 0777);
+    sceKernelMkdir("/data/retroarch/Games/Nintendo - Game Boy", 0777);
+    sceKernelMkdir("/data/retroarch/Games/Nintendo - Game Boy Color", 0777);
+    sceKernelMkdir("/data/retroarch/Games/Nintendo - Game Boy Advance", 0777);
+    sceKernelMkdir("/data/retroarch/Games/Nintendo - Nintendo 64", 0777);
+
+    // Sega
+    sceKernelMkdir("/data/retroarch/Games/Sega - SG-1000", 0777);
+    sceKernelMkdir("/data/retroarch/Games/Sega - Master System - Mark III", 0777);
+    sceKernelMkdir("/data/retroarch/Games/Sega - Mega Drive - Genesis", 0777);
+    sceKernelMkdir("/data/retroarch/Games/Sega - 32X", 0777);
+    sceKernelMkdir("/data/retroarch/Games/Sega - Saturn", 0777);
+    sceKernelMkdir("/data/retroarch/Games/Sega - Dreamcast", 0777);
+    sceKernelMkdir("/data/retroarch/Games/Sega - Game Gear", 0777);
+
+    // Sony
+    sceKernelMkdir("/data/retroarch/Games/Sony - PlayStation", 0777);
+    sceKernelMkdir("/data/retroarch/Games/Sony - PlayStation 2", 0777);
+    sceKernelMkdir("/data/retroarch/Games/Sony - PlayStation Portable", 0777);
+
+    // Outros
+    sceKernelMkdir("/data/retroarch/Games/SNK - Neo Geo", 0777);
+    sceKernelMkdir("/data/retroarch/Games/Bandai - WonderSwan Color", 0777);
+}

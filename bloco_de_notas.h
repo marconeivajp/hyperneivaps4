@@ -5,10 +5,11 @@
 #include <stdint.h>
 
 #define MAX_LINHAS 2000
-#define MAX_CHARS_LINHA 256
+#define MAX_CHARS_LINHA 1024
 
 extern int estadoNotepad;
 extern bool notepadSomenteLeitura;
+extern int scrollHorizontalNotepad; // Novo: Controle de rolagem lateral
 
 extern char linhasNotepad[MAX_LINHAS][MAX_CHARS_LINHA];
 extern int linhaSelecionada;

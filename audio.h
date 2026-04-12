@@ -29,4 +29,7 @@ void preencherMenuMusicas();
 void salvarConfiguracaoAudio();
 void carregarConfiguracaoAudio();
 
+// Nova função para o emulador
+void enviarAmostraAudio(int16_t L, int16_t R);
+
 #endif

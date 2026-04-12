@@ -21,6 +21,8 @@ extern int totalItens;
 
 extern int upX, upY, upW, upH;
 extern int fontTam, listBg;
+extern bool editMode;
+extern int editTarget;
 
 uint32_t getSysColor(int index);
 // Importa o Motor Mágico de Texto!
@@ -33,7 +35,7 @@ int contarMarcados() {
 }
 
 void desenharMenuUpload(uint32_t* p) {
-    if ((menuAtual == MENU_BAIXAR_DROPBOX_UPLOAD || menuAtual == MENU_BAIXAR_DROPBOX_LISTA) && showUploadOpcoes) {
+    if (((menuAtual == MENU_BAIXAR_DROPBOX_UPLOAD || menuAtual == MENU_BAIXAR_DROPBOX_LISTA) && showUploadOpcoes) || (editMode && editTarget == 7)) {
         int startX = upX;
         int startY = upY;
 

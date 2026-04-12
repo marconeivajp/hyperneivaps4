@@ -6,68 +6,67 @@
 // Headers do SDK do PS4 (OpenOrbis) necessários para o vídeo
 #include <orbis/libkernel.h>
 #include <orbis/VideoOut.h>
+#include <orbis/Pad.h>
 
 // INCLUSÃO DO LEITOR DE PDF E MANGÁ
 #include "pdf.h"
+#include "libretro_bridge.h"
+
+extern bool menuEmuladorAtivo;
 
 // Instanciação das variáveis da fonte
 stbtt_fontinfo font;
 int temF = 0;
 
 // --- VARIÁVEIS INTERNAS DE VÍDEO ---
-// Ficam "escondidas" aqui, o main.cpp já não precisa de saber delas
 int video = 0;
-int bA = 0; // Buffer Ativo (0 ou 1 para o Double Buffering)
+int bA = 0; 
 void* buffers[2];
+
+// V39: Backup para o "Frozen Frame" (Global para V58)
+uint32_t* backupEmuFrame = NULL;
 
 // =========================================================================
 // SISTEMA DE VÍDEO DO PS4
 // =========================================================================
 
-/**
- * Inicializa a saída de vídeo nativa do PS4.
- * Aloca memória direta ("Direct Memory") para a resolução 1920x1080 com Double Buffering.
- */
 void inicializarVideo() {
-    // Abre a porta de vídeo principal da consola
     video = sceVideoOutOpen(255, 0, 0, NULL);
 
-    // Calcula o tamanho da memória para a resolução Full HD (1920x1080) a 32 bits (4 bytes por pixel)
-    // A máscara com 0x1FFFFF garante o alinhamento de memória exigido pela placa gráfica do PS4
     size_t bSz = ((1920 * 1080 * 4) + 0x1FFFFF) & ~0x1FFFFF;
     off_t ph;
 
-    // Aloca e mapeia a "Direct Memory" (Memória RAM partilhada com o GPU) para os dois buffers
     sceKernelAllocateDirectMemory(0, sceKernelGetDirectMemorySize(), bSz * 2, 2097152, 2, &ph);
     void* vM = NULL;
     sceKernelMapDirectMemory(&vM, bSz * 2, 0x33, 0, ph, 2097152);
 
-    // Atribui os dois buffers aos ponteiros (o segundo começa logo onde o primeiro acaba)
     buffers[0] = vM;
     buffers[1] = (void*)((uint8_t*)vM + bSz);
 
-    // Regista a resolução e as características na saída de vídeo do Orbis OS
+    backupEmuFrame = (uint32_t*)malloc(1920 * 1080 * 4);
+    if (backupEmuFrame) memset(backupEmuFrame, 0, 1920 * 1080 * 4);
+
     OrbisVideoOutBufferAttribute attr;
     memset(&attr, 0, sizeof(attr));
     sceVideoOutSetBufferAttribute(&attr, 0x80000000, 1, 0, 1920, 1080, 1920);
     sceVideoOutRegisterBuffers(video, 0, buffers, 2, &attr);
 }
 
-/**
- * Retorna o ponteiro de memória onde a interface vai pintar os píxeis neste exato frame.
- */
 uint32_t* obterBufferVideo() {
     return (uint32_t*)buffers[bA];
 }
 
-/**
- * Envia o frame que acabou de ser desenhado para a TV (Flip)
- * e troca os buffers (Double Buffering) para pintar o próximo ecrã no fundo.
- */
 void submeterTela() {
     sceVideoOutSubmitFlip(video, bA, 1, 0);
-    bA = (bA + 1) % 2; // Alterna entre buffer 0 e 1 (Matemática circular)
-    sceKernelUsleep(16000); // Pausa de 16ms (~60 FPS) para não fritar o processador do PS4
+    bA = (bA + 1) % 2; 
+    sceKernelUsleep(16000); 
+}
+
+void submeterTelaSemPausa() {
+    sceVideoOutSubmitFlip(video, bA, 1, 0);
+    bA = (bA + 1) % 2;
+    // V52.2: Sincronização inteligente: só atrasa no menu/pausa para evitar flicker
+    if (bridge_esta_pausado() || menuEmuladorAtivo) sceKernelUsleep(16000); 
 }
 
 // =========================================================================
@@ -129,39 +128,98 @@ void desenharTexto(uint32_t* pixels, const char* texto, int tam, int x, int y, u
     }
 }
 
-// =========================================================================
-// FUNÇÃO PARA RENDERIZAR O PDF/MANGÁ NA TELA
-// =========================================================================
 void desenharPDFnaTela(uint32_t* pixels) {
     if (visualizandoPDF && imgPaginaAtual != NULL) {
-        // Pinta um fundo Cinza Escuro sólido atrás do PDF
-        for (int y = 0; y < 1080; y++) {
-            for (int x = 0; x < 1920; x++) {
-                pixels[y * 1920 + x] = 0xFF151515;
-            }
-        }
-
-        // Calcula as dimensões finais com o nível de Zoom
-        int dW = (int)(pdfImgW * pdfZoom);
-        int dH = (int)(pdfImgH * pdfZoom);
-
-        // Centraliza a imagem e aplica o offset das setas direcionais
-        int posX = (1920 - dW) / 2 + pdfOffsetX;
-        int posY = (1080 - dH) / 2 + pdfOffsetY;
-
-        // Pinta a página renderizada na tela
+        for (int y = 0; y < 1080; y++) for (int x = 0; x < 1920; x++) pixels[y * 1920 + x] = 0xFF000000;
+        int dW = (int)(pdfImgW * pdfZoom); int dH = (int)(pdfImgH * pdfZoom);
+        int posX = (1920 - dW) / 2 + pdfOffsetX; int posY = (1080 - dH) / 2 + pdfOffsetY;
         desenharRedimensionado(pixels, imgPaginaAtual, pdfImgW, pdfImgH, dW, dH, posX, posY);
-
-        // Desenha a Interface do Leitor (Texto)
-        char txtPagina[100];
-        sprintf(txtPagina, "PAGINA: %d / %d   |   ZOOM: %d%%", pdfPaginaAtual, pdfTotalPaginas, (int)(pdfZoom * 100));
-
-        // Sombra do Texto
+        char txtPagina[100]; sprintf(txtPagina, "PAGINA: %d / %d   |   ZOOM: %d%%", pdfPaginaAtual, pdfTotalPaginas, (int)(pdfZoom * 100));
         desenharTexto(pixels, txtPagina, 30, 52, 1022, 0xFF000000);
         desenharTexto(pixels, "[BOLINHA] Fechar | [L1] Voltar | [R1] Avancar | [L2]/[R2] Zoom | [SETAS] Mover", 24, 52, 1052, 0xFF000000);
-
-        // Texto Branco Principal
         desenharTexto(pixels, txtPagina, 30, 50, 1020, 0xFFFFFFFF);
         desenharTexto(pixels, "[BOLINHA] Fechar | [L1] Voltar | [R1] Avancar | [L2]/[R2] Zoom | [SETAS] Mover", 24, 50, 1050, 0xFFAAAAAA);
     }
+}
+
+// =========================================================================
+// NOVO: SUPORTE PARA O EMULADOR (LIBRETRO) - OTIMIZADO V32/V39/V40
+// =========================================================================
+extern int gEmuPixelFormat;
+
+void desenharBufferEmulador(const void* data, unsigned width, unsigned height, size_t pitch) {
+    uint32_t* pixels = obterBufferVideo();
+    if (!pixels || !data) return;
+
+    const int dW = 1920; const int dH = 1080;
+    uint32_t stepX = (width << 16) / dW;
+    uint32_t stepY = (height << 16) / dH;
+    uint32_t currY = 0;
+
+    if (gEmuPixelFormat == 1) { // 32-BIT
+        uint32_t* src = (uint32_t*)data;
+        for (int y = 0; y < dH; y++) {
+            uint32_t srcY = currY >> 16;
+            uint32_t* srcRow = (uint32_t*)((uint8_t*)src + (srcY * pitch));
+            uint32_t* dstRow = pixels + (y * dW);
+            uint32_t currX = 0;
+            for (int x = 0; x < dW; x++) {
+                dstRow[x] = 0xFF000000 | srcRow[currX >> 16];
+                currX += stepX;
+            }
+            currY += stepY;
+        }
+    } else { // 16-BIT
+        uint16_t* src = (uint16_t*)data;
+        for (int y = 0; y < dH; y++) {
+            uint32_t srcY = currY >> 16;
+            uint16_t* srcRow = (uint16_t*)((uint8_t*)src + (srcY * pitch));
+            uint32_t* dstRow = pixels + (y * dW);
+            uint32_t currX = 0;
+            for (int x = 0; x < dW; x++) {
+                uint16_t c565 = srcRow[currX >> 16];
+                uint32_t r = (c565 & 0xF800) << 8;
+                uint32_t g = (c565 & 0x07E0) << 5;
+                uint32_t b = (c565 & 0x001F) << 3;
+                r |= (r >> 5) & 0xFF0000; g |= (g >> 6) & 0x00FF00; b |= (b >> 5);
+                dstRow[x] = 0xFF000000 | r | g | b;
+                currX += stepX;
+            }
+            currY += stepY;
+        }
+    }
+}
+
+// V40: Captura o frame apenas uma vez no momento da pausa
+void capturarUltimoFrame() {
+    uint32_t* pixels = obterBufferVideo();
+    if (pixels && backupEmuFrame) memcpy(backupEmuFrame, pixels, 1920 * 1080 * 4);
+}
+
+// =========================================================================
+// NOVO: MENU DE PAUSA DO EMULADOR (V33/V39/V40/V41)
+// =========================================================================
+void desenharMenuEmulador(int selecao) {
+    uint32_t* pixels = obterBufferVideo();
+    if (!pixels) return;
+
+    // 1. Restaura o frame congelado do backup
+    if (backupEmuFrame) memcpy(pixels, backupEmuFrame, 1920 * 1080 * 4);
+
+    // 2. Caixa do Menu (Escurecimento para destaque)
+    int boxW = 500; int boxH = 450;
+    int boxX = (1920 - boxW) / 2; int boxY = (1080 - boxH) / 2;
+    for (int y = boxY; y < boxY + boxH; y++) {
+        uint32_t* row = pixels + (y * 1920);
+        for (int x = boxX; x < boxX + boxW; x++) {
+            uint32_t bg = row[x];
+            uint8_t r = (((bg >> 16) & 0xFF) * 5) / 10; // 50% brilho
+            uint8_t g = (((bg >> 8) & 0xFF) * 5) / 10;
+            uint8_t b = ((bg & 0xFF) * 5) / 10;
+            row[x] = 0xFF000000 | (r << 16) | (g << 8) | b;
+        }
+    }
+
+    uint32_t* p = obterBufferVideo();
+    if (p && backupEmuFrame) memcpy(backupEmuFrame, p, 1920 * 1080 * 4);
 }

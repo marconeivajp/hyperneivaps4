@@ -59,7 +59,7 @@ extern bool showOpcoes, editMode, marcados[3000];
 extern bool painelDuplo; extern int painelAtivo, selEsq, totalItensEsq, offEsq;
 extern bool visualizandoMidiaImagem; extern float zoomMidia; extern bool fullscreenMidia;
 extern bool visualizandoMidiaTexto; extern int textoMidiaScroll, totalLinhasTexto;
-extern int estadoNotepad, linhaSelecionada, totalLinhasNotepad; extern bool notepadSomenteLeitura;
+extern int estadoNotepad, linhaSelecionada, totalLinhasNotepad, scrollHorizontalNotepad; extern bool notepadSomenteLeitura;
 extern bool showUploadOpcoes; extern int selUploadOpcao;
 
 extern int listOri, audioH, upH, discoH;
@@ -151,7 +151,7 @@ void processarNavegacaoDPad(uint32_t botoes) {
                 if (movNext) tocarSom(SFX_DOWN); else if (movPrev) tocarSom(SFX_UP);
                 if (estadoNotepad == 0) {
                     if (movNext) { if (linhaSelecionada < 4999) { linhaSelecionada++; if (linhaSelecionada >= totalLinhasNotepad && !notepadSomenteLeitura) totalLinhasNotepad = linhaSelecionada + 1; } }
-                    else if (movPrev && linhaSelecionada > 0) linhaSelecionada--;
+                    else if (movPrev && linhaSelecionada > 0) linhaSelecionada--; else if ((menuAtual == MENU_NOTEPAD) && (botoes & ORBIS_PAD_BUTTON_LEFT)) { if (scrollHorizontalNotepad > 0) scrollHorizontalNotepad -= 1; cd = 4; } else if ((menuAtual == MENU_NOTEPAD) && (botoes & ORBIS_PAD_BUTTON_RIGHT)) { if (scrollHorizontalNotepad < 1000) scrollHorizontalNotepad += 1; cd = 4; }
                 }
             }
             else if (showUploadOpcoes && (menuAtual == MENU_BAIXAR_DROPBOX_UPLOAD || menuAtual == MENU_BAIXAR_DROPBOX_LISTA)) {
@@ -224,7 +224,7 @@ void processarNavegacaoDPad(uint32_t botoes) {
                     }
                 }
             }
-            cd = 10;
+            cd = 18; // Aumentado de 10 para 18 para evitar "pulo" de opções (Debounce)
         }
     }
     else if (!(botoes & (ORBIS_PAD_BUTTON_LEFT | ORBIS_PAD_BUTTON_RIGHT | ORBIS_PAD_BUTTON_UP | ORBIS_PAD_BUTTON_DOWN))) { cd = 0; }
@@ -325,7 +325,7 @@ void processarControles(uint32_t botoes, int32_t uId, OrbisImeDialogSetting* ime
     }
 
     bool inExplorar = false;
-    if (menuAtual == MENU_EXPLORAR || menuAtual == MENU_EXPLORAR_HOME) {
+    if (menuAtual == MENU_EXPLORAR || menuAtual == MENU_EXPLORAR_HOME || menuAtual == MENU_LISTA_CORES) {
         inExplorar = true;
     }
     else if (painelDuplo && (menuAtualEsq == MENU_EXPLORAR || menuAtualEsq == MENU_EXPLORAR_HOME)) {
@@ -358,7 +358,7 @@ void processarControles(uint32_t botoes, int32_t uId, OrbisImeDialogSetting* ime
 
             if (showUploadOpcoes && (menuAtual == MENU_BAIXAR_DROPBOX_UPLOAD || menuAtual == MENU_BAIXAR_DROPBOX_LISTA)) { extern void acaoCross_MenuUpload(); acaoCross_MenuUpload(); }
             else if (menuAtual == MENU_AUDIO_OPCOES && veioDeOutroMenuParaAudio && selAudioOpcao == 10) { menuAtual = menuAntesDoAudio; showOpcoes = false; veioDeOutroMenuParaAudio = false; }
-            else if (menuAtual == ROOT || menuAtual == MENU_TIPO_JOGO || menuAtual == MENU_JOGAR_PS4 || menuAtual == JOGAR_XML || menuAtual == MENU_MIDIA) acaoCross_Root();
+            else if (menuAtual == ROOT || menuAtual == MENU_TIPO_JOGO || menuAtual == MENU_JOGAR_PS4 || menuAtual == JOGAR_XML || menuAtual == MENU_MIDIA || menuAtual == MENU_EMULADOR) acaoCross_Root();
             else if (menuAtual == MENU_MUSICAS || menuAtual == MENU_AUDIO_OPCOES) acaoCross_Musicas();
             else if (menuAtual == MENU_NOTEPAD) { if (!notepadSomenteLeitura) { if (estadoNotepad == 0) acaoCross_Notepad(uId, imeSetting, imeTitle, linhasNotepad[linhaSelecionada]); else if (estadoNotepad == 1) acaoCross_Notepad(uId, imeSetting, imeTitle, nomeArquivo); } }
 
@@ -484,7 +484,11 @@ void processarControles(uint32_t botoes, int32_t uId, OrbisImeDialogSetting* ime
         if (!pTri) {
             if (botoes & ORBIS_PAD_BUTTON_L2) { if (menuAtual != MENU_AUDIO_OPCOES) { menuAntesDoAudio = menuAtual; veioDeOutroMenuParaAudio = true; abrirMenuAudioOpcoes(); } else if (veioDeOutroMenuParaAudio) { menuAtual = menuAntesDoAudio; showOpcoes = false; veioDeOutroMenuParaAudio = false; } }
             else {
-                if (menuAtual == MENU_MUSICAS) acaoTriangle_Musicas();
+                if (menuAtual == JOGAR_XML) {
+                    extern void alternarModoLauncher();
+                    alternarModoLauncher();
+                }
+                else if (menuAtual == MENU_MUSICAS) acaoTriangle_Musicas();
                 else if (menuAtual == MENU_BAIXAR_FTP_SERVIDORES || menuAtual == MENU_BAIXAR_FTP_LISTA || menuAtual == MENU_BAIXAR_FTP_UPLOAD) acaoTriangle_Baixar();
                 else if (menuAtual == MENU_BAIXAR_DROPBOX_UPLOAD || menuAtual == MENU_BAIXAR_DROPBOX_LISTA) { extern void acaoTriangle_MenuUpload(); acaoTriangle_MenuUpload(); }
                 else if (inExplorar) { extern void acaoTriangle_Explorar(); acaoTriangle_Explorar(); }

@@ -78,7 +78,7 @@ void drawLineOnGrid(bool(&grid)[W][H], int x0, int y0, int x1, int y1) {
 void renderizarControleTeste(uint32_t* p) {
     for (int i = 0; i < 1920 * 1080; i++) p[i] = 0xFF151515;
 
-    desenharTexto(p, "DIAGNOSTICO AVANCADO DO COMANDO", 40, 50, 40, 0xFF00AAFF);
+    desenharTexto(p, "GERENCIADOR DE COMANDO (V1.00)", 40, 50, 40, 0xFF00AAFF);
     desenharTexto(p, "Pressione [OPTIONS] para Sair do Teste", 25, 50, 80, 0xFFAAAAAA);
 
     if (globalPadHandle < 0) {

@@ -22,6 +22,52 @@ extern char msgStatus[128];
 extern int msgTimer;
 
 extern int globalUserId;
+bool emuladorAtivo = false;
+char caminhoCoreSelecionado[512] = "";
+char romParaCarregar[512] = ""; 
+
+// LAUNCHER MULTI-MODO V62
+int modoLauncher = 0; // 0 = XML, 1 = PASTA EMULADOR
+extern void preencherMenuGBA();
+extern void carregarXML(const char* nomeArquivoXML);
+
+void alternarModoLauncher() {
+    modoLauncher = (modoLauncher == 0) ? 1 : 0;
+    
+    if (modoLauncher == 1) { // MODO EMULADOR
+        memset(nomes, 0, sizeof(nomes));
+        strcpy(nomes[0], "NINTENDO GAME BOY ADVANCE");
+        totalItens = 1;
+        sel = 0; off = 0;
+    } else { // MODO XML (Volta pro system)
+        carregarXML("system.xml");
+    }
+}
+
+#include "libretro_bridge.h"
+
+void iniciarEmulador(const char* romPath) {
+    bool ehGBA = false;
+    const char* ext = strrchr(romPath, '.');
+    if (ext && (strcasecmp(ext, ".gba") == 0)) ehGBA = true;
+
+    if (!ehGBA && strlen(caminhoCoreSelecionado) == 0) {
+        snprintf(msgStatus, sizeof(msgStatus), "ERRO: SELECIONE O NUCLEO NO EXPLORADOR!");
+        msgTimer = 240;
+        return;
+    }
+    snprintf(msgStatus, sizeof(msgStatus), "Iniciando: %s", romPath); msgTimer = 180;
+    if (bridge_iniciar(caminhoCoreSelecionado, romPath)) {
+        emuladorAtivo = true;
+        extern MenuLevel menuAtual;
+        menuAtual = MENU_EMULADOR_EXECUCAO; // V21: Foca no emulador e esconde menus
+    }
+}
+
+void fecharEmulador() {
+    bridge_finalizar();
+    emuladorAtivo = false;
+}
 
 struct app_launch_ctx {
     uint32_t structsize;

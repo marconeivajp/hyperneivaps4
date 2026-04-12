@@ -14,10 +14,11 @@ char msgStatus[128] = "SISTEMA PRONTO";
 int msgTimer = 0;
 
 char caminhoMidiaAtual[512] = "/data/HyperNeiva/midia";
+char caminhoROMsAtual[512] = ""; // Novo: rastreia a pasta de ROMs ativa
 
 void preencherRoot() {
     memset(nomes, 0, sizeof(nomes));
-    strcpy(nomes[0], "JOGAR");
+    strcpy(nomes[0], "JOGAR"); // <--- Agora agrupa PS4 Nativo e XML
     strcpy(nomes[1], "MIDIA");
     strcpy(nomes[2], "BAIXAR");
     strcpy(nomes[3], "EDITAR");
@@ -26,6 +27,14 @@ void preencherRoot() {
     strcpy(nomes[6], "INFORMACOES");
     totalItens = 7;
     menuAtual = ROOT;
+}
+
+void preencherMenuJogar() {
+    memset(nomes, 0, sizeof(nomes));
+    strcpy(nomes[0], "PS4 NATIVO");
+    strcpy(nomes[1], "JOGOS XML");
+    totalItens = 2;
+    menuAtual = MENU_TIPO_JOGO;
 }
 
 void preencherExplorerHome() {
@@ -65,6 +74,70 @@ void abrirPastaMidia(const char* caminho) {
     off = 0;
 }
 
+void preencherMenuGBA() {
+    memset(nomes, 0, sizeof(nomes));
+    totalItens = 0;
+
+    const char* romPath = "/data/retroarch/Games/gba";
+    strcpy(caminhoROMsAtual, romPath); // Registra que estamos no GBA
+    DIR* d = opendir(romPath);
+    if (d) {
+        struct dirent* dir;
+        while ((dir = readdir(d)) != NULL && totalItens < 3000) {
+            if (dir->d_type == DT_REG) {
+                const char* ext = strrchr(dir->d_name, '.');
+                if (ext && (strcasecmp(ext, ".gba") == 0 || strcasecmp(ext, ".zip") == 0 || strcasecmp(ext, ".7z") == 0)) {
+                    strncpy(nomes[totalItens], dir->d_name, 63);
+                    nomes[totalItens][63] = '\0';
+                    totalItens++;
+                }
+            }
+        }
+        closedir(d);
+    }
+
+    if (totalItens == 0) {
+        strcpy(nomes[0], "Nenhuma ROM GBA encontrada");
+        totalItens = 1;
+    }
+
+    menuAtual = MENU_EMULADOR; // Reaproveita o menu de lista de ROMs
+    sel = 0;
+    off = 0;
+}
+
 void preencherMenuMidia() {
     abrirPastaMidia("/data/HyperNeiva/midia");
+}
+
+void preencherMenuEmulador() {
+    memset(nomes, 0, sizeof(nomes));
+    totalItens = 0;
+
+    const char* romPath = "/data/retroarch/Games/roms Genesis";
+    strcpy(caminhoROMsAtual, romPath); // Registra que estamos no Genesis
+    DIR* d = opendir(romPath);
+    if (d) {
+        struct dirent* dir;
+        while ((dir = readdir(d)) != NULL && totalItens < 3000) {
+            if (dir->d_type == DT_REG) {
+                const char* ext = strrchr(dir->d_name, '.');
+                if (ext && (strcasecmp(ext, ".md") == 0 || strcasecmp(ext, ".bin") == 0 || strcasecmp(ext, ".gen") == 0 || strcasecmp(ext, ".smd") == 0 || strcasecmp(ext, ".zip") == 0 || strcasecmp(ext, ".rar") == 0 || strcasecmp(ext, ".7z") == 0)) {
+                    strncpy(nomes[totalItens], dir->d_name, 63);
+                    nomes[totalItens][63] = '\0';
+                    totalItens++;
+                }
+            }
+        }
+        closedir(d);
+    }
+
+    if (totalItens == 0) {
+        strcpy(nomes[0], "Nenhuma ROM encontrada");
+        totalItens = 1;
+    }
+
+    menuAtual = MENU_EMULADOR;
+    sel = 0;
+    off = 0;
 }

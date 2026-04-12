@@ -163,6 +163,7 @@
     <ClInclude Include="teclado.h" />
     <ClInclude Include="upload.h" />
     <ClInclude Include="menu_grafico_visualizadores.h" />
+    <ClInclude Include="video.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

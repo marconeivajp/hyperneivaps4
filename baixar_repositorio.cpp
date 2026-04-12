@@ -77,6 +77,7 @@ void listarXMLsRepositorio() {
     if (strcmp(pastaRepositorioAtual, "games") == 0) {
         extrairXMLRepositorioUnico("games", "systemas+zipados.xml");
         extrairXMLRepositorioUnico("games", "Sega_Master_System.xml"); // EXTRAI O MASTER SYSTEM AQUI TAMBÉM!
+        extrairXMLRepositorioUnico("games", "retrocast_brasil.xml");
     }
     else if (strcmp(pastaRepositorioAtual, "imagens para perfil") == 0) {
         extrairXMLRepositorioUnico("imagens para perfil", "xavatar.xml");

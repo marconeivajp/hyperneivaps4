@@ -33,9 +33,11 @@
 #include "audio.h"   
 #include "bloco_de_notas.h"
 #include "miniz.h" 
+#include "video.h" // <--- CABEï¿½ALHO DO Vï¿½DEO ADICIONADO AQUI
 
 extern void preencherOpcoesContexto(const char* nomeArquivo);
 extern void acaoArquivo(int idxOpcao);
+extern void iniciarEmulador(const char* romPath);
 
 extern bool visualizandoMidiaImagem;
 extern unsigned char* imgMidia;
@@ -175,7 +177,7 @@ void acaoL2_Explorar() {
         selEsq = 0;
         offEsq = 0;
         extern int totalItensEsq;
-        totalItensEsq = 0; // M�GICA 1: For�a redesenhar o menu ao abrir!
+        totalItensEsq = 0; // Mï¿½GICA 1: Forï¿½a redesenhar o menu ao abrir!
     }
     else {
         painelAtivo = 1;
@@ -188,6 +190,7 @@ void acaoCross_Explorar() {
     if (esperandoNomePasta || esperandoRenomear) return;
     bool ehEsq = (painelDuplo && painelAtivo == 0); MenuLevel mAtual = ehEsq ? menuAtualEsq : menuAtual;
 
+    if (mAtual == MENU_LISTA_CORES && showOpcoes) { acaoArquivo(selOpcao); return; }
     if ((mAtual == MENU_EXPLORAR || visualizandoMidiaImagem) && showOpcoes) { acaoArquivo(selOpcao); return; }
     if (visualizandoMidiaImagem) { fullscreenMidia = !fullscreenMidia; return; }
 
@@ -195,7 +198,11 @@ void acaoCross_Explorar() {
 
     if (mAtual == MENU_EXPLORAR_HOME) {
         char tempBase[256];
-        if (sAtual == 0) strcpy(tempBase, "/data/HyperNeiva"); else if (sAtual == 1) strcpy(tempBase, "/"); else if (sAtual == 2) strcpy(tempBase, "/mnt/usb0"); else if (sAtual == 3) strcpy(tempBase, "/mnt/usb1");
+        if (sAtual == 0) strcpy(tempBase, "/data/HyperNeiva"); 
+        else if (sAtual == 1) strcpy(tempBase, "/"); 
+        else if (sAtual == 2) strcpy(tempBase, "/mnt/usb0"); 
+        else if (sAtual == 3) strcpy(tempBase, "/mnt/usb1");
+        
         if (ehEsq) listarDiretorioEsq(tempBase); else { strcpy(baseRaiz, tempBase); listarDiretorio(baseRaiz); }
     }
     else if (mAtual == MENU_EXPLORAR) {
@@ -210,10 +217,20 @@ void acaoCross_Explorar() {
             for (int i = 0; nomeBlindado[i]; i++) { nomeBlindado[i] = tolower(nomeBlindado[i]); }
 
             if (strstr(nomeBlindado, ".pkg")) { instalarPkgLocal(caminhoArquivo); }
-            else if (strstr(nomeBlindado, ".zip")) {
-                listaOpcoes[0] = "extrair zip"; mapOpcoes[0] = 7;
-                for (int k = 1; k < 150; k++) { listaOpcoes[k] = ""; mapOpcoes[k] = -1; }
-                totalOpcoes = 1; showOpcoes = true; selOpcao = 0;
+            else if (strstr(nomeBlindado, ".self") || strstr(nomeBlindado, ".elf") || strstr(nomeBlindado, ".prx")) {
+                preencherOpcoesContexto(nItems[sAtual]);
+                showOpcoes = true; selOpcao = totalOpcoes - 2; // Foca no "DEFINIR NUCLEO" ou "DETALHES"
+            }
+            else if (strstr(nomeBlindado, ".bin") || strstr(nomeBlindado, ".md") || strstr(nomeBlindado, ".smd") || strstr(nomeBlindado, ".gen") || strstr(nomeBlindado, ".sfc") || strstr(nomeBlindado, ".smc")) {
+                snprintf(msgStatus, sizeof(msgStatus), "ROM Detectada!"); msgTimer = 120;
+                iniciarEmulador(caminhoArquivo);
+            }
+            else if (strstr(nomeBlindado, ".zip") || strstr(nomeBlindado, ".rar") || strstr(nomeBlindado, ".7z")) {
+                for (int i = 0; i < 150; i++) { listaOpcoes[i] = ""; mapOpcoes[i] = -1; }
+                listaOpcoes[0] = "extrair aqui"; 
+                mapOpcoes[0] = 7;
+                totalOpcoes = 1;
+                showOpcoes = true; selOpcao = 0; 
             }
             else if (strstr(nomeBlindado, ".png") || strstr(nomeBlindado, ".jpg") || strstr(nomeBlindado, ".jpeg") || strstr(nomeBlindado, ".bmp") || strstr(nomeBlindado, ".xavatar")) {
 
@@ -248,6 +265,12 @@ void acaoCross_Explorar() {
                 extern void abrirLeitor(const char* caminho);
                 abrirLeitor(caminhoArquivo);
             }
+            // ==========================================================
+            // LOGICA PARA REPRODUZIR Vï¿½DEO MP4 ADICIONADA AQUI
+            // ==========================================================
+            else if (strstr(nomeBlindado, ".mp4")) {
+                iniciarVideoMP4(caminhoArquivo);
+            }
             else if (strstr(nomeBlindado, ".txt") || strstr(nomeBlindado, ".xml") || strstr(nomeBlindado, ".json") || strstr(nomeBlindado, ".ini") || strstr(nomeBlindado, ".cfg") || strstr(nomeBlindado, ".log") || strstr(nomeBlindado, ".cpp") || strstr(nomeBlindado, ".h")) {
                 extern void editarArquivoExistente(const char* pPasta, const char* nArquivo);
                 editarArquivoExistente(pExplorar, nItems[sAtual]);
@@ -255,9 +278,48 @@ void acaoCross_Explorar() {
             }
         }
     }
+    else if (mAtual == MENU_LISTA_CORES) {
+        char coreName[128]; strcpy(coreName, nomes[sel]);
+        char fullPath[512];
+        bool achou = false;
+        const char* pastas[] = {"/data/retroarch/cores", "/mnt/usb0/cores", "/mnt/usb1/cores", "/data/self/retroarch/cores"};
+        for (int i = 0; i < 4; i++) {
+            sprintf(fullPath, "%s/%s", pastas[i], coreName);
+            FILE* f = fopen(fullPath, "rb");
+            if (f) { fclose(f); achou = true; break; }
+        }
+        if (achou) {
+            extern char caminhoCoreSelecionado[512];
+            extern char romParaCarregar[512];
+            strcpy(caminhoCoreSelecionado, fullPath);
+            sprintf(msgStatus, "NUCLEO ATIVO: %s", coreName);
+            msgTimer = 240; 
+            
+            // SE TIVER JOGO PENDENTE, COMEÇA AGORA!
+            if (strlen(romParaCarregar) > 0) {
+                extern void iniciarEmulador(const char* rom);
+                iniciarEmulador(romParaCarregar);
+                romParaCarregar[0] = '\0'; // Limpa para a proxima
+            } else {
+                extern void preencherMenuEmulador();
+                preencherMenuEmulador();
+            }
+        } else {
+            sprintf(msgStatus, "ERRO: %s NAO ENCONTRADO NO PS4!", coreName);
+            msgTimer = 400;
+        }
+    }
 }
 
 void acaoCircle_Explorar() {
+    // ==========================================================
+    // PARAR O Vï¿½DEO SE ESTIVER RODANDO AO APERTAR BOLINHA
+    // ==========================================================
+    if (videoRodando) {
+        pararVideo();
+        return;
+    }
+
     if (visualizandoMidiaImagem) {
         visualizandoMidiaImagem = false;
         if (imgMidia) { stbi_image_free(imgMidia); imgMidia = NULL; }
@@ -271,20 +333,21 @@ void acaoCircle_Explorar() {
     MenuLevel mAtual = ehEsq ? menuAtualEsq : menuAtual;
     char* pExplorar = ehEsq ? pathExplorarEsq : pathExplorar;
 
+    if (mAtual == MENU_LISTA_CORES) { preencherRoot(); return; }
     if (mAtual == MENU_EXPLORAR_HOME) {
-        if (painelDuplo && ehEsq) { // Seguran�a extra: s� fechar se estiver na esquerda
+        if (painelDuplo && ehEsq) { // Seguranï¿½a extra: sï¿½ fechar se estiver na esquerda
             painelDuplo = false;
             painelAtivo = 1;
         }
         if (!ehEsq) preencherRoot();
     }
     else if (mAtual == MENU_EXPLORAR) {
-        // M�GICA 2: Garantir que "/data/HyperNeiva" e outros caminhos raizes do L2 acionem a volta para o Menu Home
+        // Mï¿½GICA 2: Garantir que "/data/HyperNeiva" e outros caminhos raizes do L2 acionem a volta para o Menu Home
         if (strcmp(pExplorar, baseRaiz) == 0 || strcmp(pExplorar, "/data/HyperNeiva") == 0 || strcmp(pExplorar, "/") == 0 || strcmp(pExplorar, "/mnt/usb0") == 0 || strcmp(pExplorar, "/mnt/usb1") == 0) {
             if (ehEsq) {
                 menuAtualEsq = MENU_EXPLORAR_HOME;
                 extern int totalItensEsq;
-                totalItensEsq = 0; // M�GICA 3: For�a o motor gr�fico a redesenhar a lista inicial do painel esquerdo!!
+                totalItensEsq = 0; // Mï¿½GICA 3: Forï¿½a o motor grï¿½fico a redesenhar a lista inicial do painel esquerdo!!
                 selEsq = 0;
                 offEsq = 0;
             }

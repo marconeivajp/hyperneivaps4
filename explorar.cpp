@@ -20,7 +20,6 @@
 #include <orbis/CommonDialog.h>
 #include "bloco_de_notas.h" 
 #include <errno.h> 
-
 #include "miniz.h" 
 #include "stb_image.h" 
 #define STB_IMAGE_WRITE_IMPLEMENTATION
@@ -31,7 +30,6 @@
 #endif
 
 extern void atualizarBarra(float progresso);
-
 extern bool visualizandoMidiaImagem;
 char caminhoImagemAberta[512] = "";
 extern unsigned char* imgMidia;
@@ -72,6 +70,10 @@ wchar_t textoTeclado[256] = L"";
 char oldPathParaRenomear[512] = "";
 char oldExtParaRenomear[64] = "";
 bool ehPastaParaRenomear = false;
+
+// [SISTEMA DE VÍDEO EXTERN]
+extern int comando_trocar_video;
+extern void iniciarVideoMP4(const char* caminho);
 
 void preencherOpcoesContexto(const char* nomeArquivo) {
     for (int i = 0; i < 150; i++) { listaOpcoes[i] = ""; mapOpcoes[i] = -1; }
@@ -136,7 +138,10 @@ void listarDiretorio(const char* path) {
         else if (temp[j].ehPasta == temp[j + 1].ehPasta && strcasecmp(temp[j].nome, temp[j + 1].nome) > 0) trocar = true;
         if (trocar) { ItemLista aux = temp[j]; temp[j] = temp[j + 1]; temp[j + 1] = aux; }
     }
-    for (int i = 0; i < count; i++) { if (temp[i].ehPasta) sprintf(nomes[i], "[%s]", temp[i].nome); else strcpy(nomes[i], temp[i].nome); }
+    for (int i = 0; i < count; i++) {
+        if (temp[i].ehPasta) sprintf(nomes[i], "[%s]", temp[i].nome);
+        else strcpy(nomes[i], temp[i].nome);
+    }
     totalItens = count; strcpy(pathExplorar, path); menuAtual = MENU_EXPLORAR; sel = 0;
 }
 
@@ -614,5 +619,52 @@ void atualizarImePasta() {
             }
         }
         sceImeDialogTerm(); esperandoNomePasta = false; esperandoRenomear = false; msgTimer = 120;
+    }
+}
+
+// ==========================================================
+// FUNÇÃO DE TROCA DE VÍDEO (L1 / R1) - ADICIONADA
+// ==========================================================
+void verificarTrocaDeVideo() {
+    if (comando_trocar_video == 0) return;
+
+    bool ehEsq = (painelDuplo && painelAtivo == 0);
+    int tItens = ehEsq ? totalItensEsq : totalItens;
+    char (*nItems)[64] = ehEsq ? nomesEsq : nomes;
+    char* pExplorar = ehEsq ? pathExplorarEsq : pathExplorar;
+    int* pSel = ehEsq ? &selEsq : &sel;
+
+    int direcao = comando_trocar_video;
+    comando_trocar_video = 0; // Consome o comando
+
+    int i = *pSel + direcao;
+    bool achou = false;
+
+    // Busca circular na pasta atual
+    while (i >= 0 && i < tItens) {
+        if (nItems[i][0] != '[') {
+            char temp[256]; strcpy(temp, nItems[i]);
+            for (int c = 0; temp[c]; c++) temp[c] = tolower(temp[c]);
+            if (strstr(temp, ".mp4")) { achou = true; break; }
+        }
+        i += direcao;
+    }
+
+    if (!achou) { // Loop (Início ou Fim)
+        i = (direcao == 1) ? 0 : (tItens - 1);
+        while (i != *pSel) {
+            if (nItems[i][0] != '[') {
+                char temp[256]; strcpy(temp, nItems[i]);
+                for (int c = 0; temp[c]; c++) temp[c] = tolower(temp[c]);
+                if (strstr(temp, ".mp4")) { achou = true; break; }
+            }
+            i += direcao;
+        }
+    }
+
+    if (achou) {
+        *pSel = i; // Sincroniza a barra do menu
+        char nPath[512]; sprintf(nPath, "%s/%s", pExplorar, nItems[i]);
+        iniciarVideoMP4(nPath);
     }
 }

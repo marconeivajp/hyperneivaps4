@@ -10,6 +10,8 @@
 #include <string.h>
 #include <math.h>
 
+int cursX = 0, cursY = 0, cursW = 0, cursH = 0;
+
 extern Console listaConsoles[5];
 extern int consoleAtual;
 extern char linksAtuais[3000][1024];
@@ -179,7 +181,7 @@ void desenharListas(uint32_t* p, int refPainel) {
     bool isGameMenu = (mAtual == MENU_JOGAR_PS4 || mAtual == JOGAR_XML || mAtual == SCRAPER_LIST);
 
     // O EXPLORADOR E O PAINEL DUPLO SEMPRE USAM O ESTILO 0 (LISTA CLÁSSICA RETA)
-    if (mAtual == MENU_EXPLORAR || mAtual == MENU_EXPLORAR_HOME || mAtual == MENU_BAIXAR_DROPBOX_LISTA || mAtual == MENU_BAIXAR_DROPBOX_UPLOAD || painelDuplo) {
+    if (mAtual == MENU_EXPLORAR || mAtual == MENU_EXPLORAR_HOME || mAtual == MENU_BAIXAR_DROPBOX_LISTA || mAtual == MENU_BAIXAR_DROPBOX_UPLOAD || mAtual == MENU_EDITAR || mAtual == MENU_EDIT_TARGET || painelDuplo) {
         currentRenderStyle = 0;
     }
     else if ((currentRenderStyle == 3 || currentRenderStyle == 4 || currentRenderStyle == 5) && !isGameMenu) {
@@ -269,6 +271,10 @@ void desenharListas(uint32_t* p, int refPainel) {
                     }
                 }
                 if (currentRenderStyle == 4) desenharTextoAlinhadoAnimado(p, nItems[i], 40, drawX - 50, drawY + itemH + 30, itemW + 100, 0xFFFFFFFF, true);
+
+                if (refPainel == 1 || !painelDuplo) {
+                    cursX = drawX; cursY = drawY; cursW = itemW; cursH = itemH;
+                }
             }
         }
     }
@@ -336,6 +342,10 @@ void desenharListas(uint32_t* p, int refPainel) {
                         }
                     }
                     desenharTextoAlinhadoAnimado(p, nItems[i], 40, centerX - 200, centerY + centerH + 50, centerW + 400, 0xFFFFFFFF, true);
+
+                    if (refPainel == 1 || !painelDuplo) {
+                        cursX = drawX; cursY = drawY; cursW = drawW; cursH = drawH;
+                    }
                 }
             }
         }
@@ -407,6 +417,12 @@ void desenharListas(uint32_t* p, int refPainel) {
             if (aF > 10) { for (int by = 0; by < listH; by++) { for (int bx = 0; bx < larguraItem; bx++) { int pxX = drawX + bx; int pyY = drawY + by; if (pxX >= 0 && pxX < 1920 && pyY >= 0 && pyY < 1080) p[pyY * 1920 + pxX] = corFundo; } } }
 
             desenharTextoAlinhadoAnimado(p, nItems[gIdx], currentFontTam, drawX, drawY + (listH / 4), larguraItem, corTexto, isSelected);
+
+            if (isSelected) {
+                if (refPainel == 1 || !painelDuplo) {
+                    cursX = drawX; cursY = drawY; cursW = larguraItem; cursH = listH;
+                }
+            }
         }
     }
 }

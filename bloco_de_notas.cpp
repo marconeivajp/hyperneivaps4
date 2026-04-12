@@ -11,7 +11,7 @@ int estadoNotepad = 0;
 bool notepadSomenteLeitura = false;
 char linhasNotepad[MAX_LINHAS][MAX_CHARS_LINHA];
 int linhaSelecionada = 0;
-int totalLinhasNotepad = 1;
+int totalLinhasNotepad = 1; int scrollHorizontalNotepad = 0;
 
 char pastaDestinoFinal[512] = "";
 char nomeArquivo[256] = "";
@@ -21,6 +21,7 @@ void inicializarNotepad() {
     linhaSelecionada = 0;
     totalLinhasNotepad = 1;
     estadoNotepad = 0;
+    scrollHorizontalNotepad = 0;
     notepadSomenteLeitura = false;
     memset(nomeArquivo, 0, sizeof(nomeArquivo));
 }
@@ -30,6 +31,7 @@ void abrirTextoNoNotepad(const char* textoCompleto) {
     linhaSelecionada = 0;
     totalLinhasNotepad = 0;
     estadoNotepad = 0;
+    scrollHorizontalNotepad = 0;
     notepadSomenteLeitura = true;
 
     int charCount = 0;
@@ -125,8 +127,8 @@ void renderizarNotepad(uint32_t* pixels) {
             if (idx >= totalLinhasNotepad) break;
 
             uint32_t cor = (idx == linhaSelecionada) ? 0xFF00FF00 : 0xFFDDDDDD;
-            char buffer[300];
-            snprintf(buffer, sizeof(buffer), "%04d: %s%s", idx + 1, linhasNotepad[idx], (idx == linhaSelecionada && !notepadSomenteLeitura) ? " <" : "");
+            char buffer[MAX_CHARS_LINHA + 32];
+            const char* txtPtr = linhasNotepad[idx]; if (scrollHorizontalNotepad > 0 && strlen(txtPtr) > (size_t)scrollHorizontalNotepad) { txtPtr += scrollHorizontalNotepad; } snprintf(buffer, sizeof(buffer), "%04d: %s%s", idx + 1, txtPtr, (idx == linhaSelecionada && !notepadSomenteLeitura) ? " <" : "");
             desenharTexto(pixels, buffer, 30, 50, 120 + (i * 40), cor);
         }
     }

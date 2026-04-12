@@ -1,6 +1,8 @@
 #ifndef MENU_H
 #define MENU_H
 
+#include <stdint.h>
+
 enum MenuLevel {
     ROOT,
     MENU_TIPO_JOGO,
@@ -35,7 +37,12 @@ enum MenuLevel {
     MENU_EXTRA,
     MENU_INFORMACAO,
     MENU_CONTROLE_TESTE,
-    MENU_INSTRUMENTOS
+    MENU_INSTRUMENTOS,
+    MENU_EMULADOR,
+    MENU_LISTA_CORES,
+    MENU_EMULADOR_EXECUCAO,
+    MENU_EMU_CONTROLES, // NOVO: Tela de ajuda de controles do emulador
+    MENU_ERRO_CRITICO
 };
 
 extern MenuLevel menuAtual;
@@ -46,6 +53,7 @@ extern int off;
 extern int offEsq;
 extern char msgStatus[128];
 extern int msgTimer;
+extern uint32_t msgStatusColor; // NOVO: Cor da mensagem de status
 extern char caminhoMidiaAtual[512];
 
 void preencherRoot();

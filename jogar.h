@@ -10,4 +10,9 @@ void carregarXML(const char* path);
 // A NOSSA NOVA FUNÇÃO MÁGICA DE LANÇAMENTO
 void chamarJogo(const char* titleId, const char* romPath);
 
+// --- NOVO: SUPORTE AO EMULADOR NATIVO ---
+extern bool emuladorAtivo;
+void iniciarEmulador(const char* romPath);
+void fecharEmulador();
+
 #endif

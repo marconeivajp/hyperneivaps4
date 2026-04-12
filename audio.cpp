@@ -21,6 +21,7 @@
 #include "explorar.h" 
 #include "elementos_sonoros.h" 
 #include "instrumentos.h" // <-- NOVO: Inclui o piano virtual
+#include "video.h"        // <-- MIXAGem DE VIDEO
 
 #define DR_WAV_IMPLEMENTATION
 #include "dr_wav.h"
@@ -47,6 +48,42 @@ char caminhoNavegacaoMusicas[512] = "/data/HyperNeiva/Musicas";
 
 // ---> O RELÓGIO DO VISUALIZADOR DE ACORDES <---
 volatile float audioTempoAtual = 0.0f;
+
+// ---> BUFFER DO EMULADOR (LIBRETRO) <---
+#define EMU_AUDIO_BUFFER_SIZE 4096
+static int16_t emuAudioBuffer[EMU_AUDIO_BUFFER_SIZE * 2];
+static volatile int emuAudioReadIdx = 0;
+static volatile int emuAudioWriteIdx = 0;
+
+void enviarAmostraAudio(int16_t L, int16_t R) {
+    int nextWrite = (emuAudioWriteIdx + 1) % EMU_AUDIO_BUFFER_SIZE;
+    if (nextWrite != emuAudioReadIdx) {
+        emuAudioBuffer[emuAudioWriteIdx * 2] = L;
+        emuAudioBuffer[emuAudioWriteIdx * 2 + 1] = R;
+        emuAudioWriteIdx = nextWrite;
+    }
+}
+
+static void misturarAudioEmulador(int16_t* pSamples, size_t numFrames) {
+    for (size_t i = 0; i < numFrames; i++) {
+        if (emuAudioReadIdx != emuAudioWriteIdx) {
+            int16_t eL = emuAudioBuffer[emuAudioReadIdx * 2];
+            int16_t eR = emuAudioBuffer[emuAudioReadIdx * 2 + 1];
+            
+            // Mixagem simples (soma com saturação)
+            int32_t mixL = pSamples[i * 2] + eL;
+            int32_t mixR = pSamples[i * 2 + 1] + eR;
+            
+            if (mixL > 32767) mixL = 32767; else if (mixL < -32768) mixL = -32768;
+            if (mixR > 32767) mixR = 32767; else if (mixR < -32768) mixR = -32768;
+            
+            pSamples[i * 2] = (int16_t)mixL;
+            pSamples[i * 2 + 1] = (int16_t)mixR;
+            
+            emuAudioReadIdx = (emuAudioReadIdx + 1) % EMU_AUDIO_BUFFER_SIZE;
+        }
+    }
+}
 
 enum AudioType { AUDIO_NONE, AUDIO_WAV, AUDIO_MP3 };
 
@@ -269,6 +306,9 @@ static void* audioThreadFunc(void* argp) {
     }
 
     while (audioRodando) {
+        if (audioPort < 0) {
+            audioPort = sceAudioOutOpen(userId, ORBIS_AUDIO_OUT_PORT_TYPE_MAIN, 0, 256, 48000, ORBIS_AUDIO_OUT_PARAM_FORMAT_S16_STEREO);
+        }
 
         if (comandoBuscarSegundos != 0) {
             if (currentAudioType != AUDIO_NONE) {
@@ -311,7 +351,9 @@ static void* audioThreadFunc(void* argp) {
             for (int i = 0; i < 256 * 2; i++) pSampleData[i] = 0;
             misturarEfeitosSonoros(pSampleData, 256);
             misturarAudioPiano(pSampleData, 256); // <-- MISTURA DO PIANO AQUI
-            sceAudioOutOutput(audioPort, pSampleData);
+            misturarAudioVideo(pSampleData, 256); // <-- MISTURA DO VIDEO AQUI
+            misturarAudioEmulador(pSampleData, 256); // <-- MISTURA DO EMULADOR AQUI
+            if (audioPort >= 0) sceAudioOutOutput(audioPort, pSampleData);
             continue;
         }
 
@@ -397,7 +439,9 @@ static void* audioThreadFunc(void* argp) {
 
         misturarEfeitosSonoros(pSampleData, 256);
         misturarAudioPiano(pSampleData, 256); // <-- MISTURA DO PIANO AQUI TAMBÉM
-        sceAudioOutOutput(audioPort, pSampleData);
+        misturarAudioVideo(pSampleData, 256); // <-- MISTURA DO VIDEO AQUI TAMBÉM
+        misturarAudioEmulador(pSampleData, 256); // <-- MISTURA DO EMULADOR AQUI TAMBÉM
+        if (audioPort >= 0) sceAudioOutOutput(audioPort, pSampleData);
     }
 
     if (currentAudioType == AUDIO_WAV) drwav_uninit(&wav);

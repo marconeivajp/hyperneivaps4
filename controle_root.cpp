@@ -20,6 +20,8 @@
 // DECLARAÇÃO DOS NOVOS MENUS
 extern void preencherMenuExtra();
 extern void preencherMenuInformacao();
+extern void preencherMenuEmulador();
+extern void preencherMenuGBA(); // Novo V26
 
 bool visualizandoMidiaImagem = false;
 unsigned char* imgMidia = NULL;
@@ -57,6 +59,7 @@ extern void preencherRoot();
 extern void preencherMenuMidia();
 extern void abrirPastaMidia(const char* caminho);
 extern void chamarJogo(const char* titleId, const char* romPath);
+extern void iniciarEmulador(const char* romPath);
 
 // =========================================================================
 // FILTRO ANTI-FANTASMA (SÓ RODA NO CLIQUE DO X)
@@ -212,10 +215,19 @@ void acaoCross_Root() {
     if (visualizandoMidiaImagem) { fullscreenMidia = !fullscreenMidia; if (!fullscreenMidia) zoomMidia = 1.0f; return; }
     if (visualizandoMidiaTexto) return;
 
+    if (menuAtual == MENU_ERRO_CRITICO) {
+        msgTimer = 0;
+        msgStatus[0] = '\0';
+        // extern void listarCoresDisponiveis();
+        // listarCoresDisponiveis();
+        return;
+    }
+
     if (menuAtual == ROOT) {
-        if (sel == 0) {
-            memset(nomes, 0, sizeof(nomes)); strcpy(nomes[0], "Jogos de PS4 Nativo"); strcpy(nomes[1], "Listas XML (Retro)");
-            totalItens = 2; sel = 0; off = 0; menuAtual = MENU_TIPO_JOGO;
+        if (sel == 0) { // JOGAR
+            extern void preencherMenuJogar();
+            preencherMenuJogar();
+            sel = 0; off = 0;
         }
         else if (sel == 1) { preencherMenuMidia(); sel = 0; off = 0; }
         else if (sel == 2) { preencherMenuBaixar(); sel = 0; off = 0; }
@@ -237,9 +249,7 @@ void acaoCross_Root() {
             if (d) {
                 struct dirent* dir;
                 while ((dir = readdir(d)) != NULL && cont < 2900) {
-
                     if (strcmp(dir->d_name, ".") != 0 && strcmp(dir->d_name, "..") != 0 && strlen(dir->d_name) >= 8) {
-
                         char idLimpo[16]; memset(idLimpo, 0, sizeof(idLimpo));
                         strncpy(idLimpo, dir->d_name, 9);
                         idLimpo[9] = '\0';
@@ -261,9 +271,6 @@ void acaoCross_Root() {
             sel = 0; off = 0; menuAtual = MENU_JOGAR_PS4; timeToLoadCapa = 5;
         }
         else if (sel == 1) {
-            // -----------------------------------------------------
-            // AGORA MANDA APENAS O NOME, O MOTOR TRATA DE COPIAR!
-            // -----------------------------------------------------
             carregarXML("system.xml");
         }
     }
@@ -280,23 +287,52 @@ void acaoCross_Root() {
         }
     }
 
+    else if (menuAtual == MENU_EMULADOR) {
+        if (totalItens > 0 && strcmp(nomes[sel], "Nenhuma ROM encontrada") != 0 && strcmp(nomes[sel], "Nenhuma ROM GBA encontrada") != 0) {
+            extern char romParaCarregar[512];
+            extern char caminhoROMsAtual[512];
+            sprintf(romParaCarregar, "%s/%s", caminhoROMsAtual, nomes[sel]);
+            
+            // NOVO: Se for GBA, não precisa escolher núcleo (é estático!)
+            const char* ext = strrchr(romParaCarregar, '.');
+            if (ext && (strcasecmp(ext, ".gba") == 0)) {
+                extern void iniciarEmulador(const char* romPath);
+                iniciarEmulador(romParaCarregar);
+            } else {
+                // extern void listarCoresDisponiveis();
+                // listarCoresDisponiveis(); 
+            }
+        }
+    }
+
     else if (menuAtual == JOGAR_XML) {
-        // Se estamos dentro do system.xml e clicamos num nome
-        if (strstr(caminhoXMLAtual, "system.xml") != NULL) {
-            char caminhoNovoXML[512];
-            sprintf(caminhoNovoXML, "%s.xml", nomes[sel]);
-            carregarXML(caminhoNovoXML);
-            sel = 0;
-            off = 0;
+        extern int modoLauncher;
+        if (modoLauncher == 1) { // PASTA EMULADOR
+            if (sel == 0) { // Nintendo Game Boy Advance
+                extern void preencherMenuGBA();
+                preencherMenuGBA();
+                modoLauncher = 0; // Reseta para XML ao entrar
+                sel = 0; off = 0;
+            }
         }
-        // Atalho legado para SP, por segurança!
-        else if (strcasecmp(nomes[sel], "sp") == 0) {
-            carregarXML("sp.xml");
-            sel = 0; off = 0;
-        }
-        else {
-            sprintf(msgStatus, "PREPARANDO PARA JOGAR: %s", nomes[sel]);
-            msgTimer = 120;
+        else { // MODO XML NORMAL
+            // Se estamos dentro do system.xml e clicamos num nome
+            if (strstr(caminhoXMLAtual, "system.xml") != NULL) {
+                char caminhoNovoXML[512];
+                sprintf(caminhoNovoXML, "%s.xml", nomes[sel]);
+                carregarXML(caminhoNovoXML);
+                sel = 0;
+                off = 0;
+            }
+            // Atalho legado para SP, por segurança!
+            else if (strcasecmp(nomes[sel], "sp") == 0) {
+                carregarXML("sp.xml");
+                sel = 0; off = 0;
+            }
+            else {
+                sprintf(msgStatus, "PREPARANDO PARA JOGAR: %s", nomes[sel]);
+                msgTimer = 120;
+            }
         }
     }
 
@@ -358,5 +394,5 @@ void acaoCircle_Root() {
     }
     else if (menuAtual == MENU_MIDIA) { if (strcmp(caminhoMidiaAtual, "/data/HyperNeiva/midia") == 0) { preencherRoot(); } else { char* ultimaBarra = strrchr(caminhoMidiaAtual, '/'); if (ultimaBarra != NULL) { *ultimaBarra = '\0'; } abrirPastaMidia(caminhoMidiaAtual); } }
 
-    else if (menuAtual == MENU_EXTRA || menuAtual == MENU_INFORMACAO) { preencherRoot(); }
+    else if (menuAtual == MENU_EXTRA || menuAtual == MENU_INFORMACAO || menuAtual == MENU_EMULADOR) { preencherRoot(); }
 }
