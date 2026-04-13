@@ -113,6 +113,67 @@ struct EstadoNavegacao {
 };
 EstadoNavegacao pilhaNav[MAX_NAV_STACK]; int navTopo = 0;
 
+void voltarNavegacao() {
+    if (navTopo > 0) {
+        navTopo--;
+        menuAtual = pilhaNav[navTopo].menu;
+        strcpy(pathExplorar, pilhaNav[navTopo].path);
+        int targetSel = pilhaNav[navTopo].sel;
+        int targetOff = pilhaNav[navTopo].off;
+
+        menuAtualEsq = pilhaNav[navTopo].menuEsq;
+        strcpy(pathExplorarEsq, pilhaNav[navTopo].pathEsq);
+        selEsq = pilhaNav[navTopo].selEsq;
+        offEsq = pilhaNav[navTopo].offEsq;
+
+        // Repovoar o menu baseado no estado restaurado
+        extern void preencherRoot(); extern void preencherMenuMidia(); extern void preencherMenuJogar();
+        extern void preencherMenuBaixar(); extern void preencherMenuEditar(); extern void preencherExplorerHome();
+        extern void listarDiretorio(const char*); extern void listarDiretorioEsq(const char*); extern void abrirPastaMidia(const char*);
+        extern void preencherMenuExtra(); extern void preencherMenuInformacao(); extern void preencherMenuEmulador();
+        extern void preencherMenuRepositorios(); extern void preencherMenuLojas(); extern void preencherMenuFTP();
+        extern void preencherMenuDropbox(); extern void preencherMenuBackup();
+        extern void preencherMenuRadioCategorias(); extern void carregarXML(const char*);
+        extern void preencherMenuMusicas(); extern void abrirMenuAudioOpcoes();
+
+        if (menuAtual == ROOT) preencherRoot();
+        else if (menuAtual == MENU_TIPO_JOGO) preencherMenuJogar();
+        else if (menuAtual == MENU_JOGAR_PS4) preencherMenuJogar();
+        else if (menuAtual == JOGAR_XML) carregarXML("system.xml");
+        else if (menuAtual == MENU_MIDIA) {
+            if (strlen(pathExplorar) > 0 && strcmp(pathExplorar, "/data/HyperNeiva/midia") != 0) abrirPastaMidia(pathExplorar);
+            else preencherMenuMidia();
+        }
+        else if (menuAtual == MENU_BAIXAR) preencherMenuBaixar();
+        else if (menuAtual == MENU_EDITAR) preencherMenuEditar();
+        else if (menuAtual == MENU_EXPLORAR_HOME) preencherExplorerHome();
+        else if (menuAtual == MENU_EXPLORAR) {
+            if (painelAtivo == 0 && painelDuplo) listarDiretorioEsq(pathExplorarEsq);
+            else listarDiretorio(pathExplorar);
+        }
+        else if (menuAtual == MENU_EXTRA) preencherMenuExtra();
+        else if (menuAtual == MENU_INFORMACAO) preencherMenuInformacao();
+        else if (menuAtual == MENU_EMULADOR) preencherMenuEmulador();
+        else if (menuAtual == MENU_BAIXAR_REPOS) preencherMenuRepositorios();
+        else if (menuAtual == MENU_BAIXAR_DROPBOX_BACKUP) preencherMenuBackup();
+        else if (menuAtual == MENU_RADIO_CATEGORIA) preencherMenuRadioCategorias();
+        else if (menuAtual == MENU_CONTROLE_TESTE) menuAtual = MENU_CONTROLE_TESTE;
+        else if (menuAtual == MENU_INSTRUMENTOS) menuAtual = MENU_INSTRUMENTOS;
+        else if (menuAtual == MENU_MUSICAS) preencherMenuMusicas();
+        else if (menuAtual == MENU_AUDIO_OPCOES) abrirMenuAudioOpcoes();
+        else if (menuAtual == MENU_CONSOLES) preencherMenuLojas();
+
+        // Aplicar seleção restaurada
+        sel = targetSel;
+        off = targetOff;
+    } else {
+        extern void preencherRoot();
+        preencherRoot();
+        sel = 0; off = 0; navTopo = 0;
+    }
+}
+
+
 // =========================================================
 // Otimização "static" sugerida pelo compilador aplicada!
 // =========================================================
@@ -311,8 +372,7 @@ void processarControles(uint32_t botoes, int32_t uId, OrbisImeDialogSetting* ime
             extern void preencherMenuExtra();
             preencherMenuExtra();
         }
-        botoesAntigos = botoes;
-        return;
+        // Removido o 'return' antecipado para que o botão BOLINHA possa ser processado abaixo
     }
 
     if (totalItens <= 0) { sel = 0; off = 0; }
@@ -434,77 +494,53 @@ void processarControles(uint32_t botoes, int32_t uId, OrbisImeDialogSetting* ime
     }
     else pCross = false;
 
-    // --- LÓGICA DO BOTÃO BOLINHA (CORRIGIDA E MODULARIZADA) ---
+    // --- REGRA ÚNICA DO BOTÃO BOLINHA (UI -> SUB-NAV -> GLOBAL BACK) ---
     if (botoes & ORBIS_PAD_BUTTON_CIRCLE) {
         if (!pCircle) {
             tocarSom(SFX_CIRCLE);
 
-            MenuLevel mAntes = menuAtual; MenuLevel mEsqAntes = menuAtualEsq;
-            char pAntes[256]; strcpy(pAntes, pathExplorar);
-            char pEsqAntes[256]; strcpy(pEsqAntes, pathExplorarEsq);
-
+            // 1. PRIORIDADE ALTA: Fechar Overlays (Menus de Opção, Previews, Teclado)
             if (showUploadOpcoes && (menuAtual == MENU_BAIXAR_DROPBOX_UPLOAD || menuAtual == MENU_BAIXAR_DROPBOX_LISTA)) {
                 extern void acaoCircle_MenuUpload(); acaoCircle_MenuUpload();
+            }
+            else if (showOpcoes) {
+                showOpcoes = false;
+            }
+            else if (visualizandoMidiaImagem || visualizandoMidiaTexto) {
+                extern void acaoCircle_Root(); acaoCircle_Root(); // Fecha previews
             }
             else if (menuAtual == MENU_AUDIO_OPCOES && veioDeOutroMenuParaAudio) {
                 menuAtual = menuAntesDoAudio; showOpcoes = false; veioDeOutroMenuParaAudio = false;
             }
-            else if (showOpcoes && menuAtual != MENU_AUDIO_OPCOES) {
-                showOpcoes = false;
-            }
             else {
+                // 2. PRIORIDADE MÉDIA: Navegação Interna (Explorer, Notepad, Radio specific stop)
+                bool handled = false;
+
                 if (menuAtual == MENU_NOTEPAD) {
                     if (notepadSomenteLeitura) menuAtual = MENU_EXPLORAR;
                     else {
                         if (estadoNotepad == 1) estadoNotepad = 0;
-                        else {
-                            menuAtual = MENU_EXPLORAR;
-                            if (painelDuplo && painelAtivo == 0) { extern void listarDiretorioEsq(const char*); listarDiretorioEsq(pathExplorarEsq); }
-                            else { extern void listarDiretorio(const char*); listarDiretorio(pathExplorar); }
-                        }
+                        else menuAtual = MENU_EXPLORAR;
                     }
+                    handled = true;
+                }
+                else if (menuAtual == MENU_EXPLORAR || menuAtual == MENU_MUSICAS) {
+                    if (menuAtual == MENU_EXPLORAR) { extern void acaoCircle_Explorar(); acaoCircle_Explorar(); }
+                    else { extern void acaoCircle_Musicas(); acaoCircle_Musicas(); }
+                    handled = true;
                 }
                 else if (menuAtual == MENU_RADIO_CATEGORIA || menuAtual == MENU_RADIO_LISTA || menuAtual == MENU_RADIO_FAVORITOS) {
-                    // Delega TODO o controlo de voltar para o radio.cpp
-                    extern void acaoCircle_Radio();
-                    acaoCircle_Radio();
+                    if (menuAtual == MENU_RADIO_CATEGORIA) { extern void tocarMusicaNova(const char*); tocarMusicaNova("PARADO"); }
+                    handled = false; // Deixa o global voltar
                 }
-                else if (menuAtual == MENU_TIPO_JOGO || menuAtual == MENU_MIDIA || menuAtual == MENU_EXTRA || menuAtual == MENU_INFORMACAO || menuAtual == MENU_LOJAS || menuAtual == MENU_BAIXAR || menuAtual == MENU_EDITAR || menuAtual == MENU_EMULADOR || menuAtual == MENU_CONSOLES || menuAtual == MENU_INSTRUMENTOS) {
-                    // Volta para a tela inicial do Hyper Neiva
-                    menuAtual = ROOT; sel = 0; off = 0; selEsq = 0; offEsq = 0;
+                else if (menuAtual == MENU_EDITAR || menuAtual == MENU_EDIT_TARGET) {
+                    extern void acaoCircle_Editar(); acaoCircle_Editar(); 
+                    handled = true;
                 }
-                else if (menuAtual == MENU_MUSICAS || menuAtual == MENU_AUDIO_OPCOES) {
-                    acaoCircle_Musicas();
-                }
-                else if (menuAtual >= MENU_BAIXAR && menuAtual <= SCRAPER_LIST) {
-                    acaoCircle_Baixar();
-                }
-                else if (inExplorar) {
-                    if (selecionandoMidiaElemento) {
-                        selecionandoMidiaElemento = false;
-                        extern void acaoCircle_Explorar(); acaoCircle_Explorar();
-                        if (menuAtual != MENU_EXPLORAR && menuAtual != MENU_EXPLORAR_HOME && menuAtualEsq != MENU_EXPLORAR && menuAtualEsq != MENU_EXPLORAR_HOME) {
-                            menuAtual = MENU_EDIT_TARGET; editTarget = 17;
-                            extern void preencherMenuEditTarget(); preencherMenuEditTarget();
-                            sel = 0; off = 0;
-                            extern char msgStatus[128]; extern int msgTimer;
-                            strcpy(msgStatus, "CRIACAO CANCELADA."); msgTimer = 90;
-                        }
-                        else { selecionandoMidiaElemento = true; }
-                    }
-                    else if (menuAtual == MENU_EXPLORAR_HOME) {
-                        menuAtual = ROOT; sel = 0; off = 0;
-                    }
-                    else {
-                        // Navegação normal de pastas no explorador
-                        extern void acaoCircle_Explorar(); acaoCircle_Explorar();
-                    }
-                }
-                else if (menuAtual == MENU_JOGAR_PS4 || menuAtual == JOGAR_XML || menuAtual == MENU_BAIXAR_GAMES_LIST) {
-                    menuAtual = MENU_TIPO_JOGO; sel = 0; off = 0;
-                }
-                else {
-                    sel = 0; off = 0; selEsq = 0; offEsq = 0;
+
+                // 3. PRIORIDADE GLOBAL: Voltar de Menu com Persistência
+                if (!handled) {
+                    voltarNavegacao();
                 }
             }
             pCircle = true;

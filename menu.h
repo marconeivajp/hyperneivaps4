@@ -60,6 +60,7 @@ extern uint32_t msgStatusColor; // NOVO: Cor da mensagem de status
 extern char caminhoMidiaAtual[512];
 
 void preencherRoot();
+void preencherMenuJogar();
 void preencherExplorerHome();
 void abrirPastaMidia(const char* caminho);
 void preencherMenuMidia();

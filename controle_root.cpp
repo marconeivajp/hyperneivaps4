@@ -381,23 +381,6 @@ void acaoCross_Root() {
 void acaoCircle_Root() {
     if (visualizandoMidiaImagem) { visualizandoMidiaImagem = false; fullscreenMidia = false; zoomMidia = 1.0f; if (imgMidia) { stbi_image_free(imgMidia); imgMidia = NULL; } return; }
     if (visualizandoMidiaTexto) { visualizandoMidiaTexto = false; if (textoMidiaBuffer) { free(textoMidiaBuffer); textoMidiaBuffer = NULL; } return; }
-
-    if (menuAtual == MENU_TIPO_JOGO) { preencherRoot(); }
-    else if (menuAtual == MENU_JOGAR_PS4) { memset(nomes, 0, sizeof(nomes)); strcpy(nomes[0], "Jogos de PS4 Nativo"); strcpy(nomes[1], "Listas XML (Retro)"); totalItens = 2; sel = 0; off = 0; menuAtual = MENU_TIPO_JOGO; }
-    else if (menuAtual == JOGAR_XML) {
-        if (strstr(caminhoXMLAtual, "system.xml") == NULL) {
-            carregarXML("system.xml");
-            sel = 0; off = 0;
-        }
-        else {
-            memset(nomes, 0, sizeof(nomes));
-            strcpy(nomes[0], "Jogos de PS4 Nativo");
-            strcpy(nomes[1], "Listas XML (Retro)");
-            totalItens = 2; sel = 0; off = 0;
-            menuAtual = MENU_TIPO_JOGO;
-        }
-    }
-    else if (menuAtual == MENU_MIDIA) { if (strcmp(caminhoMidiaAtual, "/data/HyperNeiva/midia") == 0) { preencherRoot(); } else { char* ultimaBarra = strrchr(caminhoMidiaAtual, '/'); if (ultimaBarra != NULL) { *ultimaBarra = '\0'; } abrirPastaMidia(caminhoMidiaAtual); } }
-
-    else if (menuAtual == MENU_EXTRA || menuAtual == MENU_INFORMACAO || menuAtual == MENU_EMULADOR) { preencherRoot(); }
+    
+    // A navegação agora é tratada centralmente no controle.cpp
 }

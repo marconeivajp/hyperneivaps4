@@ -16,20 +16,14 @@
 #include <orbis/libkernel.h>
 #include <orbis/AudioOut.h>
 #include <orbis/UserService.h>
-#include <orbis/Http.h>
-
-extern "C" {
-#include <libavformat/avformat.h>
-#include <libavcodec/avcodec.h>
-#include <libswresample/swresample.h>
-#include <libavutil/opt.h>
-}
-
 #include "audio.h"
+#include "audio_radio.h"
+#include "audio_musica.h"
+#include "audio_emulador.h"
 #include "explorar.h" 
 #include "elementos_sonoros.h" 
-#include "instrumentos.h" 
-#include "video.h"        
+#include "instrumentos.h"
+#include "video.h"
 
 #define DR_WAV_IMPLEMENTATION
 #include "dr_wav.h"
@@ -56,203 +50,7 @@ char caminhoNavegacaoMusicas[512] = "/data/HyperNeiva/Musicas";
 
 volatile float audioTempoAtual = 0.0f;
 
-#define EMU_AUDIO_BUFFER_SIZE 4096
-static int16_t emuAudioBuffer[EMU_AUDIO_BUFFER_SIZE * 2];
-static volatile int emuAudioReadIdx = 0;
-static volatile int emuAudioWriteIdx = 0;
-
-void enviarAmostraAudio(int16_t L, int16_t R) {
-    int nextWrite = (emuAudioWriteIdx + 1) % EMU_AUDIO_BUFFER_SIZE;
-    if (nextWrite != emuAudioReadIdx) {
-        emuAudioBuffer[emuAudioWriteIdx * 2] = L;
-        emuAudioBuffer[emuAudioWriteIdx * 2 + 1] = R;
-        emuAudioWriteIdx = nextWrite;
-    }
-}
-
-static void misturarAudioEmulador(int16_t* pSamples, size_t numFrames) {
-    for (size_t i = 0; i < numFrames; i++) {
-        if (emuAudioReadIdx != emuAudioWriteIdx) {
-            int16_t eL = emuAudioBuffer[emuAudioReadIdx * 2];
-            int16_t eR = emuAudioBuffer[emuAudioReadIdx * 2 + 1];
-
-            int32_t mixL = pSamples[i * 2] + eL;
-            int32_t mixR = pSamples[i * 2 + 1] + eR;
-
-            if (mixL > 32767) mixL = 32767; else if (mixL < -32768) mixL = -32768;
-            if (mixR > 32767) mixR = 32767; else if (mixR < -32768) mixR = -32768;
-
-            pSamples[i * 2] = (int16_t)mixL;
-            pSamples[i * 2 + 1] = (int16_t)mixR;
-
-            emuAudioReadIdx = (emuAudioReadIdx + 1) % EMU_AUDIO_BUFFER_SIZE;
-        }
-    }
-}
-
-// =========================================================================
-// O TUBO VIRTUAL DE REDE: LEITURA BLOQUEANTE (PAUSA FORÇADA DO FFMPEG)
-// =========================================================================
-struct CustomHttpStream {
-    int tmpl;
-    bool ownTmpl;
-    int conn;
-    int req;
-};
-
-static CustomHttpStream* radioHttpStream = NULL;
-static AVIOContext* radioAvioCtx = NULL;
-
-#define RADIO_RING_SIZE (1024 * 1024 * 2) 
-static uint8_t* radioRingBuf = NULL;
-static volatile int radioRingWrite = 0;
-static volatile int radioRingRead = 0;
-static volatile int radioRingCount = 0;
-static pthread_mutex_t radioRingMutex;
-static pthread_t radioNetThreadId;
-static volatile bool radioNetRodando = false;
-static volatile bool radioPreBuffering = false;
-
-// Telemetria Dupla
-static volatile int debugBytesBaixadosThisSec = 0;
-static volatile int debugBytesConsumidosThisSec = 0;
-static volatile int debugNetSpeedKBps = 0;
-static volatile int debugFomeKBps = 0;
-static char debugFfmpegStatus[64] = "Aguardando arranque...";
-
-// THREAD 1: O MOTO-BOY DA INTERNET (Enche a RAM)
-void* radioNetThreadFunc(void* arg) {
-    CustomHttpStream* stream = (CustomHttpStream*)arg;
-    int errorCount = 0;
-    time_t lastTime = time(NULL);
-
-    while (radioNetRodando) {
-        time_t currentTime = time(NULL);
-        if (currentTime != lastTime) {
-            debugNetSpeedKBps = debugBytesBaixadosThisSec / 1024;
-            debugFomeKBps = debugBytesConsumidosThisSec / 1024;
-            debugBytesBaixadosThisSec = 0;
-            debugBytesConsumidosThisSec = 0;
-            lastTime = currentTime;
-        }
-
-        bool temEspaco = false;
-        pthread_mutex_lock(&radioRingMutex);
-        if (RADIO_RING_SIZE - radioRingCount > 32768) temEspaco = true;
-        pthread_mutex_unlock(&radioRingMutex);
-
-        if (!temEspaco) {
-            sceKernelUsleep(10000);
-            continue;
-        }
-
-        uint8_t temp[32768];
-        int n = sceHttpReadData(stream->req, temp, sizeof(temp));
-
-        if (n > 0) {
-            errorCount = 0;
-            debugBytesBaixadosThisSec += n;
-
-            pthread_mutex_lock(&radioRingMutex);
-            if (radioRingWrite + n <= RADIO_RING_SIZE) {
-                memcpy(radioRingBuf + radioRingWrite, temp, n);
-            }
-            else {
-                int p1 = RADIO_RING_SIZE - radioRingWrite;
-                int p2 = n - p1;
-                memcpy(radioRingBuf + radioRingWrite, temp, p1);
-                memcpy(radioRingBuf, temp + p1, p2);
-            }
-            radioRingWrite = (radioRingWrite + n) % RADIO_RING_SIZE;
-            radioRingCount += n;
-
-            // O FFmpeg arranca assim que tiver 256KB
-            if (radioPreBuffering && radioRingCount > 262144) {
-                radioPreBuffering = false;
-            }
-            pthread_mutex_unlock(&radioRingMutex);
-        }
-        else if (n < 0) {
-            errorCount++;
-            if (errorCount > 50) {
-                strcpy(debugFfmpegStatus, "ERRO REDE (Caiu)");
-                break;
-            }
-            sceKernelUsleep(100000);
-        }
-        else {
-            strcpy(debugFfmpegStatus, "SERVIDOR CORTOU");
-            break;
-        }
-    }
-
-    radioNetRodando = false;
-    radioPreBuffering = false;
-    return NULL;
-}
-
-// THREAD 2: O CLIENTE EXIGENTE (O FFmpeg pede áudio aqui)
-static int read_http_stream(void* opaque, uint8_t* buf, int buf_size) {
-    if (!radioNetRodando && radioRingCount == 0) return AVERROR_EOF;
-
-    int bytesRead = 0;
-    int retries = 0;
-
-    // O SEGREDO MÁXIMO: O loop agora é BLOQUEANTE. Não deixamos o FFmpeg sair daqui sem áudio!
-    while (bytesRead == 0) {
-        pthread_mutex_lock(&radioRingMutex);
-
-        // Só entregamos áudio ao FFmpeg se a RAM tiver dados suficientes para ele não se engasgar
-        if (radioRingCount >= buf_size || (!radioNetRodando && radioRingCount > 0)) {
-            int toRead = (buf_size < radioRingCount) ? buf_size : radioRingCount;
-            if (radioRingRead + toRead <= RADIO_RING_SIZE) {
-                memcpy(buf, radioRingBuf + radioRingRead, toRead);
-            }
-            else {
-                int p1 = RADIO_RING_SIZE - radioRingRead;
-                int p2 = toRead - p1;
-                memcpy(buf, radioRingBuf + radioRingRead, p1);
-                memcpy(buf + p1, radioRingBuf, p2);
-            }
-            radioRingRead = (radioRingRead + toRead) % RADIO_RING_SIZE;
-            radioRingCount -= toRead;
-            bytesRead = toRead;
-        }
-        pthread_mutex_unlock(&radioRingMutex);
-
-        if (bytesRead > 0) {
-            debugBytesConsumidosThisSec += bytesRead;
-            strcpy(debugFfmpegStatus, "TOCANDO LISO");
-            return bytesRead; // Sucesso! O FFmpeg recebe a comida.
-        }
-
-        if (!radioNetRodando) {
-            strcpy(debugFfmpegStatus, "FIM DO ARQUIVO");
-            return AVERROR_EOF; // A internet caiu de vez e a RAM secou.
-        }
-
-        // SE A RAM ESTIVER VAZIA: Nós prendemos o FFmpeg aqui a dormir! (Não devolvemos EAGAIN)
-        strcpy(debugFfmpegStatus, "AGUARDANDO REDE...");
-        sceKernelUsleep(20000); // Adormece 20 milissegundos
-        retries++;
-
-        if (retries > 500) { // Ficou 10 SEGUNDOS à espera da internet? Desiste.
-            strcpy(debugFfmpegStatus, "TIMEOUT DA INTERNET");
-            return AVERROR_EOF;
-        }
-    }
-
-    return bytesRead;
-}
-// =========================================================================
-
-static AVFormatContext* pRadioFormatCtx = NULL;
-static AVCodecContext* pRadioCodecCtx = NULL;
-static SwrContext* pRadioSwrCtx = NULL;
-static int radioStreamIdx = -1;
-static uint8_t* radioResampleBuf = NULL;
-static AVFrame* pRadioFrame = NULL;
-static AVPacket radioPacket;
+// Emulator audio logic moved to audio_emu.cpp
 
 static AudioType currentAudioType = AUDIO_NONE;
 
@@ -313,267 +111,9 @@ void carregarConfiguracaoAudio() {
     }
 }
 
-#define MAX_PLAYLIST 2000
+// Playlist and file selection logic moved to audio_playlist.cpp
 
-void scanPlaylistRecursivo(const char* basePath, char (*lista)[256], int* total) {
-    DIR* d = opendir(basePath);
-    if (!d) return;
-    struct dirent* dir;
-    while ((dir = readdir(d)) != NULL && *total < MAX_PLAYLIST) {
-        if (strcmp(dir->d_name, ".") == 0 || strcmp(dir->d_name, "..") == 0) continue;
-        char fullPath[512];
-        snprintf(fullPath, sizeof(fullPath), "%s/%s", basePath, dir->d_name);
-        struct stat st;
-        if (dir->d_type == DT_DIR || (dir->d_type == DT_UNKNOWN && stat(fullPath, &st) == 0 && S_ISDIR(st.st_mode))) {
-            scanPlaylistRecursivo(fullPath, lista, total);
-        }
-        else {
-            if (strstr(dir->d_name, ".wav") || strstr(dir->d_name, ".WAV") || strstr(dir->d_name, ".mp3") || strstr(dir->d_name, ".MP3")) {
-                strncpy(lista[*total], fullPath, 255); lista[*total][255] = '\0'; (*total)++;
-            }
-        }
-    }
-    closedir(d);
-}
-
-void scanPastaSimples(const char* basePath, char (*lista)[256], int* total) {
-    DIR* d = opendir(basePath);
-    if (!d) return;
-    struct dirent* dir;
-    while ((dir = readdir(d)) != NULL && *total < MAX_PLAYLIST) {
-        if (strcmp(dir->d_name, ".") == 0 || strcmp(dir->d_name, "..") == 0) continue;
-        char fullPath[512];
-        snprintf(fullPath, sizeof(fullPath), "%s/%s", basePath, dir->d_name);
-        struct stat st;
-        if (dir->d_type != DT_DIR && (dir->d_type != DT_UNKNOWN || (stat(fullPath, &st) == 0 && !S_ISDIR(st.st_mode)))) {
-            if (strstr(dir->d_name, ".wav") || strstr(dir->d_name, ".WAV") || strstr(dir->d_name, ".mp3") || strstr(dir->d_name, ".MP3")) {
-                strncpy(lista[*total], fullPath, 255); lista[*total][255] = '\0'; (*total)++;
-            }
-        }
-    }
-    closedir(d);
-}
-
-static bool obterProximaMusica(char* proximaMusicaPath) {
-    char (*listaAudios)[256] = (char (*)[256])malloc(MAX_PLAYLIST * 256);
-    if (!listaAudios) return false;
-    int totalAudios = 0;
-    if (modoReproducao == 2 || modoReproducao == 3) {
-        char pastaAtual[512]; strcpy(pastaAtual, musicaAtual);
-        char* lastSlash = strrchr(pastaAtual, '/');
-        if (lastSlash) { *lastSlash = '\0'; scanPastaSimples(pastaAtual, listaAudios, &totalAudios); }
-    }
-    if (totalAudios == 0) scanPlaylistRecursivo("/data/HyperNeiva/Musicas", listaAudios, &totalAudios);
-    if (totalAudios == 0) { free(listaAudios); return false; }
-    if (modoReproducao == 3 || modoReproducao == 4) {
-        int r = rand() % totalAudios;
-        if (totalAudios > 1 && strcmp(listaAudios[r], musicaAtual) == 0) r = (r + 1) % totalAudios;
-        strcpy(proximaMusicaPath, listaAudios[r]);
-    }
-    else {
-        for (int i = 0; i < totalAudios - 1; i++) {
-            for (int j = i + 1; j < totalAudios; j++) {
-                if (strcasecmp(listaAudios[i], listaAudios[j]) > 0) {
-                    char temp[256]; strcpy(temp, listaAudios[i]); strcpy(listaAudios[i], listaAudios[j]); strcpy(listaAudios[j], temp);
-                }
-            }
-        }
-        int idx = -1;
-        for (int i = 0; i < totalAudios; i++) { if (strcmp(listaAudios[i], musicaAtual) == 0) { idx = i; break; } }
-        if (idx != -1 && idx + 1 < totalAudios) strcpy(proximaMusicaPath, listaAudios[idx + 1]);
-        else strcpy(proximaMusicaPath, listaAudios[0]);
-    }
-    free(listaAudios); return true;
-}
-
-static bool obterMusicaAnterior(char* musicaAnteriorPath) {
-    char (*listaAudios)[256] = (char (*)[256])malloc(MAX_PLAYLIST * 256);
-    if (!listaAudios) return false;
-    int totalAudios = 0;
-    if (modoReproducao == 2 || modoReproducao == 3) {
-        char pastaAtual[512]; strcpy(pastaAtual, musicaAtual);
-        char* lastSlash = strrchr(pastaAtual, '/');
-        if (lastSlash) { *lastSlash = '\0'; scanPastaSimples(pastaAtual, listaAudios, &totalAudios); }
-    }
-    if (totalAudios == 0) scanPlaylistRecursivo("/data/HyperNeiva/Musicas", listaAudios, &totalAudios);
-    if (totalAudios == 0) { free(listaAudios); return false; }
-    if (modoReproducao == 3 || modoReproducao == 4) {
-        int r = rand() % totalAudios;
-        if (totalAudios > 1 && strcmp(listaAudios[r], musicaAtual) == 0) { r = (r + 1) % totalAudios; }
-        strcpy(musicaAnteriorPath, listaAudios[r]);
-    }
-    else {
-        for (int i = 0; i < totalAudios - 1; i++) {
-            for (int j = i + 1; j < totalAudios; j++) {
-                if (strcasecmp(listaAudios[i], listaAudios[j]) > 0) {
-                    char temp[256]; strcpy(temp, listaAudios[i]); strcpy(listaAudios[i], listaAudios[j]); strcpy(listaAudios[j], temp);
-                }
-            }
-        }
-        int idx = -1;
-        for (int i = 0; i < totalAudios; i++) { if (strcmp(listaAudios[i], musicaAtual) == 0) { idx = i; break; } }
-        if (idx != -1 && idx - 1 >= 0) strcpy(musicaAnteriorPath, listaAudios[idx - 1]);
-        else strcpy(musicaAnteriorPath, listaAudios[totalAudios - 1]);
-    }
-    free(listaAudios); return true;
-}
-
-static bool prepararArquivoAudio(char* caminhoFinal) {
-    if (strcmp(musicaAtual, "PARADO") == 0) return false;
-
-    if (strncmp(musicaAtual, "http", 4) == 0) {
-        strcpy(caminhoFinal, musicaAtual);
-        return true;
-    }
-
-    if (strlen(musicaAtual) > 0) {
-        FILE* fCustom = fopen(musicaAtual, "rb");
-        if (fCustom) { fclose(fCustom); strcpy(caminhoFinal, musicaAtual); return true; }
-    }
-    const char* pathHD = "/data/HyperNeiva/configuracao/bgm.wav";
-    FILE* fHD = fopen(pathHD, "rb");
-    if (fHD) { fclose(fHD); strcpy(caminhoFinal, pathHD); return true; }
-
-    const char* pathInterno = "/app0/assets/audio/bgm.wav";
-    FILE* fInt = fopen(pathInterno, "rb");
-    if (!fInt) return false;
-
-    FILE* fOut = fopen(pathHD, "wb");
-    if (!fOut) { fclose(fInt); strcpy(caminhoFinal, pathInterno); return true; }
-
-    char buffer[8192];
-    size_t bytesLidos;
-    while ((bytesLidos = fread(buffer, 1, sizeof(buffer), fInt)) > 0) fwrite(buffer, 1, bytesLidos, fOut);
-    fclose(fInt); fclose(fOut);
-
-    strcpy(caminhoFinal, pathHD);
-    return true;
-}
-
-static void limparStreamingRadio() {
-    if (radioNetRodando) {
-        radioNetRodando = false;
-        pthread_join(radioNetThreadId, NULL);
-    }
-
-    if (pRadioSwrCtx) { swr_free(&pRadioSwrCtx); pRadioSwrCtx = NULL; }
-    if (pRadioCodecCtx) { avcodec_free_context(&pRadioCodecCtx); pRadioCodecCtx = NULL; }
-    if (pRadioFormatCtx) { avformat_close_input(&pRadioFormatCtx); pRadioFormatCtx = NULL; }
-    if (pRadioFrame) { av_frame_free(&pRadioFrame); pRadioFrame = NULL; }
-    if (radioResampleBuf) { av_free(radioResampleBuf); radioResampleBuf = NULL; }
-
-    if (radioAvioCtx) {
-        if (radioAvioCtx->buffer) av_free(radioAvioCtx->buffer);
-        av_free(radioAvioCtx);
-        radioAvioCtx = NULL;
-    }
-
-    if (radioHttpStream) {
-        if (radioHttpStream->req >= 0) sceHttpDeleteRequest(radioHttpStream->req);
-        if (radioHttpStream->conn >= 0) sceHttpDeleteConnection(radioHttpStream->conn);
-        if (radioHttpStream->ownTmpl && radioHttpStream->tmpl >= 0) sceHttpDeleteTemplate(radioHttpStream->tmpl);
-        free(radioHttpStream);
-        radioHttpStream = NULL;
-    }
-
-    radioStreamIdx = -1;
-}
-
-static bool iniciarRadioCustomAVIO(const char* url) {
-    extern int httpCtxId;
-
-    radioHttpStream = (CustomHttpStream*)malloc(sizeof(CustomHttpStream));
-    radioHttpStream->ownTmpl = true;
-    radioHttpStream->tmpl = sceHttpCreateTemplate(httpCtxId, "HyperNeiva/1.0", 1, 1);
-
-    if (radioHttpStream->tmpl < 0) {
-        radioHttpStream->tmpl = httpCtxId;
-        radioHttpStream->ownTmpl = false;
-    }
-
-    radioHttpStream->conn = sceHttpCreateConnectionWithURL(radioHttpStream->tmpl, url, 0);
-    radioHttpStream->req = sceHttpCreateRequestWithURL(radioHttpStream->conn, ORBIS_METHOD_GET, url, 0);
-
-    sceHttpAddRequestHeader(radioHttpStream->req, "User-Agent", "HyperNeiva/1.0 (PS4)", 0);
-    sceHttpAddRequestHeader(radioHttpStream->req, "Connection", "keep-alive", 0);
-
-    int sendRet = sceHttpSendRequest(radioHttpStream->req, NULL, 0);
-    if (sendRet < 0) {
-        limparStreamingRadio();
-        return false;
-    }
-
-    int statusCode = 0;
-    sceHttpGetStatusCode(radioHttpStream->req, &statusCode);
-
-    if (statusCode == 200 || statusCode == 206) {
-        if (!radioRingBuf) {
-            radioRingBuf = (uint8_t*)malloc(RADIO_RING_SIZE);
-            pthread_mutex_init(&radioRingMutex, NULL);
-        }
-        radioRingWrite = 0;
-        radioRingRead = 0;
-        radioRingCount = 0;
-        radioNetRodando = true;
-        radioPreBuffering = true;
-        debugNetSpeedKBps = 0;
-        debugFomeKBps = 0;
-        strcpy(debugFfmpegStatus, "Enchendo Pre-Buffer...");
-
-        pthread_create(&radioNetThreadId, NULL, radioNetThreadFunc, radioHttpStream);
-
-        extern char msgStatus[128];
-        extern int msgTimer;
-        extern unsigned int msgStatusColor;
-        strcpy(msgStatus, "Conectado! Aguarde 2 segundos...");
-        msgTimer = 200;
-        msgStatusColor = 0xFF00FF00;
-
-        int timeout = 0;
-        while (radioPreBuffering && radioNetRodando && timeout < 1000) {
-            sceKernelUsleep(10000);
-            timeout++;
-        }
-
-        uint8_t* avio_buf = (uint8_t*)av_malloc(65536);
-        radioAvioCtx = avio_alloc_context(avio_buf, 65536, 0, radioHttpStream, &read_http_stream, NULL, NULL);
-
-        pRadioFormatCtx = avformat_alloc_context();
-        pRadioFormatCtx->pb = radioAvioCtx;
-
-        int ret = avformat_open_input(&pRadioFormatCtx, NULL, NULL, NULL);
-        if (ret == 0) {
-            if (avformat_find_stream_info(pRadioFormatCtx, NULL) >= 0) {
-                for (int i = 0; i < pRadioFormatCtx->nb_streams; i++) {
-                    if (pRadioFormatCtx->streams[i]->codecpar->codec_type == AVMEDIA_TYPE_AUDIO) {
-                        radioStreamIdx = i; break;
-                    }
-                }
-                if (radioStreamIdx != -1) {
-                    AVCodecParameters* pParams = pRadioFormatCtx->streams[radioStreamIdx]->codecpar;
-                    const AVCodec* pCodec = avcodec_find_decoder(pParams->codec_id);
-                    if (pCodec) {
-                        pRadioCodecCtx = avcodec_alloc_context3(pCodec);
-                        avcodec_parameters_to_context(pRadioCodecCtx, pParams);
-                        if (avcodec_open2(pRadioCodecCtx, pCodec, NULL) >= 0) {
-                            AVChannelLayout out_layout;
-                            av_channel_layout_default(&out_layout, 2);
-                            swr_alloc_set_opts2(&pRadioSwrCtx, &out_layout, AV_SAMPLE_FMT_S16, 48000,
-                                &pRadioCodecCtx->ch_layout, pRadioCodecCtx->sample_fmt, pRadioCodecCtx->sample_rate, 0, NULL);
-                            swr_init(pRadioSwrCtx);
-                            pRadioFrame = av_frame_alloc();
-                            radioResampleBuf = (uint8_t*)av_malloc(192000);
-                            return true;
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    limparStreamingRadio();
-    return false;
-}
+// Funções de rádio movidas para audio_radio.cpp
 
 static void* audioThreadFunc(void* argp) {
     if (!sistemaAudioIniciado) { sceAudioOutInit(); sistemaAudioIniciado = true; }
@@ -589,7 +129,7 @@ static void* audioThreadFunc(void* argp) {
 
     if (!comandoPausar && prepararArquivoAudio(caminhoAudio)) {
         if (strncmp(caminhoAudio, "http", 4) == 0) {
-            if (iniciarRadioCustomAVIO(caminhoAudio)) {
+            if (iniciarRadio(caminhoAudio)) {
                 currentAudioType = AUDIO_STREAM;
             }
             else {
@@ -612,12 +152,12 @@ static void* audioThreadFunc(void* argp) {
         }
 
         // TELEMETRIA: Observa a Net a baixar e o FFmpeg a "comer"
-        if (currentAudioType == AUDIO_STREAM && radioNetRodando) {
+        if (currentAudioType == AUDIO_STREAM && isRadioRodando()) {
             extern char msgStatus[128];
             extern int msgTimer;
             extern unsigned int msgStatusColor;
 
-            snprintf(msgStatus, sizeof(msgStatus), "Net:%dKB/s | Fome:%dKB/s | RAM:%dKB | %s", debugNetSpeedKBps, debugFomeKBps, radioRingCount / 1024, debugFfmpegStatus);
+            obterTelemetriaRadio(msgStatus, sizeof(msgStatus));
             msgTimer = 100;
             msgStatusColor = 0xFF00FF00;
         }
@@ -644,18 +184,18 @@ static void* audioThreadFunc(void* argp) {
             comandoTrocar = false;
             if (currentAudioType == AUDIO_WAV) drwav_uninit(&wav);
             else if (currentAudioType == AUDIO_MP3) drmp3_uninit(&mp3);
-            else if (currentAudioType == AUDIO_STREAM) limparStreamingRadio();
+            else if (currentAudioType == AUDIO_STREAM) pararRadioStreaming();
             currentAudioType = AUDIO_NONE;
 
             if (prepararArquivoAudio(caminhoAudio)) {
                 if (strncmp(caminhoAudio, "http", 4) == 0) {
-                    if (iniciarRadioCustomAVIO(caminhoAudio)) {
+                    if (iniciarRadio(caminhoAudio)) {
                         currentAudioType = AUDIO_STREAM;
                     }
                     else {
                         strcpy(musicaAtual, "PARADO");
                         comandoPausar = true;
-                        limparStreamingRadio();
+                        pararRadioStreaming();
                     }
                 }
                 else if (strstr(caminhoAudio, ".mp3") || strstr(caminhoAudio, ".MP3")) {
@@ -691,23 +231,9 @@ static void* audioThreadFunc(void* argp) {
             currentChannels = mp3.channels;
         }
         else if (currentAudioType == AUDIO_STREAM) {
-            int ret_read = av_read_frame(pRadioFormatCtx, &radioPacket);
-            if (ret_read >= 0) {
-                if (radioPacket.stream_index == radioStreamIdx) {
-                    if (avcodec_send_packet(pRadioCodecCtx, &radioPacket) == 0) {
-                        if (avcodec_receive_frame(pRadioCodecCtx, pRadioFrame) == 0) {
-                            int samples = swr_convert(pRadioSwrCtx, &radioResampleBuf, 256, (const uint8_t**)pRadioFrame->data, pRadioFrame->nb_samples);
-                            if (samples > 0) {
-                                memcpy(pSampleData, radioResampleBuf, samples * 4);
-                                framesLidos = samples;
-                            }
-                        }
-                    }
-                }
-                av_packet_unref(&radioPacket);
-            }
-            else {
-                // Erro fatal real (EOF)
+            framesLidos = lerFrameRadio(pSampleData, 256);
+            if (framesLidos == 0 && !isRadioRodando()) {
+                // Erro fatal real (EOF) ou desconexão
                 strcpy(musicaAtual, "PARADO");
                 comandoPausar = true;
             }
@@ -790,7 +316,7 @@ static void* audioThreadFunc(void* argp) {
 
     if (currentAudioType == AUDIO_WAV) drwav_uninit(&wav);
     else if (currentAudioType == AUDIO_MP3) drmp3_uninit(&mp3);
-    else if (currentAudioType == AUDIO_STREAM) limparStreamingRadio();
+    else if (currentAudioType == AUDIO_STREAM) pararRadioStreaming();
     sceAudioOutClose(audioPort);
     return NULL;
 }
@@ -798,7 +324,7 @@ static void* audioThreadFunc(void* argp) {
 void inicializarAudio() {
     if (audioRodando) return;
     srand(time(NULL));
-    avformat_network_init();
+    // Note: avformat_network_init calls moved to audio_radio or handled globally
 
     sceKernelMkdir("/data/HyperNeiva/Musicas", 0777);
     carregarConfiguracaoAudio();
@@ -871,75 +397,4 @@ void tocarMusicaAnterior() {
     else if (estavaParado) {
         strcpy(musicaAtual, "PARADO");
     }
-}
-
-struct ItemAudioTemp {
-    char nome[64];
-    char path[256];
-    bool ehPasta;
-};
-
-void preencherMenuMusicas() {
-    memset(nomes, 0, sizeof(nomes));
-    memset(caminhosMusicasMenu, 0, sizeof(caminhosMusicasMenu));
-    totalItens = 0;
-
-    if (strcmp(caminhoNavegacaoMusicas, "/data/HyperNeiva/Musicas") == 0) {
-        strcpy(nomes[totalItens], "PARAR MUSICA");
-        strcpy(caminhosMusicasMenu[totalItens], "PARADO");
-        totalItens++;
-    }
-
-    struct ItemAudioTemp temp[3000];
-    int count = 0;
-
-    DIR* d = opendir(caminhoNavegacaoMusicas);
-    if (d) {
-        struct dirent* dir;
-        while ((dir = readdir(d)) != NULL && count < 2900) {
-            if (strcmp(dir->d_name, ".") == 0 || strcmp(dir->d_name, "..") == 0) continue;
-
-            char fullPath[512];
-            snprintf(fullPath, sizeof(fullPath), "%s/%s", caminhoNavegacaoMusicas, dir->d_name);
-
-            struct stat st;
-
-            if (dir->d_type == DT_DIR || (dir->d_type == DT_UNKNOWN && stat(fullPath, &st) == 0 && S_ISDIR(st.st_mode))) {
-                strncpy(temp[count].nome, dir->d_name, 63);
-                temp[count].nome[63] = '\0';
-                temp[count].ehPasta = true;
-                snprintf(temp[count].path, 255, "%s", fullPath);
-                count++;
-            }
-            else {
-                if (strstr(dir->d_name, ".wav") || strstr(dir->d_name, ".WAV") ||
-                    strstr(dir->d_name, ".mp3") || strstr(dir->d_name, ".MP3")) {
-                    strncpy(temp[count].nome, dir->d_name, 63);
-                    temp[count].nome[63] = '\0';
-                    temp[count].ehPasta = false;
-                    snprintf(temp[count].path, 255, "%s", fullPath);
-                    count++;
-                }
-            }
-        }
-        closedir(d);
-    }
-
-    for (int i = 0; i < count - 1; i++) {
-        for (int j = 0; j < count - i - 1; j++) {
-            bool trocar = false;
-            if (!temp[j].ehPasta && temp[j + 1].ehPasta) trocar = true;
-            else if (temp[j].ehPasta == temp[j + 1].ehPasta && strcasecmp(temp[j].nome, temp[j + 1].nome) > 0) trocar = true;
-            if (trocar) { ItemAudioTemp aux = temp[j]; temp[j] = temp[j + 1]; temp[j + 1] = aux; }
-        }
-    }
-
-    for (int i = 0; i < count; i++) {
-        if (temp[i].ehPasta) snprintf(nomes[totalItens], 64, "[%s]", temp[i].nome);
-        else strcpy(nomes[totalItens], temp[i].nome);
-        strcpy(caminhosMusicasMenu[totalItens], temp[i].path);
-        totalItens++;
-    }
-
-    menuAtual = MENU_MUSICAS;
-}
+}

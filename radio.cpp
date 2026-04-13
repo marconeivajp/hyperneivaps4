@@ -268,24 +268,7 @@ void acaoTriangle_Radio() {
 }
 
 void acaoCircle_Radio() {
-    extern bool showOpcoes;
-
-    // 1. Se o menu de opções (Triângulo) estiver aberto, o Bolinha apenas o fecha!
-    if (showOpcoes) {
-        showOpcoes = false;
-        return;
-    }
-
-    // 2. Se estivermos na lista de rádios, volta às categorias.
-    if (menuAtual == MENU_RADIO_LISTA || menuAtual == MENU_RADIO_FAVORITOS) {
-        preencherMenuRadioCategorias();
-    }
-    // 3. Se estivermos nas categorias, sai da aplicação de rádio completamente.
-    else if (menuAtual == MENU_RADIO_CATEGORIA) {
-        tocarMusicaNova("PARADO"); // Para o áudio imediatamente
-        menuAtual = ROOT;          // Volta ao menu principal da homebrew
-        sel = 0;
-        off = 0;
-        // NOTA: O memset foi removido propositadamente para a interface não ficar invisível!
-    }
+    // Agora o controle central (controle.cpp) cuida de fechar Overlays
+    // e da navegação de volta (voltarNavegacao).
+    // Esta função pode ser usada para disparar efeitos colaterais específicos se necessário.
 }

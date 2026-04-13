@@ -342,17 +342,21 @@ void acaoCircle_Explorar() {
         if (!ehEsq) preencherRoot();
     }
     else if (mAtual == MENU_EXPLORAR) {
-        // Mï¿½GICA 2: Garantir que "/data/HyperNeiva" e outros caminhos raizes do L2 acionem a volta para o Menu Home
+        // Mágica: Garantir que trajetos raízes acionem a volta para o Home via Central Law
         if (strcmp(pExplorar, baseRaiz) == 0 || strcmp(pExplorar, "/data/HyperNeiva") == 0 || strcmp(pExplorar, "/") == 0 || strcmp(pExplorar, "/mnt/usb0") == 0 || strcmp(pExplorar, "/mnt/usb1") == 0) {
             if (ehEsq) {
                 menuAtualEsq = MENU_EXPLORAR_HOME;
                 extern int totalItensEsq;
-                totalItensEsq = 0; // Mï¿½GICA 3: Forï¿½a o motor grï¿½fico a redesenhar a lista inicial do painel esquerdo!!
-                selEsq = 0;
-                offEsq = 0;
+                totalItensEsq = 0; // Força o motor gráfico a redesenhar a lista inicial do painel esquerdo!!
+                selEsq = 0; offEsq = 0;
             }
             else {
-                preencherExplorerHome();
+                // Ao não fazer nada específico aqui e estar no MENU_EXPLORAR, 
+                // o controle.cpp chamará voltarNavegacao() se handled for False
+                // Mas acaoCircle_Explorar é chamada com handled=True em controle.cpp.
+                // Então chamamos voltarNavegacao() manualmente aqui para as raízes.
+                extern void voltarNavegacao();
+                voltarNavegacao();
             }
         }
         else {

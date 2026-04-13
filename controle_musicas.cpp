@@ -45,30 +45,22 @@ void acaoCross_Musicas() {
 }
 
 void acaoCircle_Musicas() {
-    if (showOpcoes || menuAtual == MENU_AUDIO_OPCOES) {
-        showOpcoes = false;
-        menuAtual = MENU_MUSICAS;
-    }
-    else {
-        // Se estiver na pasta raiz, voltar ao menu MIDIA
-        if (strcmp(caminhoNavegacaoMusicas, "/data/HyperNeiva/Musicas") == 0) {
-            preencherMenuMidia();
-            sel = 0;
-            off = 0;
+    // A navegação agora é tratada centralmente no controle.cpp
+    // Esta função lida apenas com subir um nível de pasta nas músicas
+    if (strcmp(caminhoNavegacaoMusicas, "/data/HyperNeiva/Musicas") != 0) {
+        char temp[512];
+        strcpy(temp, caminhoNavegacaoMusicas);
+        char* ultimaBarra = strrchr(temp, '/');
+        if (ultimaBarra != NULL) {
+            *ultimaBarra = '\0';
+            strcpy(caminhoNavegacaoMusicas, temp);
+            preencherMenuMusicas();
+            sel = 0; off = 0;
         }
-        else {
-            // Volta uma pasta para trás
-            char temp[512];
-            strcpy(temp, caminhoNavegacaoMusicas);
-            char* ultimaBarra = strrchr(temp, '/');
-            if (ultimaBarra != NULL) {
-                *ultimaBarra = '\0';
-                strcpy(caminhoNavegacaoMusicas, temp);
-                preencherMenuMusicas();
-                sel = 0;
-                off = 0;
-            }
-        }
+    } else {
+        // Se já está na raiz, deixa o controle.cpp chamar voltarNavegacao()
+        // Nota: O controle.cpp já chamará voltarNavegacao() se handled for true 
+        // mas aqui nós podemos apenas sinalizar ou não fazer nada.
     }
 }
 
