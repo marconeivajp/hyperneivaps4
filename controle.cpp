@@ -370,9 +370,12 @@ void processarControles(uint32_t botoes, int32_t uId, OrbisImeDialogSetting* ime
     if (menuAtual == MENU_CONTROLE_TESTE || menuAtual == MENU_INSTRUMENTOS) {
         if (botoes & ORBIS_PAD_BUTTON_OPTIONS) {
             extern void preencherMenuExtra();
+            extern void finalizarControleTeste();
+            finalizarControleTeste();
             preencherMenuExtra();
         }
-        // Removido o 'return' antecipado para que o botão BOLINHA possa ser processado abaixo
+        botoesAntigos = botoes;
+        return; // Bloqueia Cross/Bolinha global nestes sistemas
     }
 
     if (totalItens <= 0) { sel = 0; off = 0; }

@@ -5,6 +5,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <orbis/Pad.h>
+#include <orbis/AudioOut.h>
+#include <orbis/AudioIn.h>
 
 extern int sel;
 extern MenuLevel menuAtual;
@@ -13,6 +15,12 @@ extern char nomes[3000][64];
 
 // PONTE: Lê o comando já aberto pelo main.cpp
 extern int globalPadHandle;
+
+// SFX EXTERNOS (Elementos Sonoros)
+extern int16_t* sfxUpData; extern size_t sfxUpLen;
+extern int16_t* sfxDownData; extern size_t sfxDownLen;
+extern int16_t* sfxCrossData; extern size_t sfxCrossLen;
+extern int16_t* sfxCircleData; extern size_t sfxCircleLen;
 
 // Matrizes para guardar o rastro (gráfico) contínuo
 static bool trilhaL[256][256];
@@ -30,6 +38,24 @@ static int prevRx = 128, prevRy = 128;
 static int prevT1x = -1, prevT1y = -1;
 static int prevT2x = -1, prevT2y = -1;
 
+// CONTROLE DE HARDWARE (Som e Luz)
+static int padAudioPort = -1;
+static int padMicPort = -1;
+static int micLevelDisplay = 0;
+static uint32_t prevButtonsTest = 0;
+
+struct ColorPreset { const char* name; uint8_t r, g, b; uint32_t btn; };
+static ColorPreset colors[] = {
+    {"BRANCO (CIMA)", 255, 255, 255, ORBIS_PAD_BUTTON_UP},
+    {"AMARELO (BAIXO)", 255, 255, 0, ORBIS_PAD_BUTTON_DOWN},
+    {"CYAN (ESQUERDA)", 0, 255, 255, ORBIS_PAD_BUTTON_LEFT},
+    {"MAGENTA (DIREITA)", 255, 0, 255, ORBIS_PAD_BUTTON_RIGHT},
+    {"VERDE (TRIAN.)", 0, 255, 0, ORBIS_PAD_BUTTON_TRIANGLE},
+    {"VERMELHO (BOLA)", 255, 0, 0, ORBIS_PAD_BUTTON_CIRCLE},
+    {"AZUL (CRUZ)", 0, 0, 255, ORBIS_PAD_BUTTON_CROSS},
+    {"LIMA (QUADRADO)", 128, 255, 0, ORBIS_PAD_BUTTON_SQUARE}
+};
+
 void preencherMenuExtra() {
     memset(nomes, 0, sizeof(nomes));
     strcpy(nomes[0], "Teste de Controle (Analise de Drift e Botoes)");
@@ -37,6 +63,22 @@ void preencherMenuExtra() {
     totalItens = 2;
     menuAtual = MENU_EXTRA;
     sel = 0;
+}
+
+void finalizarControleTeste() {
+    if (padAudioPort >= 0) {
+        sceAudioOutClose(padAudioPort);
+        padAudioPort = -1;
+    }
+    if (padMicPort >= 0) {
+        // No OpenOrbis sceAudioInClose as vezes nao recebe handle ou usa global
+        ((void(*)())sceAudioInClose)(); 
+        padMicPort = -1;
+    }
+    // Reseta a luz para o padrão (Desligado ou cor neutra)
+    OrbisPadColor color = { 0, 0, 0 };
+    scePadSetLightBar(globalPadHandle, &color);
+    prevButtonsTest = 0;
 }
 
 void acaoCross_Extra() {
@@ -105,6 +147,58 @@ void renderizarControleTeste(uint32_t* p) {
     uint8_t l2 = raw[0x08];
     uint8_t r2 = raw[0x09];
 
+    // GIROSCOPIO (Offset 0x12) - ACELEROMETRO (Offset 0x18)
+    int16_t gx = *(int16_t*)(raw + 0x12);
+    int16_t gy = *(int16_t*)(raw + 0x14);
+    int16_t gz = *(int16_t*)(raw + 0x16);
+    int16_t ax = *(int16_t*)(raw + 0x18);
+    int16_t ay = *(int16_t*)(raw + 0x1A);
+    int16_t az = *(int16_t*)(raw + 0x1C);
+
+    // =======================================================
+    // FEEDBACK DE HARDWARE (SOM, LUZ E MICROFONE)
+    // =======================================================
+    extern int32_t global_uId;
+    if (padAudioPort < 0) {
+        // Tipo 4 = BGM/Pad (Comum em drivers PS4) ou fallback 6
+        padAudioPort = sceAudioOutOpen(global_uId, (OrbisAudioOutPort)4, 0, 1024, 48000, 1);
+        ((void(*)(int, int))sceAudioOutSetMixLevelPadSpk)(padAudioPort, 255);
+    }
+    if (padMicPort < 0) {
+        padMicPort = 1; // Usado como flag de "aberto"
+        sceAudioInInit();
+        ((void(*)())sceAudioInOpen)(); 
+    }
+
+    // Brilho dinâmico via Gatilhos (Base de 30% + Escala de 70%)
+    float intensity = 0.3f + 0.7f * ((l2 > r2 ? l2 : r2) / 255.0f);
+
+    bool anyButtonPressed = false;
+    for (int i = 0; i < 8; i++) {
+        uint32_t btn = colors[i].btn;
+        if (buttons & btn) {
+            anyButtonPressed = true;
+            OrbisPadColor color = { (uint8_t)(colors[i].r * intensity), (uint8_t)(colors[i].g * intensity), (uint8_t)(colors[i].b * intensity) };
+            scePadSetLightBar(globalPadHandle, &color);
+
+            // Som apenas no primeiro pressionamento (Setas e Botões Principais)
+            if (!(prevButtonsTest & btn)) {
+                int16_t* sfx = NULL;
+                if (btn == ORBIS_PAD_BUTTON_UP || btn == ORBIS_PAD_BUTTON_LEFT || btn == ORBIS_PAD_BUTTON_TRIANGLE) sfx = sfxUpData;
+                else if (btn == ORBIS_PAD_BUTTON_DOWN || btn == ORBIS_PAD_BUTTON_RIGHT || btn == ORBIS_PAD_BUTTON_SQUARE) sfx = sfxDownData;
+                else if (btn == ORBIS_PAD_BUTTON_CROSS) sfx = sfxCrossData;
+                else if (btn == ORBIS_PAD_BUTTON_CIRCLE) sfx = sfxCircleData;
+                if (sfx && padAudioPort >= 0) sceAudioOutOutput(padAudioPort, sfx);
+            }
+        }
+    }
+    if (!anyButtonPressed) {
+        OrbisPadColor color = { 0, 0, 0 };
+        scePadSetLightBar(globalPadHandle, &color);
+    }
+
+    prevButtonsTest = buttons;
+
     uint8_t touchNum = raw[0x34];
     uint16_t t0_x = 0; uint16_t t0_y = 0;
     uint16_t t1_x = 0; uint16_t t1_y = 0;
@@ -130,7 +224,7 @@ void renderizarControleTeste(uint32_t* p) {
                 }
             }
         }
-        };
+    };
 
     // =======================================================
     // PARTE 1: TOPO (BOTOES DIGITAIS TODOS ALINHADOS)
@@ -168,7 +262,7 @@ void renderizarControleTeste(uint32_t* p) {
     if (lx >= 115 && lx <= 140 && ly >= 115 && ly <= 140) { memset(trilhaL, 0, sizeof(trilhaL)); prevLx = 128; prevLy = 128; }
     else { drawLineOnGrid(trilhaL, prevLx, prevLy, lx, ly); prevLx = lx; prevLy = ly; }
 
-    int lCenterX = 300; int lCenterY = 600; int radius = 150;
+    int lCenterX = 220; int lCenterY = 600; int radius = 150;
     desenharTexto(p, "Centro Ideal: 128 | 128", 25, lCenterX - 130, lCenterY - 180, 0xFFFFFFFF);
     drawCircle(lCenterX, lCenterY, radius, 0xFF444444, false);
     drawCircle(lCenterX, lCenterY, 4, 0xFFFFFFFF, true);
@@ -197,7 +291,7 @@ void renderizarControleTeste(uint32_t* p) {
     if (rx >= 115 && rx <= 140 && ry >= 115 && ry <= 140) { memset(trilhaR, 0, sizeof(trilhaR)); prevRx = 128; prevRy = 128; }
     else { drawLineOnGrid(trilhaR, prevRx, prevRy, rx, ry); prevRx = rx; prevRy = ry; }
 
-    int rCenterX = 800; int rCenterY = 600;
+    int rCenterX = 560; int rCenterY = 600;
     desenharTexto(p, "Centro Ideal: 128 | 128", 25, rCenterX - 130, rCenterY - 180, 0xFFFFFFFF);
     drawCircle(rCenterX, rCenterY, radius, 0xFF444444, false);
     drawCircle(rCenterX, rCenterY, 4, 0xFFFFFFFF, true);
@@ -223,12 +317,46 @@ void renderizarControleTeste(uint32_t* p) {
     desenharTexto(p, txt, 30, rCenterX - 110, rCenterY + 180, 0xFFFFFFFF);
 
     // -----------------------------------------
-    // Renderizar Touchpad na Direita (Agora Multi-Touch!)
+    // Renderizar Sensores (Giroscópio / Acelerômetro)
     // -----------------------------------------
-    int tpW = 576; int tpH = 282;
-    int tpX = 1250; int tpY = 460;
+    int sX = 1350; int sY = 500;
+    desenharTexto(p, "SENSORES DE MOVIMENTO", 30, sX, sY - 40, 0xFF00AAFF);
 
-    desenharTexto(p, "TOUCHPAD DA PS4 (TESTE DE RASTRO)", 25, tpX + 60, tpY - 30, 0xFF00AAFF);
+    auto drawSensorBar = [&](int x, int y, const char* label, int16_t value, uint32_t color) {
+        desenharTexto(p, label, 25, x, y, 0xFFFFFFFF);
+        int barWidth = 200; int barHeight = 20;
+        int fill = (value * barWidth) / 32768;
+        if (fill > barWidth) fill = barWidth; if (fill < -barWidth) fill = -barWidth;
+
+        for (int h = 0; h < barHeight; h++) {
+            for (int w = 0; w < barWidth * 2; w++) {
+                p[(y + 5 + h) * 1920 + (x + 100 + w)] = 0xFF333333;
+            }
+            if (fill >= 0) {
+                for (int w = 0; w < fill; w++) p[(y + 5 + h) * 1920 + (x + 100 + barWidth + w)] = color;
+            } else {
+                for (int w = 0; w < -fill; w++) p[(y + 5 + h) * 1920 + (x + 100 + barWidth - w)] = color;
+            }
+        }
+        char valStr[32]; sprintf(valStr, "%d", value);
+        desenharTexto(p, valStr, 22, x + 100 + barWidth * 2 + 10, y, 0xFFFFFFFF);
+    };
+
+    drawSensorBar(sX, sY, "GYRO X:", gx, 0xFF00AAFF);
+    drawSensorBar(sX, sY + 40, "GYRO Y:", gy, 0xFF00AAFF);
+    drawSensorBar(sX, sY + 80, "GYRO Z:", gz, 0xFF00AAFF);
+
+    drawSensorBar(sX, sY + 140, "ACCEL X:", ax, 0xFF00FF00);
+    drawSensorBar(sX, sY + 180, "ACCEL Y:", ay, 0xFF00FF00);
+    drawSensorBar(sX, sY + 220, "ACCEL Z:", az, 0xFF00FF00);
+
+    // -----------------------------------------
+    // Renderizar Touchpad (Agora Multi-Touch!)
+    // -----------------------------------------
+    int tpW = 350; int tpH = 200;
+    int tpX = 850; int tpY = 500;
+
+    desenharTexto(p, "TOUCHPAD PS4", 25, tpX + 60, tpY - 30, 0xFF00AAFF);
 
     for (int y = 0; y < tpH; y++) { for (int x = 0; x < tpW; x++) { p[(tpY + y) * 1920 + (tpX + x)] = 0xFF222222; } }
     for (int y = 0; y < tpH; y++) { for (int x = 0; x < tpW; x++) { if (x == 0 || y == 0 || x == tpW - 1 || y == tpH - 1) p[(tpY + y) * 1920 + (tpX + x)] = 0xFFAAAAAA; } }
@@ -299,33 +427,72 @@ void renderizarControleTeste(uint32_t* p) {
     if (touchNum > 0) {
         int dotX = tpX + (t0_x * tpW) / 1919; int dotY = tpY + (t0_y * tpH) / 941;
         drawCircle(dotX, dotY, 12, 0xFF00AAFF, true);
-        sprintf(txt, "Dedo 1: X:%d Y:%d", t0_x, t0_y);
-        desenharTexto(p, txt, 25, tpX + 10, tpY + tpH + 30, 0xFF00AAFF);
+        sprintf(txt, "DEDO 1: [%d, %d]", t0_x, t0_y);
+        desenharTexto(p, txt, 25, tpX - 300, tpY + tpH + 30, 0xFF00AAFF);
     }
-    else {
-        desenharTexto(p, "Aguardando toque...", 25, tpX + 170, tpY + tpH + 30, 0xFF555555);
-    }
-
     if (touchNum > 1) {
         int dotX2 = tpX + (t1_x * tpW) / 1919; int dotY2 = tpY + (t1_y * tpH) / 941;
         drawCircle(dotX2, dotY2, 12, 0xFF00FF00, true);
-        sprintf(txt, "Dedo 2: X:%d Y:%d", t1_x, t1_y);
-        desenharTexto(p, txt, 25, tpX + 350, tpY + tpH + 30, 0xFF00FF00);
+        sprintf(txt, "DEDO 2: [%d, %d]", t1_x, t1_y);
+        desenharTexto(p, txt, 25, tpX + 300, tpY + tpH + 30, 0xFF00FF00);
     }
 
+    // -----------------------------------------
+    // Renderizar Lista de Cores e Brilho (Embaixo dos Sensores)
+    // -----------------------------------------
+    int cX = sX; int cY = sY + 320;
+    desenharTexto(p, "LISTA DE CORES (LED)", 30, cX, cY - 30, 0xFF00AAFF);
+    for (int i = 0; i < 8; i++) {
+        uint32_t c = (buttons & colors[i].btn) ? 0xFFFFFFFF : 0xFF555555;
+        // Desenha um quadradinho da cor
+        uint32_t previewCol = 0xFF000000 | (colors[i].r << 16) | (colors[i].g << 8) | colors[i].b;
+        for (int y = 0; y < 20; y++) {
+            for (int x = 0; x < 20; x++) p[(cY + i * 35 + y) * 1920 + (cX + x)] = previewCol;
+        }
+        desenharTexto(p, colors[i].name, 25, cX + 30, cY + i * 35, c);
+    }
+
+    char briTxt[64]; sprintf(briTxt, "BRILHO LED: %.0f%%", intensity * 100.0f);
+    desenharTexto(p, briTxt, 25, cX, cY + 300, 0xFFFFFFFF);
+
+    // -----------------------------------------
+    // Renderizar Microfone (AudioIn)
+    // -----------------------------------------
+    int mX = tpX; int mY = tpY + 320;
+    desenharTexto(p, "MICROFONE (INPUT)", 30, mX, mY - 30, 0xFF00AAFF);
+    
+    // Tenta ler amostras do microfone para o HUD
+    static int16_t micBuffer[512];
+    if (padMicPort >= 0) {
+        // Assume handle 0 ou tenta via input
+        ((int(*)(int, void*))sceAudioInInput)(0, micBuffer); 
+        int peak = 0;
+        for(int i=0; i<512; i++) { if(abs(micBuffer[i]) > peak) peak = abs(micBuffer[i]); }
+        micLevelDisplay = peak;
+    }
+
+    int mBarW = 350; int mBarH = 30;
+    for (int y = 0; y < mBarH; y++) {
+        for (int x = 0; x < mBarW; x++) {
+            uint32_t c = (x < (micLevelDisplay * mBarW) / 32768) ? 0xFF00FF00 : 0xFF333333;
+            p[(mY + y) * 1920 + (mX + x)] = c;
+        }
+    }
+    desenharTexto(p, "Fale no controle/headset para testar", 20, mX, mY + 40, 0xFFAAAAAA);
+
+    // ===================================
+    // PARTE 3: RODAPÉ (GATILHOS L2 E R2 EMPILHADOS)
     // =======================================================
-    // PARTE 3: RODAPÉ (GATILHOS L2 E R2 DE 0 A 255)
-    // =======================================================
-    int l2X = 300, l2Y = 920;
-    desenharTexto(p, "PRESSAO L2:", 30, l2X - 180, l2Y, 0xFFFFFFFF);
+    int l2X = 150, l2Y = 850;
+    desenharTexto(p, "L2:", 30, l2X - 100, l2Y, 0xFFFFFFFF);
     for (int i = 0; i < 255; i++) {
         uint32_t c = (i < l2) ? 0xFF00AAFF : 0xFF333333;
         for (int y = 0; y < 40; y++) p[(l2Y + y) * 1920 + (l2X + i)] = c;
     }
     sprintf(txt, "%d / 255", l2); desenharTexto(p, txt, 25, l2X + 270, l2Y + 5, 0xFFFFFFFF);
 
-    int r2X = 1150, r2Y = 920;
-    desenharTexto(p, "PRESSAO R2:", 30, r2X - 180, r2Y, 0xFFFFFFFF);
+    int r2X = 150, r2Y = 920;
+    desenharTexto(p, "R2:", 30, r2X - 100, r2Y, 0xFFFFFFFF);
     for (int i = 0; i < 255; i++) {
         uint32_t c = (i < r2) ? 0xFF00AAFF : 0xFF333333;
         for (int y = 0; y < 40; y++) p[(r2Y + y) * 1920 + (r2X + i)] = c;

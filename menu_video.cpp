@@ -19,10 +19,10 @@ extern VideoMarker markers[50];
 extern int total_markers;
 
 // =========================================================================
-// ESCUDO DO PIP: Coloque o nome real das variáveis dos seus apps aqui!
+// ESCUDO DO PIP
 // =========================================================================
 extern bool menuL2_Aberto;
-extern bool visualizandoPDF; // Ajustado de visualizandoMidiaPDF para visualizandoPDF
+extern bool visualizandoPDF; 
 extern bool visualizandoMidiaTexto;
 extern bool visualizandoMidiaImagem;
 extern bool visualizandoPic1;
@@ -50,12 +50,10 @@ bool cfg_skip_global = false;
 void processarControlesMenuVideo(unsigned int btn, OrbisPadData* pData, bool& cross_consumido, bool& circle_consumido) {
     if (!videoRodando) return;
 
-    // Se QUALQUER um desses menus/apps estiver aberto, o bloqueio_hud é verdadeiro!
     bool bloqueio_hud = (menuL2_Aberto || visualizandoPDF || visualizandoMidiaTexto ||
         visualizandoMidiaImagem || visualizandoPic1 || bloco_notas_aberto ||
         instrumento_aberto || teste_controle_aberto);
 
-    // O PiP SÓ pega a Seta Esquerda se a tela estiver limpa (bloqueio_hud for falso)
     if (video_minimizado && !menu_video_aberto && !bloqueio_hud) {
         if (btn & ORBIS_PAD_BUTTON_LEFT) {
             pip_selecionado = true;
@@ -100,10 +98,12 @@ void processarControlesMenuVideo(unsigned int btn, OrbisPadData* pData, bool& cr
         }
         if (vState == V_MAIN) {
             static int last_volume = 100;
-            if (menu_video_sel < 0)  { menu_video_sel = 10; offVideoOpcao = 10 - 9; if (offVideoOpcao < 0) offVideoOpcao = 0; }
-            if (menu_video_sel > 10) { menu_video_sel = 0; offVideoOpcao = 0; }
+            // AGORA TEMOS 12 OPÇÕES (0 a 11)
+            if (menu_video_sel < 0)  { menu_video_sel = 11; offVideoOpcao = 11 - 9; if (offVideoOpcao < 0) offVideoOpcao = 0; }
+            if (menu_video_sel > 11) { menu_video_sel = 0; offVideoOpcao = 0; }
             if (menu_video_sel < offVideoOpcao) offVideoOpcao = menu_video_sel;
             if (menu_video_sel >= offVideoOpcao + 10) offVideoOpcao = menu_video_sel - 9;
+            
             if (pData->buttons & ORBIS_PAD_BUTTON_RIGHT) {
                 if (menu_video_sel == 1) frame_skip++;
                 if (menu_video_sel == 2) video_fps_multiplier += 0.25f;
@@ -131,7 +131,8 @@ void processarControlesMenuVideo(unsigned int btn, OrbisPadData* pData, bool& cr
                     vState = V_SKIP_VIDEOS; menu_video_sel = 0;
                 }
                 if (menu_video_sel == 9) { vState = V_TRACKS; menu_video_sel = 0; }
-                if (menu_video_sel == 10) { bloqueio_fechar_video = false; pararVideo(); menu_video_aberto = false; }
+                if (menu_video_sel == 10) { mostrar_timeline = !mostrar_timeline; menu_video_aberto = false; } // NOVA OPÇÃO TIMELINE!
+                if (menu_video_sel == 11) { bloqueio_fechar_video = false; pararVideo(); menu_video_aberto = false; } // FECHAR PASSOU PARA O 11
             }
         }
         else if (vState == V_PIP) {
@@ -256,16 +257,18 @@ void desenharMenuPlayerVideo(uint32_t* p) {
                     if (xx >= 0 && xx < 1920 && yy >= 0 && yy < 1080) p[yy * 1920 + xx] = 0xCC00AAFF;
                 }
             }
+            extern void desenharTexto(uint32_t* buffer, const char* texto, int tamanho, int x, int y, uint32_t corCorpo);
             desenharTexto(p, "X PULAR", 14, bx + 10, by + (bh / 2) + 6, 0xFFFFFFFF);
         }
         else {
             for (int by = 850; by < 930; by++) for (int bx = 1550; bx < 1880; bx++) p[by * 1920 + bx] = 0xCC00AAFF;
+            extern void desenharTexto(uint32_t* buffer, const char* texto, int tamanho, int x, int y, uint32_t corCorpo);
             desenharTexto(p, "PRESSIONE (X) PULAR", 22, 1580, 890, 0xFFFFFFFF);
         }
     }
 
     if (menu_video_aberto) {
-        int mx = 25, my = 80, mw = 290, mh = 530;
+        int mx = 25, my = 80, mw = 290, mh = 560; // Aumentei a altura para caber 12 itens
         for (int ry = my; ry < my + mh; ry++) for (int rx = mx; rx < mx + mw; rx++) p[ry * 1920 + rx] = 0xEE0D0D1A;
 
         static int marquee_offset = 0; static int marquee_timer  = 0;
@@ -280,32 +283,36 @@ void desenharMenuPlayerVideo(uint32_t* p) {
         sprintf(hud_t, "%02.0f:%02.0f / %02.0f:%02.0f  FPS:%.0f",
             floor(video_time_current / 60), fmod(video_time_current, 60),
             floor(video_time_total / 60), fmod(video_time_total, 60), fps_video);
+            
+        extern void desenharTexto(uint32_t* buffer, const char* texto, int tamanho, int x, int y, uint32_t corCorpo);
         desenharTexto(p, nome_disp, 22, mx + 8, my + 10, 0xFF00FFFF);
         desenharTexto(p, hud_t,     20, mx + 8, my + 38, 0xFFDDDDDD);
         for (int rx = mx; rx < mx + mw; rx++) p[(my + 62) * 1920 + rx] = 0xFF333355;
 
         if (vState == V_MAIN) {
-            char opts[11][48];
+            char opts[12][48];
             sprintf(opts[0],  "%c Informacoes",   (menu_video_sel == 0  ? '>' : ' '));
-            sprintf(opts[1],  "%c SkipFr: %d",     (menu_video_sel == 1  ? '>' : ' '), frame_skip);
-            sprintf(opts[2],  "%c Veloc: %.2fx",   (menu_video_sel == 2  ? '>' : ' '), video_fps_multiplier);
-            sprintf(opts[3],  "%c Vol: %d%%",      (menu_video_sel == 3  ? '>' : ' '), video_volume);
-            sprintf(opts[4],  "%c %s Video",       (menu_video_sel == 4  ? '>' : ' '), video_pausado ? "Retomar" : "Pausar");
-            sprintf(opts[5],  "%c %s Audio",       (menu_video_sel == 5  ? '>' : ' '), video_volume == 0 ? "Desmutar" : "Mutar");
-            sprintf(opts[6],  "%c Minimizar PiP",  (menu_video_sel == 6  ? '>' : ' '));
-            sprintf(opts[7],  "%c Editar PIP",     (menu_video_sel == 7  ? '>' : ' '));
-            sprintf(opts[8],  "%c Abertura",       (menu_video_sel == 8  ? '>' : ' '));
-            sprintf(opts[9],  "%c Faixas",         (menu_video_sel == 9  ? '>' : ' '));
-            sprintf(opts[10], "%c Fechar Video",   (menu_video_sel == 10 ? '>' : ' '));
+            sprintf(opts[1],  "%c SkipFr: %d",    (menu_video_sel == 1  ? '>' : ' '), frame_skip);
+            sprintf(opts[2],  "%c Veloc: %.2fx",  (menu_video_sel == 2  ? '>' : ' '), video_fps_multiplier);
+            sprintf(opts[3],  "%c Vol: %d%%",     (menu_video_sel == 3  ? '>' : ' '), video_volume);
+            sprintf(opts[4],  "%c %s Video",      (menu_video_sel == 4  ? '>' : ' '), video_pausado ? "Retomar" : "Pausar");
+            sprintf(opts[5],  "%c %s Audio",      (menu_video_sel == 5  ? '>' : ' '), video_volume == 0 ? "Desmutar" : "Mutar");
+            sprintf(opts[6],  "%c Minimizar PiP", (menu_video_sel == 6  ? '>' : ' '));
+            sprintf(opts[7],  "%c Editar PIP",    (menu_video_sel == 7  ? '>' : ' '));
+            sprintf(opts[8],  "%c Abertura",      (menu_video_sel == 8  ? '>' : ' '));
+            sprintf(opts[9],  "%c Faixas",        (menu_video_sel == 9  ? '>' : ' '));
+            sprintf(opts[10], "%c %s Timeline",   (menu_video_sel == 10 ? '>' : ' '), mostrar_timeline ? "Ocultar" : "Mostrar"); // TIMELINE AQUI!
+            sprintf(opts[11], "%c Fechar Video",  (menu_video_sel == 11 ? '>' : ' '));
 
             int maxVis = (mh - 70) / 40;
             for (int i = 0; i < maxVis; i++) {
-                int gIdx = i + offVideoOpcao; if (gIdx >= 11) break;
+                int gIdx = i + offVideoOpcao; if (gIdx >= 12) break;
                 uint32_t cor = (gIdx == menu_video_sel) ? 0xFF00FFFF : 0xFFFFFFFF;
                 desenharTexto(p, opts[gIdx], 23, mx + 10, my + 70 + (i * 40), cor);
             }
         }
         else if (vState == V_PIP) {
+            extern void desenharTexto(uint32_t* buffer, const char* texto, int tamanho, int x, int y, uint32_t corCorpo);
             desenharTexto(p, "EDITAR PIP", 18, mx+8, my+70, 0xFF00AAFF);
             uint32_t cor0 = (menu_video_sel == 0) ? (editando_opcao ? 0xFF00FF00 : 0xFF00FFFF) : 0xFFFFFFFF;
             uint32_t cor1 = (menu_video_sel == 1) ? (editando_opcao ? 0xFF00FF00 : 0xFF00FFFF) : 0xFFFFFFFF;
@@ -317,11 +324,13 @@ void desenharMenuPlayerVideo(uint32_t* p) {
             desenharTexto(p, "[ATIVAR/DESATIVAR PIP]", 17, mx+8, my+210, (menu_video_sel == 3 ? 0xFF00FFFF : 0xFFFFFFFF));
         }
         else if (vState == V_SKIP_VIDEOS) {
+            extern void desenharTexto(uint32_t* buffer, const char* texto, int tamanho, int x, int y, uint32_t corCorpo);
             desenharTexto(p, "MARKERS DE PULO", 18, mx+8, my+70, 0xFFFF00FF);
             desenharTexto(p, "+ ATUAL", 18, mx+8, my+105, (menu_video_sel == 0) ? 0xFF00FF00 : 0xFFFFFFFF);
             for (int i = 0; i < num_unique_videos; i++) desenharTexto(p, unique_videos[i], 16, mx+8, my+140+(i*30), (menu_video_sel==(i+1))?0xFF00FFFF:0xFFFFFFFF);
         }
         else if (vState == V_SKIP_LIST) {
+            extern void desenharTexto(uint32_t* buffer, const char* texto, int tamanho, int x, int y, uint32_t corCorpo);
             char b[128]; sprintf(b, "Markers: %s", selected_marker_video);
             desenharTexto(p, b, 15, mx+8, my+70, 0xFFFF00FF);
             for (int i = 0; i < num_visible_markers; i++) {
@@ -330,6 +339,7 @@ void desenharMenuPlayerVideo(uint32_t* p) {
             }
         }
         else if (vState == V_SKIP_EDIT) {
+            extern void desenharTexto(uint32_t* buffer, const char* texto, int tamanho, int x, int y, uint32_t corCorpo);
             desenharTexto(p, "EDITAR MARKER", 18, mx+8, my+70, 0xFFFF00FF);
             char b[128];
             sprintf(b, "Inicio: %.0fs", cfg_skip_inicio); desenharTexto(p, b, 17, mx+8, my+105, (menu_video_sel==0?(editando_opcao?0xFF00FF00:0xFF00FFFF):0xFFFFFFFF));
@@ -338,6 +348,7 @@ void desenharMenuPlayerVideo(uint32_t* p) {
             desenharTexto(p, "[EXCLUIR]", 18, mx+8, my+215, (menu_video_sel==3?0xFF00FFFF:0xFFFF0000));
         }
         else if (vState == V_SKIP_ADD) {
+            extern void desenharTexto(uint32_t* buffer, const char* texto, int tamanho, int x, int y, uint32_t corCorpo);
             desenharTexto(p, "NOVO MARKER", 18, mx+8, my+70, 0xFFFF00FF);
             char b[128];
             sprintf(b, "Inicio: %.0fs", cfg_skip_inicio); desenharTexto(p, b, 17, mx+8, my+105, (menu_video_sel==0?(editando_opcao?0xFF00FF00:0xFF00FFFF):0xFFFFFFFF));
@@ -346,6 +357,7 @@ void desenharMenuPlayerVideo(uint32_t* p) {
             desenharTexto(p, "[SALVAR MARKER]", 18, mx+8, my+215, (menu_video_sel==3?0xFF00FFFF:0xFF00FF00));
         }
         else if (vState == V_INFO) {
+            extern void desenharTexto(uint32_t* buffer, const char* texto, int tamanho, int x, int y, uint32_t corCorpo);
             desenharTexto(p, "INFORMACOES", 18, mx+8, my+70, 0xFFFFFF00);
             char b[128];
             sprintf(b, "Nome: %s", info_nome); desenharTexto(p, b, 14, mx+8, my+100, 0xFFFFFFFF);
@@ -354,6 +366,7 @@ void desenharMenuPlayerVideo(uint32_t* p) {
             sprintf(b, "Dur:  %02d:%02d", (int)video_time_total/60, (int)video_time_total%60); desenharTexto(p, b, 14, mx+8, my+175, 0xFFFFFFFF);
         }
         else if (vState == V_TRACKS) {
+            extern void desenharTexto(uint32_t* buffer, const char* texto, int tamanho, int x, int y, uint32_t corCorpo);
             desenharTexto(p, "FAIXAS", 18, mx+8, my+70, 0xFF00FFAA);
             int yy = my+100;
             desenharTexto(p, "Audios:", 16, mx+8, yy, 0xFFFFFFFF); yy += 24;
