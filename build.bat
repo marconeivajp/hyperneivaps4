@@ -65,20 +65,21 @@ echo [2/7] Compilando TODOS os modulos C++
 "C:\Program Files\LLVM\bin\clang++.exe" --target=x86_64-pc-freebsd12-elf -fPIC -flto -O3 -march=btver2 -ffast-math -funwind-tables -I"C:\Program Files\LLVM\bin\clang\include" -I"C:\OpenOrbis\include" -I"C:\OpenOrbis\include\c++\v1" -I"C:\OpenOrbis\include\orbis" -c instrumentos.cpp -o instrumentos.o
 "C:\Program Files\LLVM\bin\clang++.exe" --target=x86_64-pc-freebsd12-elf -fPIC -flto -O3 -march=btver2 -ffast-math -funwind-tables -I"C:\Program Files\LLVM\bin\clang\include" -I"C:\OpenOrbis\include" -I"C:\OpenOrbis\include\c++\v1" -I"C:\OpenOrbis\include\orbis" -c pdf.cpp -o pdf.o
 "C:\Program Files\LLVM\bin\clang++.exe" --target=x86_64-pc-freebsd12-elf -fPIC -flto -O3 -march=btver2 -ffast-math -funwind-tables -I"C:\Program Files\LLVM\bin\clang\include" -I"C:\OpenOrbis\include" -I"C:\OpenOrbis\include\c++\v1" -I"C:\OpenOrbis\include\orbis" -c libretro_bridge.cpp -o libretro_bridge.o
+"C:\Program Files\LLVM\bin\clang++.exe" --target=x86_64-pc-freebsd12-elf -fPIC -flto -O3 -march=btver2 -ffast-math -funwind-tables -I"C:\Program Files\LLVM\bin\clang\include" -I"C:\OpenOrbis\include" -I"C:\OpenOrbis\include\c++\v1" -I"C:\OpenOrbis\include\orbis" -c radio.cpp -o radio.o
 
 echo.
 echo [3/7] Linkando...
-"C:\Program Files\LLVM\bin\ld.lld.exe" -m elf_x86_64 -pie --script "C:\OpenOrbis\link.x" --eh-frame-hdr --gc-sections --allow-multiple-definition -o teste3.elf "-LC:\OpenOrbis\lib" -lc -lm -lkernel -lc++ -lmupdf -lmupdf-third -lavformat -lavcodec -lswscale -lswresample -lavutil -lSceVideoOut -lSceAudioOut -lSceUserService -lSceSysmodule -lSceSysUtil -lScePad -lSceNet -lSceHttp -lSceSsl -lSceImeDialog -lSceCommonDialog -lSceBgft -lSceAppInstUtil "C:\OpenOrbis\lib\crt1.o" mgba_libretro_ps4.a kernelrw.o jailbreak.o miniz.o main.o menu_emulador.o controle_emulador.o explorar.o explorar_conversor.o explorar_utilitarios.o editar.o network.o baixar.o graphics.o jogar.o audio.o controle.o menu.o menu_audio.o menu_imagens.o menu_video.o menu_grafico.o menu_grafico_cache_grafico.o menu_grafico_render_texto.o menu_grafico_visualizadores.o menu_grafico_layout.o controle_virtual.o pesquisar.o bloco_de_notas.o video.o teclado.o criar_pastas.o controle_musicas.o controle_explorar.o controle_editar.o controle_baixar.o controle_root.o baixar_repositorio.o baixar_dropbox_download.o baixar_lojas.o dowload_sistema.o menu_upload.o elementos.o controle_elementos.o elementos_sonoros.o ftp.o elementos_animados_sprite_sheet.o extra.o informacao.o instrumentos.o pdf.o libretro_bridge.o
+"C:\Program Files\LLVM\bin\ld.lld.exe" -m elf_x86_64 -pie --script "C:\OpenOrbis\link.x" --eh-frame-hdr --gc-sections --allow-multiple-definition -o teste3.elf "-LC:\OpenOrbis\lib" -lc -lm -lkernel -lc++ -lmupdf -lmupdf-third -lavformat -lavcodec -lswscale -lswresample -lavutil -lSceVideoOut -lSceAudioOut -lSceUserService -lSceSysmodule -lSceSysUtil -lScePad -lSceNet -lSceHttp -lSceSsl -lSceImeDialog -lSceCommonDialog -lSceBgft -lSceAppInstUtil "C:\OpenOrbis\lib\crt1.o" mgba_libretro_ps4.a kernelrw.o jailbreak.o miniz.o main.o menu_emulador.o controle_emulador.o explorar.o explorar_conversor.o explorar_utilitarios.o editar.o network.o baixar.o graphics.o jogar.o audio.o controle.o menu.o menu_audio.o menu_imagens.o menu_video.o menu_grafico.o menu_grafico_cache_grafico.o menu_grafico_render_texto.o menu_grafico_visualizadores.o menu_grafico_layout.o controle_virtual.o pesquisar.o bloco_de_notas.o video.o teclado.o criar_pastas.o controle_musicas.o controle_explorar.o controle_editar.o controle_baixar.o controle_root.o baixar_repositorio.o baixar_dropbox_download.o baixar_lojas.o dowload_sistema.o menu_upload.o elementos.o controle_elementos.o elementos_sonoros.o ftp.o elementos_animados_sprite_sheet.o extra.o informacao.o instrumentos.o pdf.o libretro_bridge.o radio.o
 
 :: ==========================================
 :: TRAVA DE SEGURANCA COM 2 BIPES DE ERRO
 :: ==========================================
 if not exist teste3.elf (
     echo.
-    echo [ERRO FATAL] A compilacao C++ falhou! Verifique os erros acima.
+    echo [ERRO FATAL] A compilacao C++ falhou!
+    echo Verifique os erros acima.
     echo O pacote PKG nao sera gerado nem enviado.
     powershell -NoProfile -Command "[System.Console]::Beep(1500,400); Start-Sleep -Milliseconds 150; [System.Console]::Beep(1500,400)"
-    pause
     exit /b 1
 )
 
@@ -124,7 +125,7 @@ echo [7/7] Criacao do GP4 e Build do PKG...
 
 echo.
 echo [Final] Renomeando e Copiando...
-timeout /t 3 /nobreak >nul
+powershell -NoProfile -Command "Start-Sleep -Seconds 3"
 
 if exist "UP0001-MARC00001_00-0000000000000000.pkg" (
     ren "UP0001-MARC00001_00-0000000000000000.pkg" "Hyper Neiva.pkg"
@@ -139,7 +140,7 @@ if exist "E:\" (
 
 echo.
 echo Tentando enviar para o PS4 via FTP (Timeout 10s)...
-curl -T "Hyper Neiva.pkg" ftp://192.168.0.3:2121/data/pkg/ --connect-timeout 10
+curl -T "Hyper Neiva.pkg" ftp://192.168.0.4:2121/data/pkg/ --connect-timeout 10
 if %errorlevel% equ 0 (
     echo Envio via FTP concluido com sucesso!
     :: 1 BIPE PARA SUCESSO
@@ -154,5 +155,4 @@ echo.
 echo ==========================================
 echo         COMPILADO COM SUCESSO!
 echo ==========================================
-pause
 exit /b 0

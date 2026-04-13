@@ -38,4 +38,4 @@ void acaoCross_Notepad(int32_t uId, OrbisImeDialogSetting* imeSetting, uint16_t*
 
 void acaoCircle_Notepad() {
     preencherRoot();
-}
+}void exibirTecladoVirtual(int tipo) { extern bool tecladoAtivo; extern int tecladoTipo; extern int32_t global_uId; extern OrbisImeDialogSetting* imeSetting; extern uint16_t* bufferTecladoW; static uint16_t tituloT[] = { 'H','y','p','e','r',' ','N','e','i','v','a',0 }; memset(imeSetting, 0, sizeof(OrbisImeDialogSetting)); imeSetting->userId = global_uId; imeSetting->type = (OrbisImeType)0; imeSetting->maxTextLength = 63; imeSetting->inputTextBuffer = (wchar_t*)bufferTecladoW; imeSetting->title = (wchar_t*)tituloT; memset(bufferTecladoW, 0, 1024); if (sceImeDialogInit(imeSetting, NULL) >= 0) { tecladoAtivo = true; tecladoTipo = tipo; } }

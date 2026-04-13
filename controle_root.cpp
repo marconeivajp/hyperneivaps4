@@ -337,6 +337,11 @@ void acaoCross_Root() {
     }
 
     else if (menuAtual == MENU_MIDIA) {
+        if (strcmp(nomes[sel], "Radio & Podcast") == 0) {
+            extern void preencherMenuRadioCategorias();
+            preencherMenuRadioCategorias();
+            return;
+        }
         if (strcmp(nomes[sel], "Pasta vazia") == 0) return;
         char novoCaminho[512]; sprintf(novoCaminho, "%s/%s", caminhoMidiaAtual, nomes[sel]);
 

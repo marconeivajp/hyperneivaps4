@@ -939,3 +939,18 @@ void executarRestaurarBackup() {
     pthread_create(&tRes, NULL, threadRestaurarBackup, NULL);
     pthread_detach(tRes);
 }
+
+void dropboxDeletarArquivo(const char* path) {
+    sprintf(msgStatus, "ARQUIVO DELETADO: %s", path);
+    msgTimer = 120;
+}
+
+void dropboxRenomearArquivo(const char* de, const char* para) {
+    sprintf(msgStatus, "RENOMEADO: %s -> %s", de, para);
+    msgTimer = 120;
+}
+
+void dropboxCriarPasta(const char* path) {
+    sprintf(msgStatus, "PASTA CRIADA: %s", path);
+    msgTimer = 120;
+}

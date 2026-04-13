@@ -54,7 +54,7 @@ int menuEmuSelecao = 0;
 #define STB_TRUETYPE_IMPLEMENTATION
 #include "stb_truetype.h"
 
-int selAudioOpcao = 0; bool tecladoAtivo = false; uint16_t* bufferTecladoW = NULL; char bufferTecladoC[128] = "";
+int selAudioOpcao = 0; bool tecladoAtivo = false; int tecladoTipo = 0; uint16_t* bufferTecladoW = NULL; char bufferTecladoC[128] = "";
 int pad = -1; // Usado pelo Bridge para vibracao
 extern char msgStatus[128];
 extern int msgTimer;

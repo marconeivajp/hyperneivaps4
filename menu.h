@@ -42,6 +42,9 @@ enum MenuLevel {
     MENU_LISTA_CORES,
     MENU_EMULADOR_EXECUCAO,
     MENU_EMU_CONTROLES, // NOVO: Tela de ajuda de controles do emulador
+    MENU_RADIO_CATEGORIA,
+    MENU_RADIO_LISTA,
+    MENU_RADIO_FAVORITOS,
     MENU_ERRO_CRITICO
 };
 

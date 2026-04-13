@@ -65,8 +65,15 @@ void abrirPastaMidia(const char* caminho) {
     }
 
     if (totalItens == 0) {
-        strcpy(nomes[0], "Pasta vazia");
+        strcpy(nomes[0], "Radio & Podcast");
         totalItens = 1;
+    } else {
+        // Shifting for Radio
+        for (int i = totalItens; i > 0; i--) {
+            strcpy(nomes[i], nomes[i-1]);
+        }
+        strcpy(nomes[0], "Radio & Podcast");
+        totalItens++;
     }
 
     menuAtual = MENU_MIDIA;

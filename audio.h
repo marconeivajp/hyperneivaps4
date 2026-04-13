@@ -29,6 +29,9 @@ void preencherMenuMusicas();
 void salvarConfiguracaoAudio();
 void carregarConfiguracaoAudio();
 
+// Tipos de áudio suportados
+enum AudioType { AUDIO_NONE, AUDIO_WAV, AUDIO_MP3, AUDIO_STREAM };
+
 // Nova função para o emulador
 void enviarAmostraAudio(int16_t L, int16_t R);
 

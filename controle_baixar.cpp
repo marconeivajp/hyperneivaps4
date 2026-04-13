@@ -261,26 +261,66 @@ void acaoCross_Baixar(int32_t uId, OrbisImeDialogSetting* imeSetting, uint16_t* 
         else if (sel == 9) executarRestaurarBackup();
     }
     else if (menuAtual == MENU_BAIXAR_DROPBOX_LISTA) {
-        char urlSel[1024]; strcpy(urlSel, linksAtuais[sel]); int tam = strlen(urlSel);
-        if (strcmp(urlSel, "UPDATE_HB_STORE") == 0) { atualizarHBStore(); return; }
-        if (tam > 0 && urlSel[tam - 1] == '/') {
-            if (emApolloSaves) acessarApolloSaves(urlSel);
-            else { urlSel[tam - 1] = '\0'; acessarDropbox(urlSel); }
-        }
-        else { iniciarDownload(urlSel); }
-    }
-    else if (menuAtual == MENU_BAIXAR_DROPBOX_UPLOAD) {
-        extern bool showUploadOpcoes;
-        if (showUploadOpcoes) {
-            extern void acaoCross_MenuUpload();
-            acaoCross_MenuUpload();
+        bool isEsq = (painelDuplo && painelAtivo == 0);
+        if (isEsq) {
+            if (menuAtualEsq == MENU_EXPLORAR_HOME) {
+                if (selEsq == 0) listarDiretorioEsq("/data/HyperNeiva");
+                else if (selEsq == 1) listarDiretorioEsq("/");
+                else if (selEsq == 2) listarDiretorioEsq("/mnt/usb0");
+                else if (selEsq == 3) listarDiretorioEsq("/mnt/usb1");
+            } else {
+                if (nomesEsq[selEsq][0] == '[') {
+                    char tempP[512]; sprintf(tempP, "%s%s%s", pathExplorarEsq, strcmp(pathExplorarEsq, "/") == 0 ? "" : "/", &nomesEsq[selEsq][1]); tempP[strlen(tempP) - 1] = '\0';
+                    listarDiretorioEsq(tempP);
+                } else {
+                    char absPath[512]; sprintf(absPath, "%s/%s", pathExplorarEsq, nomesEsq[selEsq]);
+                    char nB[256]; strcpy(nB, nomesEsq[selEsq]); for (int i = 0; nB[i]; i++) nB[i] = tolower(nB[i]);
+                    if (strstr(nB, ".pkg")) instalarPkgLocal(absPath);
+                    else fazerUploadDropbox(absPath);
+                }
+            }
         }
         else {
             char urlSel[1024]; strcpy(urlSel, linksAtuais[sel]); int tam = strlen(urlSel);
+            if (strcmp(urlSel, "UPDATE_HB_STORE") == 0) { atualizarHBStore(); return; }
             if (tam > 0 && urlSel[tam - 1] == '/') {
-                urlSel[tam - 1] = '\0'; listarArquivosUpload(urlSel);
+                if (emApolloSaves) acessarApolloSaves(urlSel);
+                else { urlSel[tam - 1] = '\0'; acessarDropbox(urlSel); }
             }
-            else { fazerUploadDropbox(urlSel); }
+            else { iniciarDownload(urlSel); }
+        }
+    }
+    else if (menuAtual == MENU_BAIXAR_DROPBOX_UPLOAD) {
+        bool isEsq = (painelDuplo && painelAtivo == 0);
+        if (isEsq) {
+            if (menuAtualEsq == MENU_EXPLORAR_HOME) {
+                if (selEsq == 0) listarDiretorioEsq("/data/HyperNeiva");
+                else if (selEsq == 1) listarDiretorioEsq("/");
+                else if (selEsq == 2) listarDiretorioEsq("/mnt/usb0");
+                else if (selEsq == 3) listarDiretorioEsq("/mnt/usb1");
+            } else {
+                if (nomesEsq[selEsq][0] == '[') {
+                    char tempP[512]; sprintf(tempP, "%s%s%s", pathExplorarEsq, strcmp(pathExplorarEsq, "/") == 0 ? "" : "/", &nomesEsq[selEsq][1]); tempP[strlen(tempP) - 1] = '\0';
+                    listarDiretorioEsq(tempP);
+                } else {
+                    char absPath[512]; sprintf(absPath, "%s/%s", pathExplorarEsq, nomesEsq[selEsq]);
+                    fazerUploadDropbox(absPath);
+                }
+            }
+        }
+        else {
+            extern bool showUploadOpcoes;
+            if (showUploadOpcoes) {
+                extern void acaoCross_MenuUpload();
+                acaoCross_MenuUpload();
+            }
+            else {
+                char urlSel[1024]; strcpy(urlSel, linksAtuais[sel]); int tam = strlen(urlSel);
+                if (tam > 0 && urlSel[tam - 1] == '/') {
+                    urlSel[tam - 1] = '\0'; listarArquivosUpload(urlSel);
+                }
+                else { fazerUploadDropbox(urlSel); }
+            }
         }
     }
     else if (menuAtual == MENU_BAIXAR_REPOS) {
@@ -444,12 +484,43 @@ void acaoTriangle_Baixar() {
     if (menuAtual == MENU_BAIXAR_FTP_SERVIDORES) {
         if (sel > 0) { servidorAtualFTPIndex = sel - 1; preencherMenuEditarServidor(servidorAtualFTPIndex); }
     }
+    else if (menuAtual == MENU_BAIXAR_DROPBOX_LISTA || menuAtual == MENU_BAIXAR_DROPBOX_UPLOAD) {
+        extern const char* listaOpcoes[150];
+        extern int totalOpcoes;
+        extern bool showOpcoes;
+        extern int mapOpcoes[150];
+        listaOpcoes[0] = "deletar"; mapOpcoes[0] = 600;
+        listaOpcoes[1] = "renomear"; mapOpcoes[1] = 601;
+        listaOpcoes[2] = "nova pasta"; mapOpcoes[2] = 602;
+        listaOpcoes[3] = "sync / backup"; mapOpcoes[3] = 603;
+        totalOpcoes = 4; showOpcoes = true; selOpcao = 0;
+    }
     else if (menuAtual == MENU_BAIXAR_FTP_LISTA) {
         extern void preencherOpcoesFTP();
         preencherOpcoesFTP();
     }
-    else if (menuAtual == MENU_BAIXAR_DROPBOX_UPLOAD || menuAtual == MENU_BAIXAR_DROPBOX_LISTA) {
-        extern void acaoTriangle_MenuUpload();
-        acaoTriangle_MenuUpload();
+}
+
+int dropboxL2State = 0;
+void acaoL2_Dropbox() {
+    if (dropboxL2State == 0) {
+        // Estado 1: Dual Dropbox (igual FTP dual)
+        dropboxL2State = 1; painelDuplo = true; painelAtivo = 0;
+        // Aqui assumimos que o lado esquerdo espelha o direito para navegação independente
+        // TODO: se tivermos pathEsq para dropbox, setar aqui. Por enquanto, abre o local pra ser útil.
+        memset(nomesEsq, 0, sizeof(nomesEsq));
+        strcpy(nomesEsq[0], "Hyper Neiva"); strcpy(nomesEsq[1], "Raiz"); strcpy(nomesEsq[2], "USB 0"); strcpy(nomesEsq[3], "USB 1");
+        totalItensEsq = 4; selEsq = 0; offEsq = 0; menuAtualEsq = MENU_EXPLORAR_HOME; strcpy(pathExplorarEsq, "HOME");
+    }
+    else if (dropboxL2State == 1) {
+        // Estado 2: Local + Dropbox
+        dropboxL2State = 2; painelDuplo = true; painelAtivo = 0;
+        memset(nomesEsq, 0, sizeof(nomesEsq));
+        strcpy(nomesEsq[0], "Hyper Neiva"); strcpy(nomesEsq[1], "Raiz"); strcpy(nomesEsq[2], "USB 0"); strcpy(nomesEsq[3], "USB 1");
+        totalItensEsq = 4; selEsq = 0; offEsq = 0; menuAtualEsq = MENU_EXPLORAR_HOME; strcpy(pathExplorarEsq, "HOME");
+    }
+    else {
+        // Estado 0: Fechar
+        dropboxL2State = 0; painelDuplo = false; painelAtivo = 1;
     }
 }

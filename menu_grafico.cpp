@@ -83,6 +83,9 @@ unsigned char* imgBgDinamico = NULL; int dynBgW = 0, dynBgH = 0, dynBgC = 0;
 unsigned char* imgCapaDinamica = NULL; int dynCapaW = 0, dynCapaH = 0, dynCapaC = 0; 
 unsigned char* imgDiscoDinamico = NULL; int dynDiscoW = 0, dynDiscoH = 0, dynDiscoC = 0;
 
+extern bool emSubmenuDropbox;
+extern bool emSubmenuFTP;
+
 extern bool isFirstFrameUI;
 extern int uiW[10];
 extern int uiH[10];
@@ -196,10 +199,14 @@ void desenharInterface(uint32_t* p) {
 
             if (strlen(nomeItemAnterior) > 0) {
                 if (menuAtual == MENU_JOGAR_PS4) {
-                    // LOGICA PS4: Busca ícone e fundo nativo
+                    // LOGICA PS4: Busca ícone e fundo nativo (Diversas tentativas)
                     char cp[512];
                     snprintf(cp, sizeof(cp), "/user/appmeta/%s/icon0.png", nomeItemAnterior);
                     imgCapaDinamica = stbi_load(cp, &dynCapaW, &dynCapaH, &dynCapaC, 4);
+                    if (!imgCapaDinamica) {
+                        snprintf(cp, sizeof(cp), "/user/app/meta/%s/icon0.png", nomeItemAnterior);
+                        imgCapaDinamica = stbi_load(cp, &dynCapaW, &dynCapaH, &dynCapaC, 4);
+                    }
                     if (!imgCapaDinamica) {
                          snprintf(cp, sizeof(cp), "/user/app/%s/sce_sys/icon0.png", nomeItemAnterior);
                          imgCapaDinamica = stbi_load(cp, &dynCapaW, &dynCapaH, &dynCapaC, 4);
@@ -279,14 +286,14 @@ void desenharInterface(uint32_t* p) {
         // --- COVERS (CAPA) ---
         if (editMode && editTarget == 1) {
             if (imgCapaDinamica) { desenharRedimensionado(p, imgCapaDinamica, dynCapaW, dynCapaH, capaW, capaH, capaX, capaY); }
-            else if (imgCapaEdicao) { desenharRedimensionado(p, imgCapaEdicao, wCapaE, hCapaE, capaW, capaH, capaX, capaY); }
             else if (imgPreview) { desenharRedimensionado(p, imgPreview, wP, hP, capaW, capaH, capaX, capaY); }
+            else if (imgCapaEdicao) { desenharRedimensionado(p, imgCapaEdicao, wCapaE, hCapaE, capaW, capaH, capaX, capaY); }
             else if (defaultArtwork1) { desenharRedimensionado(p, defaultArtwork1, wDef1, hDef1, capaW, capaH, capaX, capaY); }
         } 
         else if (isMenuXML || isMenuPS4 || editMode) {
             if (imgCapaDinamica) { desenharRedimensionado(p, imgCapaDinamica, dynCapaW, dynCapaH, capaW, capaH, capaX, capaY); }
-            else if (imgCapaEdicao) { desenharRedimensionado(p, imgCapaEdicao, wCapaE, hCapaE, capaW, capaH, capaX, capaY); }
             else if (imgPreview) { desenharRedimensionado(p, imgPreview, wP, hP, capaW, capaH, capaX, capaY); }
+            else if (imgCapaEdicao) { desenharRedimensionado(p, imgCapaEdicao, wCapaE, hCapaE, capaW, capaH, capaX, capaY); }
             else if (defaultArtwork1) { desenharRedimensionado(p, defaultArtwork1, wDef1, hDef1, capaW, capaH, capaX, capaY); }
         }
 
@@ -301,8 +308,20 @@ void desenharInterface(uint32_t* p) {
             else if (imgDiscoEdicao) { desenharDiscoRedondo(p, imgDiscoEdicao, wDiscoE, hDiscoE, discoW, discoH, discoX, discoY); }
             else if (defaultArtwork2) { desenharDiscoRedondo(p, defaultArtwork2, wDef2, hDef2, discoW, discoH, discoX, discoY); }
         }
+    }
 
-        // --- MENUS ESPECIAIS (AUDIO, UPLOAD, EXPLORAR) ---
+    // --- OVERLAYS DE UI (Path e IP) ---
+    if (menuAtual == MENU_EXPLORAR || menuAtual == MENU_EXPLORAR_HOME) {
+        char txtPath[512]; snprintf(txtPath, sizeof(txtPath), "PATH: %s", pathExplorar);
+        int wPath = medirLarguraTexto(txtPath, 28);
+        desenharTexto(p, txtPath, 28, 1880 - wPath, 1000, 0xFFFFFFFF); // Branco denovo, conforme pedido
+    }
+    if ((menuAtual >= MENU_BAIXAR && menuAtual <= MENU_BAIXAR_LINK_DIRETO) || emSubmenuDropbox || emSubmenuFTP) {
+        extern char ipDoPS4[64];
+        char txtIP[128]; snprintf(txtIP, sizeof(txtIP), "PS4 IP: %s", ipDoPS4);
+        desenharTexto(p, txtIP, 32, 50, 40, 0xFFFFFFFF); // Ajustado para ser visivel e premium
+    }
+     // --- MENUS ESPECIAIS (AUDIO, UPLOAD, EXPLORAR) ---
         desenharMenuAudio(p);
         desenharMenuUpload(p);
 
@@ -329,8 +348,6 @@ void desenharInterface(uint32_t* p) {
                 desenharTextoAlinhadoAnimado(p, listaOpcoes[gIdx], fontTam, upX, upY + 50 + (i * 45), upW, corOp, isSel);
             }
         }
-    }
-
     // Download Bar
     if (downloadEmSegundoPlano || (editMode && editTarget == 5)) {
         float prog = downloadEmSegundoPlano ? progressoAtualDownload : 0.5f;
@@ -362,6 +379,7 @@ void desenharInterface(uint32_t* p) {
 
 void atualizarImePasta() {
     extern bool tecladoAtivo;
+    extern int tecladoTipo;
     extern uint16_t* bufferTecladoW;
     extern char bufferTecladoC[128];
 
@@ -377,6 +395,11 @@ void atualizarImePasta() {
                 for (int i = 0; i < 127; i++) {
                     bufferTecladoC[i] = (char)bufferTecladoW[i];
                     if (bufferTecladoW[i] == 0) break;
+                }
+                
+                if (tecladoTipo == 10) { // RADIO_SEARCH
+                    extern void buscarEstacoesRadio(const char* query, bool isPodcast);
+                    buscarEstacoesRadio(bufferTecladoC, false);
                 }
             }
             sceImeDialogTerm();

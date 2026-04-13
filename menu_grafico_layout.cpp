@@ -181,7 +181,7 @@ void desenharListas(uint32_t* p, int refPainel) {
     bool isGameMenu = (mAtual == MENU_JOGAR_PS4 || mAtual == JOGAR_XML || mAtual == SCRAPER_LIST);
 
     // O EXPLORADOR E O PAINEL DUPLO SEMPRE USAM O ESTILO 0 (LISTA CLÁSSICA RETA)
-    if (mAtual == MENU_EXPLORAR || mAtual == MENU_EXPLORAR_HOME || mAtual == MENU_BAIXAR_DROPBOX_LISTA || mAtual == MENU_BAIXAR_DROPBOX_UPLOAD || mAtual == MENU_EDITAR || mAtual == MENU_EDIT_TARGET || painelDuplo) {
+    if (mAtual == MENU_EXPLORAR || mAtual == MENU_EXPLORAR_HOME || mAtual == MENU_BAIXAR_DROPBOX_LISTA || mAtual == MENU_BAIXAR_DROPBOX_UPLOAD || mAtual == MENU_EDITAR || mAtual == MENU_EDIT_TARGET || mAtual == MENU_RADIO_CATEGORIA || mAtual == MENU_RADIO_LISTA || mAtual == MENU_RADIO_FAVORITOS || painelDuplo) {
         currentRenderStyle = 0;
     }
     else if ((currentRenderStyle == 3 || currentRenderStyle == 4 || currentRenderStyle == 5) && !isGameMenu) {
