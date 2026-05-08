@@ -307,12 +307,14 @@ int main(void) {
             bool cross_consumido = false;
             bool circle_consumido = false;
 
-            // NOVO ATALHO GLOBAL: L2 + QUADRADO
-            if ((pData.buttons & ORBIS_PAD_BUTTON_L2) && (btn & ORBIS_PAD_BUTTON_SQUARE)) {
-                if (strlen(ultimo_video_tocado) > 0) {
-                    video_minimizado = true;
-                    iniciarVideoMP4(ultimo_video_tocado);
-                    pData.buttons &= ~(ORBIS_PAD_BUTTON_L2 | ORBIS_PAD_BUTTON_SQUARE);
+            // NOVO ATALHO GLOBAL: L2 + QUADRADO (Bloqueado em Testes de Hardware)
+            if (menuAtual != MENU_CONTROLE_TESTE && menuAtual != MENU_INSTRUMENTOS) {
+                if ((pData.buttons & ORBIS_PAD_BUTTON_L2) && (btn & ORBIS_PAD_BUTTON_SQUARE)) {
+                    if (strlen(ultimo_video_tocado) > 0) {
+                        video_minimizado = true;
+                        iniciarVideoMP4(ultimo_video_tocado);
+                        pData.buttons &= ~(ORBIS_PAD_BUTTON_L2 | ORBIS_PAD_BUTTON_SQUARE);
+                    }
                 }
             }
 
