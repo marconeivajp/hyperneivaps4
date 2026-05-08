@@ -1,0 +1,73 @@
+<?xml version="1.0"?>
+<psproject xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" fmt="gp4" version="1000">
+	<volume>
+		<volume_type>pkg_ps4_app</volume_type>
+		<volume_id>PS4VOLUME</volume_id>
+		<volume_ts>2026-05-07 19:31:55</volume_ts>
+		<package content_id="UP0001-MARC00001_00-0000000000000000" passcode="00000000000000000000000000000000"
+			storage_type="digital50" app_type="full" />
+		<chunk_info chunk_count="1" scenario_count="1">
+			<chunks>
+				<chunk id="0" layer_no="0" label="Chunk #0" />
+			</chunks>
+			<scenarios default_id="0">
+				<scenario id="0" type="sp" initial_chunk_count="1" label="Scenario #0">0</scenario>
+			</scenarios>
+		</chunk_info>
+	</volume>
+	<files img_no="0">
+		<file targ_path="eboot.bin" orig_path="eboot.bin" />
+		<file targ_path="sce_sys/param.sfo" orig_path="sce_sys/param.sfo" />
+		<file targ_path="sce_sys/icon0.png" orig_path="sce_sys/icon0.png" />
+		<file targ_path="sce_sys/pic1.png" orig_path="sce_sys/pic1.png" />
+		<file targ_path="sce_module/libc.prx" orig_path="sce_module/libc.prx" />
+		<file targ_path="sce_module/libSceFios2.prx" orig_path="sce_module/libSceFios2.prx" />
+		<file targ_path="assets/system.xml" orig_path="assets/system.xml" />
+		<file targ_path="assets/sp.xml" orig_path="assets/sp.xml" />
+		<file targ_path="assets/Sega_Master_System.xml" orig_path="assets/Sega_Master_System.xml" />
+		<file targ_path="assets/systemas+zipados.xml" orig_path="assets/systemas+zipados.xml" />
+		<file targ_path="assets/xavatar.xml" orig_path="assets/xavatar.xml" />
+		<file targ_path="assets/xml.xml" orig_path="assets/xml.xml" />
+		<file targ_path="assets/retrocast_brasil.xml" orig_path="assets/retrocast_brasil.xml" />
+		<file targ_path="assets/dropbox_token.txt" orig_path="assets/dropbox_token.txt" />
+		<file targ_path="assets/images/.gitkeep" orig_path="assets/images/.gitkeep" />
+		<file targ_path="assets/images/0_Defalt_Artwork1.png" orig_path="assets/images/0_Defalt_Artwork1.png" />
+		<file targ_path="assets/images/0_Defalt_Artwork2.png" orig_path="assets/images/0_Defalt_Artwork2.png" />
+		<file targ_path="assets/images/0_Defalt_Background.png" orig_path="assets/images/0_Defalt_Background.png" />
+		<file targ_path="assets/images/0_Defalt_elemento1.png" orig_path="assets/images/0_Defalt_elemento1.png" />
+		<file targ_path="assets/images/0_Defalt_elemento_controlavel1.png" orig_path="assets/images/0_Defalt_elemento_controlavel1.png" />
+		<file targ_path="assets/images/0_Defalt_ponteiro1.png" orig_path="assets/images/0_Defalt_ponteiro1.png" />
+		<file targ_path="assets/images/background.png" orig_path="assets/images/background.png" />
+		<file targ_path="assets/images/capa1.png" orig_path="assets/images/capa1.png" />
+		<file targ_path="assets/images/capa2.png" orig_path="assets/images/capa2.png" />
+		<file targ_path="assets/images/capa3.png" orig_path="assets/images/capa3.png" />
+		<file targ_path="assets/images/disco1.png" orig_path="assets/images/disco1.png" />
+		<file targ_path="assets/images/disco2.png" orig_path="assets/images/disco2.png" />
+		<file targ_path="assets/images/disco3.png" orig_path="assets/images/disco3.png" />
+		<file targ_path="assets/images/elementos_animados_sprite_sheet.png" orig_path="assets/images/elementos_animados_sprite_sheet.png" />
+		<file targ_path="assets/images/nome1.png" orig_path="assets/images/nome1.png" />
+		<file targ_path="assets/images/nome2.png" orig_path="assets/images/nome2.png" />
+		<file targ_path="assets/images/nome3.png" orig_path="assets/images/nome3.png" />
+		<file targ_path="assets/fonts/.gitkeep" orig_path="assets/fonts/.gitkeep" />
+		<file targ_path="assets/fonts/font.ttf" orig_path="assets/fonts/font.ttf" />
+		<file targ_path="assets/audio/.gitkeep" orig_path="assets/audio/.gitkeep" />
+		<file targ_path="assets/audio/0_Defalt_bolinha.wav" orig_path="assets/audio/0_Defalt_bolinha.wav" />
+		<file targ_path="assets/audio/0_Defalt_direcinal_cima.wav" orig_path="assets/audio/0_Defalt_direcinal_cima.wav" />
+		<file targ_path="assets/audio/0_Defalt_direcional_baixo.wav" orig_path="assets/audio/0_Defalt_direcional_baixo.wav" />
+		<file targ_path="assets/audio/0_Defalt_x.wav" orig_path="assets/audio/0_Defalt_x.wav" />
+		<file targ_path="assets/audio/Baby.mp3" orig_path="assets/audio/Baby.mp3" />
+		<file targ_path="assets/audio/bgm.wav" orig_path="assets/audio/bgm.wav" />	</files>
+	<rootdir>
+		<dir targ_name="sce_sys">
+			<dir targ_name="about" />
+		</dir>
+		<dir targ_name="sce_module" />
+		<dir targ_name="assets">
+			<dir targ_name="audio" />
+			<dir targ_name="fonts" />
+			<dir targ_name="images" />
+			<dir targ_name="misc" />
+			<dir targ_name="videos" />
+		</dir>
+	</rootdir>
+</psproject>

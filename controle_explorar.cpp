@@ -1,0 +1,483 @@
+#ifdef __INTELLISENSE__
+#ifndef __builtin_va_list
+#define __builtin_va_list void*
+#endif
+#endif
+
+#include <stdlib.h>
+#include <stdio.h>
+#include <string.h>
+#include <stdarg.h>
+#include <unistd.h>
+#include <ctype.h>
+#include <sys/stat.h>
+
+#include <pthread.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+
+#ifndef SO_NOSIGPIPE
+#define SO_NOSIGPIPE 0x0800 
+#endif
+
+#include <orbis/Sysmodule.h>
+#include <orbis/AppInstUtil.h>
+#include <orbis/Bgft.h>
+#include <orbis/UserService.h>
+#include <orbis/libkernel.h>
+#include <orbis/ImeDialog.h>
+#include <orbis/CommonDialog.h>
+
+#ifndef IME_STATUS_RUNNING
+#define IME_STATUS_RUNNING 1
+#endif
+
+#include "controle_explorar.h"
+#include "menu.h"
+#include "explorar.h"
+#include "stb_image.h"  
+#include "audio.h"    
+#include "bloco_de_notas.h"
+#include "miniz.h"  
+#include "video.h" 
+#include "torrent.h"
+
+extern int comando_trocar_video;
+
+extern void preencherOpcoesContexto(const char* nomeArquivo);
+extern void acaoArquivo(int idxOpcao);
+extern void iniciarEmulador(const char* romPath);
+
+extern bool visualizandoMidiaImagem;
+extern unsigned char* imgMidia;
+extern int wM, hM;
+
+extern const char* listaOpcoes[150];
+extern int mapOpcoes[150];
+extern int totalOpcoes;
+
+extern int cd;
+extern void preencherExplorerHome();
+extern void preencherRoot();
+extern void atualizarBarra(float progresso);
+
+extern float zoomMidia;
+extern bool fullscreenMidia;
+extern char caminhoNavegacaoMusicas[512];
+static char caminhoMusicaTocando[512] = "";
+
+extern int offEsq;
+extern int off;
+
+extern char caminhoImagemAberta[512];
+
+extern unsigned char* imgPreview;
+extern int wP, hP, cP;
+
+extern char msgStatus[128];
+extern int msgTimer;
+
+extern char baseRaiz[256];
+extern bool esperandoNomePasta;
+extern bool esperandoRenomear;
+extern bool marcados[3000];
+extern bool marcadosEsq[3000];
+extern bool selecionandoMidiaElemento;
+
+extern void listarDiretorio(const char*);
+extern void listarDiretorioEsq(const char*);
+
+static void carregarPreviewArquivo(const char* caminhoAbsoluto) {
+    if (imgPreview) { stbi_image_free(imgPreview); imgPreview = NULL; }
+    char tempPathAbs[512]; strcpy(tempPathAbs, caminhoAbsoluto);
+    for (int i = 0; tempPathAbs[i]; i++) { tempPathAbs[i] = tolower(tempPathAbs[i]); }
+    if (strstr(tempPathAbs, ".png") || strstr(tempPathAbs, ".jpg") || strstr(tempPathAbs, ".jpeg") || strstr(tempPathAbs, ".bmp")) {
+        imgPreview = stbi_load(caminhoAbsoluto, &wP, &hP, &cP, 4);
+    }
+    else if (strstr(tempPathAbs, ".xavatar")) {
+        mz_zip_archive zip_archive; memset(&zip_archive, 0, sizeof(zip_archive));
+        if (mz_zip_reader_init_file(&zip_archive, caminhoAbsoluto, 0)) {
+            const char* tempPath = "/data/HyperNeiva/configuracao/temporario/temp_preview.png";
+            bool extraiu = false;
+            mz_uint num_files = mz_zip_reader_get_num_files(&zip_archive);
+            for (mz_uint i = 0; i < num_files; i++) {
+                mz_zip_archive_file_stat file_stat;
+                if (!mz_zip_reader_file_stat(&zip_archive, i, &file_stat)) continue;
+                if (mz_zip_reader_is_file_a_directory(&zip_archive, i)) continue;
+                char tempExtZip[256]; strcpy(tempExtZip, file_stat.m_filename);
+                for (int k = 0; tempExtZip[k]; k++) tempExtZip[k] = tolower(tempExtZip[k]);
+                if (strstr(tempExtZip, ".png") || strstr(tempExtZip, ".jpg") || strstr(tempExtZip, ".jpeg")) {
+                    if (mz_zip_reader_extract_to_file(&zip_archive, i, tempPath, 0)) { extraiu = true; break; }
+                }
+            }
+            if (extraiu) imgPreview = stbi_load(tempPath, &wP, &hP, &cP, 4);
+            mz_zip_reader_end(&zip_archive);
+        }
+    }
+}
+
+char caminhoPkgAtual[512] = ""; bool servidorRodando = false;
+
+static void* handle_client(void* arg) {
+    int client_fd = *(int*)arg; free(arg); int set = 1;
+    setsockopt(client_fd, SOL_SOCKET, SO_NOSIGPIPE, (void*)&set, sizeof(int));
+    char buffer_req[2048]; memset(buffer_req, 0, sizeof(buffer_req));
+    recv(client_fd, buffer_req, sizeof(buffer_req) - 1, 0);
+    if (strlen(caminhoPkgAtual) > 0 && strlen(buffer_req) > 0) {
+        bool is_head_request = (strncmp(buffer_req, "HEAD", 4) == 0);
+        FILE* f = fopen(caminhoPkgAtual, "rb");
+        if (f) {
+            fseek(f, 0, SEEK_END); size_t fsize = ftell(f); fseek(f, 0, SEEK_SET);
+            size_t start_range = 0; char* range_str = strstr(buffer_req, "Range: bytes=");
+            if (range_str) sscanf(range_str, "Range: bytes=%zu-", &start_range);
+            char header[512];
+            if (start_range > 0) {
+                sprintf(header, "HTTP/1.1 206 Partial Content\r\nContent-Type: application/octet-stream\r\nAccept-Ranges: bytes\r\nContent-Range: bytes %zu-%zu/%zu\r\nContent-Length: %zu\r\nConnection: close\r\n\r\n", start_range, fsize - 1, fsize, fsize - start_range);
+                fseek(f, start_range, SEEK_SET);
+            }
+            else { sprintf(header, "HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nAccept-Ranges: bytes\r\nContent-Length: %zu\r\nConnection: close\r\n\r\n", fsize); }
+            send(client_fd, header, strlen(header), 0);
+            if (!is_head_request) {
+                size_t bytes_read; char* file_buffer = (char*)malloc(65536);
+                while ((bytes_read = fread(file_buffer, 1, 65536, f)) > 0) { if (send(client_fd, file_buffer, bytes_read, 0) < 0) break; } free(file_buffer);
+            } fclose(f);
+        }
+        else { char* not_found = (char*)"HTTP/1.1 404 Not Found\r\n\r\n"; send(client_fd, not_found, strlen(not_found), 0); }
+    } close(client_fd); return NULL;
+}
+
+static void* threadServidorHTTP(void* arg) {
+    int server_fd = socket(AF_INET, SOCK_STREAM, 0); struct sockaddr_in addr; addr.sin_family = AF_INET; addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK); addr.sin_port = htons(8080);
+    int opt = 1; setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
+    if (bind(server_fd, (struct sockaddr*)&addr, sizeof(addr)) < 0) return NULL; listen(server_fd, 10);
+    while (1) { int client_fd = accept(server_fd, NULL, NULL); if (client_fd < 0) continue; int* pclient = (int*)malloc(sizeof(int)); *pclient = client_fd; pthread_t tid; pthread_create(&tid, NULL, handle_client, pclient); pthread_detach(tid); }
+    return NULL;
+}
+
+static void ligarServidorSeNecessario() {
+    if (!servidorRodando) { pthread_t tid; pthread_create(&tid, NULL, threadServidorHTTP, NULL); servidorRodando = true; }
+}
+
+void instalarPkgLocal(const char* caminhoAbsoluto) {
+    sprintf(msgStatus, "ANALISANDO FILA DE DOWNLOADS..."); atualizarBarra(0.2f);
+    strcpy(caminhoPkgAtual, caminhoAbsoluto); ligarServidorSeNecessario();
+    char contentId[40]; memset(contentId, 0, sizeof(contentId)); uint32_t fileSize = 0; FILE* f = fopen(caminhoAbsoluto, "rb");
+    if (f) { fseek(f, 0x40, SEEK_SET); fread(contentId, 1, 36, f); fseek(f, 0, SEEK_END); fileSize = (uint32_t)ftell(f); fclose(f); }
+    else { strcpy(contentId, "UP0000-000000000_00-0000000000000000"); }
+    sceSysmoduleLoadModuleInternal(ORBIS_SYSMODULE_INTERNAL_APP_INST_UTIL); sceSysmoduleLoadModuleInternal(ORBIS_SYSMODULE_INTERNAL_BGFT);
+    static void* bgftHeap = NULL;
+    if (!bgftHeap) { sceAppInstUtilInitialize(); OrbisBgftInitParams bgftInit; memset(&bgftInit, 0, sizeof(OrbisBgftInitParams)); bgftInit.heapSize = 2 * 1024 * 1024; bgftHeap = memalign(4096, bgftInit.heapSize); bgftInit.heap = bgftHeap; sceBgftServiceIntInit(&bgftInit); }
+    OrbisBgftTaskId tarefaAntiga = -1; sceBgftServiceIntDownloadFindActiveTask(contentId, ORBIS_BGFT_TASK_SUB_TYPE_PACKAGE, &tarefaAntiga); if (tarefaAntiga != -1) { sceBgftServiceIntDownloadUnregisterTask(tarefaAntiga); }
+    int32_t userId = 0; sceUserServiceGetInitialUser(&userId);
+    char urlPkg[1024]; sprintf(urlPkg, "http://127.0.0.1:8080/%s.pkg", contentId);
+    OrbisBgftDownloadParam params; memset(&params, 0, sizeof(OrbisBgftDownloadParam)); params.userId = userId; params.entitlementType = 5; params.id = contentId; params.contentUrl = urlPkg; params.contentName = "Hyper Neiva - Instalando PKG"; params.playgoScenarioId = "0"; params.packageSize = fileSize;
+    OrbisBgftTaskId taskId = -1; int res = sceBgftServiceIntDebugDownloadRegisterPkg(&params, &taskId);
+    if (res == 0 && taskId >= 0) { sceBgftServiceDownloadStartTask(taskId); sprintf(msgStatus, "DOWNLOAD INICIADO! Verifique as Notificacoes."); atualizarBarra(1.0f); }
+    else { sprintf(msgStatus, "ERRO: 0x%08X", res); atualizarBarra(0.0f); }
+    msgTimer = 400;
+}
+
+void acaoL2_Explorar() {
+    if (visualizandoMidiaImagem) return;
+    painelDuplo = !painelDuplo;
+    if (painelDuplo) {
+        painelAtivo = 0;
+        menuAtualEsq = MENU_EXPLORAR_HOME;
+        selEsq = 0;
+        offEsq = 0;
+        extern int totalItensEsq;
+        totalItensEsq = 0; 
+    }
+    else {
+        painelAtivo = 1;
+    }
+}
+
+void alternarPainelAtivo() { if (visualizandoMidiaImagem) return; if (painelDuplo && !showOpcoes) painelAtivo = (painelAtivo == 0) ? 1 : 0; }
+
+void acaoCross_Explorar() {
+    if (esperandoNomePasta || esperandoRenomear) return;
+    bool ehEsq = (painelDuplo && painelAtivo == 0); MenuLevel mAtual = ehEsq ? menuAtualEsq : menuAtual;
+
+    if (mAtual == MENU_LISTA_CORES && showOpcoes) { acaoArquivo(selOpcao); return; }
+    if ((mAtual == MENU_EXPLORAR || visualizandoMidiaImagem) && showOpcoes) { acaoArquivo(selOpcao); return; }
+    if (visualizandoMidiaImagem) { fullscreenMidia = !fullscreenMidia; return; }
+
+    int sAtual = ehEsq ? selEsq : sel; char (*nItems)[64] = ehEsq ? nomesEsq : nomes; char* pExplorar = ehEsq ? pathExplorarEsq : pathExplorar;
+
+    if (mAtual == MENU_EXPLORAR_HOME) {
+        char tempBase[256];
+        if (sAtual == 0) strcpy(tempBase, "/data/HyperNeiva"); 
+        else if (sAtual == 1) strcpy(tempBase, "/"); 
+        else if (sAtual == 2) strcpy(tempBase, "/mnt/usb0"); 
+        else if (sAtual == 3) strcpy(tempBase, "/mnt/usb1");
+        
+        if (ehEsq) listarDiretorioEsq(tempBase); else { strcpy(baseRaiz, tempBase); listarDiretorio(baseRaiz); }
+    }
+    else if (mAtual == MENU_EXPLORAR) {
+        if (nItems[sAtual][0] == '[') {
+            char pL[128]; strncpy(pL, &nItems[sAtual][1], strlen(nItems[sAtual]) - 2); pL[strlen(nItems[sAtual]) - 2] = '\0';
+            char nP[256]; sprintf(nP, "%s/%s", pExplorar, pL);
+            if (ehEsq) listarDiretorioEsq(nP); else listarDiretorio(nP);
+        }
+        else {
+            char caminhoArquivo[512]; sprintf(caminhoArquivo, "%s/%s", pExplorar, nItems[sAtual]);
+            char nomeBlindado[256]; strcpy(nomeBlindado, nItems[sAtual]);
+            for (int i = 0; nomeBlindado[i]; i++) { nomeBlindado[i] = tolower(nomeBlindado[i]); }
+
+            if (strstr(nomeBlindado, ".pkg")) { instalarPkgLocal(caminhoArquivo); }
+            else if (strstr(nomeBlindado, ".self") || strstr(nomeBlindado, ".elf") || strstr(nomeBlindado, ".prx")) {
+                preencherOpcoesContexto(nItems[sAtual]);
+                showOpcoes = true; selOpcao = totalOpcoes - 2; 
+            }
+            else if (strstr(nomeBlindado, ".bin") || strstr(nomeBlindado, ".md") || strstr(nomeBlindado, ".smd") || strstr(nomeBlindado, ".gen") || strstr(nomeBlindado, ".sfc") || strstr(nomeBlindado, ".smc")) {
+                snprintf(msgStatus, sizeof(msgStatus), "ROM Detectada!"); msgTimer = 120;
+                iniciarEmulador(caminhoArquivo);
+            }
+            else if (strstr(nomeBlindado, ".zip") || strstr(nomeBlindado, ".rar") || strstr(nomeBlindado, ".7z")) {
+                for (int i = 0; i < 150; i++) { listaOpcoes[i] = ""; mapOpcoes[i] = -1; }
+                listaOpcoes[0] = "extrair aqui"; 
+                mapOpcoes[0] = 7;
+                totalOpcoes = 1;
+                showOpcoes = true; selOpcao = 0; 
+            }
+            else if (strstr(nomeBlindado, ".png") || strstr(nomeBlindado, ".jpg") || strstr(nomeBlindado, ".jpeg") || strstr(nomeBlindado, ".bmp") || strstr(nomeBlindado, ".xavatar")) {
+
+                if (selecionandoMidiaElemento) return;
+
+                strcpy(caminhoImagemAberta, caminhoArquivo);
+
+                listaOpcoes[0] = "visualizar";
+                if (strstr(nomeBlindado, ".xavatar")) mapOpcoes[0] = 13; else mapOpcoes[0] = 14;
+
+                listaOpcoes[1] = "personalizar jogo (appmeta)"; mapOpcoes[1] = 30;
+                listaOpcoes[2] = "usar no perfil ps4"; mapOpcoes[2] = 12;
+                listaOpcoes[3] = "plano de fundo do ps4"; mapOpcoes[3] = 11;
+                listaOpcoes[4] = "plano de fundo hyper neiva"; mapOpcoes[4] = 10;
+
+                if (strstr(nomeBlindado, ".xavatar")) {
+                    listaOpcoes[5] = "extrair zip / avatar"; mapOpcoes[5] = 7;
+                    for (int k = 6; k < 150; k++) { listaOpcoes[k] = ""; mapOpcoes[k] = -1; }
+                    totalOpcoes = 6;
+                }
+                else {
+                    for (int k = 5; k < 150; k++) { listaOpcoes[k] = ""; mapOpcoes[k] = -1; }
+                    totalOpcoes = 5;
+                }
+                showOpcoes = true; selOpcao = 0;
+            }
+            else if (strstr(nomeBlindado, ".mp3") || strstr(nomeBlindado, ".wav")) {
+                if (strcmp(caminhoMusicaTocando, caminhoArquivo) == 0) { tocarMusicaNova("PARADO"); strcpy(caminhoMusicaTocando, ""); sprintf(msgStatus, "Musica Parada"); msgTimer = 90; }
+                else { tocarMusicaNova(caminhoArquivo); strcpy(caminhoMusicaTocando, caminhoArquivo); sprintf(msgStatus, "Reproduzindo Audio"); msgTimer = 90; }
+            }
+            else if (strstr(nomeBlindado, ".pdf") || strstr(nomeBlindado, ".cbz")) {
+                extern void abrirLeitor(const char* caminho);
+                abrirLeitor(caminhoArquivo);
+            }
+            // ==========================================================
+            // LOGICA PARA REPRODUZIR VÍDEO MP4
+            // ==========================================================
+            else if (strstr(nomeBlindado, ".mp4")) {
+                extern void iniciarVideoMP4(const char*);
+                iniciarVideoMP4(caminhoArquivo);
+            }
+            // ==========================================================
+            // LOGICA PARA ARQUIVOS TORRENT (Ação Imediata)
+            // ==========================================================
+            else if (strstr(nomeBlindado, ".torrent")) {
+                extern void iniciarDownloadTorrent(const char*);
+                iniciarDownloadTorrent(caminhoArquivo);
+                
+                // Força um aviso rápido na tela
+                sprintf(msgStatus, "LENDO TORRENT...");
+                msgTimer = 120;
+            }
+            // ==========================================================
+            else if (strstr(nomeBlindado, ".txt") || strstr(nomeBlindado, ".xml") || strstr(nomeBlindado, ".json") || strstr(nomeBlindado, ".ini") || strstr(nomeBlindado, ".cfg") || strstr(nomeBlindado, ".log") || strstr(nomeBlindado, ".cpp") || strstr(nomeBlindado, ".h")) {
+                extern void editarArquivoExistente(const char* pPasta, const char* nArquivo);
+                editarArquivoExistente(pExplorar, nItems[sAtual]);
+                if (ehEsq) menuAtualEsq = MENU_NOTEPAD; else menuAtual = MENU_NOTEPAD;
+            }
+        }
+    }
+    else if (mAtual == MENU_LISTA_CORES) {
+        char coreName[128]; strcpy(coreName, nomes[sel]);
+        char fullPath[512];
+        bool achou = false;
+        const char* pastas[] = {"/data/retroarch/cores", "/mnt/usb0/cores", "/mnt/usb1/cores", "/data/self/retroarch/cores"};
+        for (int i = 0; i < 4; i++) {
+            sprintf(fullPath, "%s/%s", pastas[i], coreName);
+            FILE* f = fopen(fullPath, "rb");
+            if (f) { fclose(f); achou = true; break; }
+        }
+        if (achou) {
+            extern char caminhoCoreSelecionado[512];
+            extern char romParaCarregar[512];
+            strcpy(caminhoCoreSelecionado, fullPath);
+            sprintf(msgStatus, "NUCLEO ATIVO: %s", coreName);
+            msgTimer = 240; 
+            
+            if (strlen(romParaCarregar) > 0) {
+                extern void iniciarEmulador(const char* rom);
+                iniciarEmulador(romParaCarregar);
+                romParaCarregar[0] = '\0'; 
+            } else {
+                extern void preencherMenuEmulador();
+                preencherMenuEmulador();
+            }
+        } else {
+            sprintf(msgStatus, "ERRO: %s NAO ENCONTRADO NO PS4!", coreName);
+            msgTimer = 400;
+        }
+    }
+}
+
+void acaoCircle_Explorar() {
+    if (videoRodando) {
+        pararVideo();
+        return;
+    }
+
+    if (visualizandoMidiaImagem) {
+        visualizandoMidiaImagem = false;
+        if (imgMidia) { stbi_image_free(imgMidia); imgMidia = NULL; }
+        return;
+    }
+
+    if (esperandoNomePasta || esperandoRenomear) return;
+    if (showOpcoes) { showOpcoes = false; return; }
+
+    bool ehEsq = (painelDuplo && painelAtivo == 0);
+    extern void voltarNavegacao();
+
+    if (ehEsq && painelDuplo) {
+        MenuLevel mAtualEsq = menuAtualEsq;
+        char* pExplorarEsq = pathExplorarEsq;
+
+        if (mAtualEsq == MENU_EXPLORAR_HOME) {
+            painelDuplo = false;
+            painelAtivo = 1;
+        }
+        else if (mAtualEsq == MENU_EXPLORAR) {
+            if (strcmp(pExplorarEsq, "/data/HyperNeiva") == 0 || strcmp(pExplorarEsq, "/") == 0 || strcmp(pExplorarEsq, "/mnt/usb0") == 0 || strcmp(pExplorarEsq, "/mnt/usb1") == 0) {
+                menuAtualEsq = MENU_EXPLORAR_HOME;
+                extern int totalItensEsq;
+                totalItensEsq = 0; 
+                selEsq = 0; offEsq = 0;
+            }
+            else {
+                char temp[256]; strcpy(temp, pExplorarEsq); char* last = strrchr(temp, '/');
+                if (last) {
+                    if (last == temp) strcpy(temp, "/"); else *last = '\0';
+                    listarDiretorioEsq(temp);
+                }
+            }
+        }
+    }
+    else {
+        voltarNavegacao();
+    }
+}
+
+void acaoTriangle_Explorar() {
+    if (visualizandoMidiaImagem) return;
+    if (esperandoNomePasta || esperandoRenomear) return;
+    bool ehEsq = (painelDuplo && painelAtivo == 0); MenuLevel mAtual = ehEsq ? menuAtualEsq : menuAtual;
+    if (mAtual == MENU_EXPLORAR) {
+        if (!showOpcoes) {
+            int sAtual = ehEsq ? selEsq : sel; char (*nItems)[64] = ehEsq ? nomesEsq : nomes;
+            preencherOpcoesContexto(nItems[sAtual]);
+        } showOpcoes = !showOpcoes; selOpcao = 0;
+    }
+}
+
+void acaoR1_Explorar() {
+    if (visualizandoMidiaImagem) return;
+    if (esperandoNomePasta || esperandoRenomear) return;
+    bool ehEsq = (painelDuplo && painelAtivo == 0);
+    MenuLevel mAtual = ehEsq ? menuAtualEsq : menuAtual;
+    int sAtual = ehEsq ? selEsq : sel;
+    if (mAtual == MENU_EXPLORAR) {
+        if (cd <= 0) {
+            bool* mItems = ehEsq ? marcadosEsq : marcados;
+            mItems[sAtual] = !mItems[sAtual];
+            cd = 12;
+        }
+    }
+}
+
+void atualizarImePasta() {
+    if (!esperandoNomePasta && !esperandoRenomear) return;
+
+    int status = (int)sceImeDialogGetStatus();
+    if (status != IME_STATUS_RUNNING && status != 0) {
+        OrbisDialogResult res; memset(&res, 0, sizeof(res)); sceImeDialogGetResult(&res);
+        int32_t buttonId = *(int32_t*)&res;
+
+        if (buttonId == 0) {
+            char nomeFinal[256]; memset(nomeFinal, 0, sizeof(nomeFinal));
+            uint16_t* bufRead = (uint16_t*)textoTeclado; int len = 0;
+            for (int i = 0; i < 255; i++) { if (bufRead[i] == 0x0000) break; nomeFinal[len] = (char)bufRead[i]; len++; }
+            nomeFinal[len] = '\0';
+            bool ehEsq = (painelDuplo && painelAtivo == 0); char* pExplorar = ehEsq ? pathExplorarEsq : pathExplorar;
+
+            if (strlen(nomeFinal) > 0) {
+                char nPath[512];
+                if (esperandoNomePasta) {
+                    sprintf(nPath, "%s/%s", pExplorar, nomeFinal); sceKernelMkdir(nPath, 0777); sprintf(msgStatus, "PASTA CRIADA!");
+                }
+                else if (esperandoRenomear) {
+                    if (!ehPastaParaRenomear && strlen(oldExtParaRenomear) > 0) { if (strrchr(nomeFinal, '.') == NULL) strcat(nomeFinal, oldExtParaRenomear); }
+                    sprintf(nPath, "%s/%s", pExplorar, nomeFinal); rename(oldPathParaRenomear, nPath); sprintf(msgStatus, "RENOMEADO COM SUCESSO!");
+                }
+                if (ehEsq) listarDiretorioEsq(pExplorar); else listarDiretorio(pExplorar);
+            }
+        }
+        sceImeDialogTerm(); esperandoNomePasta = false; esperandoRenomear = false; msgTimer = 120;
+    }
+}
+
+void verificarTrocaDeVideo() {
+    if (comando_trocar_video == 0) return;
+
+    bool ehEsq = (painelDuplo && painelAtivo == 0);
+    int tItens = ehEsq ? totalItensEsq : totalItens;
+    char (*nItems)[64] = ehEsq ? nomesEsq : nomes;
+    char* pExplorar = ehEsq ? pathExplorarEsq : pathExplorar;
+    int* pSel = ehEsq ? &selEsq : &sel;
+
+    int direcao = comando_trocar_video;
+    comando_trocar_video = 0; 
+
+    int i = *pSel + direcao;
+    bool achou = false;
+
+    while (i >= 0 && i < tItens) {
+        if (nItems[i][0] != '[') {
+            char temp[256]; strcpy(temp, nItems[i]);
+            for (int c = 0; temp[c]; c++) temp[c] = tolower(temp[c]);
+            if (strstr(temp, ".mp4")) { achou = true; break; }
+        }
+        i += direcao;
+    }
+
+    if (!achou) { 
+        i = (direcao == 1) ? 0 : (tItens - 1);
+        while (i != *pSel) {
+            if (nItems[i][0] != '[') {
+                char temp[256]; strcpy(temp, nItems[i]);
+                for (int c = 0; temp[c]; c++) temp[c] = tolower(temp[c]);
+                if (strstr(temp, ".mp4")) { achou = true; break; }
+            }
+            i += direcao;
+        }
+    }
+
+    if (achou) {
+        *pSel = i; 
+        char nPath[512]; sprintf(nPath, "%s/%s", pExplorar, nItems[i]);
+        extern void iniciarVideoMP4(const char*);
+        iniciarVideoMP4(nPath);
+    }
+}
