@@ -1,4 +1,4 @@
-﻿#include "radio.h"
+#include "radio.h"
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -16,6 +16,14 @@ extern int totalItens;
 extern int sel;
 extern int off;
 extern MenuLevel menuAtual;
+extern bool showOpcoes;
+extern int selOpcao;
+extern int mapOpcoes[150];
+extern const char* listaOpcoes[150];
+extern int totalOpcoes;
+extern char msgStatus[128];
+extern int msgTimer;
+void executarAcaoMenuRadio(int id);
 
 char radioBrowserQuery[128] = "";
 char radioFavPath[] = "/data/HyperNeiva/configuracao/radio_favoritos.json";
@@ -105,7 +113,7 @@ void* threadBuscarRadio(void* arg) {
     char url[512];
     const char* jsonPath = "/data/HyperNeiva/radio_api.json";
 
-    // Servidor global 'all' como primário. Se falhar, usa o 'de1'.
+    // Servidor global 'all' como prim�rio. Se falhar, usa o 'de1'.
     const char* servidores[] = {
         "all.api.radio-browser.info",
         "de1.api.radio-browser.info"
@@ -191,7 +199,7 @@ void* threadBuscarRadio(void* arg) {
                     linksAtuais[totalItens][streamLen] = '\0';
 
                     totalItens++;
-                    ptr = streamEnd; // Avança o leitor no texto
+                    ptr = streamEnd; // Avan�a o leitor no texto
                 }
                 free(buffer);
             }
@@ -225,6 +233,7 @@ void buscarEstacoesRadio(const char* query, bool isPodcast) {
 }
 
 void acaoCross_Radio() {
+    if (showOpcoes) { executarAcaoMenuRadio(mapOpcoes[selOpcao]); return; }
     if (menuAtual == MENU_RADIO_CATEGORIA) {
         if (sel == 0) buscarEstacoesRadio("topclick", false);
         else if (sel == 1) buscarEstacoesRadio("saopaulo", false);
@@ -244,14 +253,36 @@ void acaoCross_Radio() {
 }
 
 void preencherMenuOpcoesRadio() {
-    extern const char* listaOpcoes[150];
-    extern int totalOpcoes;
-    extern bool showOpcoes;
-    extern int mapOpcoes[150];
-    extern int selOpcao;
     listaOpcoes[0] = "Pesquisar"; mapOpcoes[0] = 700;
     listaOpcoes[1] = "Adicionar aos Favoritos"; mapOpcoes[1] = 701;
-    totalOpcoes = 2; showOpcoes = true; selOpcao = 0;
+    listaOpcoes[2] = "PLAY / PAUSE"; mapOpcoes[2] = 702;
+    listaOpcoes[3] = "PARAR"; mapOpcoes[3] = 703;
+    listaOpcoes[4] = "PROXIMA ESTACAO"; mapOpcoes[4] = 706;
+    listaOpcoes[5] = "ESTACAO ANTERIOR"; mapOpcoes[5] = 707;
+    listaOpcoes[6] = "VOLUME +"; mapOpcoes[6] = 704;
+    listaOpcoes[7] = "VOLUME -"; mapOpcoes[7] = 705;
+    listaOpcoes[8] = "VOLTAR"; mapOpcoes[8] = 708;
+    for (int i = 9; i < 150; i++) { listaOpcoes[i] = ""; mapOpcoes[i] = -1; }
+    totalOpcoes = 9; showOpcoes = true; selOpcao = 0;
+}
+
+void executarAcaoMenuRadio(int id) {
+    if (id == 700) { extern void exibirTecladoVirtual(int tipo); exibirTecladoVirtual(10); showOpcoes = false; }
+    else if (id == 701) { sprintf(msgStatus, "FAVORITOS EM DESENVOLVIMENTO"); msgTimer = 90; }
+    else if (id == 702) {
+        if (strcmp(musicaAtual, "PARADO") == 0) { if (strlen(ultimaMusicaTocada) > 0) { tocarMusicaNova(ultimaMusicaTocada); sprintf(msgStatus, "REPRODUZINDO"); msgTimer = 90; } else { sprintf(msgStatus, "NENHUMA ESTACAO SELECIONADA"); msgTimer = 90; } }
+        else { comandoPausar = !comandoPausar; sprintf(msgStatus, comandoPausar ? "PAUSADO" : "REPRODUZINDO"); msgTimer = 90; }
+    }
+    else if (id == 703) { tocarMusicaNova("PARADO"); sprintf(msgStatus, "PARADO"); msgTimer = 90; }
+    else if (id == 704) { aumentarVolume(); sprintf(msgStatus, "VOLUME: %d%%", volumeGeral); msgTimer = 60; }
+    else if (id == 705) { diminuirVolume(); sprintf(msgStatus, "VOLUME: %d%%", volumeGeral); msgTimer = 60; }
+    else if (id == 706) {
+        if (totalItens > 0) { sel = (sel + 1) % totalItens; if (strlen(linksAtuais[sel]) > 5) { char lc[1024]; if (strncmp(linksAtuais[sel], "https://", 8) == 0) sprintf(lc, "http://%s", linksAtuais[sel] + 8); else strcpy(lc, linksAtuais[sel]); tocarMusicaNova(lc); sprintf(msgStatus, "PROXIMA ESTACAO"); msgTimer = 90; } }
+    }
+    else if (id == 707) {
+        if (totalItens > 0) { sel = (sel - 1 + totalItens) % totalItens; if (strlen(linksAtuais[sel]) > 5) { char lc[1024]; if (strncmp(linksAtuais[sel], "https://", 8) == 0) sprintf(lc, "http://%s", linksAtuais[sel] + 8); else strcpy(lc, linksAtuais[sel]); tocarMusicaNova(lc); sprintf(msgStatus, "ESTACAO ANTERIOR"); msgTimer = 90; } }
+    }
+    else if (id == 708) { showOpcoes = false; }
 }
 
 void acaoTriangle_Radio() {
@@ -260,6 +291,9 @@ void acaoTriangle_Radio() {
 
 void acaoCircle_Radio() {
     // Agora o controle central (controle.cpp) cuida de fechar Overlays
-    // e da navegação de volta (voltarNavegacao).
-    // Esta função pode ser usada para disparar efeitos colaterais específicos se necessário.
+    // e da navega��o de volta (voltarNavegacao).
+    // Esta fun��o pode ser usada para disparar efeitos colaterais espec�ficos se necess�rio.
 }
+
+
+
