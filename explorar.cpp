@@ -591,7 +591,7 @@ void acaoArquivo(int idxOpcao) {
     }
 }
 
-void atualizarImePasta() {
+void atualizarImePasta_explorar() {
     if (!esperandoNomePasta && !esperandoRenomear) return;
 
     int status = (int)sceImeDialogGetStatus();

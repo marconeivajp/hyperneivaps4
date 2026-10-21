@@ -780,3 +780,19 @@ void misturarAudioPiano(int16_t* bufferAudio, size_t frames) {
         }
     }
 }
+
+void resetarEstadoInstrumentos() {
+    violaoMenuEstado = 0;
+    modoInstrumento = 0;
+    touchPressionadoAnteriormente = false;
+    l3PressionadoAnteriormente = false;
+    l1PressionadoAnteriormente = false;
+    r1PressionadoAnteriormente = false;
+    padBotoesAnteriores = 0;
+    for (int k = 0; k < 13; k++) {
+        pianoKeysPressionadas[k] = false;
+        volumeTecla[k] = 0.0f;
+        pianoFases[k] = 0.0f;
+    }
+    for (int k = 0; k < 6; k++) ks_delayLength[k] = 0;
+}

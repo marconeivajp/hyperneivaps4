@@ -17,6 +17,74 @@ void copiarArquivoSeNaoExistir(const char* srcPath, const char* dstPath) {
     }
 }
 
+void criarEstruturaSubpastas(const char* consolePath) {
+    char buf[512];
+    sceKernelMkdir(consolePath, 0777);
+    snprintf(buf, sizeof(buf), "%s/artwork1", consolePath); sceKernelMkdir(buf, 0777);
+    snprintf(buf, sizeof(buf), "%s/artwork2", consolePath); sceKernelMkdir(buf, 0777);
+    snprintf(buf, sizeof(buf), "%s/artwork3", consolePath); sceKernelMkdir(buf, 0777);
+    snprintf(buf, sizeof(buf), "%s/background", consolePath); sceKernelMkdir(buf, 0777);
+    snprintf(buf, sizeof(buf), "%s/barra_de_load", consolePath); sceKernelMkdir(buf, 0777);
+    snprintf(buf, sizeof(buf), "%s/elementos1", consolePath); sceKernelMkdir(buf, 0777);
+    snprintf(buf, sizeof(buf), "%s/ponteiros", consolePath); sceKernelMkdir(buf, 0777);
+}
+
+void inicializarPastasGamesESistemas(const char* rootMidia) {
+    char pathBase[512];
+    char pathConsole[512];
+
+    // --- GAMES ---
+    snprintf(pathBase, sizeof(pathBase), "%s/Games", rootMidia);
+    sceKernelMkdir(pathBase, 0777);
+
+    // Atari
+    snprintf(pathConsole, sizeof(pathConsole), "%s/Atari", pathBase); sceKernelMkdir(pathConsole, 0777);
+    const char* atari[] = { "Atari - 2600", "Atari - 5200", "Atari - 7800", "Atari - Jaguar", "Atari - Lynx", "Atari - ST", "Atari - XEGS" };
+    for (int i = 0; i < 7; i++) { char p[512]; snprintf(p, sizeof(p), "%s/%s", pathConsole, atari[i]); criarEstruturaSubpastas(p); }
+
+    // Microsoft
+    snprintf(pathConsole, sizeof(pathConsole), "%s/Microsoft", pathBase); sceKernelMkdir(pathConsole, 0777);
+    const char* ms[] = { "Microsoft - Xbox", "Microsoft - Xbox 360", "Microsoft - Xbox One" };
+    for (int i = 0; i < 3; i++) { char p[512]; snprintf(p, sizeof(p), "%s/%s", pathConsole, ms[i]); criarEstruturaSubpastas(p); }
+
+    // Nintendo
+    snprintf(pathConsole, sizeof(pathConsole), "%s/Nintendo", pathBase); sceKernelMkdir(pathConsole, 0777);
+    const char* nin[] = { 
+        "Nintendo - Game Boy", "Nintendo - Game Boy Advance", "Nintendo - Game Boy Color", 
+        "Nintendo - GameCube", "Nintendo - Nintendo 3DS", "Nintendo - Nintendo 64", 
+        "Nintendo - Nintendo DS", "Nintendo - Nintendo Entertainment System", 
+        "Nintendo - Nintendo Switch", "Nintendo - Super Nintendo Entertainment System", 
+        "Nintendo - Virtual Boy", "Nintendo - Wii", "Nintendo - Wii U" 
+    };
+    for (int i = 0; i < 13; i++) { char p[512]; snprintf(p, sizeof(p), "%s/%s", pathConsole, nin[i]); criarEstruturaSubpastas(p); }
+
+    // Sega
+    snprintf(pathConsole, sizeof(pathConsole), "%s/Sega", pathBase); sceKernelMkdir(pathConsole, 0777);
+    const char* sega[] = { 
+        "Sega - 32X", "Sega - Dreamcast", "Sega - Game Gear", 
+        "Sega - Master System - Mark III", "Sega - Mega Drive - Genesis", 
+        "Sega - Sega CD", "Sega - Saturn", "Sega - SG-1000" 
+    };
+    for (int i = 0; i < 8; i++) { char p[512]; snprintf(p, sizeof(p), "%s/%s", pathConsole, sega[i]); criarEstruturaSubpastas(p); }
+
+    // Sony
+    snprintf(pathConsole, sizeof(pathConsole), "%s/Sony", pathBase); sceKernelMkdir(pathConsole, 0777);
+    const char* sony[] = { 
+        "Sony - PlayStation", "Sony - PlayStation 2", "Sony - PlayStation 3", 
+        "Sony - PlayStation 4", "Sony - PlayStation Portable", "Sony - PlayStation Vita" 
+    };
+    for (int i = 0; i < 6; i++) { char p[512]; snprintf(p, sizeof(p), "%s/%s", pathConsole, sony[i]); criarEstruturaSubpastas(p); }
+
+    // --- SISTEMAS ---
+    snprintf(pathBase, sizeof(pathBase), "%s/Sistemas", rootMidia);
+    sceKernelMkdir(pathBase, 0777);
+    const char* sistemas[] = { "Editar", "Midia", "Explorar", "Baixar" };
+    for (int i = 0; i < 4; i++) {
+        char pS[512]; snprintf(pS, sizeof(pS), "%s/%s", pathBase, sistemas[i]); sceKernelMkdir(pS, 0777);
+        char pG[512]; snprintf(pG, sizeof(pG), "%s/Geral", pS); criarEstruturaSubpastas(pG);
+    }
+}
+
 void inicializarPastas() {
     sceKernelMkdir("/data/HyperNeiva", 0777);
 
@@ -24,9 +92,16 @@ void inicializarPastas() {
     sceKernelMkdir("/data/HyperNeiva/configuracao", 0777);
     sceKernelMkdir("/data/HyperNeiva/configuracao/temporario", 0777);
     sceKernelMkdir("/data/HyperNeiva/configuracao/imagens", 0777);
+    sceKernelMkdir("/data/HyperNeiva/configuracao/imagens/elementos", 0777);
+    sceKernelMkdir("/data/HyperNeiva/configuracao/imagens/sistema", 0777);
     sceKernelMkdir("/data/HyperNeiva/configuracao/audios", 0777);
+    sceKernelMkdir("/data/HyperNeiva/configuracao/audios/elementos_sonoros", 0777);
     sceKernelMkdir("/data/HyperNeiva/configuracao/jogar", 0777);
     sceKernelMkdir("/data/HyperNeiva/configuracao/settings", 0777);
+
+    // VÍDEO IMAGENS E CATEGORIAS DE SISTEMA (V64)
+    sceKernelMkdir("/data/HyperNeiva/configuracao/video_imagens", 0777);
+    sceKernelMkdir("/data/HyperNeiva/configuracao/game_e_sistema", 0777);
 
     // REPOSITÓRIOS E SUAS NOVAS SUBPASTAS (LOJAS)
     sceKernelMkdir("/data/HyperNeiva/configuracao/repositorios", 0777);
@@ -42,7 +117,7 @@ void inicializarPastas() {
     sceKernelMkdir("/data/HyperNeiva/baixado/repositorios", 0777);
     sceKernelMkdir("/data/HyperNeiva/baixado/repositorios/games", 0777);
 
-    // MÍDIA E SUBPASTAS
+    // MÍDIA E SUBPASTAS (REESTRUTURAÇÃO MASSIVA V65)
     sceKernelMkdir("/data/HyperNeiva/midia", 0777);
     sceKernelMkdir("/data/HyperNeiva/midia/musicas", 0777);
     sceKernelMkdir("/data/HyperNeiva/midia/videos", 0777);
@@ -51,24 +126,26 @@ void inicializarPastas() {
     sceKernelMkdir("/data/HyperNeiva/midia/leitura", 0777);
     sceKernelMkdir("/data/HyperNeiva/midia/arquivos", 0777);
 
-    // Subpastas de Vídeos
+    // IMAGENS: GAMES E SISTEMAS
+    inicializarPastasGamesESistemas("/data/HyperNeiva/midia/imagens");
+
+    // VÍDEOS: GAMES E SISTEMAS (Dentro de midia/videos/video)
     sceKernelMkdir("/data/HyperNeiva/midia/videos/video", 0777);
+    inicializarPastasGamesESistemas("/data/HyperNeiva/midia/videos/video");
+
+    // ÁUDIOS: ELEMENTOS SONOROS (Games e Sistemas)
+    sceKernelMkdir("/data/HyperNeiva/midia/audios/elementos sonoros", 0777);
+    inicializarPastasGamesESistemas("/data/HyperNeiva/midia/audios/elementos sonoros");
+
+    // Outras subpastas de Vídeos
     sceKernelMkdir("/data/HyperNeiva/midia/videos/filmes", 0777);
     sceKernelMkdir("/data/HyperNeiva/midia/videos/series", 0777);
     sceKernelMkdir("/data/HyperNeiva/midia/videos/animes", 0777);
     sceKernelMkdir("/data/HyperNeiva/midia/videos/outros", 0777);
 
-    // Subpastas de Imagens (Games)
-    sceKernelMkdir("/data/HyperNeiva/midia/imagens/Games", 0777);
-    sceKernelMkdir("/data/HyperNeiva/midia/imagens/Games/Artwork1", 0777);
-    sceKernelMkdir("/data/HyperNeiva/midia/imagens/Games/Artwork2", 0777);
-    sceKernelMkdir("/data/HyperNeiva/midia/imagens/Games/Background", 0777);
-
-    // Subpastas de Leitura
+    // Leitura e Música
     sceKernelMkdir("/data/HyperNeiva/midia/leitura/livros", 0777);
     sceKernelMkdir("/data/HyperNeiva/midia/leitura/mangas", 0777);
-
-    // Extra (Musicas Root)
     sceKernelMkdir("/data/HyperNeiva/Musicas", 0777);
 
 
@@ -156,4 +233,4 @@ void inicializarPastas() {
     // Outros
     sceKernelMkdir("/data/retroarch/Games/SNK - Neo Geo", 0777);
     sceKernelMkdir("/data/retroarch/Games/Bandai - WonderSwan Color", 0777);
-}
+}

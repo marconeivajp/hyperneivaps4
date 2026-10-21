@@ -36,20 +36,9 @@
 #include "extra.h"
 #include "informacao.h"
 
-#ifndef CUSTOM_UI_DEF
-#define CUSTOM_UI_DEF
-struct CustomElementDef {
-    bool ativo;
-    char caminho[256];
-    int pX, pY, pW, pH;
-    bool animInAtiva;
-    int inX, inY;
-    int velIn;
-    bool animOutAtiva;
-    int outX, outY;
-    int velOut;
-};
-#endif
+bool definindoBotoesCombo = false;
+
+// Unified Custom UI access via editar.h
 
 int cd = 0;
 bool pCross = false, pCircle = false, pTri = false, pSquare = false, pL1 = false, pR1 = false, pL2 = false;
@@ -102,7 +91,9 @@ extern int interfaceTelaAlvo;
 extern int interfaceElementoAlvo;
 
 // IMPORTA AS CONFIGS DA GRADE
-extern int listStyle;
+extern int listSpcV, listOri, listStyle;
+extern int numSlotsPadrao;
+extern int listLoop;
 extern int gridCols;
 extern int gridLins;
 
@@ -204,6 +195,9 @@ void processarNavegacaoDPad(uint32_t botoes) {
     }
 
     if (botoes & (ORBIS_PAD_BUTTON_RIGHT | ORBIS_PAD_BUTTON_LEFT | ORBIS_PAD_BUTTON_DOWN | ORBIS_PAD_BUTTON_UP)) {
+        extern bool definindoBotoesCombo;
+        if (definindoBotoesCombo) return;
+
         if (cd <= 0) {
             bool movNext = (botoes & btnNext) || (!isHoriz && (botoes & ORBIS_PAD_BUTTON_DOWN));
             bool movPrev = (botoes & btnPrev) || (!isHoriz && (botoes & ORBIS_PAD_BUTTON_UP));
@@ -218,21 +212,35 @@ void processarNavegacaoDPad(uint32_t botoes) {
             }
             else if (showUploadOpcoes && (menuAtual == MENU_BAIXAR_DROPBOX_UPLOAD || menuAtual == MENU_BAIXAR_DROPBOX_LISTA)) {
                 if (movNext) tocarSom(SFX_DOWN); else if (movPrev) tocarSom(SFX_UP);
-                int maxV = (upH - 50) / 45; if (maxV < 1) maxV = 1;
-                if (movNext) { if (selUploadOpcao < 2) { selUploadOpcao++; if (selUploadOpcao >= offUploadOpcao + maxV) offUploadOpcao++; } else { selUploadOpcao = 0; offUploadOpcao = 0; } }
-                else if (movPrev) { if (selUploadOpcao > 0) { selUploadOpcao--; if (selUploadOpcao < offUploadOpcao) offUploadOpcao--; } else { selUploadOpcao = 2; offUploadOpcao = 3 - maxV; if (offUploadOpcao < 0) offUploadOpcao = 0; } }
+                extern int totalUploads; extern int selUpload; extern int offUpload;
+                int maxV = totalUploads; if (maxV > numSlotsPadrao) maxV = numSlotsPadrao;
+                if (movNext) { if (selUpload < totalUploads - 1) { selUpload++; } else { selUpload = 0; if (listLoop) offUpload++; } }
+                else if (movPrev) { if (selUpload > 0) { selUpload--; } else { selUpload = totalUploads - 1; if (listLoop) offUpload--; } }
+                if (movNext || movPrev) {
+                    if (listFocus) offUpload = selUpload - (numSlotsPadrao / 2);
+                    else { if (selUpload >= offUpload + maxV) offUpload = selUpload - (maxV - 1); if (selUpload < offUpload) offUpload = selUpload; if (!listLoop && offUpload < 0) offUpload = 0; }
+                }
             }
             else if (showOpcoes) {
                 if (movNext) tocarSom(SFX_DOWN); else if (movPrev) tocarSom(SFX_UP);
                 if (menuAtual == MENU_AUDIO_OPCOES) {
-                    int maxV = (audioH - 50) / 45; if (maxV < 1) maxV = 1;
-                    if (movNext) { if (selAudioOpcao < 10) { selAudioOpcao++; if (selAudioOpcao >= offAudioOpcao + maxV) offAudioOpcao++; } else { selAudioOpcao = 0; offAudioOpcao = 0; } }
-                    else if (movPrev) { if (selAudioOpcao > 0) { selAudioOpcao--; if (selAudioOpcao < offAudioOpcao) offAudioOpcao--; } else { selAudioOpcao = 10; offAudioOpcao = 11 - maxV; if (offAudioOpcao < 0) offAudioOpcao = 0; } }
+                    extern int totalAudioOpcoes;
+                    int maxV = totalAudioOpcoes; if (maxV > numSlotsPadrao) maxV = numSlotsPadrao;
+                    if (movNext) { if (selAudioOpcao < totalAudioOpcoes - 1) { selAudioOpcao++; } else { selAudioOpcao = 0; if (listLoop) offAudioOpcao++; } }
+                    else if (movPrev) { if (selAudioOpcao > 0) { selAudioOpcao--; } else { selAudioOpcao = totalAudioOpcoes - 1; if (listLoop) offAudioOpcao--; } }
+                    if (movNext || movPrev) {
+                        if (listFocus) offAudioOpcao = selAudioOpcao - (numSlotsPadrao / 2);
+                        else { if (selAudioOpcao >= offAudioOpcao + maxV) offAudioOpcao = selAudioOpcao - (maxV - 1); if (selAudioOpcao < offAudioOpcao) offAudioOpcao = selAudioOpcao; if (!listLoop && offAudioOpcao < 0) offAudioOpcao = 0; }
+                    }
                 }
                 else {
-                    int maxV = (discoH - 80) / 45; if (maxV < 1) maxV = 1;
-                    if (movNext) { if (selOpcao < totalOpcoes - 1) { selOpcao++; if (selOpcao >= offOpcao + maxV) offOpcao++; } else { selOpcao = 0; offOpcao = 0; } }
-                    else if (movPrev) { if (selOpcao > 0) { selOpcao--; if (selOpcao < offOpcao) offOpcao--; } else { selOpcao = totalOpcoes - 1; offOpcao = totalOpcoes - maxV; if (offOpcao < 0) offOpcao = 0; } }
+                    int maxV = totalOpcoes; if (maxV > numSlotsPadrao) maxV = numSlotsPadrao;
+                    if (movNext) { if (selOpcao < totalOpcoes - 1) { selOpcao++; } else { selOpcao = 0; if (listLoop) offOpcao++; } }
+                    else if (movPrev) { if (selOpcao > 0) { selOpcao--; } else { selOpcao = totalOpcoes - 1; if (listLoop) offOpcao--; } }
+                    if (movNext || movPrev) {
+                        if (listFocus) offOpcao = selOpcao - (numSlotsPadrao / 2);
+                        else { if (selOpcao >= offOpcao + maxV) offOpcao = selOpcao - (maxV - 1); if (selOpcao < offOpcao) offOpcao = selOpcao; if (!listLoop && offOpcao < 0) offOpcao = 0; }
+                    }
                 }
             }
             else {
@@ -248,12 +256,12 @@ void processarNavegacaoDPad(uint32_t botoes) {
 
                     if (botoes & ORBIS_PAD_BUTTON_DOWN) {
                         if (*sAtual + cols < tItens) { *sAtual += cols; tocarSom(SFX_DOWN); }
-                        else { *sAtual = 0; tocarSom(SFX_DOWN); } // LOOP
-                    }
-                    else if (botoes & ORBIS_PAD_BUTTON_UP) {
-                        if (*sAtual - cols >= 0) { *sAtual -= cols; tocarSom(SFX_UP); }
-                        else { *sAtual = tItens - 1; tocarSom(SFX_UP); } // LOOP INVERSO
-                    }
+                    else if (listLoop) { *sAtual = 0; tocarSom(SFX_DOWN); } 
+                }
+                else if (botoes & ORBIS_PAD_BUTTON_UP) {
+                    if (*sAtual - cols >= 0) { *sAtual -= cols; tocarSom(SFX_UP); }
+                    else if (listLoop) { *sAtual = tItens - 1; tocarSom(SFX_UP); }
+                }
                     else if (botoes & ORBIS_PAD_BUTTON_RIGHT) {
                         if (*sAtual < tItens - 1) { (*sAtual)++; tocarSom(SFX_DOWN); }
                         else { *sAtual = 0; tocarSom(SFX_DOWN); }
@@ -274,14 +282,37 @@ void processarNavegacaoDPad(uint32_t botoes) {
                 }
                 else {
                     if (movNext) tocarSom(SFX_DOWN); else if (movPrev) tocarSom(SFX_UP);
+                    int maxV = tItens; if (maxV > numSlotsPadrao) maxV = numSlotsPadrao;
                     if (movNext) {
-                        if (*sAtual < (tItens - 1)) { (*sAtual)++; if (*sAtual >= (*oAtual + 6)) (*oAtual)++; }
-                        else if (tItens > 0) { *sAtual = 0; *oAtual = 0; }
-                        timeToLoadCapa = 10;
+                        if (*sAtual < (tItens - 1)) { (*sAtual)++; }
+                        else if (tItens > 0) { 
+                            *sAtual = 0; 
+                            if (listLoop) (*oAtual)++; 
+                        }
                     }
                     else if (movPrev) {
-                        if (*sAtual > 0) { (*sAtual)--; if (*sAtual < *oAtual) (*oAtual)--; }
-                        else if (tItens > 0) { *sAtual = tItens - 1; *oAtual = tItens - 6; if (*oAtual < 0) *oAtual = 0; }
+                        if (*sAtual > 0) { (*sAtual)--; }
+                        else if (tItens > 0) { 
+                            *sAtual = tItens - 1; 
+                            if (listLoop) (*oAtual)--;
+                        }
+                    }
+
+                    if (movNext || movPrev) {
+                        if (listFocus) {
+                            *oAtual = *sAtual - (numSlotsPadrao / 2);
+                        }
+                        else {
+                            if (!listLoop) {
+                                if (*sAtual < *oAtual) *oAtual = *sAtual;
+                                else if (*sAtual >= (*oAtual + maxV)) *oAtual = *sAtual - (maxV - 1);
+                            }
+                            else {
+                                // MODO RODA SEM FOCO: Se chegamos na borda visual, empurramos o offset
+                                if (*sAtual < *oAtual) *oAtual = *sAtual;
+                                else if (*sAtual >= (*oAtual + maxV)) *oAtual = *sAtual - (maxV - 1);
+                            }
+                        }
                         timeToLoadCapa = 10;
                     }
                 }
@@ -368,19 +399,51 @@ void processarControles(uint32_t botoes, int32_t uId, OrbisImeDialogSetting* ime
     }
 
     if (menuAtual == MENU_CONTROLE_TESTE || menuAtual == MENU_INSTRUMENTOS) {
-        if (botoes & ORBIS_PAD_BUTTON_OPTIONS) {
-            extern void preencherMenuExtra();
-            extern void finalizarControleTeste();
-            finalizarControleTeste();
-            preencherMenuExtra();
+        bool optionsPressed = (botoes & ORBIS_PAD_BUTTON_OPTIONS) &&
+            !(botoesAntigos & ORBIS_PAD_BUTTON_OPTIONS);
+        if (optionsPressed) {
+            MenuLevel menuAntesDeSair = menuAtual;
+            if (menuAntesDeSair == MENU_INSTRUMENTOS) {
+                extern void resetarEstadoInstrumentos();
+                resetarEstadoInstrumentos();
+            }
+            if (menuAntesDeSair == MENU_CONTROLE_TESTE) {
+                extern void finalizarControleTeste();
+                finalizarControleTeste();
+            }
+            voltarNavegacao();
+            extern void definirAudioModoEspecial(bool);
+            definirAudioModoEspecial(false);
+            // Restore the normal menu background after the piano's full-screen
+            // renderer has replaced the framebuffer.
+            extern void ligarInterfaceGrafica();
+            ligarInterfaceGrafica();
+            extern bool menuEmuladorAtivo;
+            menuEmuladorAtivo = false;
+            isFirstFrameUI = true;
+            pCross = pCircle = pTri = pSquare = false;
+            pL1 = pR1 = pL2 = false;
         }
         botoesAntigos = botoes;
         return; // Bloqueia Cross/Bolinha global nestes sistemas
     }
 
-    if (totalItens <= 0) { sel = 0; off = 0; }
-    else if (sel >= totalItens) { sel = totalItens - 1; if (sel < off) off = sel; else if (sel >= off + 6) off = sel - 5; if (off < 0) off = 0; }
-    if (painelDuplo) { if (totalItensEsq <= 0) { selEsq = 0; offEsq = 0; } else if (selEsq >= totalItensEsq) { selEsq = totalItensEsq - 1; if (selEsq < offEsq) offEsq = selEsq; else if (selEsq >= offEsq + 6) offEsq = selEsq - 5; if (offEsq < 0) offEsq = 0; } }
+    if (listLoop) {
+        if (sel >= totalItens) { sel = 0; off = 0; }
+        else if (sel < 0) { 
+            sel = totalItens - 1; 
+            int maxV = totalItens; if (maxV > numSlotsPadrao) maxV = numSlotsPadrao;
+            off = sel - (maxV - 1); if (off < 0) off = 0;
+        }
+    } else {
+        if (sel < 0) sel = 0;
+        else if (sel >= totalItens) { 
+            sel = totalItens - 1; 
+            int maxV = totalItens; if (maxV > numSlotsPadrao) maxV = numSlotsPadrao;
+            if (sel >= off + maxV) off = sel - (maxV - 1);
+        }
+    }
+    if (painelDuplo) { if (totalItensEsq <= 0) { selEsq = 0; offEsq = 0; } else if (selEsq >= totalItensEsq) { selEsq = totalItensEsq - 1; int maxV = totalItensEsq; if (maxV > numSlotsPadrao) maxV = numSlotsPadrao; if (selEsq >= offEsq + maxV) offEsq = selEsq - (maxV - 1); if (selEsq < offEsq) offEsq = selEsq; if (offEsq < 0) offEsq = 0; } }
 
     if (editMode && menuAtual != MENU_NOTEPAD) { processarControlesEdicao(botoes); botoesAntigos = botoes; return; }
 
@@ -389,7 +452,7 @@ void processarControles(uint32_t botoes, int32_t uId, OrbisImeDialogSetting* ime
     }
 
     bool inExplorar = false;
-    if (menuAtual == MENU_EXPLORAR || menuAtual == MENU_EXPLORAR_HOME || menuAtual == MENU_LISTA_CORES) {
+    if (menuAtual == MENU_EXPLORAR || menuAtual == MENU_EXPLORAR_HOME || menuAtual == MENU_LISTA_CORES || menuAtual == ROOT || menuAtual == MENU_TIPO_JOGO || menuAtual == MENU_JOGAR_PS4 || menuAtual == JOGAR_XML || menuAtual == MENU_MIDIA) {
         inExplorar = true;
     }
     else if (painelDuplo && (menuAtualEsq == MENU_EXPLORAR || menuAtualEsq == MENU_EXPLORAR_HOME)) {
@@ -398,11 +461,17 @@ void processarControles(uint32_t botoes, int32_t uId, OrbisImeDialogSetting* ime
         }
     }
 
+    bool emTelaExplorarL2 = menuAtual == MENU_EXPLORAR || menuAtual == MENU_EXPLORAR_HOME;
+    if (painelDuplo && painelAtivo == 0 &&
+        (menuAtualEsq == MENU_EXPLORAR || menuAtualEsq == MENU_EXPLORAR_HOME)) {
+        emTelaExplorarL2 = true;
+    }
+
     if (botoes & ORBIS_PAD_BUTTON_L2) {
         if (!pL2) {
-            if (menuAtual == MENU_BAIXAR_FTP_LISTA) acaoL2_FTP();
+            if (menuAtual == MENU_BAIXAR_FTP_LISTA || menuAtual == MENU_BAIXAR_FTP_UPLOAD) acaoL2_FTP();
             else if (menuAtual == MENU_BAIXAR_DROPBOX_LISTA || menuAtual == MENU_BAIXAR_DROPBOX_UPLOAD) { extern void acaoL2_Dropbox(); acaoL2_Dropbox(); }
-            else if (inExplorar) acaoL2_Explorar();
+            else if (emTelaExplorarL2) acaoL2_Explorar();
             pL2 = true;
         }
     }
@@ -485,13 +554,21 @@ void processarControles(uint32_t botoes, int32_t uId, OrbisImeDialogSetting* ime
             else if (menuAtual == MENU_RADIO_CATEGORIA || menuAtual == MENU_RADIO_LISTA || menuAtual == MENU_RADIO_FAVORITOS) { extern void acaoCross_Radio(); acaoCross_Radio(); }
 
             if (menuAtual != mAntes || strcmp(pathExplorar, pAntes) != 0 || menuAtualEsq != mEsqAntes || strcmp(pathExplorarEsq, pEsqAntes) != 0) {
-                if (navTopo < MAX_NAV_STACK) {
+                // Previne pushes duplicados para o mesmo nível de menu
+                bool isRedundant = (navTopo > 0 && pilhaNav[navTopo - 1].menu == mAntes && strcmp(pilhaNav[navTopo - 1].path, pAntes) == 0);
+                if (!isRedundant && navTopo < MAX_NAV_STACK) {
                     pilhaNav[navTopo].menu = mAntes; strcpy(pilhaNav[navTopo].path, pAntes); pilhaNav[navTopo].sel = sAntes; pilhaNav[navTopo].off = oAntes;
                     pilhaNav[navTopo].menuEsq = mEsqAntes; strcpy(pilhaNav[navTopo].pathEsq, pEsqAntes); pilhaNav[navTopo].selEsq = sEsqAntes; pilhaNav[navTopo].offEsq = oEsqAntes;
                     navTopo++;
                 }
-                if (menuAtual != mAntes || strcmp(pathExplorar, pAntes) != 0) { sel = 0; off = 0; }
-                if (menuAtualEsq != mEsqAntes || strcmp(pathExplorarEsq, pEsqAntes) != 0) { selEsq = 0; offEsq = 0; }
+                if (menuAtual != mAntes || strcmp(pathExplorar, pAntes) != 0) { 
+                    sel = 0; 
+                    if (listFocus) off = sel - (numSlotsPadrao / 2); else off = 0; 
+                }
+                if (menuAtualEsq != mEsqAntes || strcmp(pathExplorarEsq, pEsqAntes) != 0) { 
+                    selEsq = 0; 
+                    if (listFocus) offEsq = selEsq - (numSlotsPadrao / 2); else offEsq = 0; 
+                }
             } pCross = true;
         }
     }
@@ -533,7 +610,6 @@ void processarControles(uint32_t botoes, int32_t uId, OrbisImeDialogSetting* ime
                     handled = true;
                 }
                 else if (menuAtual == MENU_RADIO_CATEGORIA || menuAtual == MENU_RADIO_LISTA || menuAtual == MENU_RADIO_FAVORITOS) {
-                    if (menuAtual == MENU_RADIO_CATEGORIA) { extern void tocarMusicaNova(const char*); tocarMusicaNova("PARADO"); }
                     handled = false; // Deixa o global voltar
                 }
                 else if (menuAtual == MENU_EDITAR || menuAtual == MENU_EDIT_TARGET) {
@@ -569,6 +645,23 @@ void processarControles(uint32_t botoes, int32_t uId, OrbisImeDialogSetting* ime
 
     if (botoes & ORBIS_PAD_BUTTON_SQUARE) { if (!pSquare) { if (menuAtual == MENU_NOTEPAD) { if (!notepadSomenteLeitura) { if (estadoNotepad == 0) estadoNotepad = 1; else if (estadoNotepad == 1) { if (strlen(nomeArquivo) > 0) salvarArquivoNotepad(); else { snprintf(msgStatus, sizeof(msgStatus), "O nome do arquivo nao pode ser vazio!"); msgTimer = 120; } } } } pSquare = true; } }
     else pSquare = false;
+
+    // --- LOGICA DO BOTÃO L2 STANDALONE (PARA PAINEL DUPLO NO EXPLORAR) ---
+    if (botoes & ORBIS_PAD_BUTTON_L2) {
+        if (!pL2) {
+            // Só executa se não estiver apertando Triângulo (atalho de áudio)
+            if (!(botoes & ORBIS_PAD_BUTTON_TRIANGLE)) {
+                if (inExplorar) {
+                    extern void acaoL2_Explorar(); 
+                    acaoL2_Explorar();
+                }
+                else if (menuAtual == MENU_BAIXAR_FTP_LISTA || menuAtual == MENU_BAIXAR_FTP_UPLOAD) {
+                    extern void acaoL2_FTP(); acaoL2_FTP();
+                }
+            }
+            pL2 = true;
+        }
+    } else pL2 = false;
 
     if (menuAtual == ROOT && navTopo > 0) navTopo = 0;
 

@@ -3,8 +3,8 @@
 #include <stdlib.h>
 #include <string.h>
 
-// IMPORTANTE: Incluimos a biblioteca SEM "IMPLEMENTATION" para não chocar com o audio.cpp!
 #include "dr_wav.h"
+#include "dr_mp3.h"
 
 // PUXANDO AS VARIÁVEIS DO MENU EDITAR
 extern int sfxLigado;
@@ -19,41 +19,102 @@ volatile int16_t* currentSfx = NULL;
 volatile size_t currentSfxFrames = 0;
 volatile size_t currentSfxPos = 0;
 
-int16_t* carregarWavMemoria(const char* pathPrincipal, const char* pathAlternativo, size_t* totalFrames) {
+// Universal Audio Loader: Handles WAV/MP3 and Mono-to-Stereo conversion
+int16_t* carregarAudioMemoria(const char* path, size_t* totalFrames) {
+    if (!path || strlen(path) == 0) return NULL;
+    
     unsigned int channels, sampleRate;
-    drwav_uint64 totalPCMFrameCount;
+    drwav_uint64 wavFrames;
+    drmp3_uint64 mp3Frames;
+    int16_t* pSampleData = NULL;
 
-    int16_t* pSampleData = drwav_open_file_and_read_pcm_frames_s16(pathPrincipal, &channels, &sampleRate, &totalPCMFrameCount, NULL);
-
-    if (pSampleData == NULL) {
-        pSampleData = drwav_open_file_and_read_pcm_frames_s16(pathAlternativo, &channels, &sampleRate, &totalPCMFrameCount, NULL);
-        if (pSampleData == NULL) return NULL;
+    const char* ext = strrchr(path, '.');
+    if (ext && (strcasecmp(ext, ".mp3") == 0)) {
+        drmp3_config config;
+        pSampleData = drmp3_open_file_and_read_pcm_frames_s16(path, &config, &mp3Frames, NULL);
+        channels = config.channels;
+        sampleRate = config.sampleRate;
+        *totalFrames = (size_t)mp3Frames;
+    } else {
+        pSampleData = drwav_open_file_and_read_pcm_frames_s16(path, &channels, &sampleRate, &wavFrames, NULL);
+        *totalFrames = (size_t)wavFrames;
     }
 
+    if (pSampleData == NULL) return NULL;
+
+    // Converte para Stereo 48kHz se necessário (simplificado: herda do sistema de áudio principal)
     if (channels == 1) {
-        int16_t* stereoData = (int16_t*)malloc(totalPCMFrameCount * 2 * sizeof(int16_t));
-        for (size_t i = 0; i < totalPCMFrameCount; i++) {
+        int16_t* stereoData = (int16_t*)malloc((*totalFrames) * 2 * sizeof(int16_t));
+        for (size_t i = 0; i < (*totalFrames); i++) {
             stereoData[i * 2] = pSampleData[i];
             stereoData[i * 2 + 1] = pSampleData[i];
         }
         free(pSampleData);
         pSampleData = stereoData;
     }
-    *totalFrames = totalPCMFrameCount;
     return pSampleData;
 }
 
+// Suporte para Combos de Sons Customizados (V62/V63)
+SfxCombo combosSFX[20];
+int16_t* sfxComboData[20] = {0};
+size_t sfxComboLen[20] = {0};
+
+void limparCacheSfxCombos() {
+    for (int i = 0; i < 20; i++) {
+        if (sfxComboData[i]) {
+            free(sfxComboData[i]);
+            sfxComboData[i] = NULL;
+            sfxComboLen[i] = 0;
+        }
+    }
+}
+
+void carregarSfxCombos() {
+    limparCacheSfxCombos();
+    memset(combosSFX, 0, sizeof(combosSFX));
+    FILE* f = fopen("/data/HyperNeiva/configuracao/settings/sfx_combos.bin", "rb");
+    if (f) {
+        fread(combosSFX, sizeof(SfxCombo), 20, f);
+        fclose(f);
+        
+        // Pré-carrega todos os ativos na RAM (Cache)
+        for (int i = 0; i < 20; i++) {
+            if (combosSFX[i].active && strlen(combosSFX[i].path) > 0) {
+                sfxComboData[i] = carregarAudioMemoria(combosSFX[i].path, &sfxComboLen[i]);
+            }
+        }
+    }
+}
+
+void salvarSfxCombos() {
+    FILE* f = fopen("/data/HyperNeiva/configuracao/settings/sfx_combos.bin", "wb");
+    if (f) {
+        fwrite(combosSFX, sizeof(SfxCombo), 20, f);
+        fclose(f);
+    }
+    // Após salvar, recarregamos para atualizar o cache na memória
+    carregarSfxCombos();
+}
+
 void inicializarElementosSonoros() {
-    sfxUpData = carregarWavMemoria("/data/HyperNeiva/configuracao/audios/0_Defalt_direcinal_cima.wav", "/app0/assets/audio/0_Defalt_direcinal_cima.wav", &sfxUpLen);
-    sfxDownData = carregarWavMemoria("/data/HyperNeiva/configuracao/audios/0_Defalt_direcional_baixo.wav", "/app0/assets/audio/0_Defalt_direcional_baixo.wav", &sfxDownLen);
-    sfxCrossData = carregarWavMemoria("/data/HyperNeiva/configuracao/audios/0_Defalt_x.wav", "/app0/assets/audio/0_Defalt_x.wav", &sfxCrossLen);
-    sfxCircleData = carregarWavMemoria("/data/HyperNeiva/configuracao/audios/0_Defalt_bolinha.wav", "/app0/assets/audio/0_Defalt_bolinha.wav", &sfxCircleLen);
+    sfxUpData = carregarAudioMemoria("/data/HyperNeiva/configuracao/audios/0_Defalt_direcinal_cima.wav", &sfxUpLen);
+    if (!sfxUpData) sfxUpData = carregarAudioMemoria("/app0/assets/audio/0_Defalt_direcinal_cima.wav", &sfxUpLen);
+    
+    sfxDownData = carregarAudioMemoria("/data/HyperNeiva/configuracao/audios/0_Defalt_direcional_baixo.wav", &sfxDownLen);
+    if (!sfxDownData) sfxDownData = carregarAudioMemoria("/app0/assets/audio/0_Defalt_direcional_baixo.wav", &sfxDownLen);
+    
+    sfxCrossData = carregarAudioMemoria("/data/HyperNeiva/configuracao/audios/0_Defalt_x.wav", &sfxCrossLen);
+    if (!sfxCrossData) sfxCrossData = carregarAudioMemoria("/app0/assets/audio/0_Defalt_x.wav", &sfxCrossLen);
+    
+    sfxCircleData = carregarAudioMemoria("/data/HyperNeiva/configuracao/audios/0_Defalt_bolinha.wav", &sfxCircleLen);
+    if (!sfxCircleData) sfxCircleData = carregarAudioMemoria("/app0/assets/audio/0_Defalt_bolinha.wav", &sfxCircleLen);
+    
+    carregarSfxCombos();
 }
 
 void tocarSom(SfxType tipo) {
-    // Se o som estiver desligado no menu Editar, nem aciona!
     if (!sfxLigado) return;
-
     switch (tipo) {
     case SFX_UP:
         if (sfxUpData) { currentSfxFrames = sfxUpLen; currentSfxPos = 0; currentSfx = sfxUpData; }
@@ -71,7 +132,6 @@ void tocarSom(SfxType tipo) {
 }
 
 void misturarEfeitosSonoros(int16_t* bufferAudio, size_t frames) {
-    // Segunda barreira: se desligaram durante o som tocar, corta ele.
     if (!sfxLigado) return;
 
     if (currentSfx != NULL && currentSfxPos < currentSfxFrames) {
@@ -80,14 +140,10 @@ void misturarEfeitosSonoros(int16_t* bufferAudio, size_t frames) {
             framesToMix = currentSfxFrames - currentSfxPos;
         }
 
-        // Calcula o volume como uma porcentagem de 0.00 até 1.00
         float fatorVolume = sfxVolume / 100.0f;
 
         for (size_t i = 0; i < framesToMix * 2; i++) {
-            // Pega o sample do efeito sonoro e aplica o multiplicador de volume
             int32_t sampleSfx = (int32_t)(currentSfx[currentSfxPos * 2 + i] * fatorVolume);
-
-            // Soma a Música de Fundo com o Efeito Sonoro reduzido/aumentado
             int32_t sample = bufferAudio[i] + sampleSfx;
 
             if (sample > 32767) sample = 32767;
@@ -100,4 +156,50 @@ void misturarEfeitosSonoros(int16_t* bufferAudio, size_t frames) {
             currentSfx = NULL;
         }
     }
+}
+
+void verificarSfxCombos(uint32_t buttons) {
+    if (!sfxLigado || buttons == 0) return;
+    
+    int melhorIndice = -1;
+    int maxBotoes = 0;
+
+    for (int i = 0; i < 20; i++) {
+        if (combosSFX[i].active && (buttons & combosSFX[i].buttons) == combosSFX[i].buttons) {
+            int count = 0; uint32_t b = combosSFX[i].buttons;
+            while (b) { count += (b & 1); b >>= 1; }
+            if (count > maxBotoes) {
+                maxBotoes = count;
+                melhorIndice = i;
+            }
+        }
+    }
+
+    if (melhorIndice != -1 && sfxComboData[melhorIndice]) {
+        currentSfxFrames = sfxComboLen[melhorIndice];
+        currentSfxPos = 0;
+        currentSfx = sfxComboData[melhorIndice];
+    }
+}
+
+#include <orbis/Pad.h>
+const char* getSfxButtonName(uint32_t buttons) {
+    if (buttons == 0) return "NENHUM";
+    static char buf[256]; buf[0] = '\0'; bool first = true;
+    auto add = [&](const char* name) { if (!first) strcat(buf, " + "); strcat(buf, name); first = false; };
+    if (buttons & ORBIS_PAD_BUTTON_L1) add("L1");
+    if (buttons & ORBIS_PAD_BUTTON_R1) add("R1");
+    if (buttons & ORBIS_PAD_BUTTON_L2) add("L2");
+    if (buttons & ORBIS_PAD_BUTTON_R2) add("R2");
+    if (buttons & ORBIS_PAD_BUTTON_TRIANGLE) add("TRIANGULO");
+    if (buttons & ORBIS_PAD_BUTTON_CIRCLE) add("BOLINHA");
+    if (buttons & ORBIS_PAD_BUTTON_CROSS) add("X");
+    if (buttons & ORBIS_PAD_BUTTON_SQUARE) add("QUADRADO");
+    if (buttons & ORBIS_PAD_BUTTON_UP) add("CIMA");
+    if (buttons & ORBIS_PAD_BUTTON_DOWN) add("BAIXO");
+    if (buttons & ORBIS_PAD_BUTTON_LEFT) add("ESQUERDA");
+    if (buttons & ORBIS_PAD_BUTTON_RIGHT) add("DIREITA");
+    if (buttons & ORBIS_PAD_BUTTON_OPTIONS) add("OPTIONS");
+    if (buttons & ORBIS_PAD_BUTTON_TOUCH_PAD) add("TOUCHPAD");
+    return buf;
 }

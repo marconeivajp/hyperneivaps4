@@ -1,6 +1,7 @@
 #include "extra.h"
 #include "menu.h"
 #include "graphics.h"
+#include "audio.h"
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -49,11 +50,11 @@ static ColorPreset colors[] = {
     {"BRANCO (CIMA)", 255, 255, 255, ORBIS_PAD_BUTTON_UP},
     {"AMARELO (BAIXO)", 255, 255, 0, ORBIS_PAD_BUTTON_DOWN},
     {"CYAN (ESQUERDA)", 0, 255, 255, ORBIS_PAD_BUTTON_LEFT},
-    {"MAGENTA (DIREITA)", 255, 0, 255, ORBIS_PAD_BUTTON_RIGHT},
+    {"LIMA (DIREITA)", 128, 255, 0, ORBIS_PAD_BUTTON_RIGHT},
     {"VERDE (TRIAN.)", 0, 255, 0, ORBIS_PAD_BUTTON_TRIANGLE},
     {"VERMELHO (BOLA)", 255, 0, 0, ORBIS_PAD_BUTTON_CIRCLE},
     {"AZUL (CRUZ)", 0, 0, 255, ORBIS_PAD_BUTTON_CROSS},
-    {"LIMA (QUADRADO)", 128, 255, 0, ORBIS_PAD_BUTTON_SQUARE}
+    {"MAGENTA (QUADRADO)", 255, 0, 255, ORBIS_PAD_BUTTON_SQUARE}
 };
 
 void preencherMenuExtra() {
@@ -83,6 +84,7 @@ void finalizarControleTeste() {
 
 void acaoCross_Extra() {
     if (sel == 0) {
+        definirAudioModoEspecial(true);
         // Limpa os gráficos antes de entrar no Teste de Controle
         memset(trilhaL, 0, sizeof(trilhaL));
         memset(trilhaR, 0, sizeof(trilhaR));
@@ -95,6 +97,7 @@ void acaoCross_Extra() {
         menuAtual = MENU_CONTROLE_TESTE;
     }
     else if (sel == 1) {
+        definirAudioModoEspecial(true);
         // Abre a interface do Piano Virtual
         menuAtual = MENU_INSTRUMENTOS;
     }
@@ -319,7 +322,7 @@ void renderizarControleTeste(uint32_t* p) {
     // -----------------------------------------
     // Renderizar Sensores (Giroscópio / Acelerômetro)
     // -----------------------------------------
-    int sX = 1350; int sY = 500;
+    int sX = 1350; int sY = 460;
     desenharTexto(p, "SENSORES DE MOVIMENTO", 30, sX, sY - 40, 0xFF00AAFF);
 
     auto drawSensorBar = [&](int x, int y, const char* label, int16_t value, uint32_t color) {
@@ -351,7 +354,7 @@ void renderizarControleTeste(uint32_t* p) {
     drawSensorBar(sX, sY + 220, "ACCEL Z:", az, 0xFF00FF00);
 
     // -----------------------------------------
-    // Renderizar Touchpad (Agora Multi-Touch!)
+    // Renderizar Touchpad (Multi-Touch)
     // -----------------------------------------
     int tpW = 350; int tpH = 200;
     int tpX = 850; int tpY = 500;
@@ -369,51 +372,37 @@ void renderizarControleTeste(uint32_t* p) {
         prevT2x = -1; prevT2y = -1;
     }
 
-    // ===================================
-    // DEDO 1 (Azul)
-    // ===================================
     if (touchNum > 0) {
         int tx = (t0_x * tpW) / 1919; int ty = (t0_y * tpH) / 941;
         if (prevT1x == -1) { prevT1x = tx; prevT1y = ty; }
         drawLineOnGrid(trilhaTouch1, prevT1x, prevT1y, tx, ty);
         prevT1x = tx; prevT1y = ty;
-    }
-    else {
-        prevT1x = -1; prevT1y = -1; // Levantou o dedo 1
-    }
+    } else { prevT1x = -1; prevT1y = -1; }
 
-    // ===================================
-    // DEDO 2 (Verde)
-    // ===================================
     if (touchNum > 1) {
         int tx2 = (t1_x * tpW) / 1919; int ty2 = (t1_y * tpH) / 941;
         if (prevT2x == -1) { prevT2x = tx2; prevT2y = ty2; }
         drawLineOnGrid(trilhaTouch2, prevT2x, prevT2y, tx2, ty2);
         prevT2x = tx2; prevT2y = ty2;
-    }
-    else {
-        prevT2x = -1; prevT2y = -1; // Levantou o dedo 2
-    }
+    } else { prevT2x = -1; prevT2y = -1; }
 
-    // Renderiza as duas trilhas independentes na tela!
+    // Renderiza as trilhas
     for (int ty = 0; ty < tpH; ty++) {
         for (int tx = 0; tx < tpW; tx++) {
-            // Se o dedo 1 passou por aqui, desenha AZUL
             if (trilhaTouch1[tx][ty]) {
                 int fpx = tpX + tx; int fpy = tpY + ty;
                 for (int dy = -1; dy <= 1; dy++) {
                     for (int dx = -1; dx <= 1; dx++) {
-                        int ppx = fpx + dx, ppy = fpy + dy;
+                        int ppx = fpx+dx, ppy = fpy+dy;
                         if (ppx >= 0 && ppx < 1920 && ppy >= 0 && ppy < 1080) p[ppy * 1920 + ppx] = 0xFF00AAFF;
                     }
                 }
             }
-            // Se o dedo 2 passou por aqui, desenha VERDE
             if (trilhaTouch2[tx][ty]) {
                 int fpx = tpX + tx; int fpy = tpY + ty;
                 for (int dy = -1; dy <= 1; dy++) {
                     for (int dx = -1; dx <= 1; dx++) {
-                        int ppx = fpx + dx, ppy = fpy + dy;
+                        int ppx = fpx+dx, ppy = fpy+dy;
                         if (ppx >= 0 && ppx < 1920 && ppy >= 0 && ppy < 1080) p[ppy * 1920 + ppx] = 0xFF00FF00;
                     }
                 }
@@ -421,64 +410,66 @@ void renderizarControleTeste(uint32_t* p) {
         }
     }
 
-    // ===================================
-    // TEXTOS E BOLINHAS EM TEMPO REAL
-    // ===================================
     if (touchNum > 0) {
         int dotX = tpX + (t0_x * tpW) / 1919; int dotY = tpY + (t0_y * tpH) / 941;
         drawCircle(dotX, dotY, 12, 0xFF00AAFF, true);
         sprintf(txt, "DEDO 1: [%d, %d]", t0_x, t0_y);
-        desenharTexto(p, txt, 25, tpX - 300, tpY + tpH + 30, 0xFF00AAFF);
+        desenharTexto(p, txt, 25, tpX - 80, tpY + tpH + 30, 0xFF00AAFF);
     }
     if (touchNum > 1) {
         int dotX2 = tpX + (t1_x * tpW) / 1919; int dotY2 = tpY + (t1_y * tpH) / 941;
         drawCircle(dotX2, dotY2, 12, 0xFF00FF00, true);
         sprintf(txt, "DEDO 2: [%d, %d]", t1_x, t1_y);
-        desenharTexto(p, txt, 25, tpX + 300, tpY + tpH + 30, 0xFF00FF00);
+        desenharTexto(p, txt, 25, tpX + 210, tpY + tpH + 30, 0xFF00FF00); // Movido mais para a esquerda
     }
 
     // -----------------------------------------
-    // Renderizar Lista de Cores e Brilho (Embaixo dos Sensores)
+    // Renderizar Lista de Cores (Dividida em 2 Colunas)
     // -----------------------------------------
-    int cX = sX; int cY = sY + 320;
-    desenharTexto(p, "LISTA DE CORES (LED)", 30, cX, cY - 30, 0xFF00AAFF);
+    int cXLabel = sX - 40; int cYLabel = sY + 300;
+    desenharTexto(p, "LISTA DE CORES (LED)", 30, cXLabel, cYLabel - 40, 0xFF00AAFF);
+    
     for (int i = 0; i < 8; i++) {
+        int col = (i < 4) ? 0 : 1;
+        int row = (i < 4) ? i : i - 4;
+        int curX = cXLabel + (col * 320);
+        int curY = cYLabel + (row * 35);
+
         uint32_t c = (buttons & colors[i].btn) ? 0xFFFFFFFF : 0xFF555555;
-        // Desenha um quadradinho da cor
         uint32_t previewCol = 0xFF000000 | (colors[i].r << 16) | (colors[i].g << 8) | colors[i].b;
+        
         for (int y = 0; y < 20; y++) {
-            for (int x = 0; x < 20; x++) p[(cY + i * 35 + y) * 1920 + (cX + x)] = previewCol;
+            for (int x = 0; x < 20; x++) p[(curY + y) * 1920 + (curX + x)] = previewCol;
         }
-        desenharTexto(p, colors[i].name, 25, cX + 30, cY + i * 35, c);
+        desenharTexto(p, colors[i].name, 22, curX + 30, curY, c);
     }
 
     char briTxt[64]; sprintf(briTxt, "BRILHO LED: %.0f%%", intensity * 100.0f);
-    desenharTexto(p, briTxt, 25, cX, cY + 300, 0xFFFFFFFF);
+    desenharTexto(p, briTxt, 25, cXLabel, cYLabel + 160, 0xFFFFFFFF);
 
     // -----------------------------------------
     // Renderizar Microfone (AudioIn)
     // -----------------------------------------
-    int mX = tpX; int mY = tpY + 320;
+    int mX = tpX; int mY = tpY + 300;
     desenharTexto(p, "MICROFONE (INPUT)", 30, mX, mY - 30, 0xFF00AAFF);
     
     // Tenta ler amostras do microfone para o HUD
     static int16_t micBuffer[512];
     if (padMicPort >= 0) {
-        // Assume handle 0 ou tenta via input
         ((int(*)(int, void*))sceAudioInInput)(0, micBuffer); 
         int peak = 0;
         for(int i=0; i<512; i++) { if(abs(micBuffer[i]) > peak) peak = abs(micBuffer[i]); }
         micLevelDisplay = peak;
     }
 
-    int mBarW = 350; int mBarH = 30;
+    int mBarW = 350; int mBarH = 20;
     for (int y = 0; y < mBarH; y++) {
         for (int x = 0; x < mBarW; x++) {
             uint32_t c = (x < (micLevelDisplay * mBarW) / 32768) ? 0xFF00FF00 : 0xFF333333;
             p[(mY + y) * 1920 + (mX + x)] = c;
         }
     }
-    desenharTexto(p, "Fale no controle/headset para testar", 20, mX, mY + 40, 0xFFAAAAAA);
+    desenharTexto(p, "Fale no controle/headset para testar", 20, mX, mY + 30, 0xFFAAAAAA);
 
     // ===================================
     // PARTE 3: RODAPÉ (GATILHOS L2 E R2 EMPILHADOS)

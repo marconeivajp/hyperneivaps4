@@ -1,4 +1,4 @@
-#include "radio.h"
+﻿#include "radio.h"
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -237,17 +237,8 @@ void acaoCross_Radio() {
     }
     else if (menuAtual == MENU_RADIO_LISTA) {
         if (strlen(linksAtuais[sel]) > 5) {
-            char linkConvertido[1024];
-
-            // CONVERSÃO SEGURA: Garante que o FFmpeg consegue tocar (Força HTTP)
-            if (strncmp(linksAtuais[sel], "https://", 8) == 0) {
-                sprintf(linkConvertido, "http://%s", linksAtuais[sel] + 8);
-            }
-            else {
-                strcpy(linkConvertido, linksAtuais[sel]);
-            }
-
-            tocarMusicaNova(linkConvertido);
+            // Preserve HTTPS: o cliente OpenOrbis faz o transporte TLS no PS4.
+            tocarMusicaNova(linksAtuais[sel]);
         }
     }
 }

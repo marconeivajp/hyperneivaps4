@@ -91,5 +91,43 @@ void desenharElementos(uint32_t* p, int selX, int selY, int selW, int selH) {
 
         // O "+ 0.5f" garante que o gráfico "encaixe" perfeitamente na grelha de píxeis
         desenharRedimensionado(p, imgPont1, p1W, p1H, pont1W, pont1H, (int)(animPontX + 0.5f), (int)(animPontY + 0.5f));
+
+        // 4. Ponteiro Duplo (Segunda instância espelhada)
+        if (p1Double) {
+            float targetX2 = pont1X;
+            float targetY2 = pont1Y;
+            bool flipH = false; bool flipV = false;
+
+            if (pont1Modo == 0) { // Acompanha a Seleção
+                if (pont1Lado == 0) { // Original na Esquerda -> Duplo na Direita
+                    targetX2 += selX + selW;
+                    targetY2 += selY + (selH / 2) - (pont1H / 2);
+                    flipH = true;
+                }
+                else if (pont1Lado == 1) { // Original na Direita -> Duplo na Esquerda
+                    targetX2 += selX - pont1W;
+                    targetY2 += selY + (selH / 2) - (pont1H / 2);
+                    flipH = true;
+                }
+                else if (pont1Lado == 2) { // Original em Cima -> Duplo em Baixo
+                    targetX2 += selX + (selW / 2) - (pont1W / 2);
+                    targetY2 += selY + selH;
+                    flipV = true;
+                }
+                else if (pont1Lado == 3) { // Original em Baixo -> Duplo em Cima
+                    targetX2 += selX + (selW / 2) - (pont1W / 2);
+                    targetY2 += selY - pont1H;
+                    flipV = true;
+                }
+            }
+
+            // O segundo ponteiro usa a mesma animação/fluidez, mas com o offset espelhado
+            // (Para simplicidade, vamos desenhar o segundo na posição alvo espelhada relativa à animação atual ou calcular uma segunda animação)
+            // Para um efeito visual limpo, vamos calcular o offset relativo à animação do primeiro
+            float relX = animPontX - targetX;
+            float relY = animPontY - targetY;
+            
+            desenharRedimensionadoEspelhado(p, imgPont1, p1W, p1H, pont1W, pont1H, (int)(targetX2 + relX + 0.5f), (int)(targetY2 + relY + 0.5f), flipH, flipV);
+        }
     }
 }

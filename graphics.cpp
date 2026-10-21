@@ -4,9 +4,13 @@
 #include <stdio.h>
 
 // Headers do SDK do PS4 (OpenOrbis) necessários para o vídeo
+#ifndef _WIN32
 #include <orbis/libkernel.h>
 #include <orbis/VideoOut.h>
 #include <orbis/Pad.h>
+#else
+#include <SDL2/SDL.h>
+#endif
 
 // INCLUSÃO DO LEITOR DE PDF E MANGÁ
 #include "pdf.h"
@@ -26,11 +30,36 @@ void* buffers[2];
 // V39: Backup para o "Frozen Frame" (Global para V58)
 uint32_t* backupEmuFrame = NULL;
 
+#ifdef _WIN32
+SDL_Window* sdlWindow = NULL;
+SDL_Renderer* sdlRenderer = NULL;
+SDL_Texture* sdlTexture = NULL;
+uint32_t* screenBuffer = NULL;
+#endif
+
 // =========================================================================
 // SISTEMA DE VÍDEO DO PS4
 // =========================================================================
 
 void inicializarVideo() {
+#ifdef _WIN32
+    // SDL_Init movido para o main()
+    sdlWindow = SDL_CreateWindow("Hyper Winds Player", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, 1920, 1080, SDL_WINDOW_SHOWN);
+    if (!sdlWindow) {
+        printf("Erro ao criar janela SDL: %s\n", SDL_GetError());
+        exit(1);
+    }
+    sdlRenderer = SDL_CreateRenderer(sdlWindow, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
+    if (!sdlRenderer) {
+        sdlRenderer = SDL_CreateRenderer(sdlWindow, -1, 0);
+    }
+    sdlTexture = SDL_CreateTexture(sdlRenderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STREAMING, 1920, 1080);
+    screenBuffer = (uint32_t*)malloc(1920 * 1080 * 4);
+    memset(screenBuffer, 0, 1920 * 1080 * 4);
+
+    backupEmuFrame = (uint32_t*)malloc(1920 * 1080 * 4);
+    if (backupEmuFrame) memset(backupEmuFrame, 0, 1920 * 1080 * 4);
+#else
     video = sceVideoOutOpen(255, 0, 0, NULL);
 
     size_t bSz = ((1920 * 1080 * 4) + 0x1FFFFF) & ~0x1FFFFF;
@@ -50,23 +79,46 @@ void inicializarVideo() {
     memset(&attr, 0, sizeof(attr));
     sceVideoOutSetBufferAttribute(&attr, 0x80000000, 1, 0, 1920, 1080, 1920);
     sceVideoOutRegisterBuffers(video, 0, buffers, 2, &attr);
+#endif
 }
 
 uint32_t* obterBufferVideo() {
+#ifdef _WIN32
+    return screenBuffer;
+#else
     return (uint32_t*)buffers[bA];
+#endif
 }
 
 void submeterTela() {
+#ifdef _WIN32
+    SDL_UpdateTexture(sdlTexture, NULL, screenBuffer, 1920 * 4);
+    SDL_RenderClear(sdlRenderer);
+    SDL_RenderCopy(sdlRenderer, sdlTexture, NULL, NULL);
+    SDL_RenderPresent(sdlRenderer);
+    
+    SDL_Event event;
+    while (SDL_PollEvent(&event)) {
+        if (event.type == SDL_QUIT) {
+            exit(0);
+        }
+    }
+#else
     sceVideoOutSubmitFlip(video, bA, 1, 0);
     bA = (bA + 1) % 2; 
     sceKernelUsleep(16000); 
+#endif
 }
 
 void submeterTelaSemPausa() {
+#ifdef _WIN32
+    submeterTela();
+#else
     sceVideoOutSubmitFlip(video, bA, 1, 0);
     bA = (bA + 1) % 2;
     // V52.2: Sincronização inteligente: só atrasa no menu/pausa para evitar flicker
     if (bridge_esta_pausado() || menuEmuladorAtivo) sceKernelUsleep(16000); 
+#endif
 }
 
 // =========================================================================
@@ -80,6 +132,20 @@ void desenharRedimensionado(uint32_t* pixels, unsigned char* img, int imgW, int 
         for (int x = 0; x < dW; x++) {
             int pX = posX + x; if (pX < 0 || pX >= 1920) continue;
             int oX = (x * imgW) / dW; int oY = (y * imgH) / dH;
+            int idx = (oY * imgW + oX) * 4; uint8_t a = img[idx + 3];
+            if (a > 0) pixels[pY * 1920 + pX] = (a << 24) | (img[idx + 0] << 16) | (img[idx + 1] << 8) | img[idx + 2];
+        }
+    }
+}
+
+void desenharRedimensionadoEspelhado(uint32_t* pixels, unsigned char* img, int imgW, int imgH, int dW, int dH, int posX, int posY, bool espelharH, bool espelharV) {
+    if (!img || !pixels || dW <= 0 || dH <= 0) return;
+    for (int y = 0; y < dH; y++) {
+        int pY = posY + y; if (pY < 0 || pY >= 1080) continue;
+        for (int x = 0; x < dW; x++) {
+            int pX = posX + x; if (pX < 0 || pX >= 1920) continue;
+            int oX = espelharH ? ((dW - 1 - x) * imgW) / dW : (x * imgW) / dW;
+            int oY = espelharV ? ((dH - 1 - y) * imgH) / dH : (y * imgH) / dH;
             int idx = (oY * imgW + oX) * 4; uint8_t a = img[idx + 3];
             if (a > 0) pixels[pY * 1920 + pX] = (a << 24) | (img[idx + 0] << 16) | (img[idx + 1] << 8) | img[idx + 2];
         }

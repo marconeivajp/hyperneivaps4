@@ -1,3 +1,4 @@
+#include "editar.h"
 #include "menu_grafico.h"
 #include "menu_grafico_cache_grafico.h"
 #include "menu_grafico_render_texto.h"
@@ -5,6 +6,7 @@
 #include "menu_grafico_layout.h"
 
 #include "menu.h"
+#include "audio_radio.h"
 #include "graphics.h"
 #include "bloco_de_notas.h" 
 #include "menu_audio.h" 
@@ -97,19 +99,17 @@ extern int uiAnimFrame;
 extern int lastTelaId;
 extern int prevTelaIdForOut;
 
+// --- COMBOS SONOROS ---
+#include "elementos_sonoros.h"
+extern SfxCombo combosSFX[20];
+extern bool definindoBotoesCombo;
+extern int sfxComboSel;
+extern int interfaceComboAlvo;
+extern const char* getSfxButtonName(uint32_t buttons);
+
 #ifndef CUSTOM_UI_DEF
 #define CUSTOM_UI_DEF
-struct CustomElementDef {
-    bool ativo;
-    char caminho[256];
-    int pX, pY, pW, pH;
-    bool animInAtiva;
-    int inX, inY;
-    int velIn;
-    bool animOutAtiva;
-    int outX, outY;
-    int velOut;
-};
+
 #endif
 extern CustomElementDef customUI[6][10];
 extern int interfaceTelaAlvo;
@@ -166,13 +166,16 @@ void desenharInterface(uint32_t* p) {
         tentouDiscoE = true;
     }
 
-    // Dynamic Media Loading Logic
+    // Dynamic Media Loading Logic (V61 Safe)
     int refP_Top = painelDuplo ? painelAtivo : 1;
     int sAtivo = (refP_Top == 0) ? selEsq : sel;
     MenuLevel mAtivo = (refP_Top == 0) ? menuAtualEsq : menuAtual;
     char* nAtivo = (refP_Top == 0) ? nomesEsq[sAtivo] : nomes[sAtivo];
+    int tItensAtivos = (refP_Top == 0) ? totalItensEsq : totalItens;
 
-    if (!editMode && (nAtivo == NULL || strlen(nAtivo) == 0 || strcmp(nAtivo, "..") == 0 || strstr(nAtivo, "Desconhecido") != NULL || strstr(nAtivo, "esconhecido") != NULL)) {
+    // Proteção: Só limpar se tivermos itens e a seleção for intencional em um item vazio/voltar
+    // V61.2: Evita limpar ao entrar no Explorar ou Root para manter o wallpaper base
+    if (!editMode && mAtivo != MENU_EXPLORAR_HOME && mAtivo != ROOT && tItensAtivos > 0 && (nAtivo == NULL || strlen(nAtivo) == 0 || strcmp(nAtivo, "..") == 0 || strstr(nAtivo, "Desconhecido") != NULL)) {
         if (imgBgDinamico) { stbi_image_free(imgBgDinamico); imgBgDinamico = NULL; }
         if (imgCapaDinamica) { stbi_image_free(imgCapaDinamica); imgCapaDinamica = NULL; }
         if (imgDiscoDinamico) { stbi_image_free(imgDiscoDinamico); imgDiscoDinamico = NULL; }
@@ -319,7 +322,8 @@ void desenharInterface(uint32_t* p) {
     if ((menuAtual >= MENU_BAIXAR && menuAtual <= MENU_BAIXAR_LINK_DIRETO) || emSubmenuDropbox || emSubmenuFTP) {
         extern char ipDoPS4[64];
         char txtIP[128]; snprintf(txtIP, sizeof(txtIP), "PS4 IP: %s", ipDoPS4);
-        desenharTexto(p, txtIP, 32, 50, 40, 0xFFFFFFFF); // Ajustado para ser visivel e premium
+        int wIP = medirLarguraTexto(txtIP, 28);
+        desenharTexto(p, txtIP, 28, 1880 - wIP, 1035, 0xFFFFFFFF); 
     }
      // --- MENUS ESPECIAIS (AUDIO, UPLOAD, EXPLORAR) ---
         desenharMenuAudio(p);
@@ -361,9 +365,25 @@ void desenharInterface(uint32_t* p) {
         atualizarVideoFFmpeg(p);
     }
 
+    // Telemetria do rádio só faz sentido enquanto o rádio está visível e tocando.
+    bool statusTelemetriaRadio = strncmp(msgStatus, "Net:", 4) == 0;
+    bool statusRadioNotificacao = statusTelemetriaRadio ||
+        strncmp(msgStatus, "Conectando ao Servidor", 22) == 0 ||
+        strncmp(msgStatus, "Conectado! Aguarde", 18) == 0 ||
+        strncmp(msgStatus, "Erro ao conectar no servidor da Radio", 38) == 0;
+    bool menuRadioAtivo = menuAtual == MENU_RADIO_CATEGORIA || menuAtual == MENU_RADIO_LISTA || menuAtual == MENU_RADIO_FAVORITOS;
+    extern char musicaAtual[256];
+    extern volatile bool comandoPausar;
+    bool radioTocando = isRadioRodando() && !comandoPausar && strcmp(musicaAtual, "PARADO") != 0;
+    bool mostrarStatusRadio = menuRadioAtivo && (!statusTelemetriaRadio || radioTocando);
+    if (statusRadioNotificacao && !mostrarStatusRadio) msgTimer = 0;
+
     // Status Messages
-    if (msgTimer > 0) { 
+    if ((msgTimer > 0 && (!statusRadioNotificacao || mostrarStatusRadio)) || (editMode && editTarget == 9)) {
+        msgStatusColor = getSysColor(msgColIndex);
+        if (editMode && editTarget == 9) { strcpy(msgStatus, "EXEMPLO DE NOTIFICACAO"); msgTimer = 2; } 
         extern uint32_t msgStatusColor;
+        extern int msgColIndex;
         if (menuAtual == MENU_ERRO_CRITICO) {
             for (int y = 300; y < 850; y++) for (int x = 100; x < 1820; x++) { p[y * 1920 + x] = (p[y * 1920 + x] & 0x00FFFFFF) | 0xEE000000; if (y == 300 || y == 849 || x == 100 || x == 1819) p[y * 1920 + x] = msgStatusColor; }
             desenharTexto(p, "FALHA NO NUCLEO", 40, 600, 350, msgStatusColor);
@@ -371,6 +391,51 @@ void desenharInterface(uint32_t* p) {
         } else {
             desenharTexto(p, msgStatus, msgTam, msgX, msgY, msgStatusColor); 
             msgTimer--; 
+        }
+    }
+
+    // --- OVERLAY PARA DEFINIÇÃO DE COMBO SONORO ---
+    if (definindoBotoesCombo) {
+        extern int sfxWizardState;
+        extern uint32_t sfxBotaoDetectado;
+        
+        // Caixa centralizada
+        int boxW = 900, boxH = 500;
+        int boxX = (1920 - boxW) / 2, boxY = (1080 - boxH) / 2;
+        for (int y = boxY; y < boxY + boxH; y++) for (int x = boxX; x < boxX + boxW; x++) if (x >= 0 && x < 1920 && y >= 0 && y < 1080) p[y * 1920 + x] = 0xEE111111;
+        
+        const char* currentCombo = getSfxButtonName(combosSFX[interfaceComboAlvo].buttons);
+
+        desenharTextoAlinhado(p, "ASSISTENTE DE COMBO SONORO", 35, boxX, boxY + 40, boxW, 0xFF00AAFF);
+        
+        char txtSeq[256]; sprintf(txtSeq, "SEQUENCIA ATUAL: %s", currentCombo);
+        desenharTextoAlinhado(p, txtSeq, 28, boxX, boxY + 100, boxW, 0xFFAAAAAA);
+
+        if (sfxWizardState == 0) { // WAITING_BUTTON
+            desenharTextoAlinhado(p, "APERTE O PROXIMO BOTAO DO COMBO", 40, boxX, boxY + 220, boxW, 0xFFFFFFFF);
+            desenharTextoAlinhado(p, "(EXEMPLO: APERTE L1, DEPOIS X...)", 22, boxX, boxY + 280, boxW, 0xFF888888);
+        }
+        else { // CHOOSING_ACTION
+            char txtDetect[256]; sprintf(txtDetect, "BOTAO DETECTADO: %s", getSfxButtonName(sfxBotaoDetectado));
+            desenharTextoAlinhado(p, txtDetect, 45, boxX, boxY + 200, boxW, 0xFF00FF00);
+
+            // Menu horizontal de opções selecionáveis
+            const char* optNames[3] = { " [ ADICIONAR ] ", " [ CONCLUIR ] ", " [ CANCELAR ] " };
+            int optW = boxW / 3;
+            for (int i = 0; i < 3; i++) {
+                uint32_t corOpt = (sfxComboSel == i) ? 0xFF00FF00 : 0xFFAAAAAA;
+                if (sfxComboSel == i) {
+                    // Desenha uma borda simples de seleção
+                    for (int by = 300; by < 380; by++) for (int bx = 10; bx < optW - 10; bx++) {
+                        int pXX = boxX + (i * optW) + bx; int pYY = boxY + by;
+                        if (pXX >= 0 && pXX < 1920 && pYY >= 0 && pYY < 1080) {
+                            if (by == 300 || by == 379 || bx == 10 || bx == optW - 11) p[pYY * 1920 + pXX] = 0xFF00FF00;
+                        }
+                    }
+                }
+                desenharTextoAlinhado(p, optNames[i], 32, boxX + (i * optW), boxY + 325, optW, corOpt);
+            }
+            desenharTextoAlinhado(p, "[ BOLINHA ] VOLTAR / CANCELAR DETECCAO", 20, boxX, boxY + 450, boxW, 0xFF666666);
         }
     }
 

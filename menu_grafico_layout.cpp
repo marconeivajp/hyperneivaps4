@@ -31,7 +31,7 @@ extern int painelAtivo;
 
 extern bool editMode;
 extern int editTarget, editType;
-extern int listStyle, listOri, fontTam, listBg, listMark, listHoverMark, listCurvature, listZoomCentro, fontAnim, fontAlign, fontScroll;
+extern int listStyle, listOri, fontTam, listBg, barFill, listMark, listHoverMark, listCurvature, listZoomCentro, fontAnim, fontAlign, fontScroll;
 extern int frameContadorGlobal;
 
 extern int listXV, listYV, listSpcV, listXH, listYH, listSpcH, listW, listH;
@@ -39,10 +39,15 @@ extern int gridX, gridY, gridItemW, gridItemH, gridCols, gridLins, gridSpcX, gri
 extern int capaX, capaY, capaW, capaH, discoX, discoY, discoW, discoH, picX, picY, picW, picH;
 extern int backX, backY, backW, backH, barX, barY, barW, barH, audioX, audioY, audioW, audioH, upX, upY, upW, upH;
 extern int msgX, msgY, msgTam;
+extern int upBg, upTextNorm, upTextSel;
 extern int elem1X, elem1Y, elem1W, elem1H, elem1On;
 extern int ctrl1X, ctrl1Y, ctrl1W, ctrl1H, ctrl1On;
 extern int pont1X, pont1Y, pont1W, pont1H, pont1On, pont1Modo, pont1Lado;
 extern int sfxLigado, sfxVolume;
+extern int numSlotsPadrao;
+extern int p1Double, listLoop, listFocus;
+extern int corSelecao;
+extern int msgColIndex, fontColIndex;
 
 extern int anim_posX, anim_posY, anim_velocidade, anim_colunas, anim_linhas, anim_offsetX, anim_offsetY, anim_frameInicial, anim_frameFinal, anim_frameAtual, anim_tolerancia, anim_keyR, anim_keyG, anim_keyB, anim_keyR2, anim_keyG2, anim_keyB2;
 extern float anim_escala; extern bool anim_ativo, anim_usarColorKey2, anim_autoCenter;
@@ -180,13 +185,8 @@ void desenharListas(uint32_t* p, int refPainel) {
     int currentRenderStyle = listStyle;
     bool isGameMenu = (mAtual == MENU_JOGAR_PS4 || mAtual == JOGAR_XML || mAtual == SCRAPER_LIST);
 
-    // O EXPLORADOR E O PAINEL DUPLO SEMPRE USAM O ESTILO 0 (LISTA CLÁSSICA RETA)
-    if (mAtual == ROOT || mAtual == MENU_TIPO_JOGO || mAtual == MENU_EXPLORAR || mAtual == MENU_EXPLORAR_HOME || mAtual == MENU_BAIXAR_DROPBOX_LISTA || mAtual == MENU_BAIXAR_DROPBOX_UPLOAD || mAtual == MENU_EDITAR || mAtual == MENU_EDIT_TARGET || mAtual == MENU_RADIO_CATEGORIA || mAtual == MENU_RADIO_LISTA || mAtual == MENU_RADIO_FAVORITOS || painelDuplo) {
-        currentRenderStyle = 0;
-    }
-    else if ((currentRenderStyle == 3 || currentRenderStyle == 4 || currentRenderStyle == 5) && !isGameMenu) {
-        currentRenderStyle = 1;
-    }
+    // DETERMINA SE É UM MENU DE SISTEMA (Pode precisar de fallback visual)
+    bool isSystemMenu = (mAtual == ROOT || mAtual == MENU_EXPLORAR || mAtual == MENU_EXPLORAR_HOME || mAtual == MENU_EDITAR || mAtual == MENU_EDIT_TARGET || mAtual == MENU_BAIXAR_FTP_LISTA);
 
     uint32_t corBasePainel = getSysColor(listBg);
     int curListX = (listOri == 0) ? listXV : listXH;
@@ -259,8 +259,10 @@ void desenharListas(uint32_t* p, int refPainel) {
                 desenharRedimensionado(p, coverCache[cacheIdx].img, coverCache[cacheIdx].w, coverCache[cacheIdx].h, itemW, itemH, drawX, drawY);
             }
             else {
-                for (int by = 0; by < itemH; by++) for (int bx = 0; bx < itemW; bx++) { int pyy = drawY + by, pxx = drawX + bx; if (pxx >= 0 && pxx < 1920 && pyy >= 0 && pyy < 1080) p[pyy * 1920 + pxx] = 0xAA222222; }
-                desenharTextoAlinhado(p, nItems[i], 30, drawX + 10, drawY + itemH / 2, itemW - 20, 0xFFFFFFFF);
+                // FALLBACK GRADE PARA MENUS DE SISTEMA
+                uint32_t corF = (i == sAtual) ? 0xFF0055AA : 0xAA222222;
+                for (int by = 0; by < itemH; by++) for (int bx = 0; bx < itemW; bx++) { int pyy = drawY + by, pxx = drawX + bx; if (pxx >= 0 && pxx < 1920 && pyy >= 0 && pyy < 1080) p[pyy * 1920 + pxx] = corF; }
+                desenharTextoAlinhado(p, nItems[i], 28, drawX + 10, drawY + (itemH / 2) - 15, itemW - 20, 0xFFFFFFFF);
             }
 
             if (i == sAtual) {
@@ -270,7 +272,7 @@ void desenharListas(uint32_t* p, int refPainel) {
                         if (pxx >= 0 && pxx < 1920 && pyy >= 0 && pyy < 1080) p[pyy * 1920 + pxx] = 0xFF00FF00;
                     }
                 }
-                if (currentRenderStyle == 4) desenharTextoAlinhadoAnimado(p, nItems[i], 40, drawX - 50, drawY + itemH + 30, itemW + 100, 0xFFFFFFFF, true);
+                if (currentRenderStyle == 4) desenharTextoAlinhadoAnimado(p, nItems[i], 40, drawX - 50, drawY + itemH + 30, itemW + 100, getSysColor(fontColIndex), true);
 
                 if (refPainel == 1 || !painelDuplo) {
                     cursX = drawX; cursY = drawY; cursW = itemW; cursH = itemH;
@@ -331,7 +333,10 @@ void desenharListas(uint32_t* p, int refPainel) {
                     desenharRedimensionado(p, coverCache[cacheIdx].img, coverCache[cacheIdx].w, coverCache[cacheIdx].h, drawW, drawH, drawX, drawY);
                 }
                 else {
-                    for (int by = 0; by < drawH; by++) for (int bx = 0; bx < drawW; bx++) { int pyy = drawY + by, pxx = drawX + bx; if (pxx >= 0 && pxx < 1920 && pyy >= 0 && pyy < 1080) p[pyy * 1920 + pxx] = 0xAA222222; }
+                    // FALLBACK ROLETA PARA MENUS DE SISTEMA
+                    uint32_t corF = (offset == 0) ? 0xFF0077CC : 0xAA222222;
+                    for (int by = 0; by < drawH; by++) for (int bx = 0; bx < drawW; bx++) { int pyy = drawY + by, pxx = drawX + bx; if (pxx >= 0 && pxx < 1920 && pyy >= 0 && pyy < 1080) p[pyy * 1920 + pxx] = corF; }
+                    if (offset < 2) desenharTextoAlinhado(p, nItems[i], 24, drawX + 10, drawY + (drawH / 2) - 12, drawW - 20, 0xFFFFFFFF);
                 }
 
                 if (offset == 0) {
@@ -341,7 +346,7 @@ void desenharListas(uint32_t* p, int refPainel) {
                             if (pxx >= 0 && pxx < 1920 && pyy >= 0 && pyy < 1080) p[pyy * 1920 + pxx] = 0xFF00FFFF;
                         }
                     }
-                    desenharTextoAlinhadoAnimado(p, nItems[i], 40, centerX - 200, centerY + centerH + 50, centerW + 400, 0xFFFFFFFF, true);
+                    desenharTextoAlinhadoAnimado(p, nItems[i], 40, centerX - 200, centerY + centerH + 50, centerW + 400, getSysColor(fontColIndex), true);
 
                     if (refPainel == 1 || !painelDuplo) {
                         cursX = drawX; cursY = drawY; cursW = drawW; cursH = drawH;
@@ -354,8 +359,11 @@ void desenharListas(uint32_t* p, int refPainel) {
     // MODO LISTA CLÁSSICA E PAINEL EXPLORADOR
     // ----------------------------------------
     else {
-        for (int i = 0; i < 15; i++) {
-            int gIdx = i + oAtual; if (gIdx >= tItens) break;
+        for (int i = 0; i < numSlotsPadrao; i++) {
+            int gIdx;
+            bool loopVisual = listLoop && (tItens > numSlotsPadrao);
+            if (loopVisual && tItens > 0) { gIdx = (oAtual + i) % tItens; if (gIdx < 0) gIdx += tItens; }
+            else { gIdx = i + oAtual; if (gIdx >= tItens || gIdx < 0) continue; }
 
             int currentX = posX_Base; int currentY = curListY;
             int animOffsetX = 0; int animOffsetY = 0;
@@ -393,14 +401,14 @@ void desenharListas(uint32_t* p, int refPainel) {
 
             bool isPainelAtivo = (!painelDuplo || painelAtivo == refPainel);
             uint32_t corFundo = isPainelAtivo ? corBasePainel : 0xAA111111;
-            uint32_t corTexto = isPainelAtivo ? 0xFFFFFFFF : 0xFFAAAAAA;
+            uint32_t corTexto = isPainelAtivo ? getSysColor(fontColIndex) : 0xFFAAAAAA;
 
             bool isMarcado = (mAtual == MENU_EXPLORAR || mAtual == MENU_BAIXAR_DROPBOX_LISTA || mAtual == MENU_BAIXAR_DROPBOX_UPLOAD) && mItems[gIdx];
             if (isMarcado) { corFundo = isPainelAtivo ? getSysColor(listMark) : getSysColor(11); }
 
             bool isSelected = isPainelAtivo && (gIdx == sAtual);
             if (isSelected) {
-                if (isMarcado) corFundo = getSysColor(listHoverMark); else corFundo = getSysColor(10);
+                if (isMarcado) corFundo = getSysColor(listHoverMark); else corFundo = getSysColor(corSelecao);
                 corTexto = 0xFF000000;
 
                 if (fontAnim == 1) { currentFontTam += (int)(sin(frameContadorGlobal * 0.1f) * 6.0f); }
@@ -425,6 +433,16 @@ void desenharListas(uint32_t* p, int refPainel) {
             }
         }
     }
+}
+
+const char* getColorName(int index) {
+    static const char* colorNames[] = {
+        "CINZA ESCURO", "PRETO", "AZUL ESCURO", "VERMELHO ESCURO", "VERDE ESCURO",
+        "TRANSPARENTE", "CINZA", "VERDE LIMA", "BEGE", "VERDE BRILHO",
+        "AZUL CLARO", "OLIVA", "BRANCO", "VERMELHO", "AZUL"
+    };
+    if (index >= 0 && index <= 14) return colorNames[index];
+    return "DESCONHECIDO";
 }
 
 // ==========================================
@@ -476,10 +494,12 @@ void desenharRodapeEdicao(uint32_t* p) {
         else sprintf(txtPos, "CUSTOM UI - ELEMENTO %d DA TELA %d", interfaceElementoAlvo + 1, interfaceTelaAlvo);
     }
     else if (editTarget == 10 && editType == 0) sprintf(txtPos, "MODO EDICAO - CORES DO EXPLORAR (USE SETAS ESQ/DIR)");
-    else if (editType == 3) sprintf(txtPos, "MODO EDICAO - COR DE FUNDO (USE SETAS ESQ/DIR)");
-    else if (editType == 8) sprintf(txtPos, "MODO EDICAO - COR PREENCHIMENTO (USE SETAS ESQ/DIR)");
+    else if (editType == 3) sprintf(txtPos, "MODO EDICAO - COR DE FUNDO: %s (ESQ/DIR)", getColorName(listBg));
+    else if (editType == 8) sprintf(txtPos, "MODO EDICAO - COR PREENCHIMENTO: %s (ESQ/DIR)", getColorName(barFill));
     else if (editType == 4) sprintf(txtPos, "MODO EDICAO - ESPACAMENTO: %d", (listOri == 0) ? listSpcV : listSpcH);
     else if (editType == 5) sprintf(txtPos, "MODO EDICAO - ORIENTACAO: %s", listOri == 0 ? "VERTICAL" : "HORIZONTAL");
+    else if (editType == 6) sprintf(txtPos, "MODO EDICAO - COR LISTA MARCADA: %s", getColorName(listMark));
+    else if (editType == 7) sprintf(txtPos, "MODO EDICAO - COR LISTA CURSOR: %s", getColorName(listHoverMark));
     else if (editType == 10) sprintf(txtPos, "MODO EDICAO - ALINHAMENTO: %s", fontAlign == 0 ? "ESQ" : (fontAlign == 1 ? "CENTRO" : "DIR"));
     else if (editType == 11) sprintf(txtPos, "MODO EDICAO - LIMITES: %s", fontScroll == 0 ? "CORTAR (..)" : "ANIMACAO ROLAGEM");
     else if (editType == 12) { int stat = 0; if (editTarget == 11) stat = elem1On; else if (editTarget == 12) stat = ctrl1On; else if (editTarget == 13) stat = pont1On; sprintf(txtPos, "MODO EDICAO - LIGADO: %s", stat ? "SIM" : "NAO"); }
@@ -490,9 +510,15 @@ void desenharRodapeEdicao(uint32_t* p) {
     else if (editType == 17) sprintf(txtPos, "MODO EDICAO - MENU OPCOES POSICAO: X:%d Y:%d", upX, upY);
     else if (editType == 18) sprintf(txtPos, "MODO EDICAO - MENU OPCOES TAMANHO: W:%d H:%d", upW, upH);
     else if (editType == 19) sprintf(txtPos, "MODO EDICAO - MENU OPCOES ESTICAR: W:%d", upW);
-    else if (editType == 20) sprintf(txtPos, "MODO EDICAO - MENU OPCOES COR FUNDO");
-    else if (editType == 21) sprintf(txtPos, "MODO EDICAO - MENU OPCOES COR DO TEXTO");
-    else if (editType == 22) sprintf(txtPos, "MODO EDICAO - MENU OPCOES COR TEXT SEL");
+    else if (editType == 20) sprintf(txtPos, "MODO EDICAO - MENU OPCOES COR FUNDO: %s", getColorName(upBg));
+    else if (editType == 21) sprintf(txtPos, "MODO EDICAO - MENU OPCOES COR DO TEXTO: %s", getColorName(upTextNorm));
+    else if (editType == 22) sprintf(txtPos, "MODO EDICAO - MENU OPCOES COR TEXT SEL: %s", getColorName(upTextSel));
+    else if (editType == 35) sprintf(txtPos, "MODO EDICAO - COR SELECAO: %s (ESQ/DIR)", getColorName(corSelecao));
+    else if (editType == 80) sprintf(txtPos, "MODO EDICAO - COR DA NOTIFICACAO: %s (ESQ/DIR)", getColorName(msgColIndex));
+    else if (editType == 81) sprintf(txtPos, "MODO EDICAO - COR DA FONTE (MENU): %s (ESQ/DIR)", getColorName(fontColIndex));
+    else if (editType == 82) sprintf(txtPos, "MODO EDICAO - PONTEIROS (DUPLO): %s (QUALQUER SETA)", p1Double ? "SIM" : "NAO");
+    else if (editType == 83) sprintf(txtPos, "MODO EDICAO - LISTA CICLICA (LOOP): %s (QUALQUER SETA)", listLoop ? "SIM" : "NAO");
+    else if (editType == 84) sprintf(txtPos, "MODO EDICAO - FOCO CENTRALIZADO: %s (QUALQUER SETA)", listFocus ? "SIM" : "NAO");
     else if (editType == 45) {
         const char* nEst[] = { "0. ORIGINAL", "1. ROLETA", "2. HORIZONTAL", "3. N-SWITCH", "4. GRADE PURA", "5. GRADE + LISTA" };
         sprintf(txtPos, "MODO EDICAO - ESTILO DA LISTA: %s (USE SETAS)", nEst[listStyle]);
@@ -501,6 +527,7 @@ void desenharRodapeEdicao(uint32_t* p) {
     else if (editType == 78) sprintf(txtPos, "MODO EDICAO - GRADE ESPACAMENTO X:%d Y:%d", gridSpcX, gridSpcY);
     else if (editType == 75) sprintf(txtPos, "MODO EDICAO - POSICAO DA GRADE X:%d Y:%d", gridX, gridY);
     else if (editType == 76) sprintf(txtPos, "MODO EDICAO - TAMANHO DA CAPA NA GRADE W:%d H:%d", gridItemW, gridItemH);
+    else if (editType == 49) sprintf(txtPos, "MODO EDICAO - SLOTS VISIVEIS: %d", numSlotsPadrao);
     else if (editTarget < 52) sprintf(txtPos, "MODO EDICAO - X: %d  |  Y: %d  |  LARGURA: %d  |  ALTURA: %d", *tX, *tY, *tW, *tH);
 
     for (int by = 0; by < 40; by++) { for (int bx = 0; bx < 1920; bx++) { int pyY = 1040 + by; if (pyY < 1080) p[pyY * 1920 + bx] = 0xAA000000; } }

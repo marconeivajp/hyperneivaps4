@@ -8,6 +8,10 @@
 bool showUploadOpcoes = false;
 int selUploadOpcao = 0;
 int offUploadOpcao = 0;
+// Estado de navegação da lista de uploads usado pelo controle principal.
+int totalUploads = 0;
+int selUpload = 0;
+int offUpload = 0;
 
 extern MenuLevel menuAtual;
 extern char msgStatus[128];

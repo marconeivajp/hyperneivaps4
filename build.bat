@@ -1,6 +1,9 @@
 @echo off
 SETLOCAL EnableDelayedExpansion
 
+:: A LINHA MAGICA QUE RESOLVE O PROBLEMA DO VISUAL STUDIO / ANTIGRAVITY
+cd /d "%~dp0"
+
 echo ==========================================
 echo        BUILD HYPER NEIVA (PS4)
 echo ==========================================
@@ -14,76 +17,46 @@ del *.pkg 2>nul
 
 echo.
 echo [2/7] Compilando TODOS os modulos C++
-"C:\Program Files\LLVM\bin\clang.exe" --target=x86_64-pc-freebsd12-elf -fPIC -flto -O3 -march=btver2 -ffast-math -funwind-tables -I"C:\OpenOrbis\include" -I"C:\OpenOrbis\include\c++\v1" -I"C:\OpenOrbis\include\orbis" -c kernelrw.c -o kernelrw.o
-"C:\Program Files\LLVM\bin\clang.exe" --target=x86_64-pc-freebsd12-elf -fPIC -flto -O3 -march=btver2 -ffast-math -funwind-tables -I"C:\OpenOrbis\include" -I"C:\OpenOrbis\include\c++\v1" -I"C:\OpenOrbis\include\orbis" -c jailbreak.c -o jailbreak.o
-"C:\Program Files\LLVM\bin\clang.exe" --target=x86_64-pc-freebsd12-elf -fPIC -flto -O3 -march=btver2 -ffast-math -funwind-tables -I"C:\OpenOrbis\include" -I"C:\OpenOrbis\include\c++\v1" -I"C:\OpenOrbis\include\orbis" -c miniz.c -o miniz.o
-"C:\Program Files\LLVM\bin\clang++.exe" --target=x86_64-pc-freebsd12-elf -fPIC -flto -O3 -march=btver2 -ffast-math -funwind-tables -I"C:\Program Files\LLVM\bin\clang\include" -I"C:\OpenOrbis\include" -I"C:\OpenOrbis\include\c++\v1" -I"C:\OpenOrbis\include\orbis" -c main.cpp -o main.o
-"C:\Program Files\LLVM\bin\clang++.exe" --target=x86_64-pc-freebsd12-elf -fPIC -flto -O3 -march=btver2 -ffast-math -funwind-tables -I"C:\Program Files\LLVM\bin\clang\include" -I"C:\OpenOrbis\include" -I"C:\OpenOrbis\include\c++\v1" -I"C:\OpenOrbis\include\orbis" -c explorar.cpp -o explorar.o
-"C:\Program Files\LLVM\bin\clang++.exe" --target=x86_64-pc-freebsd12-elf -fPIC -flto -O3 -march=btver2 -ffast-math -funwind-tables -I"C:\Program Files\LLVM\bin\clang\include" -I"C:\OpenOrbis\include" -I"C:\OpenOrbis\include\c++\v1" -I"C:\OpenOrbis\include\orbis" -c explorar_conversor.cpp -o explorar_conversor.o
-"C:\Program Files\LLVM\bin\clang++.exe" --target=x86_64-pc-freebsd12-elf -fPIC -flto -O3 -march=btver2 -ffast-math -funwind-tables -I"C:\Program Files\LLVM\bin\clang\include" -I"C:\OpenOrbis\include" -I"C:\OpenOrbis\include\c++\v1" -I"C:\OpenOrbis\include\orbis" -c explorar_utilitarios.cpp -o explorar_utilitarios.o
-"C:\Program Files\LLVM\bin\clang++.exe" --target=x86_64-pc-freebsd12-elf -fPIC -flto -O3 -march=btver2 -ffast-math -funwind-tables -I"C:\Program Files\LLVM\bin\clang\include" -I"C:\OpenOrbis\include" -I"C:\OpenOrbis\include\c++\v1" -I"C:\OpenOrbis\include\orbis" -c editar.cpp -o editar.o
-"C:\Program Files\LLVM\bin\clang++.exe" --target=x86_64-pc-freebsd12-elf -fPIC -flto -O3 -march=btver2 -ffast-math -funwind-tables -I"C:\Program Files\LLVM\bin\clang\include" -I"C:\OpenOrbis\include" -I"C:\OpenOrbis\include\c++\v1" -I"C:\OpenOrbis\include\orbis" -c network.cpp -o network.o
-"C:\Program Files\LLVM\bin\clang++.exe" --target=x86_64-pc-freebsd12-elf -fPIC -flto -O3 -march=btver2 -ffast-math -funwind-tables -I"C:\Program Files\LLVM\bin\clang\include" -I"C:\OpenOrbis\include" -I"C:\OpenOrbis\include\c++\v1" -I"C:\OpenOrbis\include\orbis" -c baixar.cpp -o baixar.o
-"C:\Program Files\LLVM\bin\clang++.exe" --target=x86_64-pc-freebsd12-elf -fPIC -flto -O3 -march=btver2 -ffast-math -funwind-tables -I"C:\Program Files\LLVM\bin\clang\include" -I"C:\OpenOrbis\include" -I"C:\OpenOrbis\include\c++\v1" -I"C:\OpenOrbis\include\orbis" -c menu_emulador.cpp -o menu_emulador.o
-"C:\Program Files\LLVM\bin\clang++.exe" --target=x86_64-pc-freebsd12-elf -fPIC -flto -O3 -march=btver2 -ffast-math -funwind-tables -I"C:\Program Files\LLVM\bin\clang\include" -I"C:\OpenOrbis\include" -I"C:\OpenOrbis\include\c++\v1" -I"C:\OpenOrbis\include\orbis" -c controle_emulador.cpp -o controle_emulador.o
-"C:\Program Files\LLVM\bin\clang++.exe" --target=x86_64-pc-freebsd12-elf -fPIC -flto -O3 -march=btver2 -ffast-math -funwind-tables -I"C:\Program Files\LLVM\bin\clang\include" -I"C:\OpenOrbis\include" -I"C:\OpenOrbis\include\c++\v1" -I"C:\OpenOrbis\include\orbis" -c graphics.cpp -o graphics.o
-"C:\Program Files\LLVM\bin\clang++.exe" --target=x86_64-pc-freebsd12-elf -fPIC -flto -O3 -march=btver2 -ffast-math -funwind-tables -I"C:\Program Files\LLVM\bin\clang\include" -I"C:\OpenOrbis\include" -I"C:\OpenOrbis\include\c++\v1" -I"C:\OpenOrbis\include\orbis" -c jogar.cpp -o jogar.o
-"C:\Program Files\LLVM\bin\clang++.exe" --target=x86_64-pc-freebsd12-elf -fPIC -flto -O3 -march=btver2 -ffast-math -funwind-tables -I"C:\Program Files\LLVM\bin\clang\include" -I"C:\OpenOrbis\include" -I"C:\OpenOrbis\include\c++\v1" -I"C:\OpenOrbis\include\orbis" -c audio.cpp -o audio.o
-"C:\Program Files\LLVM\bin\clang++.exe" --target=x86_64-pc-freebsd12-elf -fPIC -flto -O3 -march=btver2 -ffast-math -funwind-tables -I"C:\Program Files\LLVM\bin\clang\include" -I"C:\OpenOrbis\include" -I"C:\OpenOrbis\include\c++\v1" -I"C:\OpenOrbis\include\orbis" -c controle.cpp -o controle.o
-"C:\Program Files\LLVM\bin\clang++.exe" --target=x86_64-pc-freebsd12-elf -fPIC -flto -O3 -march=btver2 -ffast-math -funwind-tables -I"C:\Program Files\LLVM\bin\clang\include" -I"C:\OpenOrbis\include" -I"C:\OpenOrbis\include\c++\v1" -I"C:\OpenOrbis\include\orbis" -c menu.cpp -o menu.o
-"C:\Program Files\LLVM\bin\clang++.exe" --target=x86_64-pc-freebsd12-elf -fPIC -flto -O3 -march=btver2 -ffast-math -funwind-tables -I"C:\Program Files\LLVM\bin\clang\include" -I"C:\OpenOrbis\include" -I"C:\OpenOrbis\include\c++\v1" -I"C:\OpenOrbis\include\orbis" -c menu_audio.cpp -o menu_audio.o
-"C:\Program Files\LLVM\bin\clang++.exe" --target=x86_64-pc-freebsd12-elf -fPIC -flto -O3 -march=btver2 -ffast-math -funwind-tables -I"C:\Program Files\LLVM\bin\clang\include" -I"C:\OpenOrbis\include" -I"C:\OpenOrbis\include\c++\v1" -I"C:\OpenOrbis\include\orbis" -c menu_imagens.cpp -o menu_imagens.o
-"C:\Program Files\LLVM\bin\clang++.exe" --target=x86_64-pc-freebsd12-elf -fPIC -flto -O3 -march=btver2 -ffast-math -funwind-tables -I"C:\Program Files\LLVM\bin\clang\include" -I"C:\OpenOrbis\include" -I"C:\OpenOrbis\include\c++\v1" -I"C:\OpenOrbis\include\orbis" -c menu_video.cpp -o menu_video.o
-"C:\Program Files\LLVM\bin\clang++.exe" --target=x86_64-pc-freebsd12-elf -fPIC -flto -O3 -march=btver2 -ffast-math -funwind-tables -I"C:\Program Files\LLVM\bin\clang\include" -I"C:\OpenOrbis\include" -I"C:\OpenOrbis\include\c++\v1" -I"C:\OpenOrbis\include\orbis" -c menu_grafico.cpp -o menu_grafico.o
-"C:\Program Files\LLVM\bin\clang++.exe" --target=x86_64-pc-freebsd12-elf -fPIC -flto -O3 -march=btver2 -ffast-math -funwind-tables -I"C:\Program Files\LLVM\bin\clang\include" -I"C:\OpenOrbis\include" -I"C:\OpenOrbis\include\c++\v1" -I"C:\OpenOrbis\include\orbis" -c menu_grafico_cache_grafico.cpp -o menu_grafico_cache_grafico.o
-"C:\Program Files\LLVM\bin\clang++.exe" --target=x86_64-pc-freebsd12-elf -fPIC -flto -O3 -march=btver2 -ffast-math -funwind-tables -I"C:\Program Files\LLVM\bin\clang\include" -I"C:\OpenOrbis\include" -I"C:\OpenOrbis\include\c++\v1" -I"C:\OpenOrbis\include\orbis" -c menu_grafico_render_texto.cpp -o menu_grafico_render_texto.o
-"C:\Program Files\LLVM\bin\clang++.exe" --target=x86_64-pc-freebsd12-elf -fPIC -flto -O3 -march=btver2 -ffast-math -funwind-tables -I"C:\Program Files\LLVM\bin\clang\include" -I"C:\OpenOrbis\include" -I"C:\OpenOrbis\include\c++\v1" -I"C:\OpenOrbis\include\orbis" -c menu_grafico_visualizadores.cpp -o menu_grafico_visualizadores.o
-"C:\Program Files\LLVM\bin\clang++.exe" --target=x86_64-pc-freebsd12-elf -fPIC -flto -O3 -march=btver2 -ffast-math -funwind-tables -I"C:\Program Files\LLVM\bin\clang\include" -I"C:\OpenOrbis\include" -I"C:\OpenOrbis\include\c++\v1" -I"C:\OpenOrbis\include\orbis" -c menu_grafico_layout.cpp -o menu_grafico_layout.o
-"C:\Program Files\LLVM\bin\clang++.exe" --target=x86_64-pc-freebsd12-elf -fPIC -flto -O3 -march=btver2 -ffast-math -funwind-tables -I"C:\Program Files\LLVM\bin\clang\include" -I"C:\OpenOrbis\include" -I"C:\OpenOrbis\include\c++\v1" -I"C:\OpenOrbis\include\orbis" -c controle_virtual.cpp -o controle_virtual.o
-"C:\Program Files\LLVM\bin\clang++.exe" --target=x86_64-pc-freebsd12-elf -fPIC -flto -O3 -march=btver2 -ffast-math -funwind-tables -I"C:\Program Files\LLVM\bin\clang\include" -I"C:\OpenOrbis\include" -I"C:\OpenOrbis\include\c++\v1" -I"C:\OpenOrbis\include\orbis" -c pesquisar.cpp -o pesquisar.o
-"C:\Program Files\LLVM\bin\clang++.exe" --target=x86_64-pc-freebsd12-elf -fPIC -flto -O3 -march=btver2 -ffast-math -funwind-tables -I"C:\Program Files\LLVM\bin\clang\include" -I"C:\OpenOrbis\include" -I"C:\OpenOrbis\include\c++\v1" -I"C:\OpenOrbis\include\orbis" -c bloco_de_notas.cpp -o bloco_de_notas.o
-"C:\Program Files\LLVM\bin\clang++.exe" --target=x86_64-pc-freebsd12-elf -fPIC -flto -O3 -march=btver2 -ffast-math -funwind-tables -I"C:\Program Files\LLVM\bin\clang\include" -I"C:\OpenOrbis\include" -I"C:\OpenOrbis\include\c++\v1" -I"C:\OpenOrbis\include\orbis" -c video.cpp -o video.o
-"C:\Program Files\LLVM\bin\clang++.exe" --target=x86_64-pc-freebsd12-elf -fPIC -flto -O3 -march=btver2 -ffast-math -funwind-tables -I"C:\Program Files\LLVM\bin\clang\include" -I"C:\OpenOrbis\include" -I"C:\OpenOrbis\include\c++\v1" -I"C:\OpenOrbis\include\orbis" -c teclado.cpp -o teclado.o
-"C:\Program Files\LLVM\bin\clang++.exe" --target=x86_64-pc-freebsd12-elf -fPIC -flto -O3 -march=btver2 -ffast-math -funwind-tables -I"C:\Program Files\LLVM\bin\clang\include" -I"C:\OpenOrbis\include" -I"C:\OpenOrbis\include\c++\v1" -I"C:\OpenOrbis\include\orbis" -c criar_pastas.cpp -o criar_pastas.o
-"C:\Program Files\LLVM\bin\clang++.exe" --target=x86_64-pc-freebsd12-elf -fPIC -flto -O3 -march=btver2 -ffast-math -funwind-tables -I"C:\Program Files\LLVM\bin\clang\include" -I"C:\OpenOrbis\include" -I"C:\OpenOrbis\include\c++\v1" -I"C:\OpenOrbis\include\orbis" -c controle_musicas.cpp -o controle_musicas.o
-"C:\Program Files\LLVM\bin\clang++.exe" --target=x86_64-pc-freebsd12-elf -fPIC -flto -O3 -march=btver2 -ffast-math -funwind-tables -I"C:\Program Files\LLVM\bin\clang\include" -I"C:\OpenOrbis\include" -I"C:\OpenOrbis\include\c++\v1" -I"C:\OpenOrbis\include\orbis" -c controle_explorar.cpp -o controle_explorar.o
-"C:\Program Files\LLVM\bin\clang++.exe" --target=x86_64-pc-freebsd12-elf -fPIC -flto -O3 -march=btver2 -ffast-math -funwind-tables -I"C:\Program Files\LLVM\bin\clang\include" -I"C:\OpenOrbis\include" -I"C:\OpenOrbis\include\c++\v1" -I"C:\OpenOrbis\include\orbis" -c controle_editar.cpp -o controle_editar.o
-"C:\Program Files\LLVM\bin\clang++.exe" --target=x86_64-pc-freebsd12-elf -fPIC -flto -O3 -march=btver2 -ffast-math -funwind-tables -I"C:\Program Files\LLVM\bin\clang\include" -I"C:\OpenOrbis\include" -I"C:\OpenOrbis\include\c++\v1" -I"C:\OpenOrbis\include\orbis" -c controle_baixar.cpp -o controle_baixar.o
-"C:\Program Files\LLVM\bin\clang++.exe" --target=x86_64-pc-freebsd12-elf -fPIC -flto -O3 -march=btver2 -ffast-math -funwind-tables -I"C:\Program Files\LLVM\bin\clang\include" -I"C:\OpenOrbis\include" -I"C:\OpenOrbis\include\c++\v1" -I"C:\OpenOrbis\include\orbis" -c controle_root.cpp -o controle_root.o
-"C:\Program Files\LLVM\bin\clang++.exe" --target=x86_64-pc-freebsd12-elf -fPIC -flto -O3 -march=btver2 -ffast-math -funwind-tables -I"C:\Program Files\LLVM\bin\clang\include" -I"C:\OpenOrbis\include" -I"C:\OpenOrbis\include\c++\v1" -I"C:\OpenOrbis\include\orbis" -c baixar_repositorio.cpp -o baixar_repositorio.o
-"C:\Program Files\LLVM\bin\clang++.exe" --target=x86_64-pc-freebsd12-elf -fPIC -flto -O3 -march=btver2 -ffast-math -funwind-tables -I"C:\Program Files\LLVM\bin\clang\include" -I"C:\OpenOrbis\include" -I"C:\OpenOrbis\include\c++\v1" -I"C:\OpenOrbis\include\orbis" -c baixar_dropbox_download.cpp -o baixar_dropbox_download.o
-"C:\Program Files\LLVM\bin\clang++.exe" --target=x86_64-pc-freebsd12-elf -fPIC -flto -O3 -march=btver2 -ffast-math -funwind-tables -I"C:\Program Files\LLVM\bin\clang\include" -I"C:\OpenOrbis\include" -I"C:\OpenOrbis\include\c++\v1" -I"C:\OpenOrbis\include\orbis" -c baixar_lojas.cpp -o baixar_lojas.o
-"C:\Program Files\LLVM\bin\clang++.exe" --target=x86_64-pc-freebsd12-elf -fPIC -flto -O3 -march=btver2 -ffast-math -funwind-tables -I"C:\Program Files\LLVM\bin\clang\include" -I"C:\OpenOrbis\include" -I"C:\OpenOrbis\include\c++\v1" -I"C:\OpenOrbis\include\orbis" -c dowload_sistema.cpp -o dowload_sistema.o
-"C:\Program Files\LLVM\bin\clang++.exe" --target=x86_64-pc-freebsd12-elf -fPIC -flto -O3 -march=btver2 -ffast-math -funwind-tables -I"C:\Program Files\LLVM\bin\clang\include" -I"C:\OpenOrbis\include" -I"C:\OpenOrbis\include\c++\v1" -I"C:\OpenOrbis\include\orbis" -c menu_upload.cpp -o menu_upload.o
-"C:\Program Files\LLVM\bin\clang++.exe" --target=x86_64-pc-freebsd12-elf -fPIC -flto -O3 -march=btver2 -ffast-math -funwind-tables -I"C:\Program Files\LLVM\bin\clang\include" -I"C:\OpenOrbis\include" -I"C:\OpenOrbis\include\c++\v1" -I"C:\OpenOrbis\include\orbis" -c elementos.cpp -o elementos.o
-"C:\Program Files\LLVM\bin\clang++.exe" --target=x86_64-pc-freebsd12-elf -fPIC -flto -O3 -march=btver2 -ffast-math -funwind-tables -I"C:\Program Files\LLVM\bin\clang\include" -I"C:\OpenOrbis\include" -I"C:\OpenOrbis\include\c++\v1" -I"C:\OpenOrbis\include\orbis" -c controle_elementos.cpp -o controle_elementos.o
-"C:\Program Files\LLVM\bin\clang++.exe" --target=x86_64-pc-freebsd12-elf -fPIC -flto -O3 -march=btver2 -ffast-math -funwind-tables -I"C:\Program Files\LLVM\bin\clang\include" -I"C:\OpenOrbis\include" -I"C:\OpenOrbis\include\c++\v1" -I"C:\OpenOrbis\include\orbis" -c elementos_sonoros.cpp -o elementos_sonoros.o
-"C:\Program Files\LLVM\bin\clang++.exe" --target=x86_64-pc-freebsd12-elf -fPIC -flto -O3 -march=btver2 -ffast-math -funwind-tables -I"C:\Program Files\LLVM\bin\clang\include" -I"C:\OpenOrbis\include" -I"C:\OpenOrbis\include\c++\v1" -I"C:\OpenOrbis\include\orbis" -c ftp.cpp -o ftp.o
-"C:\Program Files\LLVM\bin\clang++.exe" --target=x86_64-pc-freebsd12-elf -fPIC -flto -O3 -march=btver2 -ffast-math -funwind-tables -I"C:\Program Files\LLVM\bin\clang\include" -I"C:\OpenOrbis\include" -I"C:\OpenOrbis\include\c++\v1" -I"C:\OpenOrbis\include\orbis" -c elementos_animados_sprite_sheet.cpp -o elementos_animados_sprite_sheet.o
-"C:\Program Files\LLVM\bin\clang++.exe" --target=x86_64-pc-freebsd12-elf -fPIC -flto -O3 -march=btver2 -ffast-math -funwind-tables -I"C:\Program Files\LLVM\bin\clang\include" -I"C:\OpenOrbis\include" -I"C:\OpenOrbis\include\c++\v1" -I"C:\OpenOrbis\include\orbis" -c extra.cpp -o extra.o
-"C:\Program Files\LLVM\bin\clang++.exe" --target=x86_64-pc-freebsd12-elf -fPIC -flto -O3 -march=btver2 -ffast-math -funwind-tables -I"C:\Program Files\LLVM\bin\clang\include" -I"C:\OpenOrbis\include" -I"C:\OpenOrbis\include\c++\v1" -I"C:\OpenOrbis\include\orbis" -c informacao.cpp -o informacao.o
-"C:\Program Files\LLVM\bin\clang++.exe" --target=x86_64-pc-freebsd12-elf -fPIC -flto -O3 -march=btver2 -ffast-math -funwind-tables -I"C:\Program Files\LLVM\bin\clang\include" -I"C:\OpenOrbis\include" -I"C:\OpenOrbis\include\c++\v1" -I"C:\OpenOrbis\include\orbis" -c instrumentos.cpp -o instrumentos.o
-"C:\Program Files\LLVM\bin\clang++.exe" --target=x86_64-pc-freebsd12-elf -fPIC -flto -O3 -march=btver2 -ffast-math -funwind-tables -I"C:\Program Files\LLVM\bin\clang\include" -I"C:\OpenOrbis\include" -I"C:\OpenOrbis\include\c++\v1" -I"C:\OpenOrbis\include\orbis" -c pdf.cpp -o pdf.o
-"C:\Program Files\LLVM\bin\clang++.exe" --target=x86_64-pc-freebsd12-elf -fPIC -flto -O3 -march=btver2 -ffast-math -funwind-tables -I"C:\Program Files\LLVM\bin\clang\include" -I"C:\OpenOrbis\include" -I"C:\OpenOrbis\include\c++\v1" -I"C:\OpenOrbis\include\orbis" -c libretro_bridge.cpp -o libretro_bridge.o
-"C:\Program Files\LLVM\bin\clang++.exe" --target=x86_64-pc-freebsd12-elf -fPIC -flto -O3 -march=btver2 -ffast-math -funwind-tables -I"C:\Program Files\LLVM\bin\clang\include" -I"C:\OpenOrbis\include" -I"C:\OpenOrbis\include\c++\v1" -I"C:\OpenOrbis\include\orbis" -c radio.cpp -o radio.o
-"C:\Program Files\LLVM\bin\clang++.exe" --target=x86_64-pc-freebsd12-elf -fPIC -flto -O3 -march=btver2 -ffast-math -funwind-tables -I"C:\Program Files\LLVM\bin\clang\include" -I"C:\OpenOrbis\include" -I"C:\OpenOrbis\include\c++\v1" -I"C:\OpenOrbis\include\orbis" -c audio_radio.cpp -o audio_radio.o
-"C:\Program Files\LLVM\bin\clang++.exe" --target=x86_64-pc-freebsd12-elf -fPIC -flto -O3 -march=btver2 -ffast-math -funwind-tables -I"C:\Program Files\LLVM\bin\clang\include" -I"C:\OpenOrbis\include" -I"C:\OpenOrbis\include\c++\v1" -I"C:\OpenOrbis\include\orbis" -c audio_musica.cpp -o audio_musica.o
-"C:\Program Files\LLVM\bin\clang++.exe" --target=x86_64-pc-freebsd12-elf -fPIC -flto -O3 -march=btver2 -ffast-math -funwind-tables -I"C:\Program Files\LLVM\bin\clang\include" -I"C:\OpenOrbis\include" -I"C:\OpenOrbis\include\c++\v1" -I"C:\OpenOrbis\include\orbis" -c audio_emulador.cpp -o audio_emulador.o
+set "c_files=kernelrw jailbreak miniz"
+set "cpp_files=main explorar explorar_conversor explorar_utilitarios editar network baixar menu_emulador controle_emulador graphics jogar audio controle menu menu_audio menu_imagens menu_video menu_grafico menu_grafico_cache_grafico menu_grafico_render_texto menu_grafico_visualizadores menu_grafico_layout controle_virtual pesquisar bloco_de_notas video teclado criar_pastas controle_musicas controle_explorar controle_editar controle_baixar controle_root baixar_repositorio baixar_dropbox_download baixar_lojas dowload_sistema menu_upload elementos controle_elementos elementos_sonoros ftp elementos_animados_sprite_sheet extra informacao instrumentos pdf libretro_bridge radio audio_radio audio_musica audio_emulador video_pplay"
+
+:: Contagem Total
+set total=0
+for %%f in (%c_files%) do set /a total+=1
+for %%f in (%cpp_files%) do set /a total+=1
+set current=0
+
+:: Compilacao C
+for %%f in (%c_files%) do (
+    set /a current+=1
+    set /a percent=current*100/total
+    <nul set /p "=!percent!%% [Compilando %%f.c] "
+    "C:\Program Files\LLVM\bin\clang.exe" --target=x86_64-pc-freebsd12-elf -fPIC -flto -O3 -march=btver2 -ffast-math -funwind-tables -I"C:\OpenOrbis\include" -I"C:\OpenOrbis\include\c++\v1" -I"C:\OpenOrbis\include\orbis" -c %%f.c -o %%f.o
+    if !errorlevel! neq 0 goto :erro
+    echo [OK]
+)
+
+:: Compilacao CPP
+for %%f in (%cpp_files%) do (
+    set /a current+=1
+    set /a percent=current*100/total
+    <nul set /p "=!percent!%% [Compilando %%f.cpp] "
+    "C:\Program Files\LLVM\bin\clang++.exe" --target=x86_64-pc-freebsd12-elf -fPIC -flto -O3 -march=btver2 -ffast-math -funwind-tables -I"C:\Program Files\LLVM\bin\clang\include" -I"C:\OpenOrbis\include" -I"C:\OpenOrbis\include\c++\v1" -I"C:\OpenOrbis\include\orbis" -c %%f.cpp -o %%f.o
+    if !errorlevel! neq 0 goto :erro
+    echo [OK]
+)
 
 echo.
-echo [3/7] Linkando...
-"C:\Program Files\LLVM\bin\ld.lld.exe" -m elf_x86_64 -pie --script "C:\OpenOrbis\link.x" --eh-frame-hdr --gc-sections --allow-multiple-definition -o teste3.elf "-LC:\OpenOrbis\lib" -lc -lm -lkernel -lc++ -lmupdf -lmupdf-third -lavformat -lavcodec -lswscale -lswresample -lavutil -lSceVideoOut -lSceAudioOut -lSceAudioIn -lSceUserService -lSceSysmodule -lSceSysUtil -lScePad -lSceNet -lSceHttp -lSceSsl -lSceImeDialog -lSceCommonDialog -lSceBgft -lSceAppInstUtil "C:\OpenOrbis\lib\crt1.o" mgba_libretro_ps4.a kernelrw.o jailbreak.o miniz.o main.o menu_emulador.o controle_emulador.o explorar.o explorar_conversor.o explorar_utilitarios.o editar.o network.o baixar.o graphics.o jogar.o audio.o controle.o menu.o menu_audio.o menu_imagens.o menu_video.o menu_grafico.o menu_grafico_cache_grafico.o menu_grafico_render_texto.o menu_grafico_visualizadores.o menu_grafico_layout.o controle_virtual.o pesquisar.o bloco_de_notas.o video.o teclado.o criar_pastas.o controle_musicas.o controle_explorar.o controle_editar.o controle_baixar.o controle_root.o baixar_repositorio.o baixar_dropbox_download.o baixar_lojas.o dowload_sistema.o menu_upload.o elementos.o controle_elementos.o elementos_sonoros.o ftp.o elementos_animados_sprite_sheet.o extra.o informacao.o instrumentos.o pdf.o libretro_bridge.o radio.o audio_radio.o audio_musica.o audio_emulador.o
+echo [3/7] Linkando... [AGUARDE ATÉ 100%%]
+"C:\Program Files\LLVM\bin\ld.lld.exe" -m elf_x86_64 -pie --script "C:\OpenOrbis\link.x" --eh-frame-hdr --gc-sections --allow-multiple-definition -o teste3.elf "-LC:\OpenOrbis\lib" "C:\OpenOrbis\lib\crt1.o" kernelrw.o jailbreak.o miniz.o main.o menu_emulador.o controle_emulador.o explorar.o explorar_conversor.o explorar_utilitarios.o editar.o network.o baixar.o graphics.o jogar.o audio.o controle.o menu.o menu_audio.o menu_imagens.o menu_video.o menu_grafico.o menu_grafico_cache_grafico.o menu_grafico_render_texto.o menu_grafico_visualizadores.o menu_grafico_layout.o controle_virtual.o pesquisar.o bloco_de_notas.o video.o teclado.o criar_pastas.o controle_musicas.o controle_explorar.o controle_editar.o controle_baixar.o controle_root.o baixar_repositorio.o baixar_dropbox_download.o baixar_lojas.o dowload_sistema.o menu_upload.o elementos.o controle_elementos.o elementos_sonoros.o ftp.o elementos_animados_sprite_sheet.o extra.o informacao.o instrumentos.o pdf.o libretro_bridge.o radio.o audio_radio.o audio_musica.o audio_emulador.o video_pplay.o mgba_libretro_ps4.a --start-group -lc -lm -lkernel -lc++ -lmupdf -lmupdf-third -lmpv -lass -lSDL2 -lsamplerate -lSceSystemService -lScePigletv2VSH -lSceFios2 -lavformat -lavfilter -lavcodec -lswscale -lswresample -lavutil -lSceVideoOut -lSceAudioOut -lSceAudioIn -lSceUserService -lSceSysmodule -lSceSysUtil -lScePad -lSceNet -lSceHttp -lSceSsl -lSceImeDialog -lSceCommonDialog -lSceBgft -lSceAppInstUtil -ljpeg -lpng16 -lbz2 -lopus -lfreetype -lfribidi -lSceZlib -lScePosix --end-group
+if %errorlevel% neq 0 goto :erro
+echo 100%% [Link Concluido]
 
 :: ==========================================
 :: TRAVA DE SEGURANCA COM 2 BIPES DE ERRO
 :: ==========================================
 if not exist teste3.elf (
-    echo.
-    echo [ERRO FATAL] A compilacao C++ falhou!
-    echo Verifique os erros acima.
-    echo O pacote PKG nao sera gerado nem enviado.
-    powershell -NoProfile -Command "[System.Console]::Beep(1500,400); Start-Sleep -Milliseconds 150; [System.Console]::Beep(1500,400)"
-    exit /b 1
+    goto :erro
 )
 
 echo.
@@ -93,6 +66,13 @@ echo [3.5/7] Otimizando ELF (Strip Seguro)...
 echo.
 echo [4/7] Criando FSELF (Com flag de memoria do PS4)...
 "C:\OpenOrbis\bin\windows\create-fself.exe" -in=teste3.elf -out=teste3.oelf --eboot=eboot.bin --paid 0x3800000000000011
+
+if not exist eboot.bin (
+    echo.
+    echo [ERRO FATAL] O Passo 4 Falhou. O eboot.bin nao foi gerado!
+    powershell -NoProfile -Command "[System.Console]::Beep(1500,400); Start-Sleep -Milliseconds 150; [System.Console]::Beep(1500,400)"
+    exit /b 1
+)
 
 echo.
 echo [5/7] Gerando o SFO do Hyper Neiva...
@@ -156,6 +136,13 @@ if %errorlevel% equ 0 (
 
 echo.
 echo ==========================================
-echo         COMPILADO COM SUCESSO!
+echo          COMPILADO COM SUCESSO!
 echo ==========================================
 exit /b 0
+
+:erro
+echo.
+echo [ERRO FATAL] A compilacao ou Linker falhou!
+echo O pacote PKG nao sera gerado nem enviado.
+powershell -NoProfile -Command "[System.Console]::Beep(1500,400); Start-Sleep -Milliseconds 150; [System.Console]::Beep(1500,400)"
+exit /b 1

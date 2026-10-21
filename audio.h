@@ -19,6 +19,7 @@ extern volatile float audioTempoAtual;
 void inicializarAudio();
 void pararAudio();
 void tocarMusicaNova(const char* path);
+void definirAudioModoEspecial(bool ativo);
 void tocarProximaMusica();
 void tocarMusicaAnterior();
 void aumentarVolume();

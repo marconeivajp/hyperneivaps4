@@ -19,8 +19,25 @@ extern int listStyle, fontAnim, listCurvature, listZoomCentro;
 
 // VARIAVEIS DA GRADE
 extern int gridX, gridY, gridItemW, gridItemH, gridCols, gridLins, gridSpcX, gridSpcY;
+extern int numSlotsPadrao;
+extern int corSelecao;
+extern int msgColIndex, fontColIndex;
+extern int p1Double, listLoop, listFocus;
 
-extern void salvarConfiguracao(); extern void preencherMenuEditTarget(); extern void preencherMenuEditar(); extern void preencherRoot();
+// VARIAVEIS DE COMBOS SONOROS (V63)
+#include "elementos_sonoros.h"
+extern SfxCombo combosSFX[20];
+int interfaceComboAlvo = 0;
+bool definindoBotoesCombo = false;
+bool selecionandoSomCombo = false;
+int sfxComboSel = 0; // 0=ADD, 1=SALVAR, 2=CANCELAR
+int sfxWizardState = 0; // 0=WAITING_BUTTON, 1=CHOOSING_ACTION
+uint32_t sfxBotaoDetectado = 0;
+
+extern const char* getSfxButtonName(uint32_t buttons);
+
+extern void salvarConfiguracao();
+extern void preencherMenuEditTarget(); extern void preencherMenuEditar(); extern void preencherRoot();
 extern void preencherExplorerHome(); extern void salvarAnimacaoComNome(const char*); extern void salvarAnimacaoUnity(const char*);
 
 bool tecladoImeAberto = false; wchar_t bufferTextoIme[256];
@@ -31,17 +48,7 @@ extern bool selecionandoMidiaElemento;
 
 #ifndef CUSTOM_UI_DEF
 #define CUSTOM_UI_DEF
-struct CustomElementDef {
-    bool ativo;
-    char caminho[256];
-    int pX, pY, pW, pH;
-    bool animInAtiva;
-    int inX, inY;
-    int velIn;
-    bool animOutAtiva;
-    int outX, outY;
-    int velOut;
-};
+
 #endif
 
 extern CustomElementDef customUI[6][10];
@@ -81,16 +88,51 @@ void verificarTecladoVirtual() {
 void acaoCross_Editar() {
     if (menuAtual == MENU_EDITAR) {
         if (sel == 17) {
-            listXV = 1054; listYV = 204; listSpcV = 120; listXH = 50; listYH = 800; listSpcH = 300; listW = 550; listH = 80; capaX = 150; capaY = 640; capaW = 300; capaH = 400; discoX = 555; discoY = 650; discoW = 300; discoH = 300; backX = 0; backY = 0; backW = 1920; backH = 1080; barX = 95; barY = 911; barW = 345; barH = 15; audioX = 545; audioY = 632; audioW = 321; audioH = 378; upX = 545; upY = 632; upW = 321; upH = 378; fontTam = 35; msgX = 100; msgY = 970; msgTam = 40; listOri = 0; listBg = 0; barBg = 6; barFill = 7; listMark = 8; listHoverMark = 9; fontAlign = 0; fontScroll = 0; elem1X = 100; elem1Y = 358; elem1W = 200; elem1H = 200; elem1On = 0; ctrl1X = 724; ctrl1Y = 361; ctrl1W = 200; ctrl1H = 200; ctrl1On = 0; pont1X = 0; pont1Y = 0; pont1W = 50; pont1H = 50; pont1On = 0; pont1Modo = 0; pont1Lado = 0; sfxLigado = 1; sfxVolume = 100; upBg = 0; upTextNorm = 12; upTextSel = 8; picX = 150; picY = 100; picW = 730; picH = 410; anim_ativo = false; anim_usarColorKey = true; anim_posX = 445; anim_posY = -130; anim_colunas = 24; anim_linhas = 19; anim_velocidade = 100; anim_escala = 4.5f; anim_keyR = 55; anim_keyG = 39; anim_keyB = 130; anim_offsetX = 65; anim_offsetY = 0; anim_frameInicial = 0; anim_frameFinal = 7; anim_modoTeste = false; anim_usarColorKey2 = true; anim_keyR2 = 0; anim_keyG2 = 0; anim_keyB2 = 255; anim_autoCenter = false; anim_tolerancia = 100; listStyle = 0; fontAnim = 0; listCurvature = 15; listZoomCentro = 15;
+            listXV = 1054; listYV = 204; listW = 676; listH = 65; listSpcV = 100;
+            capaX = 330; capaY = 280; capaW = 480; capaH = 680;
+            discoX = 640; discoY = 600; discoW = 280; discoH = 280;
+            barX = 40; barY = 1010; barW = 1840; barH = 50; barFill = 0; barBg = 1;
+            fontTam = 32; msgX = 960; msgY = 1020; msgTam = 30; listOri = 0; listBg = 1;
+            audioX = 50; audioY = 50; audioW = 250; audioH = 250;
+            upX = 1400; upY = 50; upW = 450; upH = 300;
+            listStyle = 0; fontAnim = 0; listCurvature = 0; listZoomCentro = 0;
+            picX = 0; picY = 0; picW = 1920; picH = 1080;
             gridX = 220; gridY = 200; gridItemW = 340; gridItemH = 400; gridCols = 4; gridLins = 3; gridSpcX = 40; gridSpcY = 60;
+            fontColIndex = 12; corSelecao = 10; msgColIndex = 12; listLoop = 0; listFocus = 0; p1Double = 0; numSlotsPadrao = 8;
             for (int i = 0; i < 100; i++) { anim_frameOffsetX[i] = 0; anim_frameOffsetY[i] = 0; }
             salvarConfiguracao();
         }
-        else { editTarget = sel; preencherMenuEditTarget(); sel = 0; off = 0; }
+        else { 
+            editTarget = sel; preencherMenuEditTarget(); 
+            sel = 0; if (listFocus) off = sel - (numSlotsPadrao / 2); else off = 0; 
+        }
     }
     else if (menuAtual == MENU_EDIT_TARGET) {
         int acaoReal = mapAcoes[sel];
-        if (acaoReal >= 100 && acaoReal <= 105) { interfaceTelaAlvo = acaoReal - 100; editTarget = 17; preencherMenuEditTarget(); sel = 0; off = 0; }
+        if (acaoReal >= 100 && acaoReal <= 105) { 
+            interfaceTelaAlvo = acaoReal - 100; editTarget = 17; preencherMenuEditTarget(); 
+            sel = 0; if (listFocus) off = sel - (numSlotsPadrao / 2); else off = 0; 
+        }
+        else if (acaoReal == 200) { // CONFIGURAR COMBOS
+            editTarget = 19; preencherMenuEditTarget(); 
+            sel = 0; if (listFocus) off = sel - (numSlotsPadrao / 2); else off = 0; 
+        }
+        else if (acaoReal == 201) { // ADICIONAR NOVO
+            int slot = -1; for (int i = 0; i < 20; i++) { if (!combosSFX[i].active) { slot = i; break; } }
+            if (slot != -1) {
+                interfaceComboAlvo = slot; combosSFX[slot].active = true; combosSFX[slot].buttons = 0; strcpy(combosSFX[slot].path, "");
+                editTarget = 22; preencherMenuEditTarget(); 
+                sel = 0; if (listFocus) off = sel - (numSlotsPadrao / 2); else off = 0;
+            } else { strcpy(msgStatus, "LIMITE DE 20 COMBOS ATINGIDO!"); msgTimer = 120; }
+        }
+        else if (acaoReal >= 202 && acaoReal <= 221) { 
+            interfaceComboAlvo = acaoReal - 202; editTarget = 22; preencherMenuEditTarget(); 
+            sel = 0; if (listFocus) off = sel - (numSlotsPadrao / 2); else off = 0; 
+        }
+        else if (acaoReal == 221) { definindoBotoesCombo = true; sfxWizardState = 0; sfxBotaoDetectado = 0; sfxComboSel = 0; editMode = true; crossReleaseRequired = true; }
+        else if (acaoReal == 222) { selecionandoSomCombo = true; editMode = false; preencherExplorerHome(); menuAtual = MENU_EXPLORAR_HOME; }
+        else if (acaoReal == 223) { salvarSfxCombos(); editTarget = 19; preencherMenuEditTarget(); sel = 0; if (listFocus) off = sel - (numSlotsPadrao / 2); else off = 0; strcpy(msgStatus, "COMBO SALVO!"); msgTimer = 120; }
+        else if (acaoReal == 224) { combosSFX[interfaceComboAlvo].active = false; salvarSfxCombos(); editTarget = 19; preencherMenuEditTarget(); sel = 0; if (listFocus) off = sel - (numSlotsPadrao / 2); else off = 0; strcpy(msgStatus, "COMBO DELETADO!"); msgTimer = 120; }
         else if (acaoReal == 51) {
             if (editTarget == 17) {
                 int slot = -1; for (int i = 0; i < 10; i++) { if (!customUI[interfaceTelaAlvo][i].ativo) { slot = i; break; } }
@@ -103,10 +145,32 @@ void acaoCross_Editar() {
                 selecionandoMidiaElemento = true; editMode = false; preencherExplorerHome(); menuAtual = MENU_EXPLORAR_HOME;
             }
         }
-        else if (acaoReal >= 52 && acaoReal <= 61) { interfaceElementoAlvo = acaoReal - 52; editTarget = 18; preencherMenuEditTarget(); sel = 0; off = 0; }
-        else if (acaoReal == 66) { customUI[interfaceTelaAlvo][interfaceElementoAlvo].ativo = false; extern void salvarCustomUI(); salvarCustomUI(); editTarget = 17; preencherMenuEditTarget(); sel = 0; off = 0; strcpy(msgStatus, "ELEMENTO DELETADO!"); msgTimer = 90; }
+        else if (acaoReal >= 52 && acaoReal <= 61) { 
+            interfaceElementoAlvo = acaoReal - 52; editTarget = 18; preencherMenuEditTarget(); 
+            sel = 0; if (listFocus) off = sel - (numSlotsPadrao / 2); else off = 0; 
+        }
+        else if (acaoReal == 66) { 
+            customUI[interfaceTelaAlvo][interfaceElementoAlvo].ativo = false; extern void salvarCustomUI(); salvarCustomUI(); editTarget = 17; preencherMenuEditTarget(); 
+            sel = 0; if (listFocus) off = sel - (numSlotsPadrao / 2); else off = 0; strcpy(msgStatus, "ELEMENTO DELETADO!"); msgTimer = 90; 
+        }
         else if (acaoReal >= 62 && acaoReal <= 71) { editType = acaoReal; editMode = true; crossReleaseRequired = true; circleReleaseRequired = true; }
-        else if (acaoReal == 9) { salvarConfiguracao(); }
+        else if (acaoReal == 9) { 
+            // RESETAR ESTE ITEM (Target Specific)
+            if (editTarget == 0) { listXV = 1054; listYV = 204; listW = 700; listH = 52; listSpcV = 100; numSlotsPadrao = 8; listOri = 0; listStyle = 0; listLoop = 0; listFocus = 0; listCurvature = 15; listZoomCentro = 15; corSelecao = 10; }
+            else if (editTarget == 1) { capaX = 150; capaY = 640; capaW = 300; capaH = 400; }
+            else if (editTarget == 2) { discoX = 555; discoY = 650; discoW = 300; discoH = 300; }
+            else if (editTarget == 3) { picX = 150; picY = 100; picW = 730; picH = 410; }
+            else if (editTarget == 4) { backX = 0; backY = 0; backW = 1920; backH = 1080; listBg = 0; }
+            else if (editTarget == 5) { barX = 95; barY = 911; barW = 345; barH = 15; barBg = 6; barFill = 7; }
+            else if (editTarget == 6 || editTarget == 7) { audioX = 545; audioY = 632; audioW = 321; audioH = 378; upX = 545; upY = 632; upW = 321; upH = 378; upBg = 0; upTextNorm = 12; upTextSel = 8; }
+            else if (editTarget == 8) { fontTam = 35; fontAlign = 0; fontScroll = 0; fontAnim = 0; fontColIndex = 12; }
+            else if (editTarget == 9) { msgX = 100; msgY = 970; msgTam = 40; msgColIndex = 12; }
+            else if (editTarget == 14) { sfxLigado = 1; sfxVolume = 30; }
+            else if (editTarget == 13) { pont1X = 0; pont1Y = 0; pont1W = 50; pont1H = 50; pont1On = 0; pont1Modo = 0; pont1Lado = 0; p1Double = 0; }
+            
+            salvarConfiguracao(); 
+            strcpy(msgStatus, "ITEM RESETADO!"); msgTimer = 120;
+        }
         else if (acaoReal == 41) { abrirTecladoIme(); }
         else if (acaoReal == 45) { editType = acaoReal; editMode = true; crossReleaseRequired = true; circleReleaseRequired = true; }
         else if (acaoReal == 29 || acaoReal == 44) { extern int wSprite, hSprite; editType = acaoReal; editMode = true; crossReleaseRequired = true; circleReleaseRequired = true; int frameW = wSprite / (anim_colunas > 0 ? anim_colunas : 1); int frameH = hSprite / (anim_linhas > 0 ? anim_linhas : 1); anim_cursorX = anim_posX + (int)((frameW * anim_escala) / 2.0f); anim_cursorY = anim_posY + (int)((frameH * anim_escala) / 2.0f); anim_editandoPivoVisual = false; }
@@ -115,18 +179,56 @@ void acaoCross_Editar() {
 }
 
 void acaoCircle_Editar() {
-    if (menuAtual == MENU_EDITAR) { preencherRoot(); sel = 0; off = 0; }
+    if (menuAtual == MENU_EDITAR) { preencherRoot(); sel = 0; if (listFocus) off = sel - (numSlotsPadrao / 2); else off = 0; }
     else if (menuAtual == MENU_EDIT_TARGET) {
-        if (editTarget == 17) { editTarget = 16; preencherMenuEditTarget(); sel = 0; off = 0; }
-        else if (editTarget == 18) { editTarget = 17; preencherMenuEditTarget(); sel = 0; off = 0; }
-        else { preencherMenuEditar(); sel = 0; off = 0; anim_modoTeste = false; }
+        if (editTarget == 17) { editTarget = 16; preencherMenuEditTarget(); sel = 0; if (listFocus) off = sel - (numSlotsPadrao / 2); else off = 0; }
+        else if (editTarget == 18) { editTarget = 17; preencherMenuEditTarget(); sel = 0; if (listFocus) off = sel - (numSlotsPadrao / 2); else off = 0; }
+        else { preencherMenuEditar(); sel = 0; if (listFocus) off = sel - (numSlotsPadrao / 2); else off = 0; anim_modoTeste = false; }
     }
 }
 
-void processarControlesEdicao(unsigned int buttons) {
-    verificarTecladoVirtual();
-    static bool pCrossEdit = false; static bool pCircleEdit = false; static bool pTriEdit = false;
+void processarControlesEdicao(uint32_t buttons) {
     static int pDelay = 0; if (pDelay > 0) pDelay--;
+    static bool pCrossEdit = false; static bool pCircleEdit = false; static bool pTriEdit = false; static bool pSqEdit = false;
+    extern bool crossReleaseRequired, circleReleaseRequired;
+
+    if (definindoBotoesCombo) {
+        if (pDelay == 0) {
+            if (sfxWizardState == 0) { // WAITING_BUTTON
+                // Filtramos alguns botões para não capturar navegação acidental
+                if (buttons && !(buttons & (ORBIS_PAD_BUTTON_OPTIONS | ORBIS_PAD_BUTTON_TOUCH_PAD))) {
+                    sfxBotaoDetectado = buttons;
+                    sfxWizardState = 1; // CHOOSING_ACTION
+                    pDelay = 20;
+                }
+            }
+            else { // CHOOSING_ACTION
+                if (buttons & ORBIS_PAD_BUTTON_LEFT) { sfxComboSel--; if (sfxComboSel < 0) sfxComboSel = 2; pDelay = 15; }
+                else if (buttons & ORBIS_PAD_BUTTON_RIGHT) { sfxComboSel++; if (sfxComboSel > 2) sfxComboSel = 0; pDelay = 15; }
+                else if ((buttons & ORBIS_PAD_BUTTON_CROSS) && !pCrossEdit) {
+                    if (sfxComboSel == 0) { // ADICIONAR PROXIMO
+                        combosSFX[interfaceComboAlvo].buttons |= sfxBotaoDetectado;
+                        sfxWizardState = 0; // Volta a esperar botão
+                        pDelay = 25;
+                    }
+                    else if (sfxComboSel == 1) { // CONCLUIR E SALVAR
+                        definindoBotoesCombo = false; editMode = false; salvarSfxCombos(); preencherMenuEditTarget(); pDelay = 20; return; 
+                    }
+                    else if (sfxComboSel == 2) { // CANCELAR
+                        definindoBotoesCombo = false; editMode = false; preencherMenuEditTarget(); pDelay = 20; return; 
+                    }
+                    pCrossEdit = true;
+                }
+                else if ((buttons & ORBIS_PAD_BUTTON_CIRCLE) && !pCircleEdit) {
+                    sfxWizardState = 0; // Volta para captura sem adicionar
+                    pDelay = 15;
+                }
+            }
+        }
+        if (!(buttons & ORBIS_PAD_BUTTON_CROSS)) pCrossEdit = false;
+        if (!(buttons & ORBIS_PAD_BUTTON_CIRCLE)) pCircleEdit = false;
+        return;
+    }
 
     if (!(buttons & ORBIS_PAD_BUTTON_CROSS)) crossReleaseRequired = false;
     if (!(buttons & ORBIS_PAD_BUTTON_CIRCLE)) circleReleaseRequired = false;
@@ -158,6 +260,14 @@ void processarControlesEdicao(unsigned int buttons) {
     else if (editType == 8) { if (buttons & ORBIS_PAD_BUTTON_LEFT) { barFill--; if (barFill < 0) barFill = 14; } if (buttons & ORBIS_PAD_BUTTON_RIGHT) { barFill++; if (barFill > 14) barFill = 0; } }
     else if (editType == 10) { if (buttons & ORBIS_PAD_BUTTON_LEFT) { fontAlign--; if (fontAlign < 0) fontAlign = 2; } if (buttons & ORBIS_PAD_BUTTON_RIGHT) { fontAlign++; if (fontAlign > 2) fontAlign = 0; } }
     else if (editType == 11) { if (buttons & (ORBIS_PAD_BUTTON_LEFT | ORBIS_PAD_BUTTON_RIGHT)) fontScroll = (fontScroll == 0) ? 1 : 0; }
+    else if (editType == 49) { if (pDelay == 0) { if (buttons & (ORBIS_PAD_BUTTON_LEFT | ORBIS_PAD_BUTTON_UP)) numSlotsPadrao--; if (buttons & (ORBIS_PAD_BUTTON_RIGHT | ORBIS_PAD_BUTTON_DOWN)) numSlotsPadrao++; if (numSlotsPadrao < 1) numSlotsPadrao = 1; if (numSlotsPadrao > 15) numSlotsPadrao = 15; pDelay = 10; } }
+    else if (editType == 35) { if (pDelay == 0) { if (buttons & (ORBIS_PAD_BUTTON_LEFT | ORBIS_PAD_BUTTON_UP)) { corSelecao--; if (corSelecao < 0) corSelecao = 14; pDelay = 10; } if (buttons & (ORBIS_PAD_BUTTON_RIGHT | ORBIS_PAD_BUTTON_DOWN)) { corSelecao++; if (corSelecao > 14) corSelecao = 0; pDelay = 10; } } }
+    else if (editType == 80) { if (pDelay == 0) { if (buttons & (ORBIS_PAD_BUTTON_LEFT | ORBIS_PAD_BUTTON_UP)) { msgColIndex--; if (msgColIndex < 0) msgColIndex = 14; pDelay = 10; } if (buttons & (ORBIS_PAD_BUTTON_RIGHT | ORBIS_PAD_BUTTON_DOWN)) { msgColIndex++; if (msgColIndex > 14) msgColIndex = 0; pDelay = 10; } } }
+    else if (editType == 81) { if (pDelay == 0) { if (buttons & (ORBIS_PAD_BUTTON_LEFT | ORBIS_PAD_BUTTON_UP)) { fontColIndex--; if (fontColIndex < 0) fontColIndex = 14; pDelay = 10; } if (buttons & (ORBIS_PAD_BUTTON_RIGHT | ORBIS_PAD_BUTTON_DOWN)) { fontColIndex++; if (fontColIndex > 14) fontColIndex = 0; pDelay = 10; } } }
+    else if (editType == 90) { if (pDelay == 0) { if (buttons & (ORBIS_PAD_BUTTON_LEFT | ORBIS_PAD_BUTTON_UP)) { barTextCol--; if (barTextCol < 0) barTextCol = 14; pDelay = 10; } if (buttons & (ORBIS_PAD_BUTTON_RIGHT | ORBIS_PAD_BUTTON_DOWN)) { barTextCol++; if (barTextCol > 14) barTextCol = 0; pDelay = 10; } } }
+    else if (editType == 82) { if (pDelay == 0 && (buttons & (ORBIS_PAD_BUTTON_LEFT | ORBIS_PAD_BUTTON_RIGHT | ORBIS_PAD_BUTTON_UP | ORBIS_PAD_BUTTON_DOWN))) { p1Double = !p1Double; pDelay = 15; } }
+    else if (editType == 83) { if (pDelay == 0 && (buttons & (ORBIS_PAD_BUTTON_LEFT | ORBIS_PAD_BUTTON_RIGHT | ORBIS_PAD_BUTTON_UP | ORBIS_PAD_BUTTON_DOWN))) { listLoop = !listLoop; pDelay = 15; } }
+    else if (editType == 84) { if (pDelay == 0 && (buttons & (ORBIS_PAD_BUTTON_LEFT | ORBIS_PAD_BUTTON_RIGHT | ORBIS_PAD_BUTTON_UP | ORBIS_PAD_BUTTON_DOWN))) { listFocus = !listFocus; pDelay = 15; } }
 
     // OPÇÕES DA GRADE
     else if (editType == 45) { if (pDelay == 0) { if (buttons & ORBIS_PAD_BUTTON_LEFT) { listStyle -= 1; if (listStyle < 0) listStyle = 5; pDelay = 8; preencherMenuEditTarget(); } if (buttons & ORBIS_PAD_BUTTON_RIGHT) { listStyle += 1; if (listStyle > 5) listStyle = 0; pDelay = 8; preencherMenuEditTarget(); } } }
@@ -196,7 +306,7 @@ void processarControlesEdicao(unsigned int buttons) {
     else if (editType == 48) { if (pDelay == 0) { if (buttons & ORBIS_PAD_BUTTON_LEFT) { listZoomCentro -= 1; if (listZoomCentro < 0) listZoomCentro = 0; pDelay = 2; } if (buttons & ORBIS_PAD_BUTTON_RIGHT) { listZoomCentro += 1; if (listZoomCentro > 100) listZoomCentro = 100; pDelay = 2; } if (buttons & ORBIS_PAD_BUTTON_UP) { listZoomCentro += 5; pDelay = 4; } if (buttons & ORBIS_PAD_BUTTON_DOWN) { listZoomCentro -= 5; if (listZoomCentro < 0) listZoomCentro = 0; pDelay = 4; } } }
 
     else if (editType == 29) {
-        extern int wSprite, hSprite; anim_modoTeste = true; static int fDelay = 0; if (fDelay > 0) fDelay--; static bool pSqEdit = false; static bool pCrossEdit29 = false;
+        extern int wSprite, hSprite; anim_modoTeste = true; static int fDelay = 0; if (fDelay > 0) fDelay--; static bool pCrossEdit29 = false;
         int frameDrawW = (wSprite / (anim_colunas > 0 ? anim_colunas : 1)) * anim_escala; int frameDrawH = (hSprite / (anim_linhas > 0 ? anim_linhas : 1)) * anim_escala; int centroBoxX = anim_posX + frameDrawW / 2; int centroBoxY = anim_posY + frameDrawH / 2;
         if (buttons & ORBIS_PAD_BUTTON_L2) {
             if (fDelay == 0) { if (buttons & ORBIS_PAD_BUTTON_LEFT) { anim_colunas -= 1; fDelay = 5; } if (buttons & ORBIS_PAD_BUTTON_RIGHT) { anim_colunas += 1; fDelay = 5; } if (buttons & ORBIS_PAD_BUTTON_UP) { anim_linhas -= 1; fDelay = 5; } if (buttons & ORBIS_PAD_BUTTON_DOWN) { anim_linhas += 1; fDelay = 5; } }

@@ -182,6 +182,7 @@ int main(void) {
     scePadInit(); globalPadHandle = scePadOpen(global_uId, 0, 0, NULL); int pad = globalPadHandle;
 
     inicializarVideo();
+    if (!obterBufferVideo()) return 1;
     carregarApenasCaminhoUltimoVideo(); // Carrega o vídeo pra memória logo no boot!
     
     // --- RESTAURAÇÃO DA FONTE E TECLADO ---
@@ -352,7 +353,20 @@ int main(void) {
 
             if (!esperandoNomePasta && !esperandoRenomear && !visualizandoMidiaImagem && !visualizandoMidiaTexto && !visualizandoPic1 && !visualizandoPDF) {
                 if (!emuladorAtivo && (!videoRodando || (video_minimizado && !pip_selecionado))) {
+                    MenuLevel menuAntesDoControle = menuAtual;
+                    int selecaoAntesDoControle = sel;
                     processarControles(pData.buttons, uId, imeSetting, imeTitle);
+                    if (menuAtual != menuAntesDoControle &&
+                        (menuAtual == ROOT || menuAtual == MENU_TIPO_JOGO || menuAtual == MENU_JOGAR_PS4 ||
+                         menuAtual == MENU_EXPLORAR_HOME || menuAtual == MENU_EXPLORAR ||
+                         menuAntesDoControle == MENU_CONTROLE_TESTE || menuAntesDoControle == MENU_INSTRUMENTOS)) {
+                        FILE* navLog = fopen("/data/HyperNeiva/navigation_debug_log.txt", "a");
+                        if (navLog) {
+                            fprintf(navLog, "menu:%d->%d sel:%d->%d backImg:%d\n", (int)menuAntesDoControle,
+                                (int)menuAtual, selecaoAntesDoControle, sel, backImg != NULL ? 1 : 0);
+                            fclose(navLog);
+                        }
+                    }
                 }
             }
             
@@ -366,23 +380,29 @@ int main(void) {
             static uint32_t ultimos_botoes_globais = 0;
             uint32_t botoes_preservados = pData.buttons;
 
-            if (menuAtual == 50) { // MENU_EMU_CONTROLES (controle_emulador.cpp)
-                atualizarMapeamentoControles(&pData, ultimos_botoes_globais);
-                pData.buttons = 0; 
-            } 
-            else if (menuAtual == 51 || menuEmuladorAtivo) { // MENU_PAUSA (menu_emulador.cpp)
-                menuEmuladorAtivo = true;
-                atualizarMenuEmulador(pData.buttons, ultimos_botoes_globais);
-                pData.buttons = 0; 
-            }
-            else { // MODO DE JOGO NORMAL
-                bridge_set_pausado(false);
-                if ((pData.buttons & ORBIS_PAD_BUTTON_OPTIONS) && !(ultimos_botoes_globais & ORBIS_PAD_BUTTON_OPTIONS)) {
-                    menuEmuladorAtivo = true;
-                    bridge_set_pausado(true);
-                    capturarUltimoFrame(); 
-                    menuEmuSelecao = 0;
+            if (emuladorAtivo) {
+                if (menuAtual == 50) { // MENU_EMU_CONTROLES (controle_emulador.cpp)
+                    atualizarMapeamentoControles(&pData, ultimos_botoes_globais);
+                    pData.buttons = 0;
                 }
+                else if (menuAtual == 51 || menuEmuladorAtivo) { // MENU_PAUSA (menu_emulador.cpp)
+                    menuEmuladorAtivo = true;
+                    atualizarMenuEmulador(pData.buttons, ultimos_botoes_globais);
+                    pData.buttons = 0;
+                }
+                else { // MODO DE JOGO NORMAL
+                    bridge_set_pausado(false);
+                    if ((pData.buttons & ORBIS_PAD_BUTTON_OPTIONS) && !(ultimos_botoes_globais & ORBIS_PAD_BUTTON_OPTIONS)) {
+                        menuEmuladorAtivo = true;
+                        bridge_set_pausado(true);
+                        capturarUltimoFrame();
+                        menuEmuSelecao = 0;
+                    }
+                }
+            }
+            else {
+                // OPTIONS nos menus do app não pode abrir o menu de pausa do emulador.
+                menuEmuladorAtivo = false;
             }
 
             ultimos_botoes_globais = botoes_preservados;

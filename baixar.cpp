@@ -26,7 +26,8 @@
 #include "stb_image.h"
 
 extern int barX, barY, barW, barH;
-extern int barBg, barFill;
+extern int barBg, barFill, barTextCol;
+extern uint32_t getSysColor(int index);
 
 extern uint32_t* obterBufferVideo();
 extern void desenharInterface(uint32_t* p);
@@ -102,7 +103,7 @@ void atualizarBarra(float progresso, int arquivoAtual, int totalArquivos) {
 
     char textoLoad[128];
     snprintf(textoLoad, sizeof(textoLoad), "%d%%   -   %d / %d", porcentagem, arquivoAtual, totalArquivos);
-    desenharTexto(p, textoLoad, 25, bX + bW + 20, bY - 2, 0xFFFFFFFF);
+    desenharTexto(p, textoLoad, 25, bX + bW + 20, bY - 2, getSysColor(barTextCol));
     submeterTela();
 }
 

@@ -1,8 +1,9 @@
-#include <stdio.h>
+﻿#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <pthread.h>
 #include <time.h>
+#include <errno.h>
 #include <orbis/libkernel.h>
 #include <orbis/Http.h>
 
@@ -14,6 +15,7 @@ extern "C" {
 }
 
 #include "audio_radio.h"
+#include "network.h"
 
 // --- Estruturas e Variáveis Internas ---
 
@@ -34,6 +36,7 @@ static volatile int radioRingRead = 0;
 static volatile int radioRingCount = 0;
 static pthread_mutex_t radioRingMutex;
 static pthread_t radioNetThreadId;
+static bool radioNetThreadCreated = false;
 static volatile bool radioNetRodando = false;
 static volatile bool radioPreBuffering = false;
 
@@ -43,8 +46,11 @@ static AVCodecContext* pRadioCodecCtx = NULL;
 static SwrContext* pRadioSwrCtx = NULL;
 static int radioStreamIdx = -1;
 static uint8_t* radioResampleBuf = NULL;
+static int radioPcmPendingFrames = 0;
+static int radioPcmPendingOffset = 0;
 static AVFrame* pRadioFrame = NULL;
 static AVPacket radioPacket;
+static bool radioPacketPending = false;
 
 // Telemetria
 static volatile int debugBytesBaixadosThisSec = 0;
@@ -131,16 +137,17 @@ static void* radioNetThreadFunc(void* arg) {
 }
 
 static int read_http_stream(void* opaque, uint8_t* buf, int buf_size) {
-    if (!radioNetRodando && radioRingCount == 0) return AVERROR_EOF;
+    (void)opaque;
+    if (buf_size <= 0) return AVERROR(EINVAL);
 
-    int bytesRead = 0;
-    int retries = 0;
-
-    while (bytesRead == 0) {
+    // Deliver short reads immediately. Waiting for the whole 64 KB AVIO
+    // request starves low-bitrate stations and makes a brief network pause
+    // look like a permanent end of stream.
+    for (int wait = 0; wait < 5; wait++) {
         pthread_mutex_lock(&radioRingMutex);
-
-        if (radioRingCount >= buf_size || (!radioNetRodando && radioRingCount > 0)) {
-            int toRead = (buf_size < radioRingCount) ? buf_size : radioRingCount;
+        int available = radioRingCount;
+        if (available > 0) {
+            int toRead = (buf_size < available) ? buf_size : available;
             if (radioRingRead + toRead <= RADIO_RING_SIZE) {
                 memcpy(buf, radioRingBuf + radioRingRead, toRead);
             }
@@ -152,38 +159,33 @@ static int read_http_stream(void* opaque, uint8_t* buf, int buf_size) {
             }
             radioRingRead = (radioRingRead + toRead) % RADIO_RING_SIZE;
             radioRingCount -= toRead;
-            bytesRead = toRead;
+            pthread_mutex_unlock(&radioRingMutex);
+            debugBytesConsumidosThisSec += toRead;
+            strcpy(debugFfmpegStatus, "TOCANDO LISO");
+            return toRead;
         }
         pthread_mutex_unlock(&radioRingMutex);
 
-        if (bytesRead > 0) {
-            debugBytesConsumidosThisSec += bytesRead;
-            strcpy(debugFfmpegStatus, "TOCANDO LISO");
-            return bytesRead;
-        }
-
         if (!radioNetRodando) {
+            if (radioRingCount > 0) continue;
             strcpy(debugFfmpegStatus, "FIM DO ARQUIVO");
             return AVERROR_EOF;
         }
-
         strcpy(debugFfmpegStatus, "AGUARDANDO REDE...");
         sceKernelUsleep(20000);
-        retries++;
-
-        if (retries > 500) {
-            strcpy(debugFfmpegStatus, "TIMEOUT DA INTERNET");
-            return AVERROR_EOF;
-        }
     }
-
-    return bytesRead;
+    return AVERROR(EAGAIN);
 }
 
 void pararRadioStreaming() {
-    if (radioNetRodando) {
-        radioNetRodando = false;
+    radioNetRodando = false;
+    if (radioHttpStream && radioHttpStream->req >= 0 && radioNetThreadCreated) {
+        // Abort the blocking SDK read before joining its worker thread.
+        sceHttpAbortRequest(radioHttpStream->req);
+    }
+    if (radioNetThreadCreated) {
         pthread_join(radioNetThreadId, NULL);
+        radioNetThreadCreated = false;
     }
 
     if (pRadioSwrCtx) { swr_free(&pRadioSwrCtx); pRadioSwrCtx = NULL; }
@@ -191,6 +193,9 @@ void pararRadioStreaming() {
     if (pRadioFormatCtx) { avformat_close_input(&pRadioFormatCtx); pRadioFormatCtx = NULL; }
     if (pRadioFrame) { av_frame_free(&pRadioFrame); pRadioFrame = NULL; }
     if (radioResampleBuf) { av_free(radioResampleBuf); radioResampleBuf = NULL; }
+    radioPcmPendingFrames = 0;
+    radioPcmPendingOffset = 0;
+    radioPacketPending = false;
 
     if (radioAvioCtx) {
         if (radioAvioCtx->buffer) av_free(radioAvioCtx->buffer);
@@ -212,17 +217,28 @@ void pararRadioStreaming() {
 bool iniciarRadio(const char* url) {
     pararRadioStreaming();
 
-    radioHttpStream = (CustomHttpStream*)malloc(sizeof(CustomHttpStream));
+    radioHttpStream = (CustomHttpStream*)calloc(1, sizeof(CustomHttpStream));
+    if (!radioHttpStream) return false;
+    radioHttpStream->tmpl = -1;
+    radioHttpStream->conn = -1;
+    radioHttpStream->req = -1;
     radioHttpStream->ownTmpl = true;
     radioHttpStream->tmpl = sceHttpCreateTemplate(httpCtxId, "HyperNeiva/1.0", 1, 1);
 
+    if (radioHttpStream->tmpl >= 0) {
+        sceHttpsSetSslCallback(radioHttpStream->tmpl, skipSslCallback, NULL);
+        sceHttpSetAutoRedirect();
+    }
     if (radioHttpStream->tmpl < 0) {
         radioHttpStream->tmpl = httpCtxId;
         radioHttpStream->ownTmpl = false;
     }
+    if (radioHttpStream->tmpl < 0) { pararRadioStreaming(); return false; }
 
     radioHttpStream->conn = sceHttpCreateConnectionWithURL(radioHttpStream->tmpl, url, 0);
+    if (radioHttpStream->conn < 0) { pararRadioStreaming(); return false; }
     radioHttpStream->req = sceHttpCreateRequestWithURL(radioHttpStream->conn, ORBIS_METHOD_GET, url, 0);
+    if (radioHttpStream->req < 0) { pararRadioStreaming(); return false; }
 
     sceHttpAddRequestHeader(radioHttpStream->req, "User-Agent", "HyperNeiva/1.0 (PS4)", 0);
     sceHttpAddRequestHeader(radioHttpStream->req, "Connection", "keep-alive", 0);
@@ -239,6 +255,7 @@ bool iniciarRadio(const char* url) {
     if (statusCode == 200 || statusCode == 206) {
         if (!radioRingBuf) {
             radioRingBuf = (uint8_t*)malloc(RADIO_RING_SIZE);
+            if (!radioRingBuf) { pararRadioStreaming(); return false; }
             pthread_mutex_init(&radioRingMutex, NULL);
         }
         radioRingWrite = 0;
@@ -250,7 +267,12 @@ bool iniciarRadio(const char* url) {
         debugFomeKBps = 0;
         strcpy(debugFfmpegStatus, "Enchendo Pre-Buffer...");
 
-        pthread_create(&radioNetThreadId, NULL, radioNetThreadFunc, radioHttpStream);
+        if (pthread_create(&radioNetThreadId, NULL, radioNetThreadFunc, radioHttpStream) != 0) {
+            radioNetRodando = false;
+            pararRadioStreaming();
+            return false;
+        }
+        radioNetThreadCreated = true;
 
         strcpy(msgStatus, "Conectado! Aguarde 2 segundos...");
         msgTimer = 200;
@@ -283,13 +305,16 @@ bool iniciarRadio(const char* url) {
                         pRadioCodecCtx = avcodec_alloc_context3(pCodec);
                         avcodec_parameters_to_context(pRadioCodecCtx, pParams);
                         if (avcodec_open2(pRadioCodecCtx, pCodec, NULL) >= 0) {
-                            AVChannelLayout out_layout;
-                            av_channel_layout_default(&out_layout, 2);
-                            swr_alloc_set_opts2(&pRadioSwrCtx, &out_layout, AV_SAMPLE_FMT_S16, 48000,
-                                &pRadioCodecCtx->ch_layout, pRadioCodecCtx->sample_fmt, pRadioCodecCtx->sample_rate, 0, NULL);
+                            uint64_t in_channel_layout = pRadioCodecCtx->channel_layout;
+                            if (in_channel_layout == 0) in_channel_layout = av_get_default_channel_layout(pRadioCodecCtx->channels);
+
+                            pRadioSwrCtx = swr_alloc_set_opts(NULL, AV_CH_LAYOUT_STEREO, AV_SAMPLE_FMT_S16, 48000,
+                                in_channel_layout, pRadioCodecCtx->sample_fmt, pRadioCodecCtx->sample_rate, 0, NULL);
                             swr_init(pRadioSwrCtx);
                             pRadioFrame = av_frame_alloc();
                             radioResampleBuf = (uint8_t*)av_malloc(192000);
+                            radioPcmPendingFrames = 0;
+                            radioPcmPendingOffset = 0;
                             return true;
                         }
                     }
@@ -303,25 +328,59 @@ bool iniciarRadio(const char* url) {
 }
 
 size_t lerFrameRadio(int16_t* outSamples, size_t frameCount) {
-    if (!pRadioFormatCtx || radioStreamIdx == -1) return 0;
+    if (!pRadioFormatCtx || !pRadioCodecCtx || !pRadioSwrCtx || !pRadioFrame || !radioResampleBuf || radioStreamIdx == -1 || frameCount == 0) return 0;
 
-    int ret_read = av_read_frame(pRadioFormatCtx, &radioPacket);
-    if (ret_read >= 0) {
-        if (radioPacket.stream_index == radioStreamIdx) {
-            if (avcodec_send_packet(pRadioCodecCtx, &radioPacket) == 0) {
-                if (avcodec_receive_frame(pRadioCodecCtx, pRadioFrame) == 0) {
-                    int samples = swr_convert(pRadioSwrCtx, &radioResampleBuf, frameCount, (const uint8_t**)pRadioFrame->data, pRadioFrame->nb_samples);
-                    if (samples > 0) {
-                        memcpy(outSamples, radioResampleBuf, samples * 4);
-                        av_packet_unref(&radioPacket);
-                        return samples;
-                    }
-                }
+    size_t copied = 0;
+    while (copied < frameCount) {
+        if (radioPcmPendingOffset < radioPcmPendingFrames) {
+            size_t pending = (size_t)(radioPcmPendingFrames - radioPcmPendingOffset);
+            size_t take = frameCount - copied;
+            if (take > pending) take = pending;
+            memcpy(outSamples + copied * 2, radioResampleBuf + (size_t)radioPcmPendingOffset * 4, take * 4);
+            copied += take;
+            radioPcmPendingOffset += (int)take;
+            if (radioPcmPendingOffset >= radioPcmPendingFrames) {
+                radioPcmPendingFrames = 0;
+                radioPcmPendingOffset = 0;
             }
+            continue;
         }
-        av_packet_unref(&radioPacket);
+
+        int ret = avcodec_receive_frame(pRadioCodecCtx, pRadioFrame);
+        if (ret == 0) {
+            int capacity = swr_get_out_samples(pRadioSwrCtx, pRadioFrame->nb_samples);
+            if (capacity <= 0) capacity = pRadioFrame->nb_samples * 2 + 64;
+            size_t bytes = (size_t)capacity * 4;
+            uint8_t* grown = (uint8_t*)av_realloc(radioResampleBuf, bytes);
+            if (!grown) break;
+            radioResampleBuf = grown;
+            uint8_t* out[1] = { radioResampleBuf };
+            int samples = swr_convert(pRadioSwrCtx, out, capacity, (const uint8_t**)pRadioFrame->data, pRadioFrame->nb_samples);
+            if (samples > 0) {
+                radioPcmPendingFrames = samples;
+                radioPcmPendingOffset = 0;
+                continue;
+            }
+            continue;
+        }
+        if (ret != AVERROR(EAGAIN) && ret != AVERROR_EOF) break;
+
+        if (!radioPacketPending) {
+            int readRet = av_read_frame(pRadioFormatCtx, &radioPacket);
+            if (readRet < 0) break;
+            radioPacketPending = true;
+        }
+        if (radioPacket.stream_index == radioStreamIdx) {
+            ret = avcodec_send_packet(pRadioCodecCtx, &radioPacket);
+            if (ret == AVERROR(EAGAIN)) continue; // Keep packet while draining queued frames, then retry it.
+            av_packet_unref(&radioPacket);
+            radioPacketPending = false;
+        } else {
+            av_packet_unref(&radioPacket);
+            radioPacketPending = false;
+        }
     }
-    return 0;
+    return copied;
 }
 
 void obterTelemetriaRadio(char* outMsg, size_t size) {

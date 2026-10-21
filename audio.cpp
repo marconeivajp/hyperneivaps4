@@ -13,9 +13,13 @@
 #endif
 #endif
 
+#ifndef _WIN32
 #include <orbis/libkernel.h>
 #include <orbis/AudioOut.h>
 #include <orbis/UserService.h>
+#else
+#include <SDL2/SDL.h>
+#endif
 #include "audio.h"
 #include "audio_radio.h"
 #include "audio_musica.h"
@@ -53,6 +57,22 @@ volatile float audioTempoAtual = 0.0f;
 // Emulator audio logic moved to audio_emu.cpp
 
 static AudioType currentAudioType = AUDIO_NONE;
+static bool radioPausadoPeloModoEspecial = false;
+
+void definirAudioModoEspecial(bool ativo) {
+    if (ativo) {
+        if (!radioPausadoPeloModoEspecial && isRadioRodando() && !comandoPausar) {
+            radioPausadoPeloModoEspecial = true;
+            comandoPausar = true;
+        }
+        return;
+    }
+
+    if (radioPausadoPeloModoEspecial) {
+        radioPausadoPeloModoEspecial = false;
+        comandoPausar = false;
+    }
+}
 
 void adiantarAudio() { comandoBuscarSegundos = 10; }
 void retrocederAudio() { comandoBuscarSegundos = -10; }
@@ -115,12 +135,31 @@ void carregarConfiguracaoAudio() {
 
 // Funções de rádio movidas para audio_radio.cpp
 
+#ifdef _WIN32
+SDL_AudioDeviceID winAudioDevice = 0;
+#endif
+
 static void* audioThreadFunc(void* argp) {
+#ifndef _WIN32
     if (!sistemaAudioIniciado) { sceAudioOutInit(); sistemaAudioIniciado = true; }
     int32_t userId;
     if (sceUserServiceGetInitialUser(&userId) < 0) userId = ORBIS_USER_SERVICE_USER_ID_SYSTEM;
     audioPort = sceAudioOutOpen(userId, ORBIS_AUDIO_OUT_PORT_TYPE_MAIN, 0, 256, 48000, ORBIS_AUDIO_OUT_PARAM_FORMAT_S16_STEREO);
     if (audioPort < 0) { audioRodando = false; return NULL; }
+#else
+    SDL_AudioSpec wanted_spec;
+    SDL_zero(wanted_spec);
+    wanted_spec.freq = 48000;
+    wanted_spec.format = AUDIO_S16SYS;
+    wanted_spec.channels = 2;
+    wanted_spec.samples = 512;
+    wanted_spec.callback = NULL;
+
+    winAudioDevice = SDL_OpenAudioDevice(NULL, 0, &wanted_spec, NULL, 0);
+    if (winAudioDevice > 0) {
+        SDL_PauseAudioDevice(winAudioDevice, 0);
+    }
+#endif
 
     drwav wav; drmp3 mp3;
     int16_t pSampleData[256 * 2];
@@ -147,12 +186,15 @@ static void* audioThreadFunc(void* argp) {
     }
 
     while (audioRodando) {
+#ifndef _WIN32
         if (audioPort < 0) {
             audioPort = sceAudioOutOpen(userId, ORBIS_AUDIO_OUT_PORT_TYPE_MAIN, 0, 256, 48000, ORBIS_AUDIO_OUT_PARAM_FORMAT_S16_STEREO);
         }
+#endif
 
         // TELEMETRIA: Observa a Net a baixar e o FFmpeg a "comer"
-        if (currentAudioType == AUDIO_STREAM && isRadioRodando()) {
+        if (currentAudioType == AUDIO_STREAM && isRadioRodando() &&
+            !comandoPausar && strcmp(musicaAtual, "PARADO") != 0) {
             extern char msgStatus[128];
             extern int msgTimer;
             extern unsigned int msgStatusColor;
@@ -215,7 +257,16 @@ static void* audioThreadFunc(void* argp) {
             misturarAudioPiano(pSampleData, 256);
             misturarAudioVideo(pSampleData, 256);
             misturarAudioEmulador(pSampleData, 256);
+#ifdef _WIN32
+            if (winAudioDevice > 0) {
+                SDL_QueueAudio(winAudioDevice, pSampleData, 256 * 2 * sizeof(int16_t));
+                while (SDL_GetQueuedAudioSize(winAudioDevice) > 48000 * 2 * sizeof(int16_t) * 0.15) {
+                    SDL_Delay(5);
+                }
+            }
+#else
             if (audioPort >= 0) sceAudioOutOutput(audioPort, pSampleData);
+#endif
             continue;
         }
 
@@ -236,6 +287,11 @@ static void* audioThreadFunc(void* argp) {
                 // Erro fatal real (EOF) ou desconexão
                 strcpy(musicaAtual, "PARADO");
                 comandoPausar = true;
+            }
+            if (framesLidos == 0 && isRadioRodando()) {
+                // Keep audio clock moving through temporary network gaps.
+                memset(pSampleData, 0, 256 * 2 * sizeof(int16_t));
+                framesLidos = 256;
             }
             currentChannels = 2;
         }
@@ -311,13 +367,26 @@ static void* audioThreadFunc(void* argp) {
         misturarAudioPiano(pSampleData, 256);
         misturarAudioVideo(pSampleData, 256);
         misturarAudioEmulador(pSampleData, 256);
+#ifdef _WIN32
+        if (winAudioDevice > 0) {
+            SDL_QueueAudio(winAudioDevice, pSampleData, 256 * 2 * sizeof(int16_t));
+            while (SDL_GetQueuedAudioSize(winAudioDevice) > 48000 * 2 * sizeof(int16_t) * 0.15) {
+                SDL_Delay(5);
+            }
+        }
+#else
         if (audioPort >= 0) sceAudioOutOutput(audioPort, pSampleData);
+#endif
     }
 
     if (currentAudioType == AUDIO_WAV) drwav_uninit(&wav);
     else if (currentAudioType == AUDIO_MP3) drmp3_uninit(&mp3);
     else if (currentAudioType == AUDIO_STREAM) pararRadioStreaming();
+#ifdef _WIN32
+    if (winAudioDevice > 0) SDL_CloseAudioDevice(winAudioDevice);
+#else
     sceAudioOutClose(audioPort);
+#endif
     return NULL;
 }
 
@@ -344,6 +413,7 @@ void pararAudio() {
 
 void tocarMusicaNova(const char* path) {
     if (strcmp(path, "PARADO") == 0) {
+        radioPausadoPeloModoEspecial = false;
         strcpy(musicaAtual, "PARADO");
         salvarConfiguracaoAudio();
         comandoPausar = true;

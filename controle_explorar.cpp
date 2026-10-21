@@ -330,44 +330,39 @@ void acaoCircle_Explorar() {
     if (showOpcoes) { showOpcoes = false; return; }
 
     bool ehEsq = (painelDuplo && painelAtivo == 0);
-    MenuLevel mAtual = ehEsq ? menuAtualEsq : menuAtual;
-    char* pExplorar = ehEsq ? pathExplorarEsq : pathExplorar;
+    extern void voltarNavegacao();
 
-    if (mAtual == MENU_LISTA_CORES) { preencherRoot(); return; }
-    if (mAtual == MENU_EXPLORAR_HOME) {
-        if (painelDuplo && ehEsq) { // Seguranï¿½a extra: sï¿½ fechar se estiver na esquerda
+    if (ehEsq && painelDuplo) {
+        // No painel esquerdo, o comportamento de 'voltar' é local e manual (não usa a pilha nav global)
+        MenuLevel mAtualEsq = menuAtualEsq;
+        char* pExplorarEsq = pathExplorarEsq;
+
+        if (mAtualEsq == MENU_EXPLORAR_HOME) {
             painelDuplo = false;
             painelAtivo = 1;
         }
-        if (!ehEsq) preencherRoot();
-    }
-    else if (mAtual == MENU_EXPLORAR) {
-        // Mágica: Garantir que trajetos raízes acionem a volta para o Home via Central Law
-        if (strcmp(pExplorar, baseRaiz) == 0 || strcmp(pExplorar, "/data/HyperNeiva") == 0 || strcmp(pExplorar, "/") == 0 || strcmp(pExplorar, "/mnt/usb0") == 0 || strcmp(pExplorar, "/mnt/usb1") == 0) {
-            if (ehEsq) {
+        else if (mAtualEsq == MENU_EXPLORAR) {
+            if (strcmp(pExplorarEsq, "/data/HyperNeiva") == 0 || strcmp(pExplorarEsq, "/") == 0 || strcmp(pExplorarEsq, "/mnt/usb0") == 0 || strcmp(pExplorarEsq, "/mnt/usb1") == 0) {
                 menuAtualEsq = MENU_EXPLORAR_HOME;
                 extern int totalItensEsq;
-                totalItensEsq = 0; // Força o motor gráfico a redesenhar a lista inicial do painel esquerdo!!
+                totalItensEsq = 0; 
                 selEsq = 0; offEsq = 0;
             }
             else {
-                // Ao não fazer nada específico aqui e estar no MENU_EXPLORAR, 
-                // o controle.cpp chamará voltarNavegacao() se handled for False
-                // Mas acaoCircle_Explorar é chamada com handled=True em controle.cpp.
-                // Então chamamos voltarNavegacao() manualmente aqui para as raízes.
-                extern void voltarNavegacao();
-                voltarNavegacao();
-            }
-        }
-        else {
-            char temp[256]; strcpy(temp, pExplorar); char* last = strrchr(temp, '/');
-            if (last) {
-                if (last == temp) strcpy(temp, "/"); else *last = '\0';
-                if (ehEsq) listarDiretorioEsq(temp); else listarDiretorio(temp);
+                char temp[256]; strcpy(temp, pExplorarEsq); char* last = strrchr(temp, '/');
+                if (last) {
+                    if (last == temp) strcpy(temp, "/"); else *last = '\0';
+                    listarDiretorioEsq(temp);
+                }
             }
         }
     }
+    else {
+        // Painel Principal ou Navegação Global via Pilha
+        voltarNavegacao();
+    }
 }
+
 
 void acaoTriangle_Explorar() {
     if (visualizandoMidiaImagem) return;

@@ -12,4 +12,10 @@ void pararVideo();
 void carregarApenasCaminhoUltimoVideo();
 void misturarAudioVideo(int16_t* out_buffer, int amostras);
 
+// MOTOR PPLAY (MPV)
+void iniciarVideoMPV(const char* caminho);
+void atualizarVideoMPV(uint32_t* tela);
+void pararVideoMPV();
+void executarAcaoMPV(int id);
+
 #endif

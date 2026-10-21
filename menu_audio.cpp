@@ -25,6 +25,7 @@ uint32_t getSysColor(int index);
 extern void desenharTextoAlinhado(uint32_t* p, const char* textoOriginal, int fTam, int xBase, int y, int maxW, uint32_t cor);
 
 int offAudioOpcao = 0;
+int totalAudioOpcoes = 11;
 
 const char* listaOpcoesAudio[11] = {
     "PLAY / PAUSE", "PARAR", "PROXIMA FAIXA", "FAIXA ANTERIOR",

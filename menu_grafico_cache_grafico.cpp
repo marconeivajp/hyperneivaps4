@@ -9,9 +9,9 @@ CoverCache coverCache[MAX_GRID_CACHE];
 bool cacheIniciado = false;
 
 // Instanciadas aqui para o resto do sistema conseguir ler sem erro "Undefined Symbol"
-unsigned char* imgVidEdicao = NULL;
-int wVidE = 0, hVidE = 0, cVidE = 0;
-bool tentouVidE = false;
+extern unsigned char* imgVidEdicao;
+extern int wVidE, hVidE, cVidE;
+extern bool tentouVidE;
 
 extern unsigned char* imgBgDinamico;
 extern unsigned char* imgCapaDinamica;
