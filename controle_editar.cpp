@@ -42,8 +42,8 @@ extern void preencherExplorerHome(); extern void salvarAnimacaoComNome(const cha
 
 bool tecladoImeAberto = false; wchar_t bufferTextoIme[256];
 
-bool crossReleaseRequired = true;
-bool circleReleaseRequired = true;
+bool crossReleaseRequired = false;
+bool circleReleaseRequired = false;
 extern bool selecionandoMidiaElemento;
 
 #ifndef CUSTOM_UI_DEF
