@@ -166,49 +166,6 @@ void renderizarCustomUI(uint32_t* p, int telaId) {
 // ==========================================
 // DESENHAR LISTAS (JOGOS X EXPLORADOR)
 // ==========================================
-// --- ICON CACHE (explorer) ---
-struct IconCacheEntry { char key[16]; unsigned char* img; int w; int h; int c; };
-static IconCacheEntry iconCache[128];
-static int iconCacheCount = 0;
-
-static unsigned char* getIconForKey(const char* key, int* outW, int* outH) {
-    for (int i = 0; i < iconCacheCount; i++) {
-        if (strcmp(iconCache[i].key, key) == 0) {
-            *outW = iconCache[i].w; *outH = iconCache[i].h;
-            return iconCache[i].img;
-        }
-    }
-    if (iconCacheCount >= 128) { *outW = 0; *outH = 0; return NULL; }
-    char path[256];
-    snprintf(path, sizeof(path), "/app0/assets/icons/%s.png", key);
-    int w = 0, h = 0, ch = 0;
-    unsigned char* img = stbi_load(path, &w, &h, &ch, 4);
-    if (!img) {
-        // fallback to folder.png for unknown
-        snprintf(path, sizeof(path), "/app0/assets/icons/folder.png");
-        img = stbi_load(path, &w, &h, &ch, 4);
-    }
-    if (img) {
-        strcpy(iconCache[iconCacheCount].key, key);
-        iconCache[iconCacheCount].img = img;
-        iconCache[iconCacheCount].w = w;
-        iconCache[iconCacheCount].h = h;
-        iconCache[iconCacheCount].c = ch;
-        iconCacheCount++;
-    }
-    *outW = w; *outH = h;
-    return img;
-}
-
-static unsigned char* getIconForItem(const char* name, int* outW, int* outH) {
-    if (name[0] == '[') return getIconForKey("folder", outW, outH);
-    const char* dot = strrchr(name, '.');
-    if (!dot || !dot[1]) return getIconForKey("file", outW, outH);
-    char key[16]; memset(key, 0, sizeof(key));
-    strncpy(key, dot + 1, 15);
-    for (int i = 0; key[i]; i++) if (key[i] >= 'A' && key[i] <= 'Z') key[i] += 32;
-    return getIconForKey(key, outW, outH);
-}
 void desenharListas(uint32_t* p, int refPainel) {
     int sAtual = (refPainel == 0) ? selEsq : sel;
     int oAtual = (refPainel == 0) ? offEsq : off;
@@ -467,7 +424,7 @@ void desenharListas(uint32_t* p, int refPainel) {
 
             if (aF > 10) { for (int by = 0; by < listH; by++) { for (int bx = 0; bx < larguraItem; bx++) { int pxX = drawX + bx; int pyY = drawY + by; if (pxX >= 0 && pxX < 1920 && pyY >= 0 && pyY < 1080) p[pyY * 1920 + pxX] = corFundo; } } }
 
-            { int iw = 0, ih = 0; unsigned char* iimg = getIconForItem(nItems[gIdx], &iw, &ih); int iconSize = (listH > 48) ? 40 : listH - 4; if (iconSize < 16) iconSize = 16; if (iimg && iw > 0 && ih > 0) { desenharRedimensionado(p, iimg, iw, ih, iconSize, iconSize, drawX + 4, drawY + (listH - iconSize) / 2); } else { for (int by = 0; by < iconSize; by++) for (int bx = 0; bx < iconSize; bx++) { int pyy = drawY + (listH - iconSize) / 2 + by, pxx = drawX + 4 + bx; if (pxx >= 0 && pxx < 1920 && pyy >= 0 && pyy < 1080) p[pyy * 1920 + pxx] = (nItems[gIdx][0] == '[') ? 0xFFDAA520 : 0xFF808080; } } desenharTextoAlinhadoAnimado(p, nItems[gIdx], currentFontTam, drawX + 48, drawY + (listH / 4), larguraItem - 48, corTexto, isSelected); }
+            desenharTextoAlinhadoAnimado(p, nItems[gIdx], currentFontTam, drawX, drawY + (listH / 4), larguraItem, corTexto, isSelected);
 
             if (isSelected) {
                 if (refPainel == 1 || !painelDuplo) {
@@ -576,4 +533,3 @@ void desenharRodapeEdicao(uint32_t* p) {
     for (int by = 0; by < 40; by++) { for (int bx = 0; bx < 1920; bx++) { int pyY = 1040 + by; if (pyY < 1080) p[pyY * 1920 + bx] = 0xAA000000; } }
     desenharTexto(p, txtPos, 25, 50, 1045, 0xFF00FF00);
 }
-
