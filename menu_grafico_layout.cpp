@@ -5,11 +5,11 @@
 #include "elementos.h"
 #include "stb_image.h"
 #include "menu.h"
-#include <orbis/libkernel.h>
 #include "baixar.h"
 #include <stdio.h>
 #include <string.h>
 #include <math.h>
+#include <ctype.h>
 
 int cursX = 0, cursY = 0, cursW = 0, cursH = 0;
 
@@ -167,73 +167,26 @@ void renderizarCustomUI(uint32_t* p, int telaId) {
 // ==========================================
 // DESENHAR LISTAS (JOGOS X EXPLORADOR)
 // ==========================================
-// --- ICON CACHE (explorer) ---
-struct IconCacheEntry { char key[16]; unsigned char* img; int w; int h; };
-static IconCacheEntry iconCache[64];
-static int iconCacheCount = 0;
-
-static unsigned char* loadFileToMemory(const char* path, size_t* outSize) {
-    int fd = sceKernelOpen(path, 0, 0);
-    if (fd < 0) return NULL;
-    off_t sz = sceKernelLseek(fd, 0, 2);
-    sceKernelLseek(fd, 0, 0);
-    if (sz <= 0 || sz > 1024*1024) { sceKernelClose(fd); return NULL; }
-    unsigned char* buf = (unsigned char*)malloc(sz);
-    if (!buf) { sceKernelClose(fd); return NULL; }
-    size_t total = 0;
-    while (total < (size_t)sz) {
-        int n = sceKernelRead(fd, buf + total, sz - total);
-        if (n <= 0) break;
-        total += n;
+static void drawSimpleIcon(uint32_t* p, const char* name, int drawX, int drawY, int iconSize) {
+    uint32_t cor = (name[0] == '[') ? 0xFFDAA520 : 0xFF4682B4;
+    // darker variant for the square
+    uint32_t corSq = (name[0] == '[') ? 0xFFB8860B : 0xFF2F4F4F;
+    int ix = drawX + 4;
+    int iy = drawY + (listH - iconSize) / 2;
+    for (int by = 0; by < iconSize; by++) for (int bx = 0; bx < iconSize; bx++) {
+        int pyy = iy + by, pxx = ix + bx;
+        if (pxx >= 0 && pxx < 1920 && pyy >= 0 && pyy < 1080) p[pyy * 1920 + pxx] = corSq;
     }
-    sceKernelClose(fd);
-    if (total != (size_t)sz) { free(buf); return NULL; }
-    *outSize = total;
-    return buf;
-}
-
-static unsigned char* getIconForKey(const char* key, int* outW, int* outH) {
-    for (int i = 0; i < iconCacheCount; i++) {
-        if (strcmp(iconCache[i].key, key) == 0) {
-            *outW = iconCache[i].w; *outH = iconCache[i].h;
-            return iconCache[i].img;
-        }
+    // draw a letter
+    char letter[2] = { 0, 0 };
+    if (name[0] == '[') letter[0] = 'D';
+    else {
+        const char* dot = strrchr(name, '.');
+        if (dot && dot[1]) letter[0] = (char)toupper((unsigned char)dot[1]);
+        else letter[0] = (char)toupper((unsigned char)name[0]);
     }
-    if (iconCacheCount >= 64) { *outW = 0; *outH = 0; return NULL; }
-    char path[256];
-    snprintf(path, sizeof(path), "/app0/assets/icons/%s.png", key);
-    size_t sz = 0;
-    unsigned char* data = loadFileToMemory(path, &sz);
-    if (!data) {
-        snprintf(path, sizeof(path), "/app0/assets/icons/folder.png");
-        data = loadFileToMemory(path, &sz);
-    }
-    if (!data) {
-        snprintf(path, sizeof(path), "/app0/sce_sys/icon0.png");
-        data = loadFileToMemory(path, &sz);
-    }
-    if (!data) { *outW = 0; *outH = 0; return NULL; }
-    int w = 0, h = 0, ch = 0;
-    unsigned char* img = stbi_load_from_memory(data, (int)sz, &w, &h, &ch, 4);
-    free(data);
-    if (!img) { *outW = 0; *outH = 0; return NULL; }
-    strcpy(iconCache[iconCacheCount].key, key);
-    iconCache[iconCacheCount].img = img;
-    iconCache[iconCacheCount].w = w;
-    iconCache[iconCacheCount].h = h;
-    iconCacheCount++;
-    *outW = w; *outH = h;
-    return img;
-}
-
-static unsigned char* getIconForItem(const char* name, int* outW, int* outH) {
-    if (name[0] == '[') return getIconForKey("folder", outW, outH);
-    const char* dot = strrchr(name, '.');
-    if (!dot || !dot[1]) return getIconForKey("file", outW, outH);
-    char key[16]; memset(key, 0, sizeof(key));
-    strncpy(key, dot + 1, 15);
-    for (int i = 0; key[i]; i++) if (key[i] >= 'A' && key[i] <= 'Z') key[i] += 32;
-    return getIconForKey(key, outW, outH);
+    // draw letter using desenharTexto at center (approximate)
+    desenharTexto(p, letter, 24, ix + iconSize/2 - 6, iy + iconSize/2 - 12, 0xFFFFFFFF);
 }
 void desenharListas(uint32_t* p, int refPainel) {
     int sAtual = (refPainel == 0) ? selEsq : sel;
@@ -493,7 +446,7 @@ void desenharListas(uint32_t* p, int refPainel) {
 
             if (aF > 10) { for (int by = 0; by < listH; by++) { for (int bx = 0; bx < larguraItem; bx++) { int pxX = drawX + bx; int pyY = drawY + by; if (pxX >= 0 && pxX < 1920 && pyY >= 0 && pyY < 1080) p[pyY * 1920 + pxX] = corFundo; } } }
 
-            { int iw = 0, ih = 0; unsigned char* iimg = getIconForItem(nItems[gIdx], &iw, &ih); int iconSize = (listH > 48) ? 40 : listH - 4; if (iconSize < 16) iconSize = 16; if (iimg && iw > 0 && ih > 0) { desenharRedimensionado(p, iimg, iw, ih, iconSize, iconSize, drawX + 4, drawY + (listH - iconSize) / 2); } else { for (int by = 0; by < iconSize; by++) for (int bx = 0; bx < iconSize; bx++) { int pyy = drawY + (listH - iconSize) / 2 + by, pxx = drawX + 4 + bx; if (pxx >= 0 && pxx < 1920 && pyy >= 0 && pyy < 1080) p[pyy * 1920 + pxx] = (nItems[gIdx][0] == '[') ? 0xFFDAA520 : 0xFF808080; } } desenharTextoAlinhadoAnimado(p, nItems[gIdx], currentFontTam, drawX + 48, drawY + (listH / 4), larguraItem - 48, corTexto, isSelected); }
+            { int iconSize = (listH > 48) ? 40 : listH - 4; if (iconSize < 16) iconSize = 16; drawSimpleIcon(p, nItems[gIdx], drawX, drawY, iconSize); desenharTextoAlinhadoAnimado(p, nItems[gIdx], currentFontTam, drawX + 48, drawY + (listH / 4), larguraItem - 48, corTexto, isSelected); }
 
             if (isSelected) {
                 if (refPainel == 1 || !painelDuplo) {
