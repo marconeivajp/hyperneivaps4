@@ -424,7 +424,7 @@ int main(void) {
         for (int i = 0; i < 1920 * 1080; i++) p[i] = 0xFF121212;
         if (backImg) desenharRedimensionado(p, backImg, wB, hB, 1920, 1080, 0, 0);
 
-        atualizarImePasta();
+        atualizarImePasta(); extern void atualizarImePasta_explorar(); atualizarImePasta_explorar();
 
         if (videoRodando && video_minimizado) {
             verificarTrocaDeVideo();
@@ -470,3 +470,4 @@ int main(void) {
         submeterTela();
     }
 }
+
