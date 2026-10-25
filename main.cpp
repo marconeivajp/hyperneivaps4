@@ -352,7 +352,7 @@ int main(void) {
             else { bloqueio_fechar_video = false; }
 
             if (!esperandoNomePasta && !esperandoRenomear && !visualizandoMidiaImagem && !visualizandoMidiaTexto && !visualizandoPic1 && !visualizandoPDF) {
-                if (!emuladorAtivo && (!videoRodando || (video_minimizado && !pip_selecionado))) {
+                if (!emuladorAtivo && (!videoRodando || video_minimizado)) {
                     MenuLevel menuAntesDoControle = menuAtual;
                     int selecaoAntesDoControle = sel;
                     processarControles(pData.buttons, uId, imeSetting, imeTitle);
@@ -470,4 +470,5 @@ int main(void) {
         submeterTela();
     }
 }
+
 
