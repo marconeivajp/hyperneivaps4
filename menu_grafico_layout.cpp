@@ -556,4 +556,3 @@ void desenharRodapeEdicao(uint32_t* p) {
     desenharTexto(p, txtPos, 25, 50, 1045, 0xFF00FF00);
 }
 
-
