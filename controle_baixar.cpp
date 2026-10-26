@@ -46,7 +46,7 @@ extern int painelAtivo;
 extern int ftpL2State;
 extern char currentFtpPathEsq[1024];
 extern char linksAtuaisEsq[3000][1024];
-extern char nomesEsq[3000][64];
+extern char nomesEsq[3000][256];
 extern int selEsq;
 extern int offEsq;
 extern int totalItensEsq;
@@ -156,7 +156,7 @@ void acaoCross_Baixar(int32_t uId, OrbisImeDialogSetting* imeSetting, uint16_t* 
             bool isLocal = isFtpPanelLocal(isEsq);
 
             char (*lItems)[1024] = isEsq ? linksAtuaisEsq : linksAtuais;
-            char (*nItems)[64] = isEsq ? nomesEsq : nomes;
+            char (*nItems)[256] = isEsq ? nomesEsq : nomes;
             int sAt = isEsq ? selEsq : sel;
 
             if (isLocal) {

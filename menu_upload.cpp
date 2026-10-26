@@ -17,7 +17,7 @@ extern MenuLevel menuAtual;
 extern char msgStatus[128];
 extern int msgTimer;
 extern char linksAtuais[3000][1024];
-extern char nomes[3000][64];
+extern char nomes[3000][256];
 extern int sel;
 extern char currentUploadPath[512];
 extern bool marcados[3000];

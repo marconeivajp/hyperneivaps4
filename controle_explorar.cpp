@@ -54,6 +54,7 @@ extern void atualizarBarra(float progresso);
 
 extern float zoomMidia;
 extern bool fullscreenMidia;
+extern int panMidiaX, panMidiaY;
 extern char caminhoNavegacaoMusicas[512];
 static char caminhoMusicaTocando[512] = "";
 
@@ -192,9 +193,9 @@ void acaoCross_Explorar() {
 
     if (mAtual == MENU_LISTA_CORES && showOpcoes) { acaoArquivo(selOpcao); return; }
     if ((mAtual == MENU_EXPLORAR || visualizandoMidiaImagem) && showOpcoes) { acaoArquivo(selOpcao); return; }
-    if (visualizandoMidiaImagem) { fullscreenMidia = !fullscreenMidia; return; }
+    if (visualizandoMidiaImagem) { fullscreenMidia = !fullscreenMidia; if (!fullscreenMidia) { zoomMidia = 1.0f; panMidiaX = 0; panMidiaY = 0; } return; }
 
-    int sAtual = ehEsq ? selEsq : sel; char (*nItems)[64] = ehEsq ? nomesEsq : nomes; char* pExplorar = ehEsq ? pathExplorarEsq : pathExplorar;
+    int sAtual = ehEsq ? selEsq : sel; char (*nItems)[256] = ehEsq ? nomesEsq : nomes; char* pExplorar = ehEsq ? pathExplorarEsq : pathExplorar;
 
     if (mAtual == MENU_EXPLORAR_HOME) {
         char tempBase[256];
@@ -322,6 +323,7 @@ void acaoCircle_Explorar() {
 
     if (visualizandoMidiaImagem) {
         visualizandoMidiaImagem = false;
+        fullscreenMidia = false; zoomMidia = 1.0f; panMidiaX = 0; panMidiaY = 0;
         if (imgMidia) { stbi_image_free(imgMidia); imgMidia = NULL; }
         return;
     }
@@ -370,7 +372,7 @@ void acaoTriangle_Explorar() {
     bool ehEsq = (painelDuplo && painelAtivo == 0); MenuLevel mAtual = ehEsq ? menuAtualEsq : menuAtual;
     if (mAtual == MENU_EXPLORAR) {
         if (!showOpcoes) {
-            int sAtual = ehEsq ? selEsq : sel; char (*nItems)[64] = ehEsq ? nomesEsq : nomes;
+            int sAtual = ehEsq ? selEsq : sel; char (*nItems)[256] = ehEsq ? nomesEsq : nomes;
             preencherOpcoesContexto(nItems[sAtual]);
         } showOpcoes = !showOpcoes; selOpcao = 0;
     }

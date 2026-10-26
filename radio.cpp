@@ -11,7 +11,7 @@
 #include "network.h"
 
 extern char linksAtuais[3000][1024];
-extern char nomes[3000][64];
+extern char nomes[3000][256];
 extern int totalItens;
 extern int sel;
 extern int off;
@@ -189,7 +189,7 @@ void* threadBuscarRadio(void* arg) {
                     if (!streamEnd) break;
 
                     int nameLen = nameEnd - namePtr;
-                    if (nameLen > 63) nameLen = 63;
+                    if (nameLen > 255) nameLen = 255;
                     strncpy(nomes[totalItens], namePtr, nameLen);
                     nomes[totalItens][nameLen] = '\0';
 

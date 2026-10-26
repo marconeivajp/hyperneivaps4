@@ -28,6 +28,7 @@ unsigned char* imgMidia = NULL;
 int wM = 0, hM = 0, cM = 0;
 float zoomMidia = 1.0f;
 bool fullscreenMidia = false;
+int panMidiaX = 0, panMidiaY = 0;
 
 bool visualizandoMidiaTexto = false;
 char* textoMidiaBuffer = NULL;
@@ -38,7 +39,7 @@ int textoMidiaScroll = 0;
 extern MenuLevel menuAtual;
 extern int sel;
 extern int off;
-extern char nomes[3000][64];
+extern char nomes[3000][256];
 extern char linksAtuais[3000][1024];
 extern char ultimoJogoCarregado[64];
 extern unsigned char* imgPreview;
@@ -212,7 +213,7 @@ void lerNome_PronunciationXML(const char* cusa, char* nomeSaida) {
 }
 
 void acaoCross_Root() {
-    if (visualizandoMidiaImagem) { fullscreenMidia = !fullscreenMidia; if (!fullscreenMidia) zoomMidia = 1.0f; return; }
+    if (visualizandoMidiaImagem) { fullscreenMidia = !fullscreenMidia; if (!fullscreenMidia) { zoomMidia = 1.0f; panMidiaX = 0; panMidiaY = 0; } return; }
     if (visualizandoMidiaTexto) return;
 
     if (menuAtual == MENU_ERRO_CRITICO) {
@@ -360,7 +361,7 @@ void acaoCross_Root() {
             if (len > 4 && (strcasecmp(&nomes[sel][len - 4], ".mp3") == 0 || strcasecmp(&nomes[sel][len - 4], ".wav") == 0)) { tocarMusicaNova(novoCaminho); sprintf(msgStatus, "TOCANDO: %s", nomes[sel]); msgTimer = 180; }
             else if ((len > 4 && (strcasecmp(&nomes[sel][len - 4], ".png") == 0 || strcasecmp(&nomes[sel][len - 4], ".jpg") == 0)) || (len > 5 && strcasecmp(&nomes[sel][len - 5], ".jpeg") == 0)) {
                 if (imgMidia) { stbi_image_free(imgMidia); imgMidia = NULL; } imgMidia = stbi_load(novoCaminho, &wM, &hM, &cM, 4);
-                if (imgMidia) { visualizandoMidiaImagem = true; zoomMidia = 1.0f; fullscreenMidia = false; }
+                if (imgMidia) { visualizandoMidiaImagem = true; zoomMidia = 1.0f; fullscreenMidia = false; panMidiaX = 0; panMidiaY = 0; }
                 else { strcpy(msgStatus, "ERRO AO CARREGAR IMAGEM"); msgTimer = 120; }
             }
             else if ((len > 4 && (strcasecmp(&nomes[sel][len - 4], ".txt") == 0 || strcasecmp(&nomes[sel][len - 4], ".xml") == 0 || strcasecmp(&nomes[sel][len - 4], ".ini") == 0 || strcasecmp(&nomes[sel][len - 4], ".cpp") == 0 || strcasecmp(&nomes[sel][len - 4], ".doc") == 0 || strcasecmp(&nomes[sel][len - 4], ".bin") == 0 || strcasecmp(&nomes[sel][len - 4], ".log") == 0 || strcasecmp(&nomes[sel][len - 4], ".csv") == 0 || strcasecmp(&nomes[sel][len - 4], ".bat") == 0 || strcasecmp(&nomes[sel][len - 4], ".css") == 0 || strcasecmp(&nomes[sel][len - 4], ".php") == 0 || strcasecmp(&nomes[sel][len - 4], ".pdf") == 0)) || (len > 5 && (strcasecmp(&nomes[sel][len - 5], ".json") == 0 || strcasecmp(&nomes[sel][len - 5], ".docx") == 0 || strcasecmp(&nomes[sel][len - 5], ".html") == 0 || strcasecmp(&nomes[sel][len - 5], ".yaml") == 0)) || (len > 3 && (strcasecmp(&nomes[sel][len - 3], ".md") == 0 || strcasecmp(&nomes[sel][len - 3], ".js") == 0 || strcasecmp(&nomes[sel][len - 3], ".py") == 0 || strcasecmp(&nomes[sel][len - 3], ".sh") == 0)) || (len > 2 && (strcasecmp(&nomes[sel][len - 2], ".h") == 0 || strcasecmp(&nomes[sel][len - 2], ".c") == 0))) {
@@ -379,7 +380,7 @@ void acaoCross_Root() {
 }
 
 void acaoCircle_Root() {
-    if (visualizandoMidiaImagem) { visualizandoMidiaImagem = false; fullscreenMidia = false; zoomMidia = 1.0f; if (imgMidia) { stbi_image_free(imgMidia); imgMidia = NULL; } return; }
+    if (visualizandoMidiaImagem) { visualizandoMidiaImagem = false; fullscreenMidia = false; zoomMidia = 1.0f; panMidiaX = 0; panMidiaY = 0; if (imgMidia) { stbi_image_free(imgMidia); imgMidia = NULL; } return; }
     if (visualizandoMidiaTexto) { visualizandoMidiaTexto = false; if (textoMidiaBuffer) { free(textoMidiaBuffer); textoMidiaBuffer = NULL; } return; }
     
     // A navegação agora é tratada centralmente no controle.cpp

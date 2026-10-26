@@ -80,6 +80,7 @@ bool teste_controle_aberto = false;
 extern const char* listaOpcoesAudio[11];
 extern void abrirMenuAudioOpcoes(), tratarSelecaoAudio(int op);
 extern bool visualizandoMidiaImagem, visualizandoMidiaTexto;
+extern int panMidiaX, panMidiaY;
 extern unsigned char* imgMidia;
 
 // Puxando a variável e função de inicialização pro atalho funcionar
@@ -343,6 +344,12 @@ int main(void) {
             if (visualizandoPDF) {
                 processarControlesLeitor(pData.buttons, ultimos_botoes);
                 circle_consumido = true;  // Bolinha ja tratada no processarControlesLeitor
+            }
+            // Pan da imagem com o analogico esquerdo quando ampliada/tela cheia
+            if (visualizandoMidiaImagem) {
+                int lx = (int)pData.leftStick.x - 128, ly = (int)pData.leftStick.y - 128;
+                if (lx > 30 || lx < -30) panMidiaX += lx / 12;
+                if (ly > 30 || ly < -30) panMidiaY += ly / 12;
             }
 
             if (cross_consumido) pData.buttons &= ~ORBIS_PAD_BUTTON_CROSS;

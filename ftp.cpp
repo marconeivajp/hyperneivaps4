@@ -27,7 +27,7 @@ void acessarFTPDir(int index, const char* path);
 void acessarFTPEsq(int index, const char* path);
 void listarDiretorioDireitaFTP(const char* dirPath);
 
-extern char nomes[3000][64];
+extern char nomes[3000][256];
 extern char linksAtuais[3000][1024];
 extern int totalItens;
 extern MenuLevel menuAtual;
@@ -35,7 +35,7 @@ extern int sel;
 extern int off;
 extern bool marcados[3000];
 
-extern char nomesEsq[3000][64];
+extern char nomesEsq[3000][256];
 extern bool marcadosEsq[3000];
 extern int totalItensEsq;
 extern int selEsq;
@@ -227,7 +227,7 @@ void listarDiretorioDireitaFTP(const char* dirPath) {
         for (int j = 0; j < totalItens - i - 1; j++) {
             bool trocar = false; bool isDir1 = (nomes[j][0] == '['); bool isDir2 = (nomes[j + 1][0] == '[');
             if (isDir1 && !isDir2) trocar = false; else if (!isDir1 && isDir2) trocar = true; else if (strcasecmp(nomes[j], nomes[j + 1]) > 0) trocar = true;
-            if (trocar) { char tmp[64]; strcpy(tmp, nomes[j]); strcpy(nomes[j], nomes[j + 1]); strcpy(nomes[j + 1], tmp); }
+            if (trocar) { char tmp[256]; strcpy(tmp, nomes[j]); strcpy(nomes[j], nomes[j + 1]); strcpy(nomes[j + 1], tmp); }
         }
     }
     if (totalItens == 0) { strcpy(nomes[0], "Pasta Vazia / Acesso Negado"); totalItens = 1; }
@@ -665,7 +665,7 @@ void processar_deletar_ftp() {
 
     int tItens = isEsq ? totalItensEsq : totalItens;
     bool* mItems = isEsq ? marcadosEsq : marcados;
-    char (*nItems)[64] = isEsq ? nomesEsq : nomes;
+    char (*nItems)[256] = isEsq ? nomesEsq : nomes;
     char (*lItems)[1024] = isEsq ? linksAtuaisEsq : linksAtuais;
     int sAt = isEsq ? selEsq : sel;
 
@@ -734,7 +734,7 @@ void acaoOpcaoFTP(int idxOpcao, int32_t uId) {
 
     int tItens = isEsq ? totalItensEsq : totalItens;
     bool* mItems = isEsq ? marcadosEsq : marcados;
-    char (*nItems)[64] = isEsq ? nomesEsq : nomes;
+    char (*nItems)[256] = isEsq ? nomesEsq : nomes;
     char (*lItems)[1024] = isEsq ? linksAtuaisEsq : linksAtuais;
     int sAt = isEsq ? selEsq : sel;
 

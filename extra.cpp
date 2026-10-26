@@ -12,7 +12,7 @@
 extern int sel;
 extern MenuLevel menuAtual;
 extern int totalItens;
-extern char nomes[3000][64];
+extern char nomes[3000][256];
 
 // PONTE: Lê o comando já aberto pelo main.cpp
 extern int globalPadHandle;

@@ -51,7 +51,7 @@ enum MenuLevel {
 };
 
 extern MenuLevel menuAtual;
-extern char nomes[3000][64];
+extern char nomes[3000][256];
 extern int totalItens;
 extern int sel;
 extern int off;

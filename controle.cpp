@@ -77,8 +77,8 @@ unsigned char* imgPic1 = NULL;
 int wPic1 = 0, hPic1 = 0, cPic1 = 0;
 
 extern bool isFirstFrameUI;
-extern char nomes[3000][64];
-extern char nomesEsq[3000][64];
+extern char nomes[3000][256];
+extern char nomesEsq[3000][256];
 extern char pathExplorarEsq[256];
 extern char pathExplorar[256];
 
@@ -357,7 +357,7 @@ void processarNavegacaoDPad(uint32_t botoes) {
             else if (menuAtual == MENU_EXPLORAR || (painelDuplo && (menuAtualEsq == MENU_EXPLORAR || ftpL2State == 2))) {
                 MenuLevel mAtual = ehEsq ? menuAtualEsq : menuAtual;
                 if (mAtual == MENU_EXPLORAR) {
-                    int sAtual = ehEsq ? selEsq : sel; char (*nItems)[64] = ehEsq ? nomesEsq : nomes;
+                    int sAtual = ehEsq ? selEsq : sel; char (*nItems)[256] = ehEsq ? nomesEsq : nomes;
                     char* pExplorar = ehEsq ? pathExplorarEsq : pathExplorar;
                     if (nItems[sAtual][0] != '[') {
                         char caminhoAbs[512]; sprintf(caminhoAbs, "%s/%s", pExplorar, nItems[sAtual]);

@@ -18,7 +18,7 @@
 #include "stb_image.h"
 
 extern void atualizarBarra(float progresso);
-extern char nomes[3000][64];
+extern char nomes[3000][256];
 extern char linksAtuais[3000][1024];
 extern bool marcados[3000];
 extern int totalItens;
@@ -117,7 +117,7 @@ void lerCacheHBStore() {
         linhaIcone[strcspn(linhaIcone, "\r\n")] = '\0';
 
         if (strlen(linhaNome) > 0 && strlen(linhaLink) > 0) {
-            strncpy(nomes[totalItens], linhaNome, 63); nomes[totalItens][63] = '\0';
+            strncpy(nomes[totalItens], linhaNome, 255); nomes[totalItens][255] = '\0';
             strncpy(linksAtuais[totalItens], linhaLink, 1023); linksAtuais[totalItens][1023] = '\0';
             strncpy(iconesAtuais[totalItens], linhaIcone, 1023); iconesAtuais[totalItens][1023] = '\0';
             totalItens++;

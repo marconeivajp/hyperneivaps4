@@ -136,6 +136,7 @@ void carregarXML(const char* nomeArquivoXML) {
         p += 12; char* f = strchr(p, '\"');
         if (f) {
             int l = (int)(f - p);
+            if (l > 255) l = 255;
             strncpy(nomes[totalItens], p, l);
             nomes[totalItens][l] = '\0';
             totalItens++;

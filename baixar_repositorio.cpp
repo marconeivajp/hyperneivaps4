@@ -6,7 +6,7 @@
 #include <dirent.h>
 #include <orbis/libkernel.h> 
 
-extern char nomes[3000][64];
+extern char nomes[3000][256];
 extern int totalItens;
 extern MenuLevel menuAtual;
 extern int sel;
@@ -140,6 +140,7 @@ void abrirXMLRepositorio(const char* xmlFile) {
         char* f = strchr(p, '\"');
         if (f) {
             int l = (int)(f - p);
+            if (l > 255) l = 255;
             strncpy(nomes[totalItens], p, l);
             nomes[totalItens][l] = '\0';
             totalItens++;

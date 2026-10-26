@@ -44,7 +44,7 @@ bool marcados[3000];
 bool painelDuplo = false;
 int painelAtivo = 1;
 char pathExplorarEsq[256] = "";
-char nomesEsq[3000][64];
+char nomesEsq[3000][256];
 bool marcadosEsq[3000];
 int totalItensEsq = 0;
 int selEsq = 0;
@@ -60,7 +60,7 @@ const char* listaOpcoes[150] = { "" };
 int mapOpcoes[150] = { -1 };
 int totalOpcoes = 0;
 
-char caminhoPerfilAlvo[150][64];
+char caminhoPerfilAlvo[150][256];
 char menuStrDinamico[150][128];
 int acaoJogoEscolhida = 0;
 
@@ -125,9 +125,9 @@ void listarDiretorio(const char* path) {
 
     while ((dir = readdir(d)) != NULL && count < 3000) {
         if (strcmp(dir->d_name, ".") == 0 || strcmp(dir->d_name, "..") == 0) continue;
-        char cleanName[128]; strcpy(cleanName, dir->d_name); int len = strlen(cleanName);
+        char cleanName[256]; strcpy(cleanName, dir->d_name); int len = strlen(cleanName);
         while (len > 0 && (cleanName[len - 1] == ' ' || cleanName[len - 1] == '\r' || cleanName[len - 1] == '\n')) { cleanName[len - 1] = '\0'; len--; }
-        strncpy(temp[count].nome, cleanName, 63); char fullPath[1024]; snprintf(fullPath, sizeof(fullPath), "%s/%s", path, cleanName); struct stat st;
+        strncpy(temp[count].nome, cleanName, 255); char fullPath[1024]; snprintf(fullPath, sizeof(fullPath), "%s/%s", path, cleanName); struct stat st;
         if (dir->d_type == DT_DIR || (dir->d_type == DT_UNKNOWN && stat(fullPath, &st) == 0 && S_ISDIR(st.st_mode))) temp[count].ehPasta = true;
         else temp[count].ehPasta = false; count++;
     } closedir(d);
@@ -157,9 +157,9 @@ void listarDiretorioEsq(const char* path) {
 
     while ((dir = readdir(d)) != NULL && count < 3000) {
         if (strcmp(dir->d_name, ".") == 0 || strcmp(dir->d_name, "..") == 0) continue;
-        char cleanName[128]; strcpy(cleanName, dir->d_name); int len = strlen(cleanName);
+        char cleanName[256]; strcpy(cleanName, dir->d_name); int len = strlen(cleanName);
         while (len > 0 && (cleanName[len - 1] == ' ' || cleanName[len - 1] == '\r' || cleanName[len - 1] == '\n')) { cleanName[len - 1] = '\0'; len--; }
-        strncpy(temp[count].nome, cleanName, 63); char fullPath[1024]; snprintf(fullPath, sizeof(fullPath), "%s/%s", path, cleanName); struct stat st;
+        strncpy(temp[count].nome, cleanName, 255); char fullPath[1024]; snprintf(fullPath, sizeof(fullPath), "%s/%s", path, cleanName); struct stat st;
         if (dir->d_type == DT_DIR || (dir->d_type == DT_UNKNOWN && stat(fullPath, &st) == 0 && S_ISDIR(st.st_mode))) temp[count].ehPasta = true;
         else temp[count].ehPasta = false; count++;
     } closedir(d);
@@ -180,7 +180,7 @@ void acaoArquivo(int idxOpcao) {
 
     bool ehEsq = (painelDuplo && painelAtivo == 0);
     int tItens = ehEsq ? totalItensEsq : totalItens; bool* mItems = ehEsq ? marcadosEsq : marcados;
-    char (*nItems)[64] = ehEsq ? nomesEsq : nomes; char* pExplorar = ehEsq ? pathExplorarEsq : pathExplorar;
+    char (*nItems)[256] = ehEsq ? nomesEsq : nomes; char* pExplorar = ehEsq ? pathExplorarEsq : pathExplorar;
     int sAtual = ehEsq ? selEsq : sel;
 
     bool temMarcado = false;
@@ -630,7 +630,7 @@ void verificarTrocaDeVideo() {
 
     bool ehEsq = (painelDuplo && painelAtivo == 0);
     int tItens = ehEsq ? totalItensEsq : totalItens;
-    char (*nItems)[64] = ehEsq ? nomesEsq : nomes;
+    char (*nItems)[256] = ehEsq ? nomesEsq : nomes;
     char* pExplorar = ehEsq ? pathExplorarEsq : pathExplorar;
     int* pSel = ehEsq ? &selEsq : &sel;
 

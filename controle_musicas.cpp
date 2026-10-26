@@ -6,7 +6,7 @@
 
 extern int sel;
 extern int off;
-extern char nomes[3000][64];
+extern char nomes[3000][256];
 extern char msgStatus[128];
 extern int msgTimer;
 extern MenuLevel menuAtual;

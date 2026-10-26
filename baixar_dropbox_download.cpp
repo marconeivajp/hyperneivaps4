@@ -30,7 +30,7 @@ extern void atualizarBarra(float progresso);
 
 extern void instalarPkgLocal(const char* caminhoAbsoluto);
 
-extern char nomes[3000][64];
+extern char nomes[3000][256];
 extern char linksAtuais[3000][1024];
 extern int totalItens;
 extern MenuLevel menuAtual;
@@ -644,6 +644,7 @@ void acessarDropbox(const char* path) {
                             char* pathPtr = strstr(nameEnd, "\"path_display\": \""); if (!pathPtr) break; pathPtr += 17; char* pathEnd = strchr(pathPtr, '\"');
                             if (nameEnd && pathEnd) {
                                 int nameLen = nameEnd - namePtr; int pathLen = pathEnd - pathPtr;
+                                if (nameLen > 255) nameLen = 255;
                                 strncpy(nomes[totalItens], namePtr, nameLen); nomes[totalItens][nameLen] = '\0';
                                 strncpy(linksAtuais[totalItens], pathPtr, pathLen);
                                 if (isFolder) { linksAtuais[totalItens][pathLen] = '/'; linksAtuais[totalItens][pathLen + 1] = '\0'; }

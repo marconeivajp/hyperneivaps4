@@ -10,6 +10,7 @@ extern unsigned char* imgMidia;
 extern int wM, hM;
 extern float zoomMidia;
 extern bool fullscreenMidia;
+extern int panMidiaX, panMidiaY;
 extern bool visualizandoMidiaTexto;
 extern char* textoMidiaBuffer;
 extern char* linhasTexto[5000];
@@ -40,10 +41,16 @@ bool renderizarLeitorMidia(uint32_t* p) {
         int drawW, drawH;
         if (fullscreenMidia) { drawW = (int)(wM * propMax); drawH = (int)(hM * propMax); }
         else { drawW = (int)(wM * zoomMidia); drawH = (int)(hM * zoomMidia); if (drawW > 1920 || drawH > 1080) { drawW = (int)(wM * propMax); drawH = (int)(hM * propMax); zoomMidia = propMax; } }
-        int posX = (1920 - drawW) / 2, posY = (1080 - drawH) / 2;
+        int limX = (drawW > 1920) ? (drawW - 1920) / 2 : 0;
+        int limY = (drawH > 1080) ? (drawH - 1080) / 2 : 0;
+        if (panMidiaX > limX) panMidiaX = limX;
+        if (panMidiaX < -limX) panMidiaX = -limX;
+        if (panMidiaY > limY) panMidiaY = limY;
+        if (panMidiaY < -limY) panMidiaY = -limY;
+        int posX = (1920 - drawW) / 2 + panMidiaX, posY = (1080 - drawH) / 2 + panMidiaY;
         desenharRedimensionado(p, imgMidia, wM, hM, drawW, drawH, posX, posY);
         for (int by = 0; by < 130; by++) for (int bx = 0; bx < 400; bx++) { int pxX = 1480 + bx, pyY = 930 + by; if (pxX >= 0 && pxX < 1920 && pyY >= 0 && pyY < 1080) p[pyY * 1920 + pxX] = 0xAA000000; }
-        desenharTexto(p, "[X] Tela Cheia", 25, 1500, 960, 0xFFFFFFFF); desenharTexto(p, "[Cima/Baixo] Zoom", 25, 1500, 1000, 0xFFFFFFFF); desenharTexto(p, "[O] Voltar", 25, 1500, 1040, 0xFFFFFFFF);
+        desenharTexto(p, "[X] Tela Cheia", 25, 1500, 920, 0xFFFFFFFF); desenharTexto(p, "[Cima/Baixo] Zoom", 25, 1500, 960, 0xFFFFFFFF); desenharTexto(p, "[Analogico] Mover", 25, 1500, 1000, 0xFFFFFFFF); desenharTexto(p, "[O] Voltar", 25, 1500, 1040, 0xFFFFFFFF);
         return true;
     }
     if (menuAtual == MENU_NOTEPAD || menuAtualEsq == MENU_NOTEPAD) { renderizarNotepad(p); return true; }

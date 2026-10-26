@@ -36,7 +36,7 @@ extern void submeterTela();
 extern unsigned char* backImg;
 extern int wB, hB;
 
-char ipDoPS4[64] = "Calculando IP..."; // <-- NOVA VARIÁVEL QUE GUARDA O IP
+char ipDoPS4[64] = "Calculando IP..."; // <-- NOVA VARIVEL QUE GUARDA O IP
 
 Console listaConsoles[5] = {
     {"Sony - PlayStation", "Sony%20-%20PlayStation"},
@@ -156,7 +156,7 @@ void acaoRede(const char* jogo, bool buscarLista, bool salvarNoHD) {
                         b += 6; if (strstr(b, "Parent Directory") || b[0] == '?' || b[0] == '/') { b++; continue; }
                         char* e = strstr(b, ".png\"");
                         if (e) {
-                            int l = (int)(e - b); strncpy(nomes[totalItens], b, l); nomes[totalItens][l] = '\0';
+                            int l = (int)(e - b); if (l > 255) l = 255; strncpy(nomes[totalItens], b, l); nomes[totalItens][l] = '\0';
                             char* pN = nomes[totalItens], * qN = nomes[totalItens];
                             while (*pN) { if (*pN == '%' && *(pN + 1) == '2' && *(pN + 2) == '0') { *qN++ = ' '; pN += 3; } else { *qN++ = *pN++; } }
                             *qN = '\0'; totalItens++;
@@ -177,7 +177,7 @@ void acaoRede(const char* jogo, bool buscarLista, bool salvarNoHD) {
     sceHttpDeleteRequest(req); sceHttpDeleteConnection(conn); sceHttpDeleteTemplate(tpl);
 }
 
-// --- FUNÇÃO NINJA PARA PEGAR O IP LOCAL DO PS4 ---
+// --- FUNO NINJA PARA PEGAR O IP LOCAL DO PS4 ---
 void pegarIPLocalPS4() {
     int sock = socket(AF_INET, SOCK_DGRAM, 0);
     if (sock < 0) return;
@@ -200,7 +200,7 @@ void pegarIPLocalPS4() {
 }
 
 void preencherMenuBaixar() {
-    pegarIPLocalPS4(); // <-- AQUI! ELE PEGA O IP EXATAMENTE QUANDO VOCÊ CLICA NO MENU "BAIXAR"
+    pegarIPLocalPS4(); // <-- AQUI! ELE PEGA O IP EXATAMENTE QUANDO VOC CLICA NO MENU "BAIXAR"
 
     emSubmenuLojas = false;
     emSubmenuDropbox = false;

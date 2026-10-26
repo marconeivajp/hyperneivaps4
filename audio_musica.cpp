@@ -148,7 +148,7 @@ bool prepararArquivoAudio(char* caminhoFinal) {
 }
 
 struct ItemAudioTemp {
-    char nome[64];
+    char nome[256];
     char path[256];
     bool ehPasta;
 };
@@ -179,8 +179,8 @@ void preencherMenuMusicas() {
             struct stat st;
 
             if (dir->d_type == DT_DIR || (dir->d_type == DT_UNKNOWN && stat(fullPath, &st) == 0 && S_ISDIR(st.st_mode))) {
-                strncpy(temp[count].nome, dir->d_name, 63);
-                temp[count].nome[63] = '\0';
+                strncpy(temp[count].nome, dir->d_name, 255);
+                temp[count].nome[255] = '\0';
                 temp[count].ehPasta = true;
                 snprintf(temp[count].path, 255, "%s", fullPath);
                 count++;
@@ -188,8 +188,8 @@ void preencherMenuMusicas() {
             else {
                 if (strstr(dir->d_name, ".wav") || strstr(dir->d_name, ".WAV") ||
                     strstr(dir->d_name, ".mp3") || strstr(dir->d_name, ".MP3")) {
-                    strncpy(temp[count].nome, dir->d_name, 63);
-                    temp[count].nome[63] = '\0';
+                    strncpy(temp[count].nome, dir->d_name, 255);
+                    temp[count].nome[255] = '\0';
                     temp[count].ehPasta = false;
                     snprintf(temp[count].path, 255, "%s", fullPath);
                     count++;

@@ -6,13 +6,13 @@
 #include "menu.h"
 
 // Estruturas
-struct ItemLista { char nome[64]; bool ehPasta; };
+struct ItemLista { char nome[256]; bool ehPasta; };
 
 // Variáveis Globais do Explorador (Painel Direito/Padrão)
 extern char pathExplorar[256];
 extern char baseRaiz[256];
 extern bool marcados[3000];
-extern char nomes[3000][64];
+extern char nomes[3000][256];
 extern int totalItens;
 extern int sel;
 extern MenuLevel menuAtual;
@@ -21,7 +21,7 @@ extern MenuLevel menuAtual;
 extern bool painelDuplo; // Define se a tela está dividida
 extern int painelAtivo;  // 0 = Esquerdo, 1 = Direito
 extern char pathExplorarEsq[256];
-extern char nomesEsq[3000][64];
+extern char nomesEsq[3000][256];
 extern bool marcadosEsq[3000];
 extern int totalItensEsq;
 extern int selEsq;

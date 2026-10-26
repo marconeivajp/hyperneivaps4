@@ -4,7 +4,7 @@
 #include <dirent.h>
 
 MenuLevel menuAtual = ROOT;
-char nomes[3000][64];
+char nomes[3000][256];
 int totalItens = 0;
 int sel = 0;
 int off = 0;
@@ -94,7 +94,7 @@ void preencherMenuGBA() {
             if (dir->d_type == DT_REG) {
                 const char* ext = strrchr(dir->d_name, '.');
                 if (ext && (strcasecmp(ext, ".gba") == 0 || strcasecmp(ext, ".zip") == 0 || strcasecmp(ext, ".7z") == 0)) {
-                    strncpy(nomes[totalItens], dir->d_name, 63);
+                    strncpy(nomes[totalItens], dir->d_name, 255);
                     nomes[totalItens][63] = '\0';
                     totalItens++;
                 }
@@ -130,7 +130,7 @@ void preencherMenuEmulador() {
             if (dir->d_type == DT_REG) {
                 const char* ext = strrchr(dir->d_name, '.');
                 if (ext && (strcasecmp(ext, ".md") == 0 || strcasecmp(ext, ".bin") == 0 || strcasecmp(ext, ".gen") == 0 || strcasecmp(ext, ".smd") == 0 || strcasecmp(ext, ".zip") == 0 || strcasecmp(ext, ".rar") == 0 || strcasecmp(ext, ".7z") == 0)) {
-                    strncpy(nomes[totalItens], dir->d_name, 63);
+                    strncpy(nomes[totalItens], dir->d_name, 255);
                     nomes[totalItens][63] = '\0';
                     totalItens++;
                 }

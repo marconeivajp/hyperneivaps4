@@ -44,14 +44,35 @@ void criarCaminho(const char* filepath) {
 void extrairZip(const char* zipPath, const char* outPath) {
     mz_zip_archive zip_archive; memset(&zip_archive, 0, sizeof(zip_archive));
     sprintf(msgStatus, "LENDO O ARQUIVO ZIP..."); atualizarBarra(0.01f);
-    if (!mz_zip_reader_init_file(&zip_archive, zipPath, 0)) { sprintf(msgStatus, "ERRO: ARQUIVO ZIP INVALIDO OU CORROMPIDO!"); msgTimer = 180; return; }
-    int totalArquivos = (int)mz_zip_reader_get_num_files(&zip_archive);
-    for (int i = 0; i < totalArquivos; i++) {
-        mz_zip_archive_file_stat file_stat; if (!mz_zip_reader_file_stat(&zip_archive, i, &file_stat)) continue;
-        char out_file[1024]; snprintf(out_file, sizeof(out_file), "%s/%s", outPath, file_stat.m_filename);
-        if (mz_zip_reader_is_file_a_directory(&zip_archive, i)) { criarCaminho(out_file); sceKernelMkdir(out_file, 0777); }
-        else { criarCaminho(out_file); mz_zip_reader_extract_to_file(&zip_archive, i, out_file, 0); }
-        float prog = (float)(i + 1) / (float)totalArquivos; sprintf(msgStatus, "EXTRAINDO: %d%%", (int)(prog * 100)); atualizarBarra(prog);
+    if (!mz_zip_reader_init_file(&zip_archive, zipPath, 0)) {
+        sprintf(msgStatus, "ERRO: ARQUIVO ZIP INVALIDO OU CORROMPIDO! (%s)", zipPath);
+        msgTimer = 240; return;
     }
-    mz_zip_reader_end(&zip_archive); sprintf(msgStatus, "EXTRAIDO COM SUCESSO!"); msgTimer = 180;
+    int totalArquivos = (int)mz_zip_reader_get_num_files(&zip_archive);
+    if (totalArquivos <= 0) {
+        mz_zip_reader_end(&zip_archive);
+        sprintf(msgStatus, "ERRO: ZIP VAZIO OU SEM ARQUIVOS!"); msgTimer = 240; return;
+    }
+    int extraidos = 0, falhas = 0;
+    for (int i = 0; i < totalArquivos; i++) {
+        mz_zip_archive_file_stat file_stat; if (!mz_zip_reader_file_stat(&zip_archive, i, &file_stat)) { falhas++; continue; }
+        const char* nome = file_stat.m_filename;
+        if (!nome || nome[0] == '\0') { falhas++; continue; }
+        if (nome[0] == '/' || strstr(nome, "..")) { falhas++; continue; }
+        char out_file[1024];
+        snprintf(out_file, sizeof(out_file), "%s/%s", outPath, nome);
+        if (mz_zip_reader_is_file_a_directory(&zip_archive, i)) {
+            criarCaminho(out_file); sceKernelMkdir(out_file, 0777); extraidos++;
+        } else {
+            criarCaminho(out_file);
+            if (mz_zip_reader_extract_to_file(&zip_archive, i, out_file, 0)) extraidos++;
+            else falhas++;
+        }
+        float prog = (float)(i + 1) / (float)totalArquivos;
+        sprintf(msgStatus, "EXTRAINDO: %d%%", (int)(prog * 100)); atualizarBarra(prog);
+    }
+    mz_zip_reader_end(&zip_archive);
+    if (falhas > 0 && extraidos == 0) { sprintf(msgStatus, "ERRO AO EXTRAIR: NENHUM ARQUIVO (%d falhas)", falhas); msgTimer = 240; }
+    else if (falhas > 0) { sprintf(msgStatus, "EXTRAIDO: %d OK, %d falhas", extraidos, falhas); msgTimer = 240; }
+    else { sprintf(msgStatus, "EXTRAIDO COM SUCESSO! (%d arquivos)", extraidos); msgTimer = 180; }
 }

@@ -18,12 +18,12 @@ extern int consoleAtual;
 extern char linksAtuais[3000][1024];
 
 extern int sel, off, totalItens;
-extern char nomes[3000][64];
+extern char nomes[3000][256];
 extern bool marcados[3000];
 extern MenuLevel menuAtual;
 
 extern int selEsq, offEsq, totalItensEsq;
-extern char nomesEsq[3000][64];
+extern char nomesEsq[3000][256];
 extern bool marcadosEsq[3000];
 extern MenuLevel menuAtualEsq;
 
@@ -192,7 +192,7 @@ void desenharListas(uint32_t* p, int refPainel) {
     int sAtual = (refPainel == 0) ? selEsq : sel;
     int oAtual = (refPainel == 0) ? offEsq : off;
     int tItens = (refPainel == 0) ? totalItensEsq : totalItens;
-    char (*nItems)[64] = (refPainel == 0) ? nomesEsq : nomes;
+    char (*nItems)[256] = (refPainel == 0) ? nomesEsq : nomes;
     bool* mItems = (refPainel == 0) ? marcadosEsq : marcados;
     MenuLevel mAtual = (refPainel == 0) ? menuAtualEsq : menuAtual;
 
