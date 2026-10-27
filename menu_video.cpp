@@ -54,19 +54,8 @@ void processarControlesMenuVideo(unsigned int btn, OrbisPadData* pData, bool& cr
         visualizandoMidiaImagem || visualizandoPic1 || bloco_notas_aberto ||
         instrumento_aberto || teste_controle_aberto);
 
-    if (video_minimizado && !menu_video_aberto && !bloqueio_hud) {
-        if (btn & ORBIS_PAD_BUTTON_LEFT) {
-            pip_selecionado = true;
-            pData->buttons &= ~ORBIS_PAD_BUTTON_LEFT;
-        }
-        if (pip_selecionado && (btn & ORBIS_PAD_BUTTON_RIGHT)) {
-            pip_selecionado = false;
-            pData->buttons &= ~ORBIS_PAD_BUTTON_RIGHT;
-        }
-    }
-    else if (menu_video_aberto || !video_minimizado || bloqueio_hud) {
-        pip_selecionado = false;
-    }
+    // Em PiP o menu principal deve navegar normalmente: nao intercepta setas.
+    pip_selecionado = false;
 
     if (!menu_video_aberto || vState == V_MAIN) {
         if (!video_minimizado || pip_selecionado) {
@@ -88,7 +77,7 @@ void processarControlesMenuVideo(unsigned int btn, OrbisPadData* pData, bool& cr
     }
 
     if (btn & ORBIS_PAD_BUTTON_TRIANGLE) {
-        if (!video_minimizado) { menu_video_aberto = !menu_video_aberto; vState = V_MAIN; menu_video_sel = 0; offVideoOpcao = 0; editando_opcao = false; }
+        menu_video_aberto = !menu_video_aberto; vState = V_MAIN; menu_video_sel = 0; offVideoOpcao = 0; editando_opcao = false;
     }
 
     if (menu_video_aberto) {
@@ -119,7 +108,7 @@ void processarControlesMenuVideo(unsigned int btn, OrbisPadData* pData, bool& cr
                 if (menu_video_sel == 0) { vState = V_INFO; menu_video_sel = 0; }
                 if (menu_video_sel == 4) { video_pausado = !video_pausado; menu_video_aberto = false; }
                 if (menu_video_sel == 5) { if (video_volume > 0) { last_volume = video_volume; video_volume = 0; } else { video_volume = last_volume > 0 ? last_volume : 100; } }
-                if (menu_video_sel == 6) { video_minimizado = true; menu_video_aberto = false; }
+                if (menu_video_sel == 6) { video_minimizado = !video_minimizado; menu_video_aberto = false; }
                 if (menu_video_sel == 7) { vState = V_PIP; menu_video_sel = 0; editando_opcao = false; }
                 if (menu_video_sel == 8) {
                     num_unique_videos = 0; strcpy(unique_videos[num_unique_videos++], info_nome);
@@ -297,7 +286,7 @@ void desenharMenuPlayerVideo(uint32_t* p) {
             sprintf(opts[3],  "%c Vol: %d%%",     (menu_video_sel == 3  ? '>' : ' '), video_volume);
             sprintf(opts[4],  "%c %s Video",      (menu_video_sel == 4  ? '>' : ' '), video_pausado ? "Retomar" : "Pausar");
             sprintf(opts[5],  "%c %s Audio",      (menu_video_sel == 5  ? '>' : ' '), video_volume == 0 ? "Desmutar" : "Mutar");
-            sprintf(opts[6],  "%c Minimizar PiP", (menu_video_sel == 6  ? '>' : ' '));
+            sprintf(opts[6],  "%c %s PiP",     (menu_video_sel == 6  ? '>' : ' '), video_minimizado ? "Restaurar" : "Minimizar");
             sprintf(opts[7],  "%c Editar PIP",    (menu_video_sel == 7  ? '>' : ' '));
             sprintf(opts[8],  "%c Abertura",      (menu_video_sel == 8  ? '>' : ' '));
             sprintf(opts[9],  "%c Faixas",        (menu_video_sel == 9  ? '>' : ' '));
