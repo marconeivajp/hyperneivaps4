@@ -36,6 +36,7 @@ extern unsigned char* imgMidia;
 extern int wM, hM;
 extern float zoomMidia;
 extern bool fullscreenMidia;
+extern int panMidiaX, panMidiaY;
 
 char pathExplorar[256] = "";
 char baseRaiz[256] = "";
@@ -246,9 +247,10 @@ void acaoArquivo(int idxOpcao) {
         } if (ehEsq) listarDiretorioEsq(pExplorar); else listarDiretorio(pExplorar); break;
     }
     case 7: {
-        int alvo = sAtual; for (int i = 0; i < tItens; i++) if (mItems[i]) { alvo = i; break; }
+        int alvo = sAtual;
+        if (alvo < 0 || alvo >= tItens) { sprintf(msgStatus, "SELECIONE UM ARQUIVO .ZIP"); msgTimer = 120; break; }
         char* nomeReal = nItems[alvo]; if (nomeReal[0] == '[') { sprintf(msgStatus, "SELECIONE UM ARQUIVO .ZIP"); msgTimer = 120; break; }
-        char pathFinal[512]; sprintf(pathFinal, "%s/%s", pExplorar, nomeReal);
+        char pathFinal[1024]; snprintf(pathFinal, sizeof(pathFinal), "%s/%s", pExplorar, nomeReal);
         char temp[512]; strcpy(temp, pathFinal); for (int i = 0; temp[i]; i++) temp[i] = tolower(temp[i]);
 
         if (strstr(temp, ".zip") != NULL || strstr(temp, ".xavatar") != NULL) extrairZip(pathFinal, pExplorar);
@@ -395,7 +397,7 @@ void acaoArquivo(int idxOpcao) {
             }
             if (extraiu) {
                 int canais = 0; imgMidia = stbi_load(tempPath, &wM, &hM, &canais, 4);
-                if (imgMidia) { visualizandoMidiaImagem = true; zoomMidia = 1.0f; fullscreenMidia = false; strcpy(caminhoImagemAberta, tempPath); }
+                if (imgMidia) { visualizandoMidiaImagem = true; zoomMidia = 1.0f; fullscreenMidia = true; panMidiaX = 0; panMidiaY = 0; strcpy(caminhoImagemAberta, tempPath); }
                 else { sprintf(msgStatus, "ERRO AO PROCESSAR A IMAGEM"); msgTimer = 120; }
             }
             else { sprintf(msgStatus, "AVATAR INVALIDO"); msgTimer = 120; }
@@ -407,7 +409,7 @@ void acaoArquivo(int idxOpcao) {
     case 14: {
         if (imgMidia) { stbi_image_free(imgMidia); imgMidia = NULL; }
         int canais = 0; imgMidia = stbi_load(caminhoImagemAberta, &wM, &hM, &canais, 4);
-        if (imgMidia) { visualizandoMidiaImagem = true; zoomMidia = 1.0f; fullscreenMidia = false; }
+        if (imgMidia) { visualizandoMidiaImagem = true; zoomMidia = 1.0f; fullscreenMidia = true; panMidiaX = 0; panMidiaY = 0; }
         else { sprintf(msgStatus, "ERRO AO CARREGAR IMAGEM"); msgTimer = 90; } break;
     }
 

@@ -68,6 +68,7 @@ extern unsigned char* imgMidia;
 extern int wM, hM;
 extern float zoomMidia;
 extern bool fullscreenMidia;
+extern int panMidiaX, panMidiaY;
 extern bool visualizandoMidiaTexto;
 extern char* textoMidiaBuffer;
 extern char* linhasTexto[5000];
@@ -896,7 +897,7 @@ void* threadPreviewFTP(void* arg) {
     char* ext = strrchr(nomeArquivo, '.');
     if (ext && (strcasecmp(ext, ".png") == 0 || strcasecmp(ext, ".jpg") == 0 || strcasecmp(ext, ".jpeg") == 0)) {
         if (imgMidia) { stbi_image_free(imgMidia); imgMidia = NULL; } int canais; imgMidia = stbi_load(localPath, &wM, &hM, &canais, 4);
-        if (imgMidia) { visualizandoMidiaImagem = true; zoomMidia = 1.0f; fullscreenMidia = false; msgTimer = 0; }
+        if (imgMidia) { visualizandoMidiaImagem = true; zoomMidia = 1.0f; fullscreenMidia = true; panMidiaX = 0; panMidiaY = 0; msgTimer = 0; }
         else { sprintf(msgStatus, "ERRO AO ABRIR IMAGEM!"); msgTimer = 120; }
     }
     else if (ext && (strcasecmp(ext, ".txt") == 0 || strcasecmp(ext, ".ini") == 0 || strcasecmp(ext, ".xml") == 0)) {

@@ -82,6 +82,9 @@ extern void abrirMenuAudioOpcoes(), tratarSelecaoAudio(int op);
 extern bool visualizandoMidiaImagem, visualizandoMidiaTexto;
 extern int panMidiaX, panMidiaY;
 extern unsigned char* imgMidia;
+extern float zoomMidia;
+extern bool fullscreenMidia;
+extern int wM, hM;
 
 // Puxando a variável e função de inicialização pro atalho funcionar
 extern char ultimo_video_tocado[512];
@@ -336,10 +339,46 @@ int main(void) {
                 }
             }
 
+            // X minimiza o video em tela cheia para PiP (nao reinicia). Fica fora do
+            // gate do processarControles porque ele nao roda com video em tela cheia.
+            if (videoRodando && !video_minimizado && !menu_video_aberto &&
+                !visualizandoMidiaImagem && !visualizandoMidiaTexto && !visualizandoPic1 && !visualizandoPDF) {
+                if (btn & ORBIS_PAD_BUTTON_CROSS) {
+                    video_minimizado = true;
+                    cross_consumido = true;
+                }
+            }
+
+            // Controles do visualizador de imagem (X = tela cheia, Cima/Baixo = zoom)
+            if (visualizandoMidiaImagem) {
+                static int cdZoomImg = 0;
+                if (btn & ORBIS_PAD_BUTTON_CROSS) {
+                    fullscreenMidia = !fullscreenMidia;
+                    panMidiaX = 0; panMidiaY = 0;
+                    cross_consumido = true;
+                }
+                bool upImg = (pData.buttons & ORBIS_PAD_BUTTON_UP) != 0;
+                bool dnImg = (pData.buttons & ORBIS_PAD_BUTTON_DOWN) != 0;
+                if ((upImg || dnImg) && cdZoomImg <= 0) {
+                    float fit = 1.0f;
+                    if (wM > 0 && hM > 0) {
+                        float pw = 1920.0f / (float)wM, ph = 1080.0f / (float)hM;
+                        fit = (pw < ph) ? pw : ph;
+                    }
+                    if (fullscreenMidia) { fullscreenMidia = false; zoomMidia = fit; }
+                    if (upImg) zoomMidia *= 1.25f;
+                    if (dnImg) zoomMidia /= 1.25f;
+                    if (zoomMidia > fit * 12.0f) zoomMidia = fit * 12.0f;
+                    if (zoomMidia < fit * 0.1f) zoomMidia = fit * 0.1f;
+                    cdZoomImg = 6;
+                }
+                else if (cdZoomImg > 0) cdZoomImg--;
+            }
+
             if (ctrl1On) {
                 int rx = pData.rightStick.x, ry = pData.rightStick.y, lx = pData.leftStick.x, ly = pData.leftStick.y;
                 if (rx > 180 || lx > 180) ctrl1X += 15; if ((rx < 80 && rx > 0) || (lx < 80 && lx > 0)) ctrl1X -= 15;
-                if (ry > 180 || ly > 180) ctrl1Y += 15; if ((ry < 80 && ry > 0) || (ly < 80 && ry > 0)) ctrl1Y -= 15;
+                if (ry > 180 || ly > 180) ctrl1Y += 15; if ((ry < 80 && ry > 0) || (ly < 80 && ly > 0)) ctrl1Y -= 15;
             }
 
             if (videoRodando) {
@@ -350,8 +389,8 @@ int main(void) {
                 processarControlesLeitor(pData.buttons, ultimos_botoes);
                 circle_consumido = true;  // Bolinha ja tratada no processarControlesLeitor
             }
-            // Pan da imagem com o analogico esquerdo quando ampliada/tela cheia
-            if (visualizandoMidiaImagem) {
+            // Pan da imagem com o analogico esquerdo (apenas quando ampliada)
+            if (visualizandoMidiaImagem && !fullscreenMidia) {
                 int lx = (int)pData.leftStick.x - 128, ly = (int)pData.leftStick.y - 128;
                 if (lx > 30 || lx < -30) panMidiaX += lx / 12;
                 if (ly > 30 || ly < -30) panMidiaY += ly / 12;

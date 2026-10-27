@@ -37,18 +37,41 @@ bool renderizarLeitorMidia(uint32_t* p) {
     }
     if (visualizandoMidiaImagem && imgMidia) {
         for (int i = 0; i < 1920 * 1080; i++) p[i] = 0xFF000000;
-        float propW = 1920.0f / wM, propH = 1080.0f / hM, propMax = (propW < propH) ? propW : propH;
-        int drawW, drawH;
-        if (fullscreenMidia) { drawW = (int)(wM * propMax); drawH = (int)(hM * propMax); }
-        else { drawW = (int)(wM * zoomMidia); drawH = (int)(hM * zoomMidia); if (drawW > 1920 || drawH > 1080) { drawW = (int)(wM * propMax); drawH = (int)(hM * propMax); zoomMidia = propMax; } }
+        if (wM <= 0 || hM <= 0) return true;
+        float propW = 1920.0f / (float)wM, propH = 1080.0f / (float)hM;
+        float fit = (propW < propH) ? propW : propH;
+        float z = fullscreenMidia ? fit : zoomMidia;
+        if (z < 0.02f) z = 0.02f;
+        if (z > 20.0f) z = 20.0f;
+        int drawW = (int)(wM * z), drawH = (int)(hM * z);
+        if (drawW < 1) drawW = 1;
+        if (drawH < 1) drawH = 1;
         int limX = (drawW > 1920) ? (drawW - 1920) / 2 : 0;
         int limY = (drawH > 1080) ? (drawH - 1080) / 2 : 0;
+        if (fullscreenMidia) { panMidiaX = 0; panMidiaY = 0; }
         if (panMidiaX > limX) panMidiaX = limX;
         if (panMidiaX < -limX) panMidiaX = -limX;
         if (panMidiaY > limY) panMidiaY = limY;
         if (panMidiaY < -limY) panMidiaY = -limY;
         int posX = (1920 - drawW) / 2 + panMidiaX, posY = (1080 - drawH) / 2 + panMidiaY;
-        desenharRedimensionado(p, imgMidia, wM, hM, drawW, drawH, posX, posY);
+        int x0 = posX < 0 ? 0 : posX;
+        int y0 = posY < 0 ? 0 : posY;
+        int x1 = posX + drawW; if (x1 > 1920) x1 = 1920;
+        int y1 = posY + drawH; if (y1 > 1080) y1 = 1080;
+        for (int py = y0; py < y1; py++) {
+            int sy = (int)(((long long)(py - posY) * hM) / drawH);
+            if (sy < 0) sy = 0;
+            if (sy >= hM) sy = hM - 1;
+            int rowBase = sy * wM;
+            for (int px = x0; px < x1; px++) {
+                int sx = (int)(((long long)(px - posX) * wM) / drawW);
+                if (sx < 0) sx = 0;
+                if (sx >= wM) sx = wM - 1;
+                int idx = (rowBase + sx) * 4;
+                unsigned char a = imgMidia[idx + 3];
+                if (a > 0) p[py * 1920 + px] = ((unsigned int)a << 24) | ((unsigned int)imgMidia[idx] << 16) | ((unsigned int)imgMidia[idx + 1] << 8) | (unsigned int)imgMidia[idx + 2];
+            }
+        }
         for (int by = 0; by < 130; by++) for (int bx = 0; bx < 400; bx++) { int pxX = 1480 + bx, pyY = 930 + by; if (pxX >= 0 && pxX < 1920 && pyY >= 0 && pyY < 1080) p[pyY * 1920 + pxX] = 0xAA000000; }
         desenharTexto(p, "[X] Tela Cheia", 25, 1500, 920, 0xFFFFFFFF); desenharTexto(p, "[Cima/Baixo] Zoom", 25, 1500, 960, 0xFFFFFFFF); desenharTexto(p, "[Analogico] Mover", 25, 1500, 1000, 0xFFFFFFFF); desenharTexto(p, "[O] Voltar", 25, 1500, 1040, 0xFFFFFFFF);
         return true;
