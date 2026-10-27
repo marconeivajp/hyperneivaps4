@@ -339,16 +339,6 @@ int main(void) {
                 }
             }
 
-            // X minimiza o video em tela cheia para PiP (nao reinicia). Fica fora do
-            // gate do processarControles porque ele nao roda com video em tela cheia.
-            if (videoRodando && !video_minimizado && !menu_video_aberto &&
-                !visualizandoMidiaImagem && !visualizandoMidiaTexto && !visualizandoPic1 && !visualizandoPDF) {
-                if (btn & ORBIS_PAD_BUTTON_CROSS) {
-                    video_minimizado = true;
-                    pCross = true;
-                }
-            }
-
             // Controles do visualizador de imagem (X = tela cheia, Cima/Baixo = zoom)
             if (visualizandoMidiaImagem) {
                 static int cdZoomImg = 0;
