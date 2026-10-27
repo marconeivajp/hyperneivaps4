@@ -6,7 +6,7 @@
 #include "graphics.h"
 #include "video.h"
 
-extern bool videoRodando, video_pausado, video_minimizado, exibir_botao_pular, bloqueio_fechar_video;
+extern bool videoRodando, video_pausado, video_minimizado, exibir_botao_pular, bloqueio_fechar_video, pCross;
 extern int frame_skip, video_volume, comando_trocar_video, pip_x, pip_y, pip_w, pip_h, total_audios, total_legendas;
 extern double fps_video, video_time_current, video_time_total, tempo_pulo_alvo, video_fps_multiplier;
 extern char info_nome[128], info_ext[16], info_res[32], info_aspect[32], info_fps[16], info_data_cria[32], info_data_mod[32];
@@ -108,7 +108,7 @@ void processarControlesMenuVideo(unsigned int btn, OrbisPadData* pData, bool& cr
                 if (menu_video_sel == 0) { vState = V_INFO; menu_video_sel = 0; }
                 if (menu_video_sel == 4) { video_pausado = !video_pausado; menu_video_aberto = false; }
                 if (menu_video_sel == 5) { if (video_volume > 0) { last_volume = video_volume; video_volume = 0; } else { video_volume = last_volume > 0 ? last_volume : 100; } }
-                if (menu_video_sel == 6) { video_minimizado = !video_minimizado; menu_video_aberto = false; }
+                if (menu_video_sel == 6) { video_minimizado = !video_minimizado; menu_video_aberto = false; if (video_minimizado) { pCross = true; cross_consumido = false; } }
                 if (menu_video_sel == 7) { vState = V_PIP; menu_video_sel = 0; editando_opcao = false; }
                 if (menu_video_sel == 8) {
                     num_unique_videos = 0; strcpy(unique_videos[num_unique_videos++], info_nome);
@@ -129,7 +129,7 @@ void processarControlesMenuVideo(unsigned int btn, OrbisPadData* pData, bool& cr
                 if (menu_video_sel < 0) menu_video_sel = 3; if (menu_video_sel > 3) menu_video_sel = 0;
                 if (btn & ORBIS_PAD_BUTTON_CROSS) {
                     cross_consumido = true;
-                    if (menu_video_sel == 3) { video_minimizado = !video_minimizado; menu_video_aberto = false; }
+                    if (menu_video_sel == 3) { video_minimizado = !video_minimizado; menu_video_aberto = false; if (video_minimizado) { pCross = true; cross_consumido = false; } }
                     else { editando_opcao = true; backup_pip_x = pip_x; backup_pip_y = pip_y; backup_pip_w = pip_w; backup_pip_h = pip_h; }
                 }
                 if (btn & ORBIS_PAD_BUTTON_CIRCLE) { vState = V_MAIN; circle_consumido = true; }
