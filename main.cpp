@@ -345,7 +345,7 @@ int main(void) {
                 !visualizandoMidiaImagem && !visualizandoMidiaTexto && !visualizandoPic1 && !visualizandoPDF) {
                 if (btn & ORBIS_PAD_BUTTON_CROSS) {
                     video_minimizado = true;
-                    cross_consumido = true;
+                    pCross = true;
                 }
             }
 
