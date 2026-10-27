@@ -312,9 +312,14 @@ int main(void) {
             // NOVO ATALHO GLOBAL: L2 + QUADRADO (Bloqueado em Testes de Hardware)
             if (menuAtual != MENU_CONTROLE_TESTE && menuAtual != MENU_INSTRUMENTOS) {
                 if ((pData.buttons & ORBIS_PAD_BUTTON_L2) && (btn & ORBIS_PAD_BUTTON_SQUARE)) {
-                    if (strlen(ultimo_video_tocado) > 0) {
-                        video_minimizado = true;
+                    if (videoRodando) {
+                        // Ja existe video rodando: so alterna PiP, nunca reinicia
+                        video_minimizado = !video_minimizado;
+                        pData.buttons &= ~(ORBIS_PAD_BUTTON_L2 | ORBIS_PAD_BUTTON_SQUARE);
+                    }
+                    else if (strlen(ultimo_video_tocado) > 0) {
                         iniciarVideoMP4(ultimo_video_tocado);
+                        video_minimizado = true; // inicia em PiP (pararVideo zera a flag)
                         pData.buttons &= ~(ORBIS_PAD_BUTTON_L2 | ORBIS_PAD_BUTTON_SQUARE);
                     }
                 }
@@ -433,14 +438,10 @@ int main(void) {
 
         atualizarImePasta(); extern void atualizarImePasta_explorar(); atualizarImePasta_explorar();
 
-        if (videoRodando && video_minimizado) {
-            verificarTrocaDeVideo();
-            atualizarVideoFFmpeg(p);
-        }
-
         desenharInterface(p);
 
-        if (videoRodando && !video_minimizado) {
+        // Video por cima da interface (PiP sempre visivel; tela cheia cobre o menu)
+        if (videoRodando) {
             verificarTrocaDeVideo();
             atualizarVideoFFmpeg(p);
         }

@@ -359,12 +359,6 @@ void desenharInterface(uint32_t* p) {
         for (int y = barY; y < barY + barH; y++) for (int x = barX; x < barX + barW; x++) if (x >= 0 && x < 1920 && y >= 0 && y < 1080) p[y * 1920 + x] = (x < barX + fill) ? getSysColor(barFill) : getSysColor(barBg);
     }
 
-    // FFmpeg Video Updates
-    if (videoRodando && video_minimizado) {
-        verificarTrocaDeVideo();
-        atualizarVideoFFmpeg(p);
-    }
-
     // Telemetria do rádio só faz sentido enquanto o rádio está visível e tocando.
     bool statusTelemetriaRadio = strncmp(msgStatus, "Net:", 4) == 0;
     bool statusRadioNotificacao = statusTelemetriaRadio ||

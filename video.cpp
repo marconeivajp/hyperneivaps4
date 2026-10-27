@@ -308,6 +308,7 @@ void iniciarVideoMP4(const char* caminho) {
     bloqueio_fechar_video = false;
     bloqueio_audio_nativo = true;
     video_pausado = false;
+    video_minimizado = false;
     video_debug_call = 0;
     video_ring_read_pos = 0;
     video_ring_write_pos = 0;

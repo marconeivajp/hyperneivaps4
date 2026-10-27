@@ -270,7 +270,17 @@ void acaoCross_Explorar() {
             // LOGICA PARA REPRODUZIR Vï¿½DEO MP4 ADICIONADA AQUI
             // ==========================================================
             else if (strstr(nomeBlindado, ".mp4")) {
-                iniciarVideoMP4(caminhoArquivo);
+                extern bool video_minimizado;
+                extern char ultimo_video_tocado[512];
+                if (videoRodando && strcmp(caminhoArquivo, ultimo_video_tocado) == 0) {
+                    // X no video que ja esta tocando: alterna tela cheia/PiP em vez de reiniciar
+                    video_minimizado = !video_minimizado;
+                    extern bool bloqueio_fechar_video;
+                    bloqueio_fechar_video = video_minimizado;
+                }
+                else {
+                    iniciarVideoMP4(caminhoArquivo);
+                }
             }
             else if (strstr(nomeBlindado, ".txt") || strstr(nomeBlindado, ".xml") || strstr(nomeBlindado, ".json") || strstr(nomeBlindado, ".ini") || strstr(nomeBlindado, ".cfg") || strstr(nomeBlindado, ".log") || strstr(nomeBlindado, ".cpp") || strstr(nomeBlindado, ".h")) {
                 extern void editarArquivoExistente(const char* pPasta, const char* nArquivo);
