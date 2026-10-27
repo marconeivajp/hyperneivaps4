@@ -54,8 +54,19 @@ void processarControlesMenuVideo(unsigned int btn, OrbisPadData* pData, bool& cr
         visualizandoMidiaImagem || visualizandoPic1 || bloco_notas_aberto ||
         instrumento_aberto || teste_controle_aberto);
 
-    // Em PiP o menu principal deve navegar normalmente: nao intercepta setas.
-    pip_selecionado = false;
+    if (video_minimizado && !menu_video_aberto && !bloqueio_hud) {
+        if (btn & ORBIS_PAD_BUTTON_LEFT) {
+            pip_selecionado = true;
+            pData->buttons &= ~ORBIS_PAD_BUTTON_LEFT;
+        }
+        if (pip_selecionado && (btn & ORBIS_PAD_BUTTON_RIGHT)) {
+            pip_selecionado = false;
+            pData->buttons &= ~ORBIS_PAD_BUTTON_RIGHT;
+        }
+    }
+    else if (menu_video_aberto || !video_minimizado || bloqueio_hud) {
+        pip_selecionado = false;
+    }
 
     if (!menu_video_aberto || vState == V_MAIN) {
         if (!video_minimizado || pip_selecionado) {
@@ -65,19 +76,22 @@ void processarControlesMenuVideo(unsigned int btn, OrbisPadData* pData, bool& cr
     }
 
     if (!menu_video_aberto && (btn & ORBIS_PAD_BUTTON_CROSS)) {
-        if (exibir_botao_pular && (!video_minimizado || pip_selecionado)) {
-            pularParaTempo(tempo_pulo_alvo);
-            cross_consumido = true;
-        }
-        else if (video_minimizado && pip_selecionado) {
+        if (video_minimizado && pip_selecionado) {
             video_minimizado = false;
             pip_selecionado = false;
+            cross_consumido = true;
+        }
+        else if (exibir_botao_pular && (!video_minimizado || pip_selecionado)) {
+            pularParaTempo(tempo_pulo_alvo);
             cross_consumido = true;
         }
     }
 
     if (btn & ORBIS_PAD_BUTTON_TRIANGLE) {
-        menu_video_aberto = !menu_video_aberto; vState = V_MAIN; menu_video_sel = 0; offVideoOpcao = 0; editando_opcao = false;
+        if (menu_video_aberto || !video_minimizado || pip_selecionado) {
+            menu_video_aberto = !menu_video_aberto; vState = V_MAIN; menu_video_sel = 0; offVideoOpcao = 0; editando_opcao = false;
+            pData->buttons &= ~ORBIS_PAD_BUTTON_TRIANGLE;
+        }
     }
 
     if (menu_video_aberto) {

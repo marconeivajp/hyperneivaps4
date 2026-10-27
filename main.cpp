@@ -393,7 +393,7 @@ int main(void) {
             else { bloqueio_fechar_video = false; }
 
             if (!esperandoNomePasta && !esperandoRenomear && !visualizandoMidiaImagem && !visualizandoMidiaTexto && !visualizandoPic1 && !visualizandoPDF) {
-                if (!emuladorAtivo && (!videoRodando || (video_minimizado && !menu_video_aberto))) {
+                if (!emuladorAtivo && (!videoRodando || (video_minimizado && !menu_video_aberto && !pip_selecionado))) {
                     MenuLevel menuAntesDoControle = menuAtual;
                     int selecaoAntesDoControle = sel;
                     processarControles(pData.buttons, uId, imeSetting, imeTitle);
