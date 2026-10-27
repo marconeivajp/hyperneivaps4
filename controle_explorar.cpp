@@ -40,6 +40,7 @@ extern void acaoArquivo(int idxOpcao);
 extern void iniciarEmulador(const char* romPath);
 
 extern bool visualizandoMidiaImagem;
+extern bool video_minimizado;
 extern unsigned char* imgMidia;
 extern int wM, hM;
 
@@ -319,7 +320,7 @@ void acaoCircle_Explorar() {
     // ==========================================================
     // PARAR O Vï¿½DEO SE ESTIVER RODANDO AO APERTAR BOLINHA
     // ==========================================================
-    if (videoRodando) {
+    if (videoRodando && !video_minimizado) {
         pararVideo();
         return;
     }
