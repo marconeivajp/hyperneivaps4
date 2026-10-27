@@ -5,5 +5,6 @@ void copiarArquivoReal(const char* origem, const char* destino);
 void deletarPastaRecursivamente(const char* path);
 void criarCaminho(const char* filepath);
 void extrairZip(const char* zipPath, const char* outPath);
+void extrair7z(const char* zipPath, const char* outPath);
 
 #endif

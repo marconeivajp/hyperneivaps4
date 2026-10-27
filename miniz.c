@@ -7831,3 +7831,7 @@ mz_bool mz_zip_end(mz_zip_archive *pZip)
 #endif
 
 #endif /*#ifndef MINIZ_NO_ARCHIVE_APIS*/
+
+/* 7z extraction support (LZMA SDK amalgamation), kept in this translation
+   unit so build.bat's explicit object list does not need to change. */
+#include "hn_7z/hn_7z_impl.h"

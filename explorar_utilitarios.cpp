@@ -51,7 +51,7 @@ void extrairZip(const char* zipPath, const char* outPath) {
         if (fh) { fseek(fh, 0, SEEK_END); fsz = ftell(fh); fseek(fh, 0, SEEK_SET); hn = fread(hdr, 1, sizeof(hdr), fh); fclose(fh); }
         if (fsz == 0) { snprintf(msgStatus, sizeof(msgStatus), "ARQUIVO VAZIO (0 bytes)"); }
         else if (hn >= 4 && hdr[0] == 'R' && hdr[1] == 'a' && hdr[2] == 'r' && hdr[3] == '!') { snprintf(msgStatus, sizeof(msgStatus), "ARQUIVO RAR NAO SUPORTADO - CONVERTA PARA ZIP"); }
-        else if (hn >= 6 && hdr[0] == 0x37 && hdr[1] == 0x7A && hdr[2] == 0xBC && hdr[3] == 0xAF && hdr[4] == 0x27 && hdr[5] == 0x1C) { snprintf(msgStatus, sizeof(msgStatus), "ARQUIVO 7Z NAO SUPORTADO - CONVERTA PARA ZIP"); }
+        else if (hn >= 6 && hdr[0] == 0x37 && hdr[1] == 0x7A && hdr[2] == 0xBC && hdr[3] == 0xAF && hdr[4] == 0x27 && hdr[5] == 0x1C) { extrair7z(zipPath, outPath); return; }
         else if (hn >= 2 && hdr[0] == 'P' && hdr[1] == 'K') { snprintf(msgStatus, sizeof(msgStatus), "ZIP INCOMPLETO/CORROMPIDO - BAIXE NOVAMENTE (cod %d)", cod); }
         else { snprintf(msgStatus, sizeof(msgStatus), "NAO E UM ZIP VALIDO (cod %d)", cod); }
         FILE* dbg = fopen("/data/HyperNeiva/zip_debug_log.txt", "a");
@@ -102,4 +102,84 @@ void extrairZip(const char* zipPath, const char* outPath) {
     else if (semSuporte > 0) { snprintf(msgStatus, sizeof(msgStatus), "EXTRAIDO: %d OK, %d sem suporte", extraidos, semSuporte); msgTimer = 300; }
     else if (falhas > 0) { snprintf(msgStatus, sizeof(msgStatus), "EXTRAIDO: %d OK, %d falhas", extraidos, falhas); msgTimer = 300; }
     else { snprintf(msgStatus, sizeof(msgStatus), "EXTRAIDO COM SUCESSO! (%d arquivos)", extraidos); msgTimer = 180; }
+}
+
+extern "C" {
+int hn7z_open(const char* path, void** out);
+int hn7z_num(void* h);
+int hn7z_info(void* h, int i, char* name, int nameSize, int* isDir, unsigned long long* size);
+const unsigned char* hn7z_extract(void* h, int i, unsigned long long* outSize);
+int hn7z_last_error(void* h);
+void hn7z_close(void* h);
+}
+
+static bool nomeEntrada7zSeguro(const char* nome, char* out, int outSize) {
+    if (!nome || !nome[0] || outSize <= 0) return false;
+    snprintf(out, outSize, "%s", nome);
+    for (char* q = out; *q; q++) { if (*q == '\\') *q = '/'; }
+    while (out[0] == '/') memmove(out, out + 1, strlen(out));
+    while (strncmp(out, "./", 2) == 0) memmove(out, out + 2, strlen(out + 2) + 1);
+    if (out[0] == '\0') return false;
+    char tmp[1024]; snprintf(tmp, sizeof(tmp), "%s", out);
+    char* tok = strtok(tmp, "/");
+    while (tok) { if (strcmp(tok, "..") == 0) return false; tok = strtok(NULL, "/"); }
+    return true;
+}
+
+void extrair7z(const char* zipPath, const char* outPath) {
+    snprintf(msgStatus, sizeof(msgStatus), "LENDO ARQUIVO 7Z..."); atualizarBarra(0.01f);
+    void* h = NULL;
+    int rc = hn7z_open(zipPath, &h);
+    if (rc != 0 || !h) {
+        if (rc == -1001) snprintf(msgStatus, sizeof(msgStatus), "ERRO 7Z: NAO ABRIU O ARQUIVO");
+        else if (rc == -1003) snprintf(msgStatus, sizeof(msgStatus), "ARQUIVO 7Z VAZIO (0 bytes)");
+        else if (rc == -1005) snprintf(msgStatus, sizeof(msgStatus), "ERRO 7Z: LEITURA INCOMPLETA - BAIXE NOVAMENTE");
+        else if (rc == 17) snprintf(msgStatus, sizeof(msgStatus), "NAO E UM ARQUIVO 7Z VALIDO");
+        else if (rc == 16) snprintf(msgStatus, sizeof(msgStatus), "7Z CORROMPIDO/INCOMPLETO - BAIXE NOVAMENTE");
+        else if (rc == 4) snprintf(msgStatus, sizeof(msgStatus), "7Z COM METODO NAO SUPORTADO (ex: PPMd)");
+        else if (rc == 2) snprintf(msgStatus, sizeof(msgStatus), "SEM MEMORIA PARA ABRIR O 7Z");
+        else snprintf(msgStatus, sizeof(msgStatus), "ERRO 7Z (cod %d)", rc);
+        FILE* dbg = fopen("/data/HyperNeiva/zip_debug_log.txt", "a");
+        if (dbg) { fprintf(dbg, "7Z FALHA open rc=%d path=%s\n", rc, zipPath); fclose(dbg); }
+        msgTimer = 360; return;
+    }
+    int totalArquivos = hn7z_num(h);
+    if (totalArquivos <= 0) {
+        hn7z_close(h);
+        snprintf(msgStatus, sizeof(msgStatus), "ERRO: 7Z VAZIO OU SEM ARQUIVOS!"); msgTimer = 300; return;
+    }
+    int extraidos = 0, falhas = 0;
+    for (int i = 0; i < totalArquivos; i++) {
+        char nome[1024]; int isDir = 0; unsigned long long fsz = 0;
+        if (hn7z_info(h, i, nome, sizeof(nome), &isDir, &fsz) != 0) { falhas++; continue; }
+        char nomeNorm[1024];
+        if (!nomeEntrada7zSeguro(nome, nomeNorm, sizeof(nomeNorm))) { falhas++; continue; }
+
+        char out_file[2048];
+        snprintf(out_file, sizeof(out_file), "%s/%s", outPath, nomeNorm);
+        if (isDir) {
+            criarCaminho(out_file); sceKernelMkdir(out_file, 0777); extraidos++;
+        } else {
+            criarCaminho(out_file);
+            unsigned long long sz = 0;
+            const unsigned char* data = hn7z_extract(h, i, &sz);
+            if (!data) { falhas++; }
+            else {
+                FILE* fo = fopen(out_file, "wb");
+                if (!fo) { falhas++; }
+                else {
+                    size_t wr = sz ? fwrite(data, 1, (size_t)sz, fo) : 0;
+                    fclose(fo);
+                    if (wr == (size_t)sz) extraidos++; else falhas++;
+                }
+            }
+        }
+        float prog = (float)(i + 1) / (float)totalArquivos;
+        snprintf(msgStatus, sizeof(msgStatus), "EXTRAINDO 7Z: %d%%", (int)(prog * 100)); atualizarBarra(prog);
+    }
+    int lastErr = hn7z_last_error(h);
+    hn7z_close(h);
+    if (falhas > 0 && extraidos == 0) { snprintf(msgStatus, sizeof(msgStatus), "ERRO AO EXTRAIR 7Z: NENHUM ARQUIVO (%d falhas, cod %d)", falhas, lastErr); msgTimer = 360; }
+    else if (falhas > 0) { snprintf(msgStatus, sizeof(msgStatus), "EXTRAIDO 7Z: %d OK, %d falhas", extraidos, falhas); msgTimer = 300; }
+    else { snprintf(msgStatus, sizeof(msgStatus), "7Z EXTRAIDO COM SUCESSO! (%d arquivos)", extraidos); msgTimer = 180; }
 }

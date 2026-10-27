@@ -100,11 +100,11 @@ void preencherOpcoesContexto(const char* nomeArquivo) {
     if (nomeArquivo) {
         char temp[256]; strcpy(temp, nomeArquivo);
         for (int i = 0; temp[i]; i++) temp[i] = tolower(temp[i]);
-        if (strstr(temp, ".zip") != NULL || strstr(temp, ".xavatar") != NULL) isZip = true;
+        if (strstr(temp, ".zip") != NULL || strstr(temp, ".xavatar") != NULL || strstr(temp, ".7z") != NULL) isZip = true;
         if (strstr(temp, ".pdf") != NULL || strstr(temp, ".cbz") != NULL) isPdfOuManga = true;
     }
 
-    if (isZip) { listaOpcoes[9] = "extrair zip / avatar"; mapOpcoes[9] = 7; totalOpcoes = 10; }
+    if (isZip) { listaOpcoes[9] = "extrair zip / 7z / avatar"; mapOpcoes[9] = 7; totalOpcoes = 10; }
     else { totalOpcoes = 9; }
 
     if (isPdfOuManga) {
@@ -248,13 +248,14 @@ void acaoArquivo(int idxOpcao) {
     }
     case 7: {
         int alvo = sAtual;
-        if (alvo < 0 || alvo >= tItens) { sprintf(msgStatus, "SELECIONE UM ARQUIVO .ZIP"); msgTimer = 120; break; }
-        char* nomeReal = nItems[alvo]; if (nomeReal[0] == '[') { sprintf(msgStatus, "SELECIONE UM ARQUIVO .ZIP"); msgTimer = 120; break; }
+        if (alvo < 0 || alvo >= tItens) { sprintf(msgStatus, "SELECIONE UM ARQUIVO .ZIP OU .7Z"); msgTimer = 120; break; }
+        char* nomeReal = nItems[alvo]; if (nomeReal[0] == '[') { sprintf(msgStatus, "SELECIONE UM ARQUIVO .ZIP OU .7Z"); msgTimer = 120; break; }
         char pathFinal[1024]; snprintf(pathFinal, sizeof(pathFinal), "%s/%s", pExplorar, nomeReal);
         char temp[512]; strcpy(temp, pathFinal); for (int i = 0; temp[i]; i++) temp[i] = tolower(temp[i]);
 
         if (strstr(temp, ".zip") != NULL || strstr(temp, ".xavatar") != NULL) extrairZip(pathFinal, pExplorar);
-        else { sprintf(msgStatus, "SOMENTE ARQUIVOS .ZIP OU .XAVATAR SAO SUPORTADOS"); msgTimer = 120; }
+        else if (strstr(temp, ".7z") != NULL) extrair7z(pathFinal, pExplorar);
+        else { sprintf(msgStatus, "SOMENTE ARQUIVOS .ZIP, .7Z OU .XAVATAR SAO SUPORTADOS"); msgTimer = 120; }
         if (ehEsq) listarDiretorioEsq(pExplorar); else listarDiretorio(pExplorar); break;
     }
     case 8: { mItems[sAtual] = !mItems[sAtual]; break; }
