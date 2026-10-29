@@ -94,6 +94,7 @@ extern void carregarApenasCaminhoUltimoVideo();
 // Declarações Externas para linkar com o menu_video.cpp
 extern bool videoRodando, video_minimizado, menu_video_aberto, pip_selecionado, bloqueio_fechar_video;
 extern void pararVideo(), atualizarVideoFFmpeg(uint32_t* tela), verificarTrocaDeVideo();
+extern void pausarVideoParaTela(), retomarVideoAposTela();
 extern void processarControlesMenuVideo(unsigned int btn, OrbisPadData* pData, bool& cross_consumido, bool& circle_consumido);
 extern void desenharMenuPlayerVideo(uint32_t* p);
 
@@ -454,10 +455,8 @@ int main(void) {
             menuAtual == MENU_NOTEPAD || menuAtualEsq == MENU_NOTEPAD ||
             visualizandoPDF || visualizandoMidiaTexto || visualizandoMidiaImagem ||
             visualizandoPic1 || emuladorAtivo);
-        if (telaSemVideo && videoRodando) {
-            bloqueio_fechar_video = false;
-            pararVideo();
-        }
+        if (telaSemVideo) pausarVideoParaTela();
+        else retomarVideoAposTela();
 
         if (emuladorAtivo) {
             if (menuEmuladorAtivo) {
@@ -479,7 +478,7 @@ int main(void) {
         desenharInterface(p);
 
         // Video por cima da interface (PiP sempre visivel; tela cheia cobre o menu)
-        if (videoRodando) {
+        if (videoRodando && !telaSemVideo) {
             verificarTrocaDeVideo();
             atualizarVideoFFmpeg(p);
         }
@@ -509,7 +508,7 @@ int main(void) {
         }
         // ==========================================
 
-        if (videoRodando) {
+        if (videoRodando && !telaSemVideo) {
             desenharMenuPlayerVideo(p);
         }
 

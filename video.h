@@ -9,6 +9,8 @@ extern bool mostrar_timeline; // A nossa variável mágica adicionada aqui!
 
 void iniciarVideoMP4(const char* caminho);
 void pararVideo();
+void pausarVideoParaTela();
+void retomarVideoAposTela();
 void carregarApenasCaminhoUltimoVideo();
 void misturarAudioVideo(int16_t* out_buffer, int amostras);
 

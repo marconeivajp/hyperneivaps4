@@ -38,6 +38,7 @@ extern void desenharTexto(uint32_t* buffer, const char* texto, int tamanho, int 
 // VARIÁVEIS GLOBAIS DO VÍDEO (Declaradas cedo para a IA enxergar)
 // ==========================================
 bool videoRodando = false, video_pausado = false, video_minimizado = false;
+static bool video_pausado_por_tela = false;
 bool bloqueio_audio_nativo = false;
 char ultimo_video_tocado[512] = "";
 char path_pasta_video[512] = "";
@@ -302,6 +303,23 @@ void pararVideo() {
     current_sws_dw = 0; current_sws_dh = 0; current_src_w = 0;
     videoRodando = false; video_minimizado = false;
     bloqueio_audio_nativo = false;
+}
+
+void pausarVideoParaTela() {
+    if (!videoRodando) return;
+    if (!video_pausado) {
+        video_pausado = true;
+        video_pausado_por_tela = true;
+    }
+}
+
+void retomarVideoAposTela() {
+    if (!video_pausado_por_tela) return;
+    if (videoRodando) {
+        video_pausado = false;
+        last_sys_time = sceKernelGetProcessTime();
+    }
+    video_pausado_por_tela = false;
 }
 
 void iniciarVideoMP4(const char* caminho) {
