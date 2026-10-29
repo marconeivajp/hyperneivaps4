@@ -79,98 +79,134 @@ int obterTamanhoFila() {
 // ==============================================================
 static char tokenAcessoGlobal[2048] = { 0 };
 
+static void copiarTokenSaida(char* outToken) {
+    if (!outToken) return;
+    strncpy(outToken, tokenAcessoGlobal, 2047);
+    outToken[2047] = '\0';
+}
+
 void obterTokenValido(char* outToken) {
+    if (!outToken) return;
+    outToken[0] = '\0';
+
     if (strlen(tokenAcessoGlobal) > 10) {
-        strcpy(outToken, tokenAcessoGlobal);
+        copiarTokenSaida(outToken);
         return;
     }
 
-    char txt_token[2048] = { 0 };
+    char txt_token[4096] = { 0 };
     FILE* fToken = fopen("/data/HyperNeiva/configuracao/dropbox_token.txt", "rb");
     if (fToken) {
         fseek(fToken, 0, SEEK_END); long sz = ftell(fToken); fseek(fToken, 0, SEEK_SET);
-        if (sz > 0 && sz < 2047) { fread(txt_token, 1, sz, fToken); txt_token[sz] = '\0'; }
+        if (sz > 0 && sz < (long)sizeof(txt_token)) { fread(txt_token, 1, sz, fToken); txt_token[sz] = '\0'; }
         fclose(fToken);
     }
 
-    if (strlen(txt_token) < 15) {
-        strcpy(outToken, "");
+    char* inicio = txt_token;
+    while (*inicio == ' ' || *inicio == '\t' || *inicio == '\r' || *inicio == '\n') inicio++;
+    int len = strlen(inicio);
+    while (len > 0 && (inicio[len - 1] == ' ' || inicio[len - 1] == '\t' || inicio[len - 1] == '\r' || inicio[len - 1] == '\n')) inicio[--len] = '\0';
+
+    if (len < 15) return;
+
+    if (strncmp(inicio, "sl.", 3) == 0) {
+        strncpy(tokenAcessoGlobal, inicio, sizeof(tokenAcessoGlobal) - 1);
+        tokenAcessoGlobal[sizeof(tokenAcessoGlobal) - 1] = '\0';
+        copiarTokenSaida(outToken);
         return;
     }
 
     char appKey[128] = "345xl81u5bdp9x2";
     char appSecret[128] = "bhh9nfd8t7rvfuq";
-    char refreshToken[512] = { 0 };
+    char refreshToken[4096] = { 0 };
     bool temLabels = false;
 
-    char txtCopy[2048];
-    strcpy(txtCopy, txt_token);
+    char txtCopy[4096];
+    strncpy(txtCopy, inicio, sizeof(txtCopy) - 1);
+    txtCopy[sizeof(txtCopy) - 1] = '\0';
 
     char* linha = strtok(txtCopy, "\r\n");
     while (linha) {
         if (strstr(linha, "Appkey:") || strstr(linha, "App key:") || strstr(linha, "AppKey:")) {
             char* val = strchr(linha, ':');
-            if (val) sscanf(val + 1, " %s", appKey);
+            if (val) sscanf(val + 1, " %127s", appKey);
             temLabels = true;
         }
         else if (strstr(linha, "App secret:") || strstr(linha, "Appsecret:") || strstr(linha, "App Secret:")) {
             char* val = strchr(linha, ':');
-            if (val) sscanf(val + 1, " %s", appSecret);
+            if (val) sscanf(val + 1, " %127s", appSecret);
             temLabels = true;
         }
         else if (strstr(linha, "Token refresh:") || strstr(linha, "Tokenrefresh:") || strstr(linha, "Token Refresh:")) {
             char* val = strchr(linha, ':');
-            if (val) sscanf(val + 1, " %s", refreshToken);
+            if (val) sscanf(val + 1, " %4095s", refreshToken);
             temLabels = true;
         }
         linha = strtok(NULL, "\r\n");
     }
 
     if (!temLabels) {
-        sscanf(txt_token, "%s", refreshToken);
+        strncpy(refreshToken, inicio, sizeof(refreshToken) - 1);
+        refreshToken[sizeof(refreshToken) - 1] = '\0';
     }
+
+    if (strlen(refreshToken) < 15) return;
 
     sprintf(msgStatus, "VERIFICANDO TOKEN E CONECTANDO...");
 
     int tpl = sceHttpCreateTemplate(httpCtxId, "HyperNeiva/1.0", ORBIS_HTTP_VERSION_1_1, 1);
+    if (tpl < 0) {
+        strncpy(tokenAcessoGlobal, refreshToken, sizeof(tokenAcessoGlobal) - 1);
+        tokenAcessoGlobal[sizeof(tokenAcessoGlobal) - 1] = '\0';
+        copiarTokenSaida(outToken);
+        return;
+    }
     sceHttpsSetSslCallback(tpl, skipSslCallback, NULL);
     sceHttpSetAutoRedirect();
 
     const char* apiUrl = "https://api.dropboxapi.com/oauth2/token";
     int conn = sceHttpCreateConnectionWithURL(tpl, apiUrl, 1);
-    int req = sceHttpCreateRequestWithURL(conn, ORBIS_METHOD_POST, apiUrl, 0);
+    int req = conn >= 0 ? sceHttpCreateRequestWithURL(conn, ORBIS_METHOD_POST, apiUrl, 0) : -1;
 
-    char postData[1024];
-    sprintf(postData, "grant_type=refresh_token&refresh_token=%s&client_id=%s&client_secret=%s", refreshToken, appKey, appSecret);
-
-    sceHttpAddRequestHeader(req, "Content-Type", "application/x-www-form-urlencoded", 1);
-    sceHttpSetRequestContentLength(req, strlen(postData));
+    char postData[8192];
+    snprintf(postData, sizeof(postData), "grant_type=refresh_token&refresh_token=%s&client_id=%s&client_secret=%s", refreshToken, appKey, appSecret);
 
     bool isRefreshToken = false;
 
-    if (sceHttpSendRequest(req, postData, strlen(postData)) >= 0) {
-        unsigned char buf[4096]; memset(buf, 0, sizeof(buf));
-        if (sceHttpReadData(req, buf, sizeof(buf) - 1) > 0) {
-            char* tokenStart = strstr((char*)buf, "\"access_token\": \"");
-            if (tokenStart) {
-                tokenStart += 17;
-                char* tokenEnd = strchr(tokenStart, '\"');
-                if (tokenEnd) {
-                    int tokenLen = tokenEnd - tokenStart;
-                    strncpy(tokenAcessoGlobal, tokenStart, tokenLen);
-                    tokenAcessoGlobal[tokenLen] = '\0';
-                    isRefreshToken = true;
+    if (req >= 0) {
+        sceHttpAddRequestHeader(req, "Content-Type", "application/x-www-form-urlencoded", 1);
+        sceHttpSetRequestContentLength(req, strlen(postData));
+
+        if (sceHttpSendRequest(req, postData, strlen(postData)) >= 0) {
+            unsigned char buf[8192]; memset(buf, 0, sizeof(buf));
+            int n = sceHttpReadData(req, buf, sizeof(buf) - 1);
+            if (n > 0) {
+                buf[n] = '\0';
+                char* tokenStart = strstr((char*)buf, "\"access_token\": \"");
+                if (tokenStart) {
+                    tokenStart += 17;
+                    char* tokenEnd = strchr(tokenStart, '\"');
+                    if (tokenEnd) {
+                        int tokenLen = tokenEnd - tokenStart;
+                        if (tokenLen > (int)sizeof(tokenAcessoGlobal) - 1) tokenLen = sizeof(tokenAcessoGlobal) - 1;
+                        strncpy(tokenAcessoGlobal, tokenStart, tokenLen);
+                        tokenAcessoGlobal[tokenLen] = '\0';
+                        isRefreshToken = true;
+                    }
                 }
             }
         }
     }
-    sceHttpDeleteRequest(req); sceHttpDeleteConnection(conn); sceHttpDeleteTemplate(tpl);
+    if (req >= 0) sceHttpDeleteRequest(req);
+    if (conn >= 0) sceHttpDeleteConnection(conn);
+    sceHttpDeleteTemplate(tpl);
 
     if (!isRefreshToken) {
-        strcpy(tokenAcessoGlobal, refreshToken);
+        strncpy(tokenAcessoGlobal, refreshToken, sizeof(tokenAcessoGlobal) - 1);
+        tokenAcessoGlobal[sizeof(tokenAcessoGlobal) - 1] = '\0';
     }
 
-    strcpy(outToken, tokenAcessoGlobal);
+    copiarTokenSaida(outToken);
 }
 
 
@@ -641,10 +677,13 @@ void acessarDropbox(const char* path) {
                         while ((p = strstr(p, "\".tag\": \"")) && totalItens < 2900) {
                             p += 9; bool isFolder = (strncmp(p, "folder", 6) == 0);
                             char* namePtr = strstr(p, "\"name\": \""); if (!namePtr) break; namePtr += 9; char* nameEnd = strchr(namePtr, '\"');
+                            if (!nameEnd) break;
                             char* pathPtr = strstr(nameEnd, "\"path_display\": \""); if (!pathPtr) break; pathPtr += 17; char* pathEnd = strchr(pathPtr, '\"');
                             if (nameEnd && pathEnd) {
                                 int nameLen = nameEnd - namePtr; int pathLen = pathEnd - pathPtr;
                                 if (nameLen > 255) nameLen = 255;
+                                int pathMax = isFolder ? 1022 : 1023;
+                                if (pathLen > pathMax) pathLen = pathMax;
                                 strncpy(nomes[totalItens], namePtr, nameLen); nomes[totalItens][nameLen] = '\0';
                                 strncpy(linksAtuais[totalItens], pathPtr, pathLen);
                                 if (isFolder) { linksAtuais[totalItens][pathLen] = '/'; linksAtuais[totalItens][pathLen + 1] = '\0'; }
