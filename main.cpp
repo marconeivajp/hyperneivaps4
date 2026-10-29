@@ -450,6 +450,15 @@ int main(void) {
             ultimos_botoes = botoes_preservados; 
         }
 
+        bool telaSemVideo = (menuAtual == MENU_INSTRUMENTOS || menuAtual == MENU_CONTROLE_TESTE ||
+            menuAtual == MENU_NOTEPAD || menuAtualEsq == MENU_NOTEPAD ||
+            visualizandoPDF || visualizandoMidiaTexto || visualizandoMidiaImagem ||
+            visualizandoPic1 || emuladorAtivo);
+        if (telaSemVideo && videoRodando) {
+            bloqueio_fechar_video = false;
+            pararVideo();
+        }
+
         if (emuladorAtivo) {
             if (menuEmuladorAtivo) {
                 if (menuAtual == 50) desenharAjudaControles(obterBufferVideo());
