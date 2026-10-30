@@ -105,7 +105,8 @@ void acaoCross_Baixar(int32_t uId, OrbisImeDialogSetting* imeSetting, uint16_t* 
         }
         else if (emSubmenuDropbox) {
             if (sel == 0) { acessarDropbox(""); }
-            else if (sel == 1) { preencherMenuBackup(); }
+            else if (sel == 1) { listarArquivosUpload("/data/HyperNeiva"); }
+            else if (sel == 2) { preencherMenuBackup(); }
         }
         else if (emSubmenuLojas) {
             if (sel == 0) { emApolloSaves = false; acessarHBStore(); }

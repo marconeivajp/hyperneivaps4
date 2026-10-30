@@ -239,8 +239,9 @@ void preencherMenuDropbox() {
     emApolloSaves = false;
     memset(nomes, 0, sizeof(nomes));
     strcpy(nomes[0], "Download");
-    strcpy(nomes[1], "Menu Backup (Upload)");
-    totalItens = 2;
+    strcpy(nomes[1], "Upload (Do PS4 pro PC)");
+    strcpy(nomes[2], "Menu Backup");
+    totalItens = 3;
     menuAtual = MENU_BAIXAR;
     sel = 0;
     off = 0;
