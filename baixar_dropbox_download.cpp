@@ -44,6 +44,61 @@ extern int msgTimer;
 extern bool marcados[3000];
 extern char caminhoXMLAtual[256];
 
+static const char* pularEspacosJson(const char* p) {
+    while (*p == ' ' || *p == '\t' || *p == '\r' || *p == '\n') p++;
+    return p;
+}
+
+static bool extrairStringJson(const char* obj, const char* chave, char* out, int outSize) {
+    if (!obj || !chave || !out || outSize <= 0) return false;
+    out[0] = '\0';
+    const char* p = obj;
+    while ((p = strstr(p, chave)) != NULL) {
+        p += strlen(chave);
+        p = pularEspacosJson(p);
+        if (*p != ':') continue;
+        p++;
+        p = pularEspacosJson(p);
+        if (*p != '"') continue;
+        p++;
+        int n = 0;
+        while (*p && *p != '"') {
+            char c = *p++;
+            if (c == '\\' && *p) {
+                char esc = *p++;
+                if (esc == 'n') c = '\n';
+                else if (esc == 'r') c = '\r';
+                else if (esc == 't') c = '\t';
+                else c = esc;
+            }
+            if (n < outSize - 1) out[n++] = c;
+        }
+        out[n] = '\0';
+        return (*p == '"');
+    }
+    return false;
+}
+
+static char* fimObjetoJson(char* p) {
+    int depth = 0;
+    bool inStr = false;
+    bool esc = false;
+    while (*p) {
+        char c = *p;
+        if (inStr) {
+            if (esc) esc = false;
+            else if (c == '\\') esc = true;
+            else if (c == '"') inStr = false;
+        } else {
+            if (c == '"') inStr = true;
+            else if (c == '{') depth++;
+            else if (c == '}') { depth--; if (depth == 0) return p; }
+        }
+        p++;
+    }
+    return NULL;
+}
+
 // ==============================================================
 // VARIÁVEIS GLOBAIS E CONTROLES DA FILA
 // ==============================================================
@@ -182,17 +237,11 @@ void obterTokenValido(char* outToken) {
             int n = sceHttpReadData(req, buf, sizeof(buf) - 1);
             if (n > 0) {
                 buf[n] = '\0';
-                char* tokenStart = strstr((char*)buf, "\"access_token\": \"");
-                if (tokenStart) {
-                    tokenStart += 17;
-                    char* tokenEnd = strchr(tokenStart, '\"');
-                    if (tokenEnd) {
-                        int tokenLen = tokenEnd - tokenStart;
-                        if (tokenLen > (int)sizeof(tokenAcessoGlobal) - 1) tokenLen = sizeof(tokenAcessoGlobal) - 1;
-                        strncpy(tokenAcessoGlobal, tokenStart, tokenLen);
-                        tokenAcessoGlobal[tokenLen] = '\0';
-                        isRefreshToken = true;
-                    }
+                char novoToken[2048] = { 0 };
+                if (extrairStringJson((char*)buf, "\"access_token\"", novoToken, sizeof(novoToken))) {
+                    strncpy(tokenAcessoGlobal, novoToken, sizeof(tokenAcessoGlobal) - 1);
+                    tokenAcessoGlobal[sizeof(tokenAcessoGlobal) - 1] = '\0';
+                    isRefreshToken = true;
                 }
             }
         }
@@ -663,33 +712,43 @@ void acessarDropbox(const char* path) {
                 char* h = (char*)malloc(sz + 1);
                 if (h) {
                     fread(h, 1, sz, f2); h[sz] = '\0';
-                    char* errSummary = strstr(h, "\"error_summary\": \"");
-                    if (errSummary) {
-                        errSummary += 18; char* errEnd = strchr(errSummary, '\"');
-                        if (errEnd) {
-                            int errLen = errEnd - errSummary; if (errLen > 100) errLen = 100;
-                            char errMsg[128]; strncpy(errMsg, errSummary, errLen); errMsg[errLen] = '\0';
-                            sprintf(msgStatus, "API ERRO: %s", errMsg);
-                        } strcpy(nomes[0], "Erro na API"); totalItens = 1;
+                    char errMsg[160] = { 0 };
+                    if (extrairStringJson(h, "\"error_summary\"", errMsg, sizeof(errMsg))) {
+                        if (strlen(errMsg) > 100) errMsg[100] = '\0';
+                        sprintf(msgStatus, "API ERRO: %s", errMsg);
+                        strcpy(nomes[0], "Erro na API"); totalItens = 1;
                     }
                     else {
                         char* p = h;
-                        while ((p = strstr(p, "\".tag\": \"")) && totalItens < 2900) {
-                            p += 9; bool isFolder = (strncmp(p, "folder", 6) == 0);
-                            char* namePtr = strstr(p, "\"name\": \""); if (!namePtr) break; namePtr += 9; char* nameEnd = strchr(namePtr, '\"');
-                            if (!nameEnd) break;
-                            char* pathPtr = strstr(nameEnd, "\"path_display\": \""); if (!pathPtr) break; pathPtr += 17; char* pathEnd = strchr(pathPtr, '\"');
-                            if (nameEnd && pathEnd) {
-                                int nameLen = nameEnd - namePtr; int pathLen = pathEnd - pathPtr;
-                                if (nameLen > 255) nameLen = 255;
+                        char* tagMarker;
+                        while ((tagMarker = strstr(p, "\".tag\"")) != NULL && totalItens < 2900) {
+                            char* obj = tagMarker;
+                            while (obj > h && *obj != '{') obj--;
+                            if (*obj != '{') break;
+                            char* objEnd = fimObjetoJson(obj);
+                            if (!objEnd) break;
+                            char salvo = *objEnd; *objEnd = '\0';
+
+                            char tag[32] = { 0 }; char nomeItem[256] = { 0 }; char caminhoItem[1024] = { 0 };
+                            bool ok = extrairStringJson(obj, "\".tag\"", tag, sizeof(tag)) &&
+                                      extrairStringJson(obj, "\"name\"", nomeItem, sizeof(nomeItem)) &&
+                                      extrairStringJson(obj, "\"path_display\"", caminhoItem, sizeof(caminhoItem));
+                            if (ok) {
+                                bool isFolder = (strcmp(tag, "folder") == 0);
+                                int nameLen = strlen(nomeItem);
+                                int pathLen = strlen(caminhoItem);
                                 int pathMax = isFolder ? 1022 : 1023;
+                                if (nameLen > 255) nameLen = 255;
                                 if (pathLen > pathMax) pathLen = pathMax;
-                                strncpy(nomes[totalItens], namePtr, nameLen); nomes[totalItens][nameLen] = '\0';
-                                strncpy(linksAtuais[totalItens], pathPtr, pathLen);
+                                strncpy(nomes[totalItens], nomeItem, nameLen); nomes[totalItens][nameLen] = '\0';
+                                strncpy(linksAtuais[totalItens], caminhoItem, pathLen);
                                 if (isFolder) { linksAtuais[totalItens][pathLen] = '/'; linksAtuais[totalItens][pathLen + 1] = '\0'; }
                                 else { linksAtuais[totalItens][pathLen] = '\0'; }
                                 totalItens++;
-                            } p = pathEnd;
+                            }
+
+                            *objEnd = salvo;
+                            p = objEnd + 1;
                         }
                         if (totalItens > 0) sprintf(msgStatus, "PASTAS CARREGADAS!"); else { strcpy(nomes[0], "Pasta vazia"); totalItens = 1; }
                     } free(h);
@@ -912,13 +971,27 @@ void processarDownloadPastaRecursiva(const char* remotePath, const char* localPa
                     for (int i = 0; i < 100; i++) { subFolders[i] = (char*)malloc(512); subFoldersNames[i] = (char*)malloc(256); }
                     for (int i = 0; i < 200; i++) { files[i] = (char*)malloc(512); filesNames[i] = (char*)malloc(256); }
                     int numSubFolders = 0; int numFiles = 0;
-                    while ((p = strstr(p, "\".tag\": \""))) {
-                        p += 9; bool isFolder = (strncmp(p, "folder", 6) == 0); char* namePtr = strstr(p, "\"name\": \""); if (!namePtr) break; namePtr += 9; char* nameEnd = strchr(namePtr, '\"'); char* pathPtr = strstr(nameEnd, "\"path_display\": \""); if (!pathPtr) break; pathPtr += 17; char* pathEnd = strchr(pathPtr, '\"');
-                        if (nameEnd && pathEnd) {
-                            int nameLen = nameEnd - namePtr; int pathLen = pathEnd - pathPtr;
-                            if (isFolder && numSubFolders < 100) { strncpy(subFolders[numSubFolders], pathPtr, pathLen); subFolders[numSubFolders][pathLen] = '\0'; strncpy(subFoldersNames[numSubFolders], namePtr, nameLen); subFoldersNames[numSubFolders][nameLen] = '\0'; numSubFolders++; }
-                            else if (!isFolder && numFiles < 200) { strncpy(files[numFiles], pathPtr, pathLen); files[numFiles][pathLen] = '\0'; strncpy(filesNames[numFiles], namePtr, nameLen); filesNames[numFiles][nameLen] = '\0'; numFiles++; }
-                        } p = pathEnd;
+                    char* tagMarker;
+                    while ((tagMarker = strstr(p, "\".tag\"")) != NULL) {
+                        char* obj = tagMarker;
+                        while (obj > h && *obj != '{') obj--;
+                        if (*obj != '{') break;
+                        char* objEnd = fimObjetoJson(obj);
+                        if (!objEnd) break;
+                        char salvo = *objEnd; *objEnd = '\0';
+
+                        char tag[32] = { 0 }; char nomeItem[256] = { 0 }; char caminhoItem[512] = { 0 };
+                        bool ok = extrairStringJson(obj, "\".tag\"", tag, sizeof(tag)) &&
+                                  extrairStringJson(obj, "\"name\"", nomeItem, sizeof(nomeItem)) &&
+                                  extrairStringJson(obj, "\"path_display\"", caminhoItem, sizeof(caminhoItem));
+                        if (ok) {
+                            bool isFolder = (strcmp(tag, "folder") == 0);
+                            if (isFolder && numSubFolders < 100) { strncpy(subFolders[numSubFolders], caminhoItem, 511); subFolders[numSubFolders][511] = '\0'; strncpy(subFoldersNames[numSubFolders], nomeItem, 255); subFoldersNames[numSubFolders][255] = '\0'; numSubFolders++; }
+                            else if (!isFolder && numFiles < 200) { strncpy(files[numFiles], caminhoItem, 511); files[numFiles][511] = '\0'; strncpy(filesNames[numFiles], nomeItem, 255); filesNames[numFiles][255] = '\0'; numFiles++; }
+                        }
+
+                        *objEnd = salvo;
+                        p = objEnd + 1;
                     } free(h);
 
                     // A mágica: Se localPath for a raiz (""), ele vai criar "/user", "/data" perfeitamente
