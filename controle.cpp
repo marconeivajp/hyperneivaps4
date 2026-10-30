@@ -212,14 +212,9 @@ void processarNavegacaoDPad(uint32_t botoes) {
             }
             else if (showUploadOpcoes && (menuAtual == MENU_BAIXAR_DROPBOX_UPLOAD || menuAtual == MENU_BAIXAR_DROPBOX_LISTA)) {
                 if (movNext) tocarSom(SFX_DOWN); else if (movPrev) tocarSom(SFX_UP);
-                extern int totalUploads; extern int selUpload; extern int offUpload;
-                int maxV = totalUploads; if (maxV > numSlotsPadrao) maxV = numSlotsPadrao;
-                if (movNext) { if (selUpload < totalUploads - 1) { selUpload++; } else { selUpload = 0; if (listLoop) offUpload++; } }
-                else if (movPrev) { if (selUpload > 0) { selUpload--; } else { selUpload = totalUploads - 1; if (listLoop) offUpload--; } }
-                if (movNext || movPrev) {
-                    if (listFocus) offUpload = selUpload - (numSlotsPadrao / 2);
-                    else { if (selUpload >= offUpload + maxV) offUpload = selUpload - (maxV - 1); if (selUpload < offUpload) offUpload = selUpload; if (!listLoop && offUpload < 0) offUpload = 0; }
-                }
+                int maxV = (upH - 50) / 45; if (maxV < 1) maxV = 1;
+                if (movNext) { if (selUploadOpcao < 2) { selUploadOpcao++; if (selUploadOpcao >= offUploadOpcao + maxV) offUploadOpcao++; } else { selUploadOpcao = 0; offUploadOpcao = 0; } }
+                else if (movPrev) { if (selUploadOpcao > 0) { selUploadOpcao--; if (selUploadOpcao < offUploadOpcao) offUploadOpcao--; } else { selUploadOpcao = 2; offUploadOpcao = 3 - maxV; if (offUploadOpcao < 0) offUploadOpcao = 0; } }
             }
             else if (showOpcoes) {
                 if (movNext) tocarSom(SFX_DOWN); else if (movPrev) tocarSom(SFX_UP);

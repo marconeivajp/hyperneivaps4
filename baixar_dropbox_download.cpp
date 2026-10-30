@@ -273,21 +273,91 @@ void adicionarNaFilaUpload(const char* localPath, const char* remotePath) {
     pthread_mutex_unlock(&filaMutex);
 }
 
-void fazerUploadArquivoParaNuvem(const char* localPath, const char* remoteFilePath) {
+void criarPastaDropbox(const char* remotePath);
+
+static char pastasRemotasCriadas[256][1024];
+static int totalPastasRemotasCriadas = 0;
+
+static bool pastaRemotaRegistrada(const char* caminho) {
+    for (int i = 0; i < totalPastasRemotasCriadas; i++) {
+        if (strcmp(pastasRemotasCriadas[i], caminho) == 0) return true;
+    }
+    return false;
+}
+
+static void registrarPastaRemota(const char* caminho) {
+    if (totalPastasRemotasCriadas >= 256) return;
+    strncpy(pastasRemotasCriadas[totalPastasRemotasCriadas], caminho, 1023);
+    pastasRemotasCriadas[totalPastasRemotasCriadas][1023] = '\0';
+    totalPastasRemotasCriadas++;
+}
+
+static void garantirPastaRemotaParaArquivo(const char* remoteFilePath) {
+    char caminho[1024];
+    strncpy(caminho, remoteFilePath, sizeof(caminho) - 1);
+    caminho[sizeof(caminho) - 1] = '\0';
+
+    char* ultimaBarra = strrchr(caminho, '/');
+    if (!ultimaBarra || ultimaBarra == caminho) return;
+    *ultimaBarra = '\0';
+
+    char parcial[1024];
+    for (int i = 1; caminho[i] != '\0'; i++) {
+        if (caminho[i] == '/') {
+            memcpy(parcial, caminho, i);
+            parcial[i] = '\0';
+            if (!pastaRemotaRegistrada(parcial)) {
+                criarPastaDropbox(parcial);
+                registrarPastaRemota(parcial);
+            }
+        }
+    }
+
+    if (!pastaRemotaRegistrada(caminho)) {
+        criarPastaDropbox(caminho);
+        registrarPastaRemota(caminho);
+    }
+}
+
+bool fazerUploadArquivoParaNuvem(const char* localPath, const char* remoteFilePath) {
     char token[2048] = { 0 };
     obterTokenValido(token);
-    if (strlen(token) < 15) return;
+    if (strlen(token) < 15) {
+        snprintf(msgStatus, sizeof(msgStatus), "ERRO UPLOAD: TOKEN INVALIDO");
+        msgTimer = 240;
+        return false;
+    }
 
-    FILE* fLocal = fopen(localPath, "rb"); if (!fLocal) return;
+    FILE* fLocal = fopen(localPath, "rb");
+    if (!fLocal) {
+        snprintf(msgStatus, sizeof(msgStatus), "ERRO UPLOAD: NAO ABRIU O ARQUIVO");
+        msgTimer = 240;
+        return false;
+    }
     fseek(fLocal, 0, SEEK_END); long fileSize = ftell(fLocal); fseek(fLocal, 0, SEEK_SET);
-    if (fileSize > 80 * 1024 * 1024) { fclose(fLocal); return; }
 
     char* nomeExibido = strrchr(localPath, '/'); if (nomeExibido) nomeExibido++; else nomeExibido = (char*)localPath;
+
+    if (fileSize <= 0) {
+        fclose(fLocal);
+        snprintf(msgStatus, sizeof(msgStatus), "ERRO UPLOAD: ARQUIVO VAZIO (%s)", nomeExibido);
+        msgTimer = 240;
+        return false;
+    }
+
+    if (fileSize > 150 * 1024 * 1024) {
+        fclose(fLocal);
+        snprintf(msgStatus, sizeof(msgStatus), "ERRO UPLOAD: %s PASSA DE 150MB", nomeExibido);
+        msgTimer = 300;
+        return false;
+    }
 
     sprintf(msgDownloadBg, "UPLOAD [%d/%d]: %s", baixadosFilaSessao + 1, totalFilaSessao, nomeExibido);
     if (totalFilaSessao > 0) {
         progressoAtualDownload = (float)baixadosFilaSessao / (float)totalFilaSessao;
     }
+
+    garantirPastaRemotaParaArquivo(remoteFilePath);
 
     int tpl = sceHttpCreateTemplate(httpCtxId, "HyperNeiva/1.0", ORBIS_HTTP_VERSION_1_1, 1);
     sceHttpsSetSslCallback(tpl, skipSslCallback, NULL); sceHttpSetAutoRedirect();
@@ -304,14 +374,51 @@ void fazerUploadArquivoParaNuvem(const char* localPath, const char* remoteFilePa
     sceHttpAddRequestHeader(req, "Dropbox-API-Arg", apiArg, 1);
     sceHttpSetRequestContentLength(req, fileSize);
 
-    unsigned char* fileData = (unsigned char*)malloc(fileSize);
-    if (fileData) {
-        fread(fileData, 1, fileSize, fLocal);
-        sceHttpSendRequest(req, fileData, fileSize);
-        free(fileData);
+    unsigned char* fileData = (unsigned char*)malloc((size_t)fileSize);
+    if (!fileData) {
+        fclose(fLocal);
+        sceHttpDeleteRequest(req); sceHttpDeleteConnection(conn); sceHttpDeleteTemplate(tpl);
+        snprintf(msgStatus, sizeof(msgStatus), "ERRO UPLOAD: SEM MEMORIA PARA %s", nomeExibido);
+        msgTimer = 300;
+        return false;
     }
+
+    size_t lido = fread(fileData, 1, (size_t)fileSize, fLocal);
     fclose(fLocal);
+    if (lido != (size_t)fileSize) {
+        free(fileData);
+        sceHttpDeleteRequest(req); sceHttpDeleteConnection(conn); sceHttpDeleteTemplate(tpl);
+        snprintf(msgStatus, sizeof(msgStatus), "ERRO UPLOAD: LEITURA INCOMPLETA DE %s", nomeExibido);
+        msgTimer = 300;
+        return false;
+    }
+
+    int envio = sceHttpSendRequest(req, fileData, (size_t)fileSize);
+    free(fileData);
+
+    int status = 0;
+    sceHttpGetStatusCode(req, &status);
+    char resposta[1024]; memset(resposta, 0, sizeof(resposta));
+    int nResposta = sceHttpReadData(req, resposta, sizeof(resposta) - 1);
+    if (nResposta > 0) resposta[nResposta] = '\0';
+
+    bool ok = (envio >= 0 && status == 200);
+    if (ok) {
+        snprintf(msgStatus, sizeof(msgStatus), "UPLOAD OK: %s", nomeExibido);
+        msgTimer = 240;
+    }
+    else {
+        char erro[256] = { 0 };
+        if (!extrairStringJson(resposta, "\"error_summary\"", erro, sizeof(erro))) {
+            if (nResposta > 0) { strncpy(erro, resposta, sizeof(erro) - 1); erro[sizeof(erro) - 1] = '\0'; }
+            else strcpy(erro, "SEM RESPOSTA");
+        }
+        snprintf(msgStatus, sizeof(msgStatus), "ERRO UPLOAD %d: %s", status, erro);
+        msgTimer = 300;
+    }
+
     sceHttpDeleteRequest(req); sceHttpDeleteConnection(conn); sceHttpDeleteTemplate(tpl);
+    return ok;
 }
 
 void* threadProcessarFilaUpload(void* arg) {
@@ -325,6 +432,8 @@ void* threadProcessarFilaUpload(void* arg) {
         msgTimer = 180;
         return NULL;
     }
+
+    int falhasFila = 0;
 
     while (true) {
         char localPath[1024] = { 0 };
@@ -351,7 +460,7 @@ void* threadProcessarFilaUpload(void* arg) {
         pthread_mutex_unlock(&filaMutex);
 
         if (strlen(localPath) > 0 && strlen(remotePath) > 0) {
-            fazerUploadArquivoParaNuvem(localPath, remotePath);
+            if (!fazerUploadArquivoParaNuvem(localPath, remotePath)) falhasFila++;
             baixadosFilaSessao++;
         }
 
@@ -376,7 +485,8 @@ void* threadProcessarFilaUpload(void* arg) {
     processandoFilaUpload = false;
     unlink(caminhoFilaUpload);
 
-    sprintf(msgStatus, "UPLOAD / BACKUP CONCLUIDO COM SUCESSO!");
+    if (falhasFila > 0) snprintf(msgStatus, sizeof(msgStatus), "UPLOAD CONCLUIDO COM %d FALHA(S)!", falhasFila);
+    else snprintf(msgStatus, sizeof(msgStatus), "UPLOAD / BACKUP CONCLUIDO COM SUCESSO!");
     msgTimer = 300;
     return NULL;
 }

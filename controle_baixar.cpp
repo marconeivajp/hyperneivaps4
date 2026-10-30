@@ -351,15 +351,8 @@ void acaoTriangle_Baixar() {
         if (sel > 0) { servidorAtualFTPIndex = sel - 1; preencherMenuEditarServidor(servidorAtualFTPIndex); }
     }
     else if (menuAtual == MENU_BAIXAR_DROPBOX_LISTA || menuAtual == MENU_BAIXAR_DROPBOX_UPLOAD) {
-        extern const char* listaOpcoes[150];
-        extern int totalOpcoes;
-        extern bool showOpcoes;
-        extern int mapOpcoes[150];
-        listaOpcoes[0] = "deletar"; mapOpcoes[0] = 600;
-        listaOpcoes[1] = "renomear"; mapOpcoes[1] = 601;
-        listaOpcoes[2] = "nova pasta"; mapOpcoes[2] = 602;
-        listaOpcoes[3] = "sync / backup"; mapOpcoes[3] = 603;
-        totalOpcoes = 4; showOpcoes = true; selOpcao = 0;
+        extern void acaoTriangle_MenuUpload();
+        acaoTriangle_MenuUpload();
     }
     else if (menuAtual == MENU_BAIXAR_FTP_LISTA) {
         extern void preencherOpcoesFTP();

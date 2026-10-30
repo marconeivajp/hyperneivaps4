@@ -9,7 +9,7 @@ void listarArquivosUpload(const char* dirPath);
 void fazerUploadDropbox(const char* localPath);
 
 void criarPastaDropbox(const char* remotePath);
-void fazerUploadArquivoParaNuvem(const char* localPath, const char* remoteFilePath);
+bool fazerUploadArquivoParaNuvem(const char* localPath, const char* remoteFilePath);
 void processarPastaRecursiva(const char* localRoot, const char* currentLocal);
 void fazerUploadPastaRecursivo(const char* dirPath);
 
