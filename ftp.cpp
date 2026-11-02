@@ -710,6 +710,164 @@ void processar_deletar_ftp() {
     sprintf(msgStatus, "ARQUIVOS DELETADOS!"); msgTimer = 180;
 }
 
+extern void deletarPastaRecursivamente(const char* path);
+
+static void copiarPastaRecursivaFTP(const char* origem, const char* destino) {
+    sceKernelMkdir(destino, 0777);
+    DIR* d = opendir(origem);
+    if (!d) return;
+    struct dirent* dir;
+    while ((dir = readdir(d)) != NULL) {
+        if (strcmp(dir->d_name, ".") == 0 || strcmp(dir->d_name, "..") == 0) continue;
+        char src[1024], dst[1024];
+        snprintf(src, sizeof(src), "%s/%s", origem, dir->d_name);
+        snprintf(dst, sizeof(dst), "%s/%s", destino, dir->d_name);
+        struct stat st;
+        if (dir->d_type == DT_DIR || (dir->d_type == DT_UNKNOWN && stat(src, &st) == 0 && S_ISDIR(st.st_mode))) copiarPastaRecursivaFTP(src, dst);
+        else copiarArquivoReal(src, dst);
+    }
+    closedir(d);
+}
+
+struct FtpCopyJob {
+    int count;
+    int serverIndex;
+    char destFolder[1024];
+    char paths[100][1024];
+    bool isDir[100];
+};
+
+static bool ftp_baixarParaTemporario(int ctrl, const char* remoto, const char* local) {
+    char resp[2048];
+    int data_sock = ftp_enter_pasv(ctrl);
+    if (data_sock < 0) return false;
+    char cmd[1024]; snprintf(cmd, sizeof(cmd), "RETR %s", remoto); send_ftp_cmd(ctrl, cmd, resp);
+    FILE* f = fopen(local, "wb"); bool ok = false;
+    if (f) {
+        unsigned char* buf = (unsigned char*)malloc(65536); ok = true;
+        if (buf) {
+            int n;
+            while ((n = recv(data_sock, buf, 65536, 0)) > 0) {
+                if (fwrite(buf, 1, n, f) != (size_t)n) { ok = false; break; }
+            }
+            free(buf);
+        }
+        else ok = false;
+        fclose(f);
+    }
+    close(data_sock); send_ftp_cmd(ctrl, NULL, resp);
+    return ok;
+}
+
+static bool ftp_enviarDoTemporario(int ctrl, const char* local, const char* remoto) {
+    char resp[2048]; char cmd[1024];
+    char parent[1024]; strcpy(parent, remoto);
+    char* slash = strrchr(parent, '/');
+    char nome[256];
+    if (slash) { strncpy(nome, slash + 1, sizeof(nome) - 1); nome[sizeof(nome) - 1] = '\0'; if (slash == parent) parent[1] = '\0'; else *slash = '\0'; }
+    else { strncpy(nome, remoto, sizeof(nome) - 1); nome[sizeof(nome) - 1] = '\0'; strcpy(parent, "/"); }
+    if (parent[0]) { snprintf(cmd, sizeof(cmd), "CWD %s", parent); send_ftp_cmd(ctrl, cmd, resp); }
+    int data_sock = ftp_enter_pasv(ctrl);
+    if (data_sock < 0) return false;
+    snprintf(cmd, sizeof(cmd), "STOR %s", nome); send_ftp_cmd(ctrl, cmd, resp);
+    FILE* f = fopen(local, "rb"); bool ok = false;
+    if (f) {
+        unsigned char* buf = (unsigned char*)malloc(65536); ok = true;
+        if (buf) {
+            int n;
+            while ((n = fread(buf, 1, 65536, f)) > 0) {
+                if (send(data_sock, buf, n, 0) != n) { ok = false; break; }
+            }
+            free(buf);
+        }
+        else ok = false;
+        fclose(f);
+    }
+    close(data_sock); send_ftp_cmd(ctrl, NULL, resp);
+    return ok;
+}
+
+static bool ftp_copiarPastaRemota(int ctrl, const char* origem, const char* destino, const char* tmpRoot, int* seq) {
+    char resp[2048]; char cmd[1200];
+    snprintf(cmd, sizeof(cmd), "MKD %s", destino); send_ftp_cmd(ctrl, cmd, resp);
+    snprintf(cmd, sizeof(cmd), "CWD %s", origem); send_ftp_cmd(ctrl, cmd, resp);
+
+    int data_sock = ftp_enter_pasv(ctrl);
+    if (data_sock < 0) return false;
+    send_ftp_cmd(ctrl, "LIST", resp);
+    char* list_data = (char*)malloc(1024 * 1024);
+    if (!list_data) { close(data_sock); send_ftp_cmd(ctrl, NULL, resp); return false; }
+    int list_len = 0; int n;
+    while ((n = recv(data_sock, list_data + list_len, 65536, 0)) > 0) { list_len += n; if (list_len >= 1024 * 1024 - 65536) break; }
+    list_data[list_len] = '\0'; close(data_sock); send_ftp_cmd(ctrl, NULL, resp);
+
+    bool ok = true; char* p = list_data;
+    while (*p) {
+        char* e = p; while (*e && *e != '\r' && *e != '\n') e++;
+        char guarda = *e; *e = '\0';
+        if (*p) {
+            bool isD = false; char filename[256];
+            if (parse_ftp_line(p, filename, &isD) && strcmp(filename, ".") != 0 && strcmp(filename, "..") != 0) {
+                char newSrc[1024], newDst[1024];
+                snprintf(newSrc, sizeof(newSrc), "%s/%s", origem, filename);
+                snprintf(newDst, sizeof(newDst), "%s/%s", destino, filename);
+                if (isD) { if (!ftp_copiarPastaRemota(ctrl, newSrc, newDst, tmpRoot, seq)) ok = false; }
+                else {
+                    char temp[1024]; snprintf(temp, sizeof(temp), "%s/copia_%d.tmp", tmpRoot, (*seq)++);
+                    if (ftp_baixarParaTemporario(ctrl, newSrc, temp)) {
+                        if (!ftp_enviarDoTemporario(ctrl, temp, newDst)) ok = false;
+                        unlink(temp);
+                    }
+                    else ok = false;
+                }
+            }
+        }
+        if (!guarda) break;
+        p = e + 1; while (*p == '\r' || *p == '\n') p++;
+    }
+    free(list_data);
+    return ok;
+}
+
+static void* threadCopiarRemotoRemoto(void* arg) {
+    FtpCopyJob* job = (FtpCopyJob*)arg;
+    downloadEmSegundoPlano = true; totalFilaSessao = job->count; baixadosFilaSessao = 0;
+    int ctrl = ftp_connect_control(job->serverIndex);
+    if (ctrl < 0) {
+        sprintf(msgStatus, "PC NAO ENCONTRADO!"); msgTimer = 240;
+        downloadEmSegundoPlano = false; free(job); return NULL;
+    }
+    char resp[2048]; char cmdUser[128], cmdPass[128];
+    sprintf(cmdUser, "USER %s", listaServidoresFTP[job->serverIndex].user); send_ftp_cmd(ctrl, cmdUser, resp);
+    if (strlen(listaServidoresFTP[job->serverIndex].pass) > 0) sprintf(cmdPass, "PASS %s", listaServidoresFTP[job->serverIndex].pass); else sprintf(cmdPass, "PASS hyperneiva@ps4.com"); send_ftp_cmd(ctrl, cmdPass, resp);
+    send_ftp_cmd(ctrl, "TYPE I", resp);
+
+    char tmpRoot[256] = "/data/HyperNeiva/configuracao/temporario/ftp_copia";
+    sceKernelMkdir("/data/HyperNeiva/configuracao", 0777); sceKernelMkdir("/data/HyperNeiva/configuracao/temporario", 0777);
+    deletarPastaRecursivamente(tmpRoot); sceKernelMkdir(tmpRoot, 0777);
+
+    int seq = 0;
+    for (int i = 0; i < job->count; i++) {
+        baixadosFilaSessao = i;
+        char* base = strrchr(job->paths[i], '/'); if (base) base++; else base = job->paths[i];
+        char dest[1024]; snprintf(dest, sizeof(dest), "%s%s%s", job->destFolder, strcmp(job->destFolder, "/") == 0 ? "" : "/", base);
+        sprintf(msgDownloadBg, "COPIANDO NO PC: %s", base);
+        if (job->isDir[i]) ftp_copiarPastaRemota(ctrl, job->paths[i], dest, tmpRoot, &seq);
+        else {
+            char temp[1024]; snprintf(temp, sizeof(temp), "%s/copia_%d.tmp", tmpRoot, seq++);
+            if (ftp_baixarParaTemporario(ctrl, job->paths[i], temp)) { ftp_enviarDoTemporario(ctrl, temp, dest); unlink(temp); }
+        }
+    }
+    send_ftp_cmd(ctrl, "QUIT", resp); close(ctrl);
+    deletarPastaRecursivamente(tmpRoot);
+
+    baixadosFilaSessao = job->count;
+    downloadEmSegundoPlano = false;
+    sprintf(msgStatus, "COPIA NO PC CONCLUIDA!"); msgTimer = 240;
+    free(job);
+    return NULL;
+}
+
 void acaoOpcaoFTP(int idxOpcao, int32_t uId) {
     extern int mapOpcoes[150];
     int op = mapOpcoes[idxOpcao];
@@ -814,6 +972,7 @@ void acaoOpcaoFTP(int idxOpcao, int32_t uId) {
         bool temMarcado = false; for (int i = 0; i < tItens; i++) if (mItems[i]) { temMarcado = true; break; }
         for (int i = 0; i < tItens; i++) {
             if (mItems[i] || (!temMarcado && i == sAt)) {
+                if (ftpClipCount >= 100) break;
                 bool isDir = (nItems[i][0] == '[') ? true : false; ftpClipIsDir[ftpClipCount] = isDir;
                 if (isLocal) {
                     char nomeLimpo[256]; if (isDir) { strncpy(nomeLimpo, &nItems[i][1], strlen(nItems[i]) - 2); nomeLimpo[strlen(nItems[i]) - 2] = '\0'; }
@@ -832,6 +991,9 @@ void acaoOpcaoFTP(int idxOpcao, int32_t uId) {
         char destFolder[1024];
         if (isLocal) strcpy(destFolder, isEsq ? pathExplorarEsq : pathExplorarDireita);
         else strcpy(destFolder, isEsq ? currentFtpPathEsq : currentFtpPathDir);
+        if (isLocal && strcmp(destFolder, "HOME") == 0) {
+            sprintf(msgStatus, "NAO PODE COLAR NA TELA HOME!"); msgTimer = 180; showOpcoes = false; return;
+        }
 
         if (!isLocal && ftpClipSource == 1 && ftpClipIsCut) {
             for (int i = 0; i < ftpClipCount; i++) {
@@ -842,6 +1004,39 @@ void acaoOpcaoFTP(int idxOpcao, int32_t uId) {
 
             // ATUALIZAÇÃO REMOVIDA PARA EVITAR REDIRECIONAMENTO E PISCAR DA TELA
             sprintf(msgStatus, "ARQUIVOS MOVIDOS NO PC!"); msgTimer = 180;
+        }
+        else if (isLocal && ftpClipSource == 2) {
+            bool eraCorte = ftpClipIsCut;
+            for (int i = 0; i < ftpClipCount; i++) {
+                char* nomeBase = strrchr(ftpClipPaths[i], '/'); if (nomeBase) nomeBase++; else nomeBase = ftpClipPaths[i];
+                char dest[1024]; sprintf(dest, "%s%s%s", destFolder, strcmp(destFolder, "/") == 0 ? "" : "/", nomeBase);
+                if (strcmp(ftpClipPaths[i], dest) == 0) continue;
+                bool feito = false;
+                if (ftpClipIsCut) feito = (rename(ftpClipPaths[i], dest) == 0);
+                if (!feito) {
+                    if (ftpClipIsDir[i]) copiarPastaRecursivaFTP(ftpClipPaths[i], dest);
+                    else copiarArquivoReal(ftpClipPaths[i], dest);
+                    if (ftpClipIsCut) {
+                        struct stat st;
+                        if (stat(ftpClipPaths[i], &st) == 0 && S_ISDIR(st.st_mode)) deletarPastaRecursivamente(ftpClipPaths[i]);
+                        else unlink(ftpClipPaths[i]);
+                    }
+                }
+            }
+            if (ftpClipIsCut) { ftpClipCount = 0; ftpClipIsCut = false; }
+            if (isEsq) listarDiretorioEsq(pathExplorarEsq); else listarDiretorioDireitaFTP(pathExplorarDireita);
+            sprintf(msgStatus, eraCorte ? "ARQUIVOS MOVIDOS NO PS4!" : "ARQUIVOS COPIADOS NO PS4!"); msgTimer = 180;
+        }
+        else if (!isLocal && ftpClipSource == 1) {
+            FtpCopyJob* job = (FtpCopyJob*)malloc(sizeof(FtpCopyJob));
+            if (job) {
+                job->count = ftpClipCount; job->serverIndex = servidorAtualFTPIndex;
+                strcpy(job->destFolder, destFolder);
+                for (int i = 0; i < ftpClipCount; i++) { strcpy(job->paths[i], ftpClipPaths[i]); job->isDir[i] = ftpClipIsDir[i]; }
+                sprintf(msgStatus, "COPIANDO NO PC..."); msgTimer = 180;
+                pthread_t tId; pthread_create(&tId, NULL, threadCopiarRemotoRemoto, job); pthread_detach(tId);
+            }
+            else { sprintf(msgStatus, "SEM MEMORIA PARA COPIAR!"); msgTimer = 180; }
         }
         else {
             ftpFilaCount = 0; ftpFilaCurrent = 0;
@@ -855,8 +1050,14 @@ void acaoOpcaoFTP(int idxOpcao, int32_t uId) {
             iniciarProcessamentoFilaFTP();
         } showOpcoes = false;
     }
-    else if (op == 507) { mItems[sAt] = !mItems[sAt]; }
-    else if (op == 508) { bool ligar = false; for (int i = 0; i < tItens; i++) if (!mItems[i]) ligar = true; for (int i = 0; i < tItens; i++) mItems[i] = ligar; }
+    else if (op == 507) {
+        if (sAt >= 0 && sAt < tItens) mItems[sAt] = !mItems[sAt];
+        showOpcoes = false;
+    }
+    else if (op == 508) {
+        bool ligar = false; for (int i = 0; i < tItens; i++) if (!mItems[i]) ligar = true; for (int i = 0; i < tItens; i++) mItems[i] = ligar;
+        showOpcoes = false;
+    }
 }
 
 void* threadPreviewFTP(void* arg) {

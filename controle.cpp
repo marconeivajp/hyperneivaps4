@@ -477,7 +477,13 @@ void processarControles(uint32_t botoes, int32_t uId, OrbisImeDialogSetting* ime
 
     if (botoes & ORBIS_PAD_BUTTON_R1) {
         if (!pR1) {
-            if (menuAtual == MENU_BAIXAR_DROPBOX_LISTA || menuAtual == MENU_BAIXAR_DROPBOX_UPLOAD || menuAtual == MENU_BAIXAR_FTP_LISTA) marcados[sel] = !marcados[sel];
+            if (menuAtual == MENU_BAIXAR_DROPBOX_LISTA || menuAtual == MENU_BAIXAR_DROPBOX_UPLOAD || menuAtual == MENU_BAIXAR_FTP_LISTA) {
+                bool ehEsq = (painelDuplo && painelAtivo == 0);
+                bool* mItems = ehEsq ? marcadosEsq : marcados;
+                int sAtual = ehEsq ? selEsq : sel;
+                int tItens = ehEsq ? totalItensEsq : totalItens;
+                if (sAtual >= 0 && sAtual < tItens) mItems[sAtual] = !mItems[sAtual];
+            }
             else if (inExplorar) { extern void acaoR1_Explorar(); acaoR1_Explorar(); } pR1 = true;
         }
     }

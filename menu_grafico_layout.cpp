@@ -425,7 +425,7 @@ void desenharListas(uint32_t* p, int refPainel) {
             uint32_t corFundo = isPainelAtivo ? corBasePainel : 0xAA111111;
             uint32_t corTexto = isPainelAtivo ? getSysColor(fontColIndex) : 0xFFAAAAAA;
 
-            bool isMarcado = (mAtual == MENU_EXPLORAR || mAtual == MENU_BAIXAR_DROPBOX_LISTA || mAtual == MENU_BAIXAR_DROPBOX_UPLOAD) && mItems[gIdx];
+            bool isMarcado = (mAtual == MENU_EXPLORAR || mAtual == MENU_BAIXAR_DROPBOX_LISTA || mAtual == MENU_BAIXAR_DROPBOX_UPLOAD || mAtual == MENU_BAIXAR_FTP_LISTA) && mItems[gIdx];
             if (isMarcado) { corFundo = isPainelAtivo ? getSysColor(listMark) : getSysColor(11); }
 
             bool isSelected = isPainelAtivo && (gIdx == sAtual);
