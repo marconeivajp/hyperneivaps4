@@ -352,9 +352,9 @@ bool fazerUploadArquivoParaNuvem(const char* localPath, const char* remoteFilePa
         return false;
     }
 
-    sprintf(msgDownloadBg, "UPLOAD [%d/%d]: %s", baixadosFilaSessao + 1, totalFilaSessao, nomeExibido);
+    snprintf(msgDownloadBg, sizeof(msgDownloadBg), "UPLOAD [%d/%d]: %.180s", baixadosFilaSessao + 1, totalFilaSessao, nomeExibido);
     if (totalFilaSessao > 0) {
-        progressoAtualDownload = (float)baixadosFilaSessao / (float)totalFilaSessao;
+        progressoAtualDownload = ((float)baixadosFilaSessao + 0.5f) / (float)totalFilaSessao;
     }
 
     garantirPastaRemotaParaArquivo(remoteFilePath);
@@ -462,6 +462,9 @@ void* threadProcessarFilaUpload(void* arg) {
         if (strlen(localPath) > 0 && strlen(remotePath) > 0) {
             if (!fazerUploadArquivoParaNuvem(localPath, remotePath)) falhasFila++;
             baixadosFilaSessao++;
+            if (totalFilaSessao > 0) {
+                progressoAtualDownload = (float)baixadosFilaSessao / (float)totalFilaSessao;
+            }
         }
 
         pthread_mutex_lock(&filaMutex);
@@ -481,6 +484,7 @@ void* threadProcessarFilaUpload(void* arg) {
         pthread_mutex_unlock(&filaMutex);
     }
 
+    progressoAtualDownload = 1.0f;
     downloadEmSegundoPlano = false;
     processandoFilaUpload = false;
     unlink(caminhoFilaUpload);

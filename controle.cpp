@@ -123,7 +123,7 @@ void voltarNavegacao() {
         extern void listarDiretorio(const char*); extern void listarDiretorioEsq(const char*); extern void abrirPastaMidia(const char*);
         extern void preencherMenuExtra(); extern void preencherMenuInformacao(); extern void preencherMenuEmulador();
         extern void preencherMenuRepositorios(); extern void preencherMenuLojas(); extern void preencherMenuFTP();
-        extern void preencherMenuDropbox(); extern void preencherMenuBackup();
+        extern void preencherMenuDropbox(); extern void preencherMenuBackup(); extern void preencherMenuUploadRaizes();
         extern void preencherMenuRadioCategorias(); extern void carregarXML(const char*);
         extern void preencherMenuMusicas(); extern void abrirMenuAudioOpcoes();
 
@@ -146,6 +146,7 @@ void voltarNavegacao() {
         else if (menuAtual == MENU_INFORMACAO) preencherMenuInformacao();
         else if (menuAtual == MENU_EMULADOR) preencherMenuEmulador();
         else if (menuAtual == MENU_BAIXAR_REPOS) preencherMenuRepositorios();
+        else if (menuAtual == MENU_BAIXAR_DROPBOX_UPLOAD_RAIZES) preencherMenuUploadRaizes();
         else if (menuAtual == MENU_BAIXAR_DROPBOX_BACKUP) preencherMenuBackup();
         else if (menuAtual == MENU_RADIO_CATEGORIA) preencherMenuRadioCategorias();
         else if (menuAtual == MENU_CONTROLE_TESTE) menuAtual = MENU_CONTROLE_TESTE;
@@ -499,7 +500,7 @@ void processarControles(uint32_t botoes, int32_t uId, OrbisImeDialogSetting* ime
 
             else if (menuAtual == MENU_EXTRA) acaoCross_Extra();
 
-            else if (menuAtual == MENU_BAIXAR || menuAtual == MENU_LOJAS || menuAtual == MENU_BAIXAR_REPOS || menuAtual == MENU_BAIXAR_GAMES_XMLS || menuAtual == MENU_BAIXAR_GAMES_LIST || menuAtual == MENU_BAIXAR_LINKS || menuAtual == MENU_BAIXAR_LINK_DIRETO || menuAtual == MENU_BAIXAR_DROPBOX_LISTA || menuAtual == MENU_BAIXAR_DROPBOX_UPLOAD || menuAtual == MENU_BAIXAR_DROPBOX_BACKUP || menuAtual == MENU_BAIXAR_FTP_SERVIDORES || menuAtual == MENU_BAIXAR_FTP_EDITAR_SERVIDOR || menuAtual == MENU_BAIXAR_FTP_LISTA || menuAtual == MENU_BAIXAR_FTP_UPLOAD_RAIZES || menuAtual == MENU_BAIXAR_FTP_UPLOAD || menuAtual == MENU_CAPAS || menuAtual == MENU_CONSOLES || menuAtual == SCRAPER_LIST) {
+            else if (menuAtual == MENU_BAIXAR || menuAtual == MENU_LOJAS || menuAtual == MENU_BAIXAR_REPOS || menuAtual == MENU_BAIXAR_GAMES_XMLS || menuAtual == MENU_BAIXAR_GAMES_LIST || menuAtual == MENU_BAIXAR_LINKS || menuAtual == MENU_BAIXAR_LINK_DIRETO || menuAtual == MENU_BAIXAR_DROPBOX_LISTA || menuAtual == MENU_BAIXAR_DROPBOX_UPLOAD || menuAtual == MENU_BAIXAR_DROPBOX_UPLOAD_RAIZES || menuAtual == MENU_BAIXAR_DROPBOX_BACKUP || menuAtual == MENU_BAIXAR_FTP_SERVIDORES || menuAtual == MENU_BAIXAR_FTP_EDITAR_SERVIDOR || menuAtual == MENU_BAIXAR_FTP_LISTA || menuAtual == MENU_BAIXAR_FTP_UPLOAD_RAIZES || menuAtual == MENU_BAIXAR_FTP_UPLOAD || menuAtual == MENU_CAPAS || menuAtual == MENU_CONSOLES || menuAtual == SCRAPER_LIST) {
                 acaoCross_Baixar(uId, imeSetting, imeTitle);
             }
             else if (inExplorar) {
@@ -609,6 +610,12 @@ void processarControles(uint32_t botoes, int32_t uId, OrbisImeDialogSetting* ime
                 }
                 else if (menuAtual == MENU_EDITAR || menuAtual == MENU_EDIT_TARGET) {
                     extern void acaoCircle_Editar(); acaoCircle_Editar(); 
+                    handled = true;
+                }
+                else if (menuAtual == MENU_BAIXAR ||
+                    menuAtual == MENU_BAIXAR_DROPBOX_LISTA || menuAtual == MENU_BAIXAR_DROPBOX_UPLOAD || menuAtual == MENU_BAIXAR_DROPBOX_UPLOAD_RAIZES || menuAtual == MENU_BAIXAR_DROPBOX_BACKUP ||
+                    menuAtual == MENU_BAIXAR_FTP_SERVIDORES || menuAtual == MENU_BAIXAR_FTP_EDITAR_SERVIDOR || menuAtual == MENU_BAIXAR_FTP_LISTA || menuAtual == MENU_BAIXAR_FTP_UPLOAD_RAIZES || menuAtual == MENU_BAIXAR_FTP_UPLOAD) {
+                    extern void acaoCircle_Baixar(); acaoCircle_Baixar();
                     handled = true;
                 }
 

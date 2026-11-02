@@ -103,7 +103,9 @@ void atualizarBarra(float progresso, int arquivoAtual, int totalArquivos) {
 
     char textoLoad[128];
     snprintf(textoLoad, sizeof(textoLoad), "%d%%   -   %d / %d", porcentagem, arquivoAtual, totalArquivos);
-    desenharTexto(p, textoLoad, 25, bX + bW + 20, bY - 2, getSysColor(barTextCol));
+    uint32_t corTextLoad = getSysColor(barTextCol);
+    if (barTextCol <= 0 || barTextCol == 5 || barTextCol > 14) corTextLoad = 0xFFFFFFFF;
+    desenharTexto(p, textoLoad, 25, bX + bW + 20, bY - 2, corTextLoad);
     submeterTela();
 }
 
