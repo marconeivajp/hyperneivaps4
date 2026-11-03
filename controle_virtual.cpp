@@ -4,12 +4,14 @@
 
 extern MenuLevel menuAtual;
 extern bool tecladoAtivo;
+extern int tecladoTipo;
 extern uint16_t* bufferTecladoW;
 extern char bufferTecladoC[128];
 
 extern void preencherRoot();
 
 void acaoCross_Notepad(int32_t uId, OrbisImeDialogSetting* imeSetting, uint16_t* imeTitle, const char* textoInicial) {
+    tecladoTipo = 0;
     memset(imeSetting, 0, sizeof(OrbisImeDialogSetting));
     imeSetting->userId = uId;
     imeSetting->type = (OrbisImeType)0; // Default

@@ -375,6 +375,15 @@ static bool ehRaizUpload(const char* caminho) {
 }
 
 void acaoCircle_Baixar() {
+    if (menuAtual == MENU_BAIXAR_LINK_DIRETO) {
+        extern void voltarNavegacao();
+        extern void preencherMenuBaixar();
+        voltarNavegacao();
+        if (menuAtual != MENU_BAIXAR) preencherMenuBaixar();
+        if (totalItens > 1) { sel = 1; off = 0; }
+        return;
+    }
+
     if (menuAtual == MENU_BAIXAR) {
         if (emSubmenuLojas || emSubmenuDropbox || emSubmenuFTP) {
             preencherMenuBaixar();

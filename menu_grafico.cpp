@@ -355,8 +355,21 @@ void desenharInterface(uint32_t* p) {
     // Download Bar
     if (downloadEmSegundoPlano || (editMode && editTarget == 5)) {
         float prog = downloadEmSegundoPlano ? progressoAtualDownload : 0.5f;
+        if (prog < 0.0f) prog = 0.0f; if (prog > 1.0f) prog = 1.0f;
         int fill = (int)(barW * prog); if (fill > barW) fill = barW; if (fill < 0) fill = 0;
         for (int y = barY; y < barY + barH; y++) for (int x = barX; x < barX + barW; x++) if (x >= 0 && x < 1920 && y >= 0 && y < 1080) p[y * 1920 + x] = (x < barX + fill) ? getSysColor(barFill) : getSysColor(barBg);
+
+        int pctBarra = (int)(prog * 100.0f);
+        char txtBarra[384];
+        if (downloadEmSegundoPlano) {
+            if (totalFilaSessao > 0) snprintf(txtBarra, sizeof(txtBarra), "%d%%  [%d/%d]  %.160s", pctBarra, baixadosFilaSessao + 1, totalFilaSessao, msgDownloadBg);
+            else snprintf(txtBarra, sizeof(txtBarra), "%d%%  %.180s", pctBarra, msgDownloadBg);
+        }
+        else snprintf(txtBarra, sizeof(txtBarra), "%d%%  EXEMPLO DE TEXTO DA BARRA", pctBarra);
+
+        uint32_t corTextoBarra = getSysColor(barTextCol);
+        if (barTextCol <= 0 || barTextCol == 5 || barTextCol > 14) corTextoBarra = 0xFFFFFFFF;
+        desenharTexto(p, txtBarra, 25, barX + barW + 20, barY - 2, corTextoBarra);
     }
 
     // Telemetria do rádio só faz sentido enquanto o rádio está visível e tocando.
@@ -450,16 +463,33 @@ void atualizarImePasta() {
             sceImeDialogGetResult(&result);
             int32_t buttonId = *(int32_t*)&result;
 
-            if (buttonId == 0) { // User pressed OK
+            bool confirmou = (buttonId == 0);
+            if (confirmou) { // User pressed OK
                 for (int i = 0; i < 127; i++) {
                     bufferTecladoC[i] = (char)bufferTecladoW[i];
                     if (bufferTecladoW[i] == 0) break;
                 }
-                
-                if (tecladoTipo == 10) { // RADIO_SEARCH
-                    extern void buscarEstacoesRadio(const char* query, bool isPodcast);
-                    buscarEstacoesRadio(bufferTecladoC, false);
+            }
+
+            if (menuAtual == MENU_BAIXAR_LINK_DIRETO) {
+                if (confirmou && strlen(bufferTecladoC) >= 10) {
+                    extern void iniciarDownload(const char* url);
+                    iniciarDownload(bufferTecladoC);
                 }
+                else {
+                    strcpy(msgStatus, "DOWNLOAD CANCELADO!");
+                    msgTimer = 180;
+                }
+
+                extern void voltarNavegacao();
+                extern void preencherMenuBaixar();
+                voltarNavegacao();
+                if (menuAtual != MENU_BAIXAR) preencherMenuBaixar();
+                if (totalItens > 1) { sel = 1; off = 0; }
+            }
+            else if (confirmou && tecladoTipo == 10) { // RADIO_SEARCH
+                extern void buscarEstacoesRadio(const char* query, bool isPodcast);
+                buscarEstacoesRadio(bufferTecladoC, false);
             }
             sceImeDialogTerm();
             tecladoAtivo = false;

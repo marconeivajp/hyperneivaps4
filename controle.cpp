@@ -618,7 +618,7 @@ void processarControles(uint32_t botoes, int32_t uId, OrbisImeDialogSetting* ime
                     extern void acaoCircle_Editar(); acaoCircle_Editar(); 
                     handled = true;
                 }
-                else if (menuAtual == MENU_BAIXAR ||
+                else if (menuAtual == MENU_BAIXAR || menuAtual == MENU_BAIXAR_LINK_DIRETO ||
                     menuAtual == MENU_BAIXAR_DROPBOX_LISTA || menuAtual == MENU_BAIXAR_DROPBOX_UPLOAD || menuAtual == MENU_BAIXAR_DROPBOX_UPLOAD_RAIZES || menuAtual == MENU_BAIXAR_DROPBOX_BACKUP ||
                     menuAtual == MENU_BAIXAR_FTP_SERVIDORES || menuAtual == MENU_BAIXAR_FTP_EDITAR_SERVIDOR || menuAtual == MENU_BAIXAR_FTP_LISTA || menuAtual == MENU_BAIXAR_FTP_UPLOAD_RAIZES || menuAtual == MENU_BAIXAR_FTP_UPLOAD) {
                     extern void acaoCircle_Baixar(); acaoCircle_Baixar();
