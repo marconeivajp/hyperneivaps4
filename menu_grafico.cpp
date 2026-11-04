@@ -369,7 +369,14 @@ void desenharInterface(uint32_t* p) {
 
         uint32_t corTextoBarra = getSysColor(barTextCol);
         if (barTextCol <= 0 || barTextCol == 5 || barTextCol > 14) corTextoBarra = 0xFFFFFFFF;
-        desenharTexto(p, txtBarra, 25, barX + barW + 20, barY - 2, corTextoBarra);
+        int txtBarraX = barX + barW + 20;
+        int txtBarraY = barY - 2;
+        int larguraBarraTexto = (int)strlen(txtBarra) * 14;
+        int txtBarraXMax = 1908 - larguraBarraTexto;
+        if (txtBarraX > txtBarraXMax) txtBarraX = txtBarraXMax;
+        if (txtBarraX < 10) txtBarraX = 10;
+        desenharTexto(p, txtBarra, 25, txtBarraX + 2, txtBarraY + 2, 0xFF000000);
+        desenharTexto(p, txtBarra, 25, txtBarraX, txtBarraY, corTextoBarra);
     }
 
     // Telemetria do rádio só faz sentido enquanto o rádio está visível e tocando.

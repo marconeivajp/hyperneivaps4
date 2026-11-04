@@ -263,6 +263,8 @@ void adicionarFilaFTP(const char* sourcePath, const char* destPath, bool isUploa
 void* threadProcessarFilaFTP(void* arg) {
     ftpFilaRodando = true;
     downloadEmSegundoPlano = true; totalFilaSessao = ftpFilaCount;
+    progressoAtualDownload = 0.0f; baixadosFilaSessao = 0;
+    sprintf(msgDownloadBg, "PREPARANDO FILA FTP...");
 
     int ctrl_sock = ftp_connect_control(servidorAtualFTPIndex);
     if (ctrl_sock < 0) { ftpFilaRodando = false; downloadEmSegundoPlano = false; return NULL; }
@@ -274,6 +276,7 @@ void* threadProcessarFilaFTP(void* arg) {
 
     while (ftpFilaCurrent < ftpFilaCount) {
         baixadosFilaSessao = ftpFilaCurrent;
+        progressoAtualDownload = (float)ftpFilaCurrent / (float)ftpFilaCount;
         FtpTransfer* t = &ftpFila[ftpFilaCurrent];
 
         if (t->isDir) {
@@ -832,6 +835,7 @@ static bool ftp_copiarPastaRemota(int ctrl, const char* origem, const char* dest
 static void* threadCopiarRemotoRemoto(void* arg) {
     FtpCopyJob* job = (FtpCopyJob*)arg;
     downloadEmSegundoPlano = true; totalFilaSessao = job->count; baixadosFilaSessao = 0;
+    progressoAtualDownload = 0.0f;
     int ctrl = ftp_connect_control(job->serverIndex);
     if (ctrl < 0) {
         sprintf(msgStatus, "PC NAO ENCONTRADO!"); msgTimer = 240;
@@ -849,6 +853,7 @@ static void* threadCopiarRemotoRemoto(void* arg) {
     int seq = 0;
     for (int i = 0; i < job->count; i++) {
         baixadosFilaSessao = i;
+        progressoAtualDownload = (float)i / (float)job->count;
         char* base = strrchr(job->paths[i], '/'); if (base) base++; else base = job->paths[i];
         char dest[1024]; snprintf(dest, sizeof(dest), "%s%s%s", job->destFolder, strcmp(job->destFolder, "/") == 0 ? "" : "/", base);
         sprintf(msgDownloadBg, "COPIANDO NO PC: %s", base);
