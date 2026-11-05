@@ -56,6 +56,7 @@ MENU = {
     "engrenagem": ("#546e7a", f'<circle {T} cx="12" cy="12" r="3"/><path {T} d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M18.4 5.6l-2.1 2.1M7.7 16.3l-2.1 2.1"/>'),
     "mais": ("#2e7d32", f'<path {T} d="M12 5v14M5 12h14"/>'),
     "aviso": ("#b71c1c", f'<path {T} d="M12 4l9 16H3zM12 10v4.5"/><circle fill="#fff" cx="12" cy="17" r="1.1"/>'),
+    "ponteiro": ("#00838f", '<path fill="#fff" d="M3 12l7-8v4.5h11v7H10V20z"/>'),
     "item": ("#607d8b", f'<path {T} d="M9.5 6l6 6-6 6"/>'),
 }
 
@@ -94,6 +95,14 @@ def main():
             if nome in ("folder", "_blank"):
                 continue
             icones.append(("f_" + nome.lstrip("_"), open(caminho, "rb").read()))
+
+    # Ponteiro padrao do menu: fica a esquerda do item e aponta para ele.
+    seta = ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><defs><linearGradient id="g" x1="0" y1="0" x2="0" y2="1">'
+            '<stop offset="0" stop-color="#7fe3ff"/><stop offset="1" stop-color="#0a84d6"/></linearGradient></defs>'
+            '<path d="M58 32L30 8v13H6v22h24v13z" fill="url(#g)" stroke="#fff" stroke-width="4" stroke-linejoin="round"/></svg>')
+    with tempfile.TemporaryDirectory() as pasta:
+        with open(os.path.join(RAIZ, "assets", "images", "0_Defalt_ponteiro1.png"), "wb") as f:
+            f.write(svg_para_png(seta, pasta, "ponteiro", 256))
 
     linhas = ["// Gerado por tools/gerar_icones.py. Nao edite a mao.", "#pragma once", "#include <stddef.h>", ""]
     for nome, dados in icones:

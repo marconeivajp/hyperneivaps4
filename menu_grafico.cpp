@@ -20,6 +20,7 @@
 #include <dirent.h>
 #include <math.h> 
 #include "stb_image.h"
+#include <orbis/libkernel.h>
 
 #include "elementos_animados_sprite_sheet.h"
 #include "ImeDialog.h"
@@ -404,7 +405,9 @@ void desenharInterface(uint32_t* p) {
             desenharTexto(p, msgStatus, 26, 130, 430, 0xFFFFFFFF);
         } else {
             desenharTexto(p, msgStatus, msgTam, msgX, msgY, msgStatusColor); 
-            msgTimer--; 
+            static uint64_t ultimoMsgUs = 0;
+            uint64_t agoraMsgUs = sceKernelGetProcessTime();
+            if (agoraMsgUs - ultimoMsgUs >= 50000) { ultimoMsgUs = agoraMsgUs; msgTimer--; }
         }
     }
 

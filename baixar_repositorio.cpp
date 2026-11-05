@@ -10,6 +10,7 @@
 #include "network.h"
 #include "ImeDialog.h"
 #include "CommonDialog.h"
+#include <orbis/UserService.h>
 
 extern char nomes[3000][256];
 extern int totalItens;
@@ -162,6 +163,14 @@ void abrirXMLRepositorio(const char* xmlFile) {
     off = 0;
 }
 
+// A Bolinha volta para a lista de jogos, mas "nomes" ainda guarda as opções do jogo.
+void reabrirXMLRepositorio() {
+    const char* barra = strrchr(caminhoXMLAtual, '/');
+    if (!barra) return;
+    char arquivo[256]; snprintf(arquivo, sizeof(arquivo), "%s", barra + 1);
+    abrirXMLRepositorio(arquivo);
+}
+
 void mostrarLinksJogo(int gameIndex) {
     memset(nomes, 0, sizeof(nomes));
     totalItens = 0;
@@ -197,8 +206,11 @@ void mostrarLinksJogo(int gameIndex) {
                 char* lEnd = strstr(lPtr, "</link>");
                 if (lEnd) {
                     int len = (int)(lEnd - lPtr);
-                    strncpy(linksAtuais[totalLinksAtuais], lPtr, len > 1023 ? 1023 : len);
+                    if (len > 1023) len = 1023;
+                    strncpy(linksAtuais[totalLinksAtuais], lPtr, len);
                     linksAtuais[totalLinksAtuais][len] = '\0';
+                    // No XML o "&" do link pode vir como "&amp;", e o servidor responde 400.
+                    for (char* amp = strstr(linksAtuais[totalLinksAtuais], "&amp;"); amp; amp = strstr(amp + 1, "&amp;")) memmove(amp + 1, amp + 5, strlen(amp + 5) + 1);
                     sprintf(nomes[totalItens], "Opcao %d", totalLinksAtuais + 1);
                     totalLinksAtuais++;
                     totalItens++;
@@ -360,7 +372,12 @@ static void limparListaGithub() {
 
 #define GITHUB_FAVORITOS "/data/HyperNeiva/configuracao/github_favoritos.txt"
 #define GITHUB_FAVORITOS_TEMP "/data/HyperNeiva/configuracao/github_favoritos.tmp"
-#define GITHUB_FAVORITOS_MAX 200
+
+void githubAbrirReleases(const char* repo);
+void abrirTecladoGithub(int32_t uId);
+static void abrirTecladoNome(int32_t uId, int modo, const wchar_t* titulo, const char* inicial);
+extern int numSlotsPadrao;
+static int numSlotsGithub() { return numSlotsPadrao > 0 ? numSlotsPadrao : 8; }
 #define GITHUB_REPO_FIXO "marconeivajp/hyperneivaps4"
 
 // Aceita "dono/repositorio" ou qualquer link do GitHub e devolve "dono/repositorio".
@@ -381,80 +398,467 @@ static bool githubNormalizarRepo(const char* texto, char* repo, int tamanho) {
     return barras >= 1 && n > 2 && repo[n - 1] != '/' && repo[0] != '/';
 }
 
-static void githubGravarFavoritos(char lista[][160], int total) {
+// FAVORITOS-INICIO
+// O txt guarda a árvore: "[Pasta/Subpasta]" abre uma pasta e as linhas seguintes são
+// "dono/repo" ou "dono/repo | Nome". Linhas antes da primeira pasta ficam na raiz.
+#define FAV_MAX_PASTAS 64
+#define FAV_MAX_ITENS 400
+#define FAV_TAM_PASTA 128
+
+struct FavItem { char repo[160]; char nome[96]; char pasta[FAV_TAM_PASTA]; };
+static char favPastas[FAV_MAX_PASTAS][FAV_TAM_PASTA];
+static int favTotalPastas = 0;
+static FavItem favItens[FAV_MAX_ITENS];
+static int favTotalItens = 0;
+
+struct FavPadrao { const char* pasta; const char* repo; const char* nome; };
+static const FavPadrao favPadroes[] = {
+    { "Emuladores", "iHaiDeeZ/M33", "PSP (M33)" },
+    { "Emuladores", "iHaiDeeZ/Crema", "Wii U (Crema)" },
+    { "Emuladores", "iHaiDeeZ/Resonance", "Dreamcast (Resonance)" },
+    { "Emuladores", "iHaiDeeZ/DolphinPS4", "GameCube e Wii (Dolphin)" },
+    { "Emuladores", "Phoenixx1202/PS4SX2", "PS2 (PS4SX2)" },
+    { "Emuladores", "RoberixStudios/rpcs3-port-for-ps4", "PS3 (RPCS3)" },
+    { "Emuladores", "alechurri/nx-on-orbis", "Switch (nx-on-orbis)" },
+    { "Emuladores", "arturofuentes1988/EmuSuNi", "EmuSuNi" },
+    { "Emuladores", "iHaiDeeZ/HENkaku-PS4", "PS Vita (HENkaku)" },
+    { "Recomps/Nintendo", "iHaiDeeZ/Conker-PS4", "Conker's Bad Fur Day" },
+    { "Recomps/Xbox", "neiove/Sonic-Unleashed-Recompiled-Ps4", "Sonic Unleashed (neiove)" },
+    { "Ports", "alechurri/shipofharkinian-ps4", "Zelda: Ocarina of Time" },
+    { "Ports", "alechurri/2ship2harkinian-ps4", "Zelda: Majora's Mask" },
+    { "Ports", "iHaiDeeZ/G-Diffuser-PS4", "F-Zero X" },
+    { "Ports", "diasurgical/DevilutionX", "Diablo" },
+};
+
+static bool favDentroDe(const char* caminho, const char* base) {
+    size_t n = strlen(base);
+    return strncmp(caminho, base, n) == 0 && (caminho[n] == '\0' || caminho[n] == '/');
+}
+
+static const char* favFolha(const char* caminho) {
+    const char* barra = strrchr(caminho, '/');
+    return barra ? barra + 1 : caminho;
+}
+
+static void favPai(const char* caminho, char* pai) {
+    snprintf(pai, FAV_TAM_PASTA, "%s", caminho);
+    char* barra = strrchr(pai, '/');
+    if (barra) *barra = '\0'; else pai[0] = '\0';
+}
+
+static int favAcharPasta(const char* caminho) {
+    for (int i = 0; i < favTotalPastas; i++) if (strcasecmp(favPastas[i], caminho) == 0) return i;
+    return -1;
+}
+
+static int favAcharItem(const char* repo) {
+    for (int i = 0; i < favTotalItens; i++) if (strcasecmp(favItens[i].repo, repo) == 0) return i;
+    return -1;
+}
+
+// Registra a pasta e as pastas acima dela.
+static bool favGarantirPasta(const char* caminho) {
+    if (!caminho[0]) return true;
+    char parcial[FAV_TAM_PASTA];
+    for (int i = 0; ; i++) {
+        if (i >= FAV_TAM_PASTA - 1) return false;
+        if (caminho[i] != '/' && caminho[i] != '\0') continue;
+        memcpy(parcial, caminho, i); parcial[i] = '\0';
+        if (favAcharPasta(parcial) < 0) {
+            if (favTotalPastas >= FAV_MAX_PASTAS) return false;
+            strcpy(favPastas[favTotalPastas++], parcial);
+        }
+        if (!caminho[i]) return true;
+    }
+}
+
+void favSalvar() {
     sceKernelMkdir("/data/HyperNeiva/configuracao", 0777);
     FILE* f = fopen(GITHUB_FAVORITOS_TEMP, "w");
     if (!f) return;
-    for (int i = 0; i < total; i++) fprintf(f, "%s\n", lista[i]);
+    fprintf(f, "# Favoritos do GitHub. [Pasta/Subpasta] abre uma pasta. Cada linha: dono/repo ou dono/repo | Nome\n");
+    for (int p = -1; p < favTotalPastas; p++) {
+        const char* pasta = p < 0 ? "" : favPastas[p];
+        if (p >= 0) fprintf(f, "\n[%s]\n", pasta);
+        for (int i = 0; i < favTotalItens; i++) {
+            if (strcmp(favItens[i].pasta, pasta) != 0) continue;
+            if (favItens[i].nome[0]) fprintf(f, "%s | %s\n", favItens[i].repo, favItens[i].nome);
+            else fprintf(f, "%s\n", favItens[i].repo);
+        }
+    }
     fclose(f);
     remove(GITHUB_FAVORITOS);
     rename(GITHUB_FAVORITOS_TEMP, GITHUB_FAVORITOS);
 }
 
-static int githubLerFavoritos(char lista[][160]) {
-    static const char* sugeridos[] = {
-        "iHaiDeeZ/M33", "iHaiDeeZ/Crema", "iHaiDeeZ/Resonance", "iHaiDeeZ/DolphinPS4", "arturofuentes1988/EmuSuNi",
-        "Phoenixx1202/PS4SX2", "RoberixStudios/rpcs3-port-for-ps4", "alechurri/nx-on-orbis"
-    };
-    int total = 0;
-    FILE* f = fopen(GITHUB_FAVORITOS, "r");
-    if (!f) {
-        // Primeira vez: cria o arquivo. Depois disso ele manda, mesmo que fique vazio.
-        for (unsigned int i = 0; i < sizeof(sugeridos) / sizeof(sugeridos[0]); i++) strcpy(lista[total++], sugeridos[i]);
-        githubGravarFavoritos(lista, total);
-        return total;
+static void favAplicarPadroes() {
+    for (unsigned int i = 0; i < sizeof(favPadroes) / sizeof(favPadroes[0]); i++) {
+        const FavPadrao* d = &favPadroes[i];
+        favGarantirPasta(d->pasta);
+        int achado = favAcharItem(d->repo);
+        if (achado < 0) {
+            if (favTotalItens >= FAV_MAX_ITENS) continue;
+            achado = favTotalItens++;
+            snprintf(favItens[achado].repo, sizeof(favItens[achado].repo), "%s", d->repo);
+            favItens[achado].nome[0] = '\0';
+        }
+        snprintf(favItens[achado].pasta, FAV_TAM_PASTA, "%s", d->pasta);
+        if (!favItens[achado].nome[0]) snprintf(favItens[achado].nome, sizeof(favItens[achado].nome), "%s", d->nome);
     }
+}
 
-    char linha[512];
-    while (fgets(linha, sizeof(linha), f) && total < GITHUB_FAVORITOS_MAX) {
-        if (linha[0] == '#') continue;
-        char repo[160];
-        if (!githubNormalizarRepo(linha, repo, sizeof(repo))) continue;
-        bool repetido = false;
-        for (int i = 0; i < total; i++) if (strcasecmp(lista[i], repo) == 0) repetido = true;
-        if (!repetido) strcpy(lista[total++], repo);
+void favCarregar() {
+    favTotalPastas = 0; favTotalItens = 0;
+    FILE* f = fopen(GITHUB_FAVORITOS, "r");
+    bool arvore = false;
+    if (f) {
+        char linha[512], pasta[FAV_TAM_PASTA] = "";
+        while (fgets(linha, sizeof(linha), f)) {
+            size_t n = strlen(linha);
+            while (n > 0 && (linha[n - 1] == '\n' || linha[n - 1] == '\r' || linha[n - 1] == ' ')) linha[--n] = '\0';
+            if (!n || linha[0] == '#') continue;
+            if (linha[0] == '[' && linha[n - 1] == ']') {
+                linha[n - 1] = '\0';
+                snprintf(pasta, sizeof(pasta), "%s", linha + 1);
+                favGarantirPasta(pasta);
+                arvore = true;
+                continue;
+            }
+            if (favTotalItens >= FAV_MAX_ITENS) continue;
+            char* nome = strchr(linha, '|');
+            if (nome) {
+                char* fim = nome;
+                while (fim > linha && fim[-1] == ' ') fim--;
+                *fim = '\0';
+                nome++;
+                while (*nome == ' ') nome++;
+            }
+            char repo[160];
+            if (!githubNormalizarRepo(linha, repo, sizeof(repo)) || favAcharItem(repo) >= 0) continue;
+            FavItem* item = &favItens[favTotalItens++];
+            snprintf(item->repo, sizeof(item->repo), "%s", repo);
+            snprintf(item->nome, sizeof(item->nome), "%s", nome ? nome : "");
+            snprintf(item->pasta, sizeof(item->pasta), "%s", pasta);
+        }
+        fclose(f);
     }
-    fclose(f);
+    // Sem nenhuma pasta é o primeiro uso ou o txt antigo, que era só uma lista.
+    if (!arvore) { favAplicarPadroes(); favSalvar(); }
+}
+
+// Troca o começo do caminho de uma pasta e de tudo que está dentro dela.
+static void favTrocarPrefixo(const char* antigo, const char* novo) {
+    size_t n = strlen(antigo);
+    char resultado[FAV_TAM_PASTA * 2];
+    for (int i = 0; i < favTotalPastas; i++) {
+        if (!favDentroDe(favPastas[i], antigo)) continue;
+        snprintf(resultado, sizeof(resultado), "%s%s", novo, favPastas[i] + n);
+        snprintf(favPastas[i], FAV_TAM_PASTA, "%s", resultado);
+    }
+    for (int i = 0; i < favTotalItens; i++) {
+        if (!favDentroDe(favItens[i].pasta, antigo)) continue;
+        snprintf(resultado, sizeof(resultado), "%s%s", novo, favItens[i].pasta + n);
+        snprintf(favItens[i].pasta, FAV_TAM_PASTA, "%s", resultado);
+    }
+}
+
+static void favMontarCaminho(const char* pai, const char* nome, char* caminho) {
+    if (pai[0]) snprintf(caminho, FAV_TAM_PASTA, "%s/%s", pai, nome);
+    else snprintf(caminho, FAV_TAM_PASTA, "%s", nome);
+}
+
+bool favCriarPasta(const char* pai, const char* nome) {
+    char caminho[FAV_TAM_PASTA];
+    favMontarCaminho(pai, nome, caminho);
+    if (!nome[0] || favAcharPasta(caminho) >= 0 || !favGarantirPasta(caminho)) return false;
+    favSalvar();
+    return true;
+}
+
+bool favRenomearPasta(const char* caminho, const char* nome) {
+    char pai[FAV_TAM_PASTA], novo[FAV_TAM_PASTA], antigo[FAV_TAM_PASTA];
+    snprintf(antigo, sizeof(antigo), "%s", caminho);
+    favPai(antigo, pai);
+    favMontarCaminho(pai, nome, novo);
+    if (!nome[0] || favAcharPasta(antigo) < 0 || favAcharPasta(novo) >= 0) return false;
+    favTrocarPrefixo(antigo, novo);
+    favSalvar();
+    return true;
+}
+
+bool favMoverPasta(const char* caminho, const char* destino) {
+    char novo[FAV_TAM_PASTA], antigo[FAV_TAM_PASTA];
+    snprintf(antigo, sizeof(antigo), "%s", caminho);
+    favMontarCaminho(destino, favFolha(antigo), novo);
+    if (favAcharPasta(antigo) < 0 || favDentroDe(destino, antigo) || favAcharPasta(novo) >= 0) return false;
+    favTrocarPrefixo(antigo, novo);
+    favSalvar();
+    return true;
+}
+
+int favContar(const char* caminho) {
+    int total = 0;
+    for (int i = 0; i < favTotalItens; i++) if (favDentroDe(favItens[i].pasta, caminho)) total++;
     return total;
 }
 
+void favExcluirPasta(const char* caminho) {
+    char alvo[FAV_TAM_PASTA];
+    snprintf(alvo, sizeof(alvo), "%s", caminho);
+    int fica = 0;
+    for (int i = 0; i < favTotalPastas; i++) if (!favDentroDe(favPastas[i], alvo)) { if (fica != i) strcpy(favPastas[fica], favPastas[i]); fica++; }
+    favTotalPastas = fica;
+    fica = 0;
+    for (int i = 0; i < favTotalItens; i++) if (!favDentroDe(favItens[i].pasta, alvo)) { if (fica != i) favItens[fica] = favItens[i]; fica++; }
+    favTotalItens = fica;
+    favSalvar();
+}
+
+bool favAdicionar(const char* repo, const char* pasta) {
+    if (favAcharItem(repo) >= 0 || favTotalItens >= FAV_MAX_ITENS) return false;
+    FavItem* item = &favItens[favTotalItens++];
+    snprintf(item->repo, sizeof(item->repo), "%s", repo);
+    item->nome[0] = '\0';
+    snprintf(item->pasta, sizeof(item->pasta), "%s", pasta);
+    favSalvar();
+    return true;
+}
+
+void favRemover(const char* repo) {
+    int achado = favAcharItem(repo);
+    if (achado < 0) return;
+    for (int i = achado; i < favTotalItens - 1; i++) favItens[i] = favItens[i + 1];
+    favTotalItens--;
+    favSalvar();
+}
+
+void favMover(const char* repo, const char* pasta) {
+    int achado = favAcharItem(repo);
+    if (achado < 0) return;
+    snprintf(favItens[achado].pasta, FAV_TAM_PASTA, "%s", pasta);
+    favSalvar();
+}
+
+void favRenomear(const char* repo, const char* nome) {
+    int achado = favAcharItem(repo);
+    if (achado < 0) return;
+    snprintf(favItens[achado].nome, sizeof(favItens[achado].nome), "%s", nome);
+    favSalvar();
+}
+// FAVORITOS-FIM
+
+static char githubPasta[FAV_TAM_PASTA] = "";
+
 void preencherMenuGithub() {
-    static char favoritos[GITHUB_FAVORITOS_MAX][160];
-    int total = githubLerFavoritos(favoritos);
+    favCarregar();
+    if (githubPasta[0] && favAcharPasta(githubPasta) < 0) githubPasta[0] = '\0';
     limparListaGithub();
-    strcpy(nomes[0], "Pesquisar no GitHub");
-    strcpy(nomes[1], GITHUB_REPO_FIXO);
-    strcpy(linksAtuais[1], GITHUB_REPO_FIXO);
-    totalItens = 2;
-    for (int i = 0; i < total; i++) {
-        if (strcasecmp(favoritos[i], GITHUB_REPO_FIXO) == 0) continue;
-        strcpy(nomes[totalItens], favoritos[i]);
-        strcpy(linksAtuais[totalItens], favoritos[i]);
+    totalItens = 0;
+    if (!githubPasta[0]) {
+        strcpy(nomes[0], "Pesquisar no GitHub");
+        strcpy(nomes[1], GITHUB_REPO_FIXO);
+        strcpy(linksAtuais[1], GITHUB_REPO_FIXO);
+        totalItens = 2;
+    }
+    for (int i = 0; i < favTotalPastas; i++) {
+        char pai[FAV_TAM_PASTA];
+        favPai(favPastas[i], pai);
+        if (strcmp(pai, githubPasta) != 0) continue;
+        snprintf(nomes[totalItens], 256, "[%s]", favFolha(favPastas[i]));
+        snprintf(linksAtuais[totalItens], 1024, "@%s", favPastas[i]);
         totalItens++;
     }
+    for (int i = 0; i < favTotalItens; i++) {
+        if (strcmp(favItens[i].pasta, githubPasta) != 0 || strcasecmp(favItens[i].repo, GITHUB_REPO_FIXO) == 0) continue;
+        snprintf(nomes[totalItens], 256, "%s", favItens[i].nome[0] ? favItens[i].nome : favItens[i].repo);
+        snprintf(linksAtuais[totalItens], 1024, "%s", favItens[i].repo);
+        totalItens++;
+    }
+    if (totalItens == 0) { strcpy(nomes[0], "Pasta vazia"); totalItens = 1; }
     menuAtual = MENU_BAIXAR_GITHUB;
     sel = 0; off = 0;
 }
 
-static void githubAlternarFavorito(const char* repo) {
-    static char favoritos[GITHUB_FAVORITOS_MAX][160];
+void abrirMenuGithub() {
+    githubPasta[0] = '\0';
+    preencherMenuGithub();
+}
+
+static void githubMostrarSelecionando(const char* link, int selAntes, int offAntes) {
+    preencherMenuGithub();
+    sel = selAntes < totalItens ? selAntes : totalItens - 1;
+    off = offAntes;
+    if (link) for (int i = 0; i < totalItens; i++) if (strcmp(linksAtuais[i], link) == 0) { sel = i; break; }
+}
+
+// Sobe uma pasta. Na raiz devolve false, para a Bolinha sair do menu.
+bool githubVoltarPasta() {
+    if (!githubPasta[0]) return false;
+    char link[FAV_TAM_PASTA + 1];
+    snprintf(link, sizeof(link), "@%s", githubPasta);
+    char pai[FAV_TAM_PASTA];
+    favPai(githubPasta, pai);
+    strcpy(githubPasta, pai);
+    githubMostrarSelecionando(link, 0, 0);
+    off = sel >= numSlotsGithub() ? sel - numSlotsGithub() + 1 : 0;
+    return true;
+}
+
+void githubAbrirItem(int32_t uId) {
+    const char* link = linksAtuais[sel];
+    if (link[0] == '@') {
+        snprintf(githubPasta, sizeof(githubPasta), "%s", link + 1);
+        preencherMenuGithub();
+    }
+    else if (link[0]) githubAbrirReleases(link);
+    else if (!githubPasta[0] && sel == 0) abrirTecladoGithub(uId);
+}
+
+// Opções do Triângulo. Os números ficam em mapOpcoes; destino de pasta usa 1000 + índice.
+enum { OP_CANCELAR = 901, OP_NOVA_PASTA = 911, OP_RENOMEAR_PASTA = 912, OP_MOVER_PASTA = 913, OP_EXCLUIR_PASTA = 914, OP_CONFIRMAR_EXCLUSAO = 915,
+       OP_ADICIONAR = 920, OP_RENOMEAR_FAVORITO = 921, OP_MOVER_FAVORITO = 922, OP_REMOVER_FAVORITO = 923,
+       OP_DESTINO_NOVA_PASTA = 998, OP_DESTINO_RAIZ = 999, OP_DESTINO_PASTA = 1000 };
+enum { TECLADO_PESQUISA, TECLADO_NOVA_PASTA, TECLADO_RENOMEAR_PASTA, TECLADO_RENOMEAR_FAVORITO };
+enum { DESTINO_ADICIONAR, DESTINO_MOVER_FAVORITO, DESTINO_MOVER_PASTA };
+
+static char githubRepoOpcao[160] = "";
+static char githubPastaOpcao[FAV_TAM_PASTA] = "";
+static int githubDestinoModo = DESTINO_ADICIONAR;
+static bool githubAdicionarNaNovaPasta = false;
+static char githubTextoExclusao[96];
+
+static void githubOpcoes(int total) {
+    extern const char* listaOpcoes[150];
+    extern int mapOpcoes[150], totalOpcoes, selOpcao;
+    extern bool showOpcoes;
+    for (int i = total; i < 150; i++) { listaOpcoes[i] = ""; mapOpcoes[i] = -1; }
+    totalOpcoes = total; selOpcao = 0; showOpcoes = true;
+}
+
+static void githubAbrirDestinos(int modo) {
+    extern const char* listaOpcoes[150];
+    extern int mapOpcoes[150];
+    githubDestinoModo = modo;
+    int n = 0;
+    listaOpcoes[n] = "favoritos (sem pasta)"; mapOpcoes[n++] = OP_DESTINO_RAIZ;
+    for (int i = 0; i < favTotalPastas && n < 148; i++) {
+        if (modo == DESTINO_MOVER_PASTA && favDentroDe(favPastas[i], githubPastaOpcao)) continue;
+        listaOpcoes[n] = favPastas[i]; mapOpcoes[n++] = OP_DESTINO_PASTA + i;
+    }
+    if (modo != DESTINO_MOVER_PASTA) { listaOpcoes[n] = "+ nova pasta"; mapOpcoes[n++] = OP_DESTINO_NOVA_PASTA; }
+    githubOpcoes(n);
+}
+
+void acaoTriangle_Github() {
+    extern const char* listaOpcoes[150];
+    extern int mapOpcoes[150];
+    extern bool showOpcoes;
+
+    if (showOpcoes) { showOpcoes = false; return; }
+    favCarregar();
+
+    int n = 0;
+    const char* repo = githubRepoAtual;
+    if (menuAtual == MENU_BAIXAR_GITHUB) {
+        const char* link = linksAtuais[sel];
+        if (link[0] == '@') {
+            snprintf(githubPastaOpcao, sizeof(githubPastaOpcao), "%s", link + 1);
+            listaOpcoes[n] = "nova subpasta"; mapOpcoes[n++] = OP_NOVA_PASTA;
+            listaOpcoes[n] = "editar nome da pasta"; mapOpcoes[n++] = OP_RENOMEAR_PASTA;
+            listaOpcoes[n] = "mover pasta"; mapOpcoes[n++] = OP_MOVER_PASTA;
+            listaOpcoes[n] = "excluir pasta"; mapOpcoes[n++] = OP_EXCLUIR_PASTA;
+            listaOpcoes[n] = "cancelar"; mapOpcoes[n++] = OP_CANCELAR;
+            githubOpcoes(n);
+            return;
+        }
+        snprintf(githubPastaOpcao, sizeof(githubPastaOpcao), "%s", githubPasta);
+        if (!link[0] || strcasecmp(link, GITHUB_REPO_FIXO) == 0) {
+            listaOpcoes[n] = "nova pasta aqui"; mapOpcoes[n++] = OP_NOVA_PASTA;
+            listaOpcoes[n] = "cancelar"; mapOpcoes[n++] = OP_CANCELAR;
+            githubOpcoes(n);
+            return;
+        }
+        repo = link;
+    }
+    else if (menuAtual == MENU_BAIXAR_GITHUB_REPOS) repo = linksAtuais[sel];
     if (!repo[0]) return;
     if (strcasecmp(repo, GITHUB_REPO_FIXO) == 0) { sprintf(msgStatus, "HYPER NEIVA FICA SEMPRE NA LISTA"); msgTimer = 180; return; }
-    int total = githubLerFavoritos(favoritos), achado = -1;
-    for (int i = 0; i < total; i++) if (strcasecmp(favoritos[i], repo) == 0) achado = i;
+    snprintf(githubRepoOpcao, sizeof(githubRepoOpcao), "%s", repo);
 
-    if (achado >= 0) {
-        for (int i = achado; i < total - 1; i++) strcpy(favoritos[i], favoritos[i + 1]);
-        total--;
-        sprintf(msgStatus, "REMOVIDO DOS FAVORITOS");
+    if (favAcharItem(repo) >= 0) {
+        listaOpcoes[n] = "editar nome"; mapOpcoes[n++] = OP_RENOMEAR_FAVORITO;
+        listaOpcoes[n] = "mover para pasta"; mapOpcoes[n++] = OP_MOVER_FAVORITO;
+        listaOpcoes[n] = "remover dos favoritos"; mapOpcoes[n++] = OP_REMOVER_FAVORITO;
+        if (menuAtual == MENU_BAIXAR_GITHUB) { listaOpcoes[n] = "nova pasta aqui"; mapOpcoes[n++] = OP_NOVA_PASTA; }
     }
-    else if (total >= GITHUB_FAVORITOS_MAX) { sprintf(msgStatus, "FAVORITOS CHEIOS!"); msgTimer = 180; return; }
-    else {
-        snprintf(favoritos[total++], 160, "%s", repo);
-        sprintf(msgStatus, "SALVO NOS FAVORITOS");
+    else { listaOpcoes[n] = "adicionar aos favoritos"; mapOpcoes[n++] = OP_ADICIONAR; }
+    listaOpcoes[n] = "cancelar"; mapOpcoes[n++] = OP_CANCELAR;
+    githubOpcoes(n);
+}
+
+static void githubAtualizarLista(const char* link) {
+    if (menuAtual != MENU_BAIXAR_GITHUB) return;
+    githubMostrarSelecionando(link, sel, off);
+}
+
+static void githubAplicarDestino(const char* destino) {
+    if (githubDestinoModo == DESTINO_ADICIONAR) {
+        if (favAdicionar(githubRepoOpcao, destino)) sprintf(msgStatus, "SALVO NOS FAVORITOS");
+        else sprintf(msgStatus, "NAO FOI POSSIVEL SALVAR");
     }
+    else if (githubDestinoModo == DESTINO_MOVER_FAVORITO) { favMover(githubRepoOpcao, destino); sprintf(msgStatus, "FAVORITO MOVIDO"); }
+    else if (favMoverPasta(githubPastaOpcao, destino)) sprintf(msgStatus, "PASTA MOVIDA");
+    else sprintf(msgStatus, "JA EXISTE UMA PASTA COM ESSE NOME LA");
     msgTimer = 180;
-    githubGravarFavoritos(favoritos, total);
+    githubAtualizarLista(NULL);
+}
+
+void acaoOpcaoGithub(int indice) {
+    extern int mapOpcoes[150];
+    extern const char* listaOpcoes[150];
+    extern bool showOpcoes;
+    int op = mapOpcoes[indice];
+    showOpcoes = false;
+    int32_t usuario = 0;
+    sceUserServiceGetInitialUser(&usuario);
+
+    if (op >= OP_DESTINO_PASTA) {
+        char destino[FAV_TAM_PASTA];
+        snprintf(destino, sizeof(destino), "%s", favPastas[op - OP_DESTINO_PASTA]);
+        githubAplicarDestino(destino);
+    }
+    else if (op == OP_DESTINO_RAIZ) githubAplicarDestino("");
+    else if (op == OP_DESTINO_NOVA_PASTA) {
+        githubAdicionarNaNovaPasta = true;
+        githubPastaOpcao[0] = '\0';
+        abrirTecladoNome(usuario, TECLADO_NOVA_PASTA, L"Nome da nova pasta", "");
+    }
+    else if (op == OP_NOVA_PASTA) { githubAdicionarNaNovaPasta = false; abrirTecladoNome(usuario, TECLADO_NOVA_PASTA, L"Nome da nova pasta", ""); }
+    else if (op == OP_RENOMEAR_PASTA) abrirTecladoNome(usuario, TECLADO_RENOMEAR_PASTA, L"Nome da pasta", favFolha(githubPastaOpcao));
+    else if (op == OP_MOVER_PASTA) githubAbrirDestinos(DESTINO_MOVER_PASTA);
+    else if (op == OP_EXCLUIR_PASTA) {
+        int total = favContar(githubPastaOpcao);
+        snprintf(githubTextoExclusao, sizeof(githubTextoExclusao), "excluir pasta e %d favorito%s", total, total == 1 ? "" : "s");
+        listaOpcoes[0] = "cancelar"; mapOpcoes[0] = OP_CANCELAR;
+        listaOpcoes[1] = githubTextoExclusao; mapOpcoes[1] = OP_CONFIRMAR_EXCLUSAO;
+        githubOpcoes(2);
+    }
+    else if (op == OP_CONFIRMAR_EXCLUSAO) {
+        favExcluirPasta(githubPastaOpcao);
+        sprintf(msgStatus, "PASTA EXCLUIDA"); msgTimer = 180;
+        githubAtualizarLista(NULL);
+    }
+    else if (op == OP_ADICIONAR) githubAbrirDestinos(DESTINO_ADICIONAR);
+    else if (op == OP_MOVER_FAVORITO) githubAbrirDestinos(DESTINO_MOVER_FAVORITO);
+    else if (op == OP_RENOMEAR_FAVORITO) {
+        int achado = favAcharItem(githubRepoOpcao);
+        abrirTecladoNome(usuario, TECLADO_RENOMEAR_FAVORITO, L"Nome do favorito", achado >= 0 ? favItens[achado].nome : "");
+    }
+    else if (op == OP_REMOVER_FAVORITO) {
+        favRemover(githubRepoOpcao);
+        sprintf(msgStatus, "REMOVIDO DOS FAVORITOS"); msgTimer = 180;
+        githubAtualizarLista(NULL);
+    }
 }
 
 char githubNomeDownload[128] = "";
@@ -466,47 +870,6 @@ void githubBaixarArquivo(int indice) {
     snprintf(githubNomeDownload, sizeof(githubNomeDownload), "%s", traco ? traco + 3 : nomes[indice]);
     extern void iniciarDownload(const char* url);
     iniciarDownload(linksAtuais[indice]);
-}
-
-static char githubRepoOpcao[160] = "";
-
-// Triângulo abre o menu de opções do repositório selecionado, como no Explorar e no FTP.
-void acaoTriangle_Github() {
-    extern const char* listaOpcoes[150];
-    extern int mapOpcoes[150], totalOpcoes, selOpcao;
-    extern bool showOpcoes;
-
-    if (showOpcoes) { showOpcoes = false; return; }
-
-    const char* repo = githubRepoAtual;
-    if (menuAtual == MENU_BAIXAR_GITHUB) { if (sel <= 0) return; repo = linksAtuais[sel]; }
-    else if (menuAtual == MENU_BAIXAR_GITHUB_REPOS) repo = linksAtuais[sel];
-    if (!repo[0]) return;
-    if (strcasecmp(repo, GITHUB_REPO_FIXO) == 0) { sprintf(msgStatus, "HYPER NEIVA FICA SEMPRE NA LISTA"); msgTimer = 180; return; }
-    snprintf(githubRepoOpcao, sizeof(githubRepoOpcao), "%s", repo);
-
-    static char favoritos[GITHUB_FAVORITOS_MAX][160];
-    int total = githubLerFavoritos(favoritos);
-    bool salvo = false;
-    for (int i = 0; i < total; i++) if (strcasecmp(favoritos[i], repo) == 0) salvo = true;
-
-    listaOpcoes[0] = salvo ? "remover dos favoritos" : "adicionar aos favoritos"; mapOpcoes[0] = 900;
-    listaOpcoes[1] = "cancelar"; mapOpcoes[1] = 901;
-    totalOpcoes = 2; selOpcao = 0; showOpcoes = true;
-}
-
-void acaoOpcaoGithub(int indice) {
-    extern bool showOpcoes;
-    showOpcoes = false;
-    if (indice != 0) return;
-
-    githubAlternarFavorito(githubRepoOpcao);
-    if (menuAtual == MENU_BAIXAR_GITHUB) {
-        int selAntes = sel, offAntes = off;
-        preencherMenuGithub();
-        sel = selAntes < totalItens ? selAntes : totalItens - 1;
-        off = offAntes;
-    }
 }
 
 void mostrarGithubRepos() {
@@ -601,8 +964,60 @@ static void githubPesquisar(const char* texto) {
 static volatile bool githubEsperandoTeclado = false;
 static wchar_t githubTextoTeclado[256] = L"";
 
+static int githubModoTeclado = TECLADO_PESQUISA;
+
+// Nome de pasta não pode ter o que tem significado no txt.
+static void githubLimparNome(char* nome) {
+    int n = 0;
+    for (int i = 0; nome[i]; i++) if (!strchr("/\\[]|@#\r\n", nome[i])) nome[n++] = nome[i];
+    while (n > 0 && nome[n - 1] == ' ') n--;
+    nome[n] = '\0';
+    char* inicio = nome;
+    while (*inicio == ' ') inicio++;
+    if (inicio != nome) memmove(nome, inicio, strlen(inicio) + 1);
+}
+
+static void abrirTecladoNome(int32_t uId, int modo, const wchar_t* titulo, const char* inicial) {
+    if (githubEsperandoTeclado) return;
+    OrbisImeDialogSetting param;
+    memset(&param, 0, sizeof(param));
+    memset(githubTextoTeclado, 0, sizeof(githubTextoTeclado));
+    for (int i = 0; inicial[i] && i < 90; i++) githubTextoTeclado[i] = (unsigned char)inicial[i];
+    param.userId = uId;
+    param.maxTextLength = 90;
+    param.inputTextBuffer = githubTextoTeclado;
+    param.title = titulo;
+    param.type = (OrbisImeType)0;
+    if (sceImeDialogInit(&param, NULL) >= 0) { githubEsperandoTeclado = true; githubModoTeclado = modo; }
+}
+
+static void githubAplicarNome(char* texto) {
+    githubLimparNome(texto);
+    favCarregar();
+    if (githubModoTeclado == TECLADO_RENOMEAR_FAVORITO) {
+        favRenomear(githubRepoOpcao, texto);
+        sprintf(msgStatus, "NOME ALTERADO");
+    }
+    else if (githubModoTeclado == TECLADO_RENOMEAR_PASTA) {
+        if (favRenomearPasta(githubPastaOpcao, texto)) sprintf(msgStatus, "PASTA RENOMEADA");
+        else sprintf(msgStatus, "NOME INVALIDO OU JA USADO");
+    }
+    else if (!favCriarPasta(githubPastaOpcao, texto)) sprintf(msgStatus, "NOME INVALIDO OU JA USADO");
+    else if (githubAdicionarNaNovaPasta) {
+        char caminho[FAV_TAM_PASTA];
+        favMontarCaminho(githubPastaOpcao, texto, caminho);
+        favAdicionar(githubRepoOpcao, caminho);
+        sprintf(msgStatus, "SALVO NOS FAVORITOS");
+    }
+    else sprintf(msgStatus, "PASTA CRIADA");
+    githubAdicionarNaNovaPasta = false;
+    msgTimer = 180;
+    githubAtualizarLista(NULL);
+}
+
 void abrirTecladoGithub(int32_t uId) {
     if (githubEsperandoTeclado) return;
+    githubModoTeclado = TECLADO_PESQUISA;
     OrbisImeDialogSetting param;
     memset(&param, 0, sizeof(param));
     memset(githubTextoTeclado, 0, sizeof(githubTextoTeclado));
@@ -632,6 +1047,8 @@ void atualizarImeGithub() {
     sceImeDialogTerm();
     githubEsperandoTeclado = false;
 
+    if (botao == 0 && githubModoTeclado != TECLADO_PESQUISA) { githubAplicarNome(texto); return; }
+    githubAdicionarNaNovaPasta = false;
     if (botao == 0 && n > 0) {
         extern void empilharMenu(MenuLevel menu, int selAntes, int offAntes);
         MenuLevel menuAntes = menuAtual; int selAntes = sel, offAntes = off;

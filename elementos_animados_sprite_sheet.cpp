@@ -1,5 +1,6 @@
 #include "elementos_animados_sprite_sheet.h"
 #include "stb_image.h"
+#include <orbis/libkernel.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -302,7 +303,13 @@ void desenharElementoAnimado(uint32_t* buffer) {
             anim_frameAtual = anim_frameInicial;
         }
 
-        anim_timer += anim_velocidade;
+        // Por tempo, para a animação não acelerar junto com o menu.
+        static uint64_t ultimoAnimUs = 0;
+        uint64_t agoraAnimUs = sceKernelGetProcessTime();
+        uint64_t passouAnimUs = ultimoAnimUs ? agoraAnimUs - ultimoAnimUs : 50000;
+        if (passouAnimUs > 200000) passouAnimUs = 200000;
+        ultimoAnimUs = agoraAnimUs;
+        anim_timer += (int)(anim_velocidade * passouAnimUs / 50000);
         while (anim_timer >= 100) {
             anim_frameAtual++;
             anim_timer -= 100;

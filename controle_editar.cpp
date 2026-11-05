@@ -153,6 +153,16 @@ void acaoCross_Editar() {
             customUI[interfaceTelaAlvo][interfaceElementoAlvo].ativo = false; extern void salvarCustomUI(); salvarCustomUI(); editTarget = 17; preencherMenuEditTarget(); 
             sel = 0; if (listFocus) off = sel - (numSlotsPadrao / 2); else off = 0; strcpy(msgStatus, "ELEMENTO DELETADO!"); msgTimer = 90; 
         }
+        else if (acaoReal == 83) {
+            // Troca na hora: o X no item já é a ação, sem passar pelo modo de edição.
+            extern int ctrl1Livre;
+            int selAntes = sel, offAntes = off;
+            ctrl1Livre = !ctrl1Livre;
+            salvarConfiguracao();
+            preencherMenuEditTarget();
+            sel = selAntes; off = offAntes;
+            strcpy(msgStatus, ctrl1Livre ? "MODO LIVRE" : "MODO CHAO"); msgTimer = 120;
+        }
         else if (acaoReal >= 62 && acaoReal <= 71) { editType = acaoReal; editMode = true; crossReleaseRequired = true; circleReleaseRequired = true; }
         else if (acaoReal == 9) { 
             // RESETAR ESTE ITEM (Target Specific)

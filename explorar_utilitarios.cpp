@@ -50,9 +50,10 @@ void extrairZip(const char* zipPath, const char* outPath) {
         FILE* fh = fopen(zipPath, "rb");
         if (fh) { fseek(fh, 0, SEEK_END); fsz = ftell(fh); fseek(fh, 0, SEEK_SET); hn = fread(hdr, 1, sizeof(hdr), fh); fclose(fh); }
         if (fsz == 0) { snprintf(msgStatus, sizeof(msgStatus), "ARQUIVO VAZIO (0 bytes)"); }
-        else if (hn >= 4 && hdr[0] == 'R' && hdr[1] == 'a' && hdr[2] == 'r' && hdr[3] == '!') { snprintf(msgStatus, sizeof(msgStatus), "ARQUIVO RAR NAO SUPORTADO - CONVERTA PARA ZIP"); }
+        else if (hn >= 4 && hdr[0] == 'R' && hdr[1] == 'a' && hdr[2] == 'r' && hdr[3] == '!') { extrairRar(zipPath, outPath); return; }
         else if (hn >= 6 && hdr[0] == 0x37 && hdr[1] == 0x7A && hdr[2] == 0xBC && hdr[3] == 0xAF && hdr[4] == 0x27 && hdr[5] == 0x1C) { extrair7z(zipPath, outPath); return; }
         else if (hn >= 2 && hdr[0] == 'P' && hdr[1] == 'K') { snprintf(msgStatus, sizeof(msgStatus), "ZIP INCOMPLETO/CORROMPIDO - BAIXE NOVAMENTE (cod %d)", cod); }
+        else if (hn >= 2 && hdr[0] == '<' && (hdr[1] == '!' || hdr[1] == 'h' || hdr[1] == 'H')) { snprintf(msgStatus, sizeof(msgStatus), "ISTO E UMA PAGINA DE ERRO, NAO O ARQUIVO - BAIXE DE NOVO"); }
         else { snprintf(msgStatus, sizeof(msgStatus), "NAO E UM ZIP VALIDO (cod %d)", cod); }
         FILE* dbg = fopen("/data/HyperNeiva/zip_debug_log.txt", "a");
         if (dbg) { fprintf(dbg, "FALHA init cod=%d size=%ld hdr=%02X%02X%02X%02X path=%s\n", cod, fsz, hdr[0], hdr[1], hdr[2], hdr[3], zipPath); fclose(dbg); }
@@ -108,7 +109,7 @@ extern "C" {
 int hn7z_open(const char* path, void** out);
 int hn7z_num(void* h);
 int hn7z_info(void* h, int i, char* name, int nameSize, int* isDir, unsigned long long* size);
-const unsigned char* hn7z_extract(void* h, int i, unsigned long long* outSize);
+long hn7z_ler(void* h, int i, void* destino, long tamanho);
 int hn7z_last_error(void* h);
 void hn7z_close(void* h);
 }
@@ -124,6 +125,68 @@ static bool nomeEntrada7zSeguro(const char* nome, char* out, int outSize) {
     char* tok = strtok(tmp, "/");
     while (tok) { if (strcmp(tok, "..") == 0) return false; tok = strtok(NULL, "/"); }
     return true;
+}
+
+extern "C" {
+void* hnrar_abrir(const char* caminho);
+int hnrar_proximo(void* h, char* nome, int tamanhoNome, int* ehPasta);
+long hnrar_ler(void* h, void* destino, long tamanho);
+int hnrar_progresso(void* h);
+const char* hnrar_erro(void* h);
+void hnrar_fechar(void* h);
+}
+
+void extrairRar(const char* rarPath, const char* outPath) {
+    snprintf(msgStatus, sizeof(msgStatus), "LENDO ARQUIVO RAR..."); atualizarBarra(0.01f);
+    void* h = hnrar_abrir(rarPath);
+    unsigned char* buf = (unsigned char*)malloc(262144);
+    if (!h || !buf) {
+        free(buf); hnrar_fechar(h);
+        snprintf(msgStatus, sizeof(msgStatus), "RAR CORROMPIDO, COM SENHA OU INCOMPLETO"); msgTimer = 360;
+        FILE* dbg = fopen("/data/HyperNeiva/zip_debug_log.txt", "a");
+        if (dbg) { fprintf(dbg, "RAR FALHA abrir path=%s\n", rarPath); fclose(dbg); }
+        return;
+    }
+
+    int extraidos = 0, falhas = 0; bool comSenha = false;
+    char ultimoErro[160] = "";
+    while (true) {
+        char nome[1024], nomeNorm[1024]; int ehPasta = 0;
+        int r = hnrar_proximo(h, nome, sizeof(nome), &ehPasta);
+        if (r == 0) break;
+        if (r < 0) { falhas++; snprintf(ultimoErro, sizeof(ultimoErro), "%s", hnrar_erro(h)); break; }
+        if (!nomeEntrada7zSeguro(nome, nomeNorm, sizeof(nomeNorm))) { falhas++; continue; }
+
+        char out_file[2048];
+        snprintf(out_file, sizeof(out_file), "%s/%s", outPath, nomeNorm);
+        criarCaminho(out_file);
+        if (ehPasta) { sceKernelMkdir(out_file, 0777); extraidos++; continue; }
+
+        FILE* fo = fopen(out_file, "wb");
+        if (!fo) { falhas++; continue; }
+        long n; bool ok = true; int blocos = 0;
+        while ((n = hnrar_ler(h, buf, 262144)) > 0) {
+            if (fwrite(buf, 1, (size_t)n, fo) != (size_t)n) { ok = false; break; }
+            if (++blocos % 64 == 0) { int pct = hnrar_progresso(h); snprintf(msgStatus, sizeof(msgStatus), "EXTRAINDO RAR: %d%%", pct); atualizarBarra(pct / 100.0f); }
+        }
+        fclose(fo);
+        if (n < 0) { ok = false; snprintf(ultimoErro, sizeof(ultimoErro), "%s", hnrar_erro(h)); }
+        if (ok) extraidos++; else { falhas++; remove(out_file); }
+        if (strstr(ultimoErro, "ncrypt") || strstr(ultimoErro, "assword")) { comSenha = true; break; }
+        int pct = hnrar_progresso(h);
+        snprintf(msgStatus, sizeof(msgStatus), "EXTRAINDO RAR: %d%%", pct); atualizarBarra(pct / 100.0f);
+    }
+    free(buf); hnrar_fechar(h);
+
+    if (ultimoErro[0]) {
+        FILE* dbg = fopen("/data/HyperNeiva/zip_debug_log.txt", "a");
+        if (dbg) { fprintf(dbg, "RAR erro: %s path=%s\n", ultimoErro, rarPath); fclose(dbg); }
+    }
+    if (comSenha) { snprintf(msgStatus, sizeof(msgStatus), "RAR COM SENHA NAO SUPORTADO"); msgTimer = 360; }
+    else if (falhas > 0 && extraidos == 0) { snprintf(msgStatus, sizeof(msgStatus), "ERRO AO EXTRAIR RAR: NENHUM ARQUIVO (%d falhas)", falhas); msgTimer = 360; }
+    else if (falhas > 0) { snprintf(msgStatus, sizeof(msgStatus), "EXTRAIDO RAR: %d OK, %d falhas", extraidos, falhas); msgTimer = 300; }
+    else if (extraidos == 0) { snprintf(msgStatus, sizeof(msgStatus), "ERRO: RAR VAZIO OU SEM ARQUIVOS!"); msgTimer = 300; }
+    else { snprintf(msgStatus, sizeof(msgStatus), "RAR EXTRAIDO COM SUCESSO! (%d arquivos)", extraidos); msgTimer = 180; }
 }
 
 void extrair7z(const char* zipPath, const char* outPath) {
@@ -148,7 +211,9 @@ void extrair7z(const char* zipPath, const char* outPath) {
         hn7z_close(h);
         snprintf(msgStatus, sizeof(msgStatus), "ERRO: 7Z VAZIO OU SEM ARQUIVOS!"); msgTimer = 300; return;
     }
-    int extraidos = 0, falhas = 0;
+    unsigned char* buf = (unsigned char*)malloc(262144);
+    if (!buf) { hn7z_close(h); snprintf(msgStatus, sizeof(msgStatus), "SEM MEMORIA PARA EXTRAIR O 7Z"); msgTimer = 300; return; }
+    int extraidos = 0, falhas = 0, ultimoPct = -1;
     for (int i = 0; i < totalArquivos; i++) {
         char nome[1024]; int isDir = 0; unsigned long long fsz = 0;
         if (hn7z_info(h, i, nome, sizeof(nome), &isDir, &fsz) != 0) { falhas++; continue; }
@@ -157,26 +222,25 @@ void extrair7z(const char* zipPath, const char* outPath) {
 
         char out_file[2048];
         snprintf(out_file, sizeof(out_file), "%s/%s", outPath, nomeNorm);
-        if (isDir) {
-            criarCaminho(out_file); sceKernelMkdir(out_file, 0777); extraidos++;
-        } else {
-            criarCaminho(out_file);
-            unsigned long long sz = 0;
-            const unsigned char* data = hn7z_extract(h, i, &sz);
-            if (!data) { falhas++; }
-            else {
-                FILE* fo = fopen(out_file, "wb");
-                if (!fo) { falhas++; }
-                else {
-                    size_t wr = sz ? fwrite(data, 1, (size_t)sz, fo) : 0;
-                    fclose(fo);
-                    if (wr == (size_t)sz) extraidos++; else falhas++;
-                }
+        criarCaminho(out_file);
+        if (isDir) { sceKernelMkdir(out_file, 0777); extraidos++; }
+        else {
+            FILE* fo = fopen(out_file, "wb");
+            if (!fo) { falhas++; continue; }
+            long n; bool ok = true;
+            while ((n = hn7z_ler(h, i, buf, 262144)) > 0) {
+                if (fwrite(buf, 1, (size_t)n, fo) != (size_t)n) { ok = false; break; }
             }
+            fclose(fo);
+            if (n < 0) ok = false;
+            if (ok) extraidos++; else { falhas++; remove(out_file); }
+            // Num bloco sólido, depois de um erro de dados nada mais sai certo.
+            if (n < 0) break;
         }
-        float prog = (float)(i + 1) / (float)totalArquivos;
-        snprintf(msgStatus, sizeof(msgStatus), "EXTRAINDO 7Z: %d%%", (int)(prog * 100)); atualizarBarra(prog);
+        int pct = (i + 1) * 100 / totalArquivos;
+        if (pct != ultimoPct) { ultimoPct = pct; snprintf(msgStatus, sizeof(msgStatus), "EXTRAINDO 7Z: %d%%", pct); atualizarBarra(pct / 100.0f); }
     }
+    free(buf);
     int lastErr = hn7z_last_error(h);
     hn7z_close(h);
     if (falhas > 0 && extraidos == 0) { snprintf(msgStatus, sizeof(msgStatus), "ERRO AO EXTRAIR 7Z: NENHUM ARQUIVO (%d falhas, cod %d)", falhas, lastErr); msgTimer = 360; }

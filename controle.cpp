@@ -7,6 +7,7 @@
 #include <string.h>
 #include <ctype.h>
 #include <orbis/Pad.h> 
+#include <orbis/libkernel.h>
 
 #include "controle.h"
 #include "controle_direcional.h"
@@ -174,6 +175,8 @@ void voltarNavegacao() {
         else if (menuAtual == MENU_INFORMACAO) preencherMenuInformacao();
         else if (menuAtual == MENU_EMULADOR) preencherMenuEmulador();
         else if (menuAtual == MENU_BAIXAR_REPOS) preencherMenuRepositorios();
+        else if (menuAtual == MENU_BAIXAR_GAMES_XMLS) { extern void listarXMLsRepositorio(); listarXMLsRepositorio(); }
+        else if (menuAtual == MENU_BAIXAR_GAMES_LIST) { extern void reabrirXMLRepositorio(); reabrirXMLRepositorio(); }
         else if (menuAtual == MENU_BAIXAR_GITHUB) { extern void preencherMenuGithub(); preencherMenuGithub(); }
         else if (menuAtual == MENU_BAIXAR_GITHUB_REPOS) { extern void mostrarGithubRepos(); mostrarGithubRepos(); }
         else if (menuAtual == MENU_BAIXAR_GITHUB_RELEASES) { extern void mostrarGithubReleases(); mostrarGithubReleases(); }
@@ -348,7 +351,10 @@ void processarNavegacaoDPad(uint32_t botoes) {
         }
     }
     else if (!(botoes & (ORBIS_PAD_BUTTON_LEFT | ORBIS_PAD_BUTTON_RIGHT | ORBIS_PAD_BUTTON_UP | ORBIS_PAD_BUTTON_DOWN))) { cd = 0; }
-    if (cd > 0) cd--;
+    // Por tempo, e não por volta do loop: o menu ficou mais rápido, a repetição dos botões não.
+    static uint64_t ultimoCdUs = 0;
+    uint64_t agoraCdUs = sceKernelGetProcessTime();
+    if (agoraCdUs - ultimoCdUs >= 50000) { ultimoCdUs = agoraCdUs; if (cd > 0) cd--; }
 
     if (timeToLoadCapa > 0) {
         timeToLoadCapa--;
@@ -648,6 +654,10 @@ void processarControles(uint32_t botoes, int32_t uId, OrbisImeDialogSetting* ime
                 }
                 else if (menuAtual == MENU_MIDIA) {
                     handled = voltarPastaMidia();
+                }
+                else if (menuAtual == MENU_BAIXAR_GITHUB) {
+                    extern bool githubVoltarPasta();
+                    handled = githubVoltarPasta();
                 }
                 else if (menuAtual == MENU_RADIO_CATEGORIA || menuAtual == MENU_RADIO_LISTA || menuAtual == MENU_RADIO_FAVORITOS) {
                     handled = false; // Deixa o global voltar

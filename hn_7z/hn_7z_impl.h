@@ -6582,27 +6582,40 @@ SRes SzAr_DecodeFolder(const CSzAr *p, UInt32 folderIndex,
 #include <stdlib.h>
 #include <string.h>
 
+/* Lê do disco com um buffer pequeno: um .7z grande não cabe na memória do app. */
 typedef struct
 {
   ILookInStream vt;
-  const Byte *data;
-  size_t size;
-  size_t pos;
+  FILE *f;
+  Byte buf[1 << 16];
+  size_t bufPos;
+  size_t bufLen;
+  UInt64 pos;
+  UInt64 size;
 } HN7zStream;
 
 static SRes HN7z_Look(ILookInStreamPtr pp, const void **buf, size_t *size)
 {
   HN7zStream *p = (HN7zStream *)pp;
-  size_t rem = (p->pos < p->size) ? (p->size - p->pos) : 0;
-  if (*size > rem) *size = rem;
-  *buf = p->data + p->pos;
+  if (p->bufPos == p->bufLen)
+  {
+    p->bufPos = 0;
+    p->bufLen = fread(p->buf, 1, sizeof(p->buf), p->f);
+  }
+  if (*size > p->bufLen - p->bufPos) *size = p->bufLen - p->bufPos;
+  *buf = p->buf + p->bufPos;
   return SZ_OK;
 }
 
 static SRes HN7z_Skip(ILookInStreamPtr pp, size_t offset)
 {
   HN7zStream *p = (HN7zStream *)pp;
-  if (offset > p->size - p->pos) { p->pos = p->size; return SZ_ERROR_INPUT_EOF; }
+  if (offset <= p->bufLen - p->bufPos) p->bufPos += offset;
+  else
+  {
+    p->bufPos = p->bufLen = 0;
+    if (fseeko(p->f, (off_t)(p->pos + offset), SEEK_SET) != 0) return SZ_ERROR_READ;
+  }
   p->pos += offset;
   return SZ_OK;
 }
@@ -6610,10 +6623,15 @@ static SRes HN7z_Skip(ILookInStreamPtr pp, size_t offset)
 static SRes HN7z_Read(ILookInStreamPtr pp, void *buf, size_t *size)
 {
   HN7zStream *p = (HN7zStream *)pp;
-  size_t rem = p->size - p->pos;
   size_t n = *size;
-  if (n > rem) n = rem;
-  if (n) memcpy(buf, p->data + p->pos, n);
+  size_t disponivel = p->bufLen - p->bufPos;
+  if (disponivel)
+  {
+    if (n > disponivel) n = disponivel;
+    memcpy(buf, p->buf + p->bufPos, n);
+    p->bufPos += n;
+  }
+  else n = fread(buf, 1, n, p->f);
   p->pos += n;
   *size = n;
   return SZ_OK;
@@ -6633,30 +6651,33 @@ static SRes HN7z_Seek(ILookInStreamPtr pp, Int64 *pos, ESzSeek origin)
   }
   np = base + *pos;
   if (np < 0) return SZ_ERROR_PARAM;
-  if ((UInt64)np > p->size) { p->pos = p->size; return SZ_ERROR_INPUT_EOF; }
-  p->pos = (size_t)np;
+  if (fseeko(p->f, (off_t)np, SEEK_SET) != 0) return SZ_ERROR_READ;
+  p->bufPos = p->bufLen = 0;
+  p->pos = (UInt64)np;
   *pos = np;
   return SZ_OK;
 }
 
-static void HN7z_StreamInit(HN7zStream *p, const Byte *data, size_t size)
+static void HN7z_StreamInit(HN7zStream *p, FILE *f, UInt64 size)
 {
-  memset(p, 0, sizeof(*p));
   p->vt.Look = HN7z_Look;
   p->vt.Skip = HN7z_Skip;
   p->vt.Read = HN7z_Read;
   p->vt.Seek = HN7z_Seek;
-  p->data = data;
+  p->f = f;
   p->size = size;
   p->pos = 0;
+  p->bufPos = p->bufLen = 0;
 }
 
 static ISzAlloc hn7z_alloc = { SzAlloc, SzFree };
 
+#define HN7Z_ENTRADA (1 << 18)
+enum { HN7Z_DEC_NENHUM, HN7Z_DEC_LZMA, HN7Z_DEC_LZMA2, HN7Z_DEC_MEMORIA };
+
 typedef struct
 {
-  Byte *fileData;
-  size_t fileSize;
+  FILE *file;
   HN7zStream stream;
   CSzArEx db;
   int opened;
@@ -6666,6 +6687,21 @@ typedef struct
   size_t outBufferSize;
   size_t curOffset;
   size_t curSize;
+  /* Decodificador em fluxo: um bloco sólido pode ser maior que toda a memória do app. */
+  int decTipo;
+  UInt32 decBloco;
+  CLzmaDec lzma;
+  CLzma2Dec lzma2;
+  Byte *entrada;
+  size_t entradaPos;
+  size_t entradaLen;
+  UInt64 packPos;
+  UInt64 packResto;
+  UInt64 decodificado;
+  int arquivoAtual;
+  UInt64 arquivoResto;
+  UInt32 arquivoCrc;
+  const Byte *memoriaPtr;
 } HN7z;
 
 static int hn7z_utf16_to_utf8(const UInt16 *src, size_t len, char *dst, int dstSize)
@@ -6720,35 +6756,34 @@ static int hn7z_utf16_to_utf8(const UInt16 *src, size_t len, char *dst, int dstS
 int hn7z_open(const char *path, void **out)
 {
   FILE *f;
-  long sz;
-  unsigned char *data;
+  long long sz;
   HN7z *h;
   SRes res;
 
   if (out) *out = 0;
   if (!path) return -1000;
+  {
+    static int crcPronto = 0;
+    if (!crcPronto) { CrcGenerateTable(); crcPronto = 1; }
+  }
   f = fopen(path, "rb");
   if (!f) return -1001;
-  if (fseek(f, 0, SEEK_END) != 0) { fclose(f); return -1002; }
-  sz = ftell(f);
+  if (fseeko(f, 0, SEEK_END) != 0) { fclose(f); return -1002; }
+  sz = (long long)ftello(f);
   if (sz <= 0) { fclose(f); return -1003; }
-  if (fseek(f, 0, SEEK_SET) != 0) { fclose(f); return -1002; }
-  data = (unsigned char *)malloc((size_t)sz);
-  if (!data) { fclose(f); return -1004; }
-  if (fread(data, 1, (size_t)sz, f) != (size_t)sz) { fclose(f); free(data); return -1005; }
-  fclose(f);
+  if (fseeko(f, 0, SEEK_SET) != 0) { fclose(f); return -1002; }
 
   h = (HN7z *)calloc(1, sizeof(HN7z));
-  if (!h) { free(data); return -1006; }
-  h->fileData = data;
-  h->fileSize = (size_t)sz;
-  HN7z_StreamInit(&h->stream, data, (size_t)sz);
+  if (!h) { fclose(f); return -1006; }
+  h->file = f;
+  h->arquivoAtual = -1;
+  HN7z_StreamInit(&h->stream, f, (UInt64)sz);
   SzArEx_Init(&h->db);
   res = SzArEx_Open(&h->db, &h->stream.vt, &hn7z_alloc, &hn7z_alloc);
   if (res != SZ_OK)
   {
     SzArEx_Free(&h->db, &hn7z_alloc);
-    free(data);
+    fclose(f);
     free(h);
     return (int)res;
   }
@@ -6816,6 +6851,147 @@ const unsigned char *hn7z_extract(void *hh, int i, unsigned long long *outSize)
   return h->outBuffer + h->curOffset;
 }
 
+static void hn7z_dec_fechar(HN7z *h)
+{
+  if (h->decTipo == HN7Z_DEC_LZMA) LzmaDec_Free(&h->lzma, &hn7z_alloc);
+  else if (h->decTipo == HN7Z_DEC_LZMA2) Lzma2Dec_Free(&h->lzma2, &hn7z_alloc);
+  h->decTipo = HN7Z_DEC_NENHUM;
+}
+
+/* Bloco de um coder só, LZMA ou LZMA2, vai em fluxo. O resto usa o caminho em memória do SDK. */
+static int hn7z_dec_abrir(HN7z *h, UInt32 bloco)
+{
+  const Byte *d = h->db.db.CodersData + h->db.db.FoCodersOffsets[bloco];
+  UInt32 pack = h->db.db.FoStartPackStreamIndex[bloco];
+  SRes res;
+  int tipo = HN7Z_DEC_MEMORIA;
+
+  hn7z_dec_fechar(h);
+  if (d[0] == 1 && d[1] == 0x21 && d[2] == 0x21 && d[3] == 1) tipo = HN7Z_DEC_LZMA2;
+  else if (d[0] == 1 && d[1] == 0x23 && d[2] == 3 && d[3] == 1 && d[4] == 1 && d[5] == 5) tipo = HN7Z_DEC_LZMA;
+  h->decBloco = bloco;
+  h->decodificado = 0;
+  if (tipo == HN7Z_DEC_MEMORIA) { h->decTipo = tipo; return SZ_OK; }
+
+  if (!h->entrada)
+  {
+    h->entrada = (Byte *)malloc(HN7Z_ENTRADA);
+    if (!h->entrada) return SZ_ERROR_MEM;
+  }
+  if (tipo == HN7Z_DEC_LZMA2)
+  {
+    Lzma2Dec_CONSTRUCT(&h->lzma2);
+    res = Lzma2Dec_Allocate(&h->lzma2, d[4], &hn7z_alloc);
+    if (res != SZ_OK) return res;
+    Lzma2Dec_Init(&h->lzma2);
+  }
+  else
+  {
+    LzmaDec_CONSTRUCT(&h->lzma);
+    res = LzmaDec_Allocate(&h->lzma, d + 6, 5, &hn7z_alloc);
+    if (res != SZ_OK) return res;
+    LzmaDec_Init(&h->lzma);
+  }
+  h->decTipo = tipo;
+  h->packPos = h->db.dataPos + h->db.db.PackPositions[pack];
+  h->packResto = h->db.db.PackPositions[pack + 1] - h->db.db.PackPositions[pack];
+  h->entradaPos = h->entradaLen = 0;
+  return SZ_OK;
+}
+
+static long hn7z_dec_ler(HN7z *h, Byte *destino, long quanto)
+{
+  long pronto = 0;
+  while (pronto < quanto)
+  {
+    SizeT saida = (SizeT)(quanto - pronto), lido;
+    ELzmaStatus status;
+    SRes res;
+    if (h->entradaPos == h->entradaLen && h->packResto > 0)
+    {
+      size_t n = h->packResto < HN7Z_ENTRADA ? (size_t)h->packResto : HN7Z_ENTRADA;
+      if (fseeko(h->file, (off_t)h->packPos, SEEK_SET) != 0) return -1;
+      h->stream.bufPos = h->stream.bufLen = 0;
+      n = fread(h->entrada, 1, n, h->file);
+      if (n == 0) return -1;
+      h->packPos += n;
+      h->packResto -= n;
+      h->entradaPos = 0;
+      h->entradaLen = n;
+    }
+    lido = (SizeT)(h->entradaLen - h->entradaPos);
+    if (h->decTipo == HN7Z_DEC_LZMA2)
+      res = Lzma2Dec_DecodeToBuf(&h->lzma2, destino ? destino + pronto : 0, &saida, h->entrada + h->entradaPos, &lido, LZMA_FINISH_ANY, &status);
+    else
+      res = LzmaDec_DecodeToBuf(&h->lzma, destino ? destino + pronto : 0, &saida, h->entrada + h->entradaPos, &lido, LZMA_FINISH_ANY, &status);
+    if (res != SZ_OK) { h->lastErr = (int)res; return -1; }
+    h->entradaPos += lido;
+    pronto += (long)saida;
+    h->decodificado += saida;
+    if (saida == 0 && lido == 0) break;
+  }
+  return pronto;
+}
+
+/* Lê o próximo pedaço do arquivo i: 0 no fim e negativo em erro. Peça os arquivos em ordem. */
+long hn7z_ler(void *hh, int i, void *destino, long tamanho)
+{
+  HN7z *h = (HN7z *)hh;
+  long n;
+  if (!h || !h->opened || i < 0 || (UInt32)i >= h->db.NumFiles) return -1;
+  if (SzArEx_IsDir(&h->db, (UInt32)i) || SzArEx_GetFileSize(&h->db, (UInt32)i) == 0) return 0;
+
+  if (h->arquivoAtual != i)
+  {
+    UInt32 bloco = h->db.FileToFolder[i];
+    UInt64 inicio;
+    SRes res;
+    if (bloco == (UInt32)-1) return -1;
+    inicio = h->db.UnpackPositions[i] - h->db.UnpackPositions[h->db.FolderToFile[bloco]];
+    if (h->decTipo == HN7Z_DEC_NENHUM || h->decBloco != bloco || (h->decTipo != HN7Z_DEC_MEMORIA && h->decodificado > inicio))
+    {
+      res = hn7z_dec_abrir(h, bloco);
+      if (res != SZ_OK) { h->lastErr = (int)res; return -1; }
+    }
+    if (h->decTipo == HN7Z_DEC_MEMORIA)
+    {
+      unsigned long long total = 0;
+      h->memoriaPtr = hn7z_extract(h, i, &total);
+      if (!h->memoriaPtr) return -1;
+    }
+    else
+    {
+      static Byte descarte[1 << 16];
+      while (h->decodificado < inicio)
+      {
+        UInt64 falta = inicio - h->decodificado;
+        n = hn7z_dec_ler(h, descarte, falta < sizeof(descarte) ? (long)falta : (long)sizeof(descarte));
+        if (n <= 0) return -1;
+      }
+    }
+    h->arquivoAtual = i;
+    h->arquivoResto = SzArEx_GetFileSize(&h->db, (UInt32)i);
+    h->arquivoCrc = CRC_INIT_VAL;
+  }
+
+  if (h->arquivoResto == 0) return 0;
+  n = h->arquivoResto < (UInt64)tamanho ? (long)h->arquivoResto : tamanho;
+  if (h->decTipo == HN7Z_DEC_MEMORIA) { memcpy(destino, h->memoriaPtr, (size_t)n); h->memoriaPtr += n; }
+  else
+  {
+    n = hn7z_dec_ler(h, (Byte *)destino, n);
+    if (n <= 0) return -1;
+  }
+  h->arquivoCrc = CrcUpdate(h->arquivoCrc, destino, (size_t)n);
+  h->arquivoResto -= (UInt64)n;
+  if (h->arquivoResto == 0 && SzBitWithVals_Check(&h->db.CRCs, i) && CRC_GET_DIGEST(h->arquivoCrc) != h->db.CRCs.Vals[i])
+  {
+    h->lastErr = SZ_ERROR_CRC;
+    return -1;
+  }
+  return n;
+}
+
 int hn7z_last_error(void *hh)
 {
   HN7z *h = (HN7z *)hh;
@@ -6827,8 +7003,10 @@ void hn7z_close(void *hh)
   HN7z *h = (HN7z *)hh;
   if (!h) return;
   if (h->opened) SzArEx_Free(&h->db, &hn7z_alloc);
+  hn7z_dec_fechar(h);
   if (h->outBuffer) free(h->outBuffer);
-  free(h->fileData);
+  free(h->entrada);
+  if (h->file) fclose(h->file);
   free(h);
 }
 

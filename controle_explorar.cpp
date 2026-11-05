@@ -239,26 +239,7 @@ void acaoCross_Explorar() {
 
                 if (selecionandoMidiaElemento) return;
 
-                strcpy(caminhoImagemAberta, caminhoArquivo);
-
-                listaOpcoes[0] = "visualizar";
-                if (strstr(nomeBlindado, ".xavatar")) mapOpcoes[0] = 13; else mapOpcoes[0] = 14;
-
-                listaOpcoes[1] = "personalizar jogo (appmeta)"; mapOpcoes[1] = 30;
-                listaOpcoes[2] = "usar no perfil ps4"; mapOpcoes[2] = 12;
-                listaOpcoes[3] = "plano de fundo do ps4"; mapOpcoes[3] = 11;
-                listaOpcoes[4] = "plano de fundo hyper neiva"; mapOpcoes[4] = 10;
-
-                if (strstr(nomeBlindado, ".xavatar")) {
-                    listaOpcoes[5] = "extrair zip / avatar"; mapOpcoes[5] = 7;
-                    for (int k = 6; k < 150; k++) { listaOpcoes[k] = ""; mapOpcoes[k] = -1; }
-                    totalOpcoes = 6;
-                }
-                else {
-                    for (int k = 5; k < 150; k++) { listaOpcoes[k] = ""; mapOpcoes[k] = -1; }
-                    totalOpcoes = 5;
-                }
-                showOpcoes = true; selOpcao = 0;
+                extern void abrirOpcoesImagem(const char*, bool); abrirOpcoesImagem(caminhoArquivo, true);
             }
             else if (strstr(nomeBlindado, ".mp3") || strstr(nomeBlindado, ".wav")) {
                 if (strcmp(caminhoMusicaTocando, caminhoArquivo) == 0) { tocarMusicaNova("PARADO"); strcpy(caminhoMusicaTocando, ""); sprintf(msgStatus, "Musica Parada"); msgTimer = 90; }

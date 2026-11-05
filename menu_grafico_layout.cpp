@@ -211,8 +211,9 @@ static int iconeDoItem(const char* nome, MenuLevel menu) {
     for (; nome[n] && n < 255; n++) minusculo[n] = (char)tolower((unsigned char)nome[n]);
     minusculo[n] = '\0';
 
+    if (strstr(minusculo, "ponteiro")) return idIcone("m_ponteiro");
     if (menu == MENU_RADIO_LISTA || menu == MENU_RADIO_FAVORITOS || menu == MENU_RADIO_CATEGORIA) return idIcone("m_radio");
-    if (menu == MENU_BAIXAR_GITHUB_REPOS || (menu == MENU_BAIXAR_GITHUB && strchr(nome, '/'))) return idIcone("m_caixa");
+    if (menu == MENU_BAIXAR_GITHUB_REPOS || (menu == MENU_BAIXAR_GITHUB && strcmp(nome, "Pesquisar no GitHub") != 0 && strcmp(nome, "Pasta vazia") != 0)) return idIcone("m_caixa");
     if (menu == MENU_BAIXAR_GITHUB_RELEASES) return idIcone("m_arquivos");
     if (menu == MENU_EDITAR || menu == MENU_EDIT_TARGET) return idIcone("m_engrenagem");
     if (menu == MENU_JOGAR_PS4 || menu == JOGAR_XML || menu == SCRAPER_LIST) return idIcone("m_jogar");

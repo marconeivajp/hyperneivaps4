@@ -122,7 +122,7 @@ void acaoCross_Baixar(int32_t uId, OrbisImeDialogSetting* imeSetting, uint16_t* 
             else if (sel == 2) { preencherMenuDropbox(); }
             else if (sel == 3) { preencherMenuLojas(); }
             else if (sel == 4) { preencherMenuFTP(); }
-            else if (sel == 5) { preencherMenuGithub(); }
+            else if (sel == 5) { extern void abrirMenuGithub(); abrirMenuGithub(); }
         }
         else if (emSubmenuFTP) {
             if (sel == 0) { preencherMenuFTPServidores(false); }
@@ -206,33 +206,14 @@ void acaoCross_Baixar(int32_t uId, OrbisImeDialogSetting* imeSetting, uint16_t* 
                         for (int i = 0; nomeBlindado[i]; i++) { nomeBlindado[i] = tolower(nomeBlindado[i]); }
 
                         if (strstr(nomeBlindado, ".pkg")) { instalarPkgLocal(absPath); }
-                        else if (strstr(nomeBlindado, ".zip")) {
-                            listaOpcoes[0] = "extrair zip"; mapOpcoes[0] = 7;
+                        else if (strstr(nomeBlindado, ".zip") || strstr(nomeBlindado, ".7z") || strstr(nomeBlindado, ".rar")) {
+                            listaOpcoes[0] = "extrair aqui"; mapOpcoes[0] = 7;
                             for (int k = 1; k < 150; k++) { listaOpcoes[k] = ""; mapOpcoes[k] = -1; }
                             totalOpcoes = 1; showOpcoes = true; selOpcao = 0;
                         }
                         else if (strstr(nomeBlindado, ".png") || strstr(nomeBlindado, ".jpg") || strstr(nomeBlindado, ".jpeg") || strstr(nomeBlindado, ".bmp") || strstr(nomeBlindado, ".xavatar")) {
                             if (selecionandoMidiaElemento) return;
-                            strcpy(caminhoImagemAberta, absPath);
-
-                            listaOpcoes[0] = "visualizar";
-                            if (strstr(nomeBlindado, ".xavatar")) mapOpcoes[0] = 13; else mapOpcoes[0] = 14;
-
-                            listaOpcoes[1] = "personalizar jogo (appmeta)"; mapOpcoes[1] = 30;
-                            listaOpcoes[2] = "usar no perfil ps4"; mapOpcoes[2] = 12;
-                            listaOpcoes[3] = "plano de fundo do ps4"; mapOpcoes[3] = 11;
-                            listaOpcoes[4] = "plano de fundo hyper neiva"; mapOpcoes[4] = 10;
-
-                            if (strstr(nomeBlindado, ".xavatar")) {
-                                listaOpcoes[5] = "extrair zip / avatar"; mapOpcoes[5] = 7;
-                                for (int k = 6; k < 150; k++) { listaOpcoes[k] = ""; mapOpcoes[k] = -1; }
-                                totalOpcoes = 6;
-                            }
-                            else {
-                                for (int k = 5; k < 150; k++) { listaOpcoes[k] = ""; mapOpcoes[k] = -1; }
-                                totalOpcoes = 5;
-                            }
-                            showOpcoes = true; selOpcao = 0;
+                            extern void abrirOpcoesImagem(const char*, bool); abrirOpcoesImagem(absPath, true);
                         }
                         else if (strstr(nomeBlindado, ".mp3") || strstr(nomeBlindado, ".wav")) {
                             if (strcmp(caminhoMusicaTocandoBaixar, absPath) == 0) { tocarMusicaNova("PARADO"); strcpy(caminhoMusicaTocandoBaixar, ""); sprintf(msgStatus, "Musica Parada"); msgTimer = 90; }
@@ -359,8 +340,8 @@ void acaoCross_Baixar(int32_t uId, OrbisImeDialogSetting* imeSetting, uint16_t* 
         listarXMLsRepositorio();
     }
     else if (menuAtual == MENU_BAIXAR_GITHUB) {
-        if (sel == 0) abrirTecladoGithub(uId);
-        else githubAbrirReleases(linksAtuais[sel]);
+        extern void githubAbrirItem(int32_t uId);
+        githubAbrirItem(uId);
     }
     else if (menuAtual == MENU_BAIXAR_GITHUB_REPOS) { if (linksAtuais[sel][0]) githubAbrirReleases(linksAtuais[sel]); }
     else if (menuAtual == MENU_BAIXAR_GITHUB_RELEASES) githubAbrirRelease(sel);
@@ -369,8 +350,6 @@ void acaoCross_Baixar(int32_t uId, OrbisImeDialogSetting* imeSetting, uint16_t* 
     else if (menuAtual == MENU_BAIXAR_GAMES_LIST) mostrarLinksJogo(sel);
     else if (menuAtual == MENU_BAIXAR_LINKS) {
         iniciarDownload(linksAtuais[sel]);
-        sprintf(msgStatus, "DOWNLOAD CONCLUIDO!");
-        msgTimer = 180;
     }
     else if (menuAtual == MENU_CONSOLES) { consoleAtual = sel; acaoRede(NULL, true, false); }
     else if (menuAtual == SCRAPER_LIST) {

@@ -914,6 +914,7 @@ bool tentarBgft(const char* urlFinal, const char* nomeExibicao) {
 }
 
 static int ultimoErroDownload = 0;
+static char urlAtualDownload[4096];
 
 // Registro de cada etapa: sem ele, uma falha de rede no console não deixa pista nenhuma.
 #define logDownload(...) do { FILE* logF = fopen("/data/HyperNeiva/download_debug_log.txt", "a"); if (logF) { fprintf(logF, __VA_ARGS__); fprintf(logF, "\n"); fclose(logF); } } while (0)
@@ -922,6 +923,30 @@ static int ultimoErroDownload = 0;
 static void definirRedirecionamento(int template_, int ligar) {
     typedef int (*DefinirRedirecionamento)(int, int);
     ((DefinirRedirecionamento)(void*)sceHttpSetAutoRedirect)(template_, ligar);
+}
+
+// O stub também declara esta sem argumentos. A resposta do Google Drive passa de 5 KB de
+// cabeçalho, acima do limite padrão, e o envio falha com 0x80431073.
+static void definirLimiteCabecalho(int template_, size_t tamanho) {
+    typedef int (*DefinirLimite)(int, size_t);
+    ((DefinirLimite)(void*)sceHttpSetResponseHeaderMaxSize)(template_, tamanho);
+}
+
+static bool nomeDaResposta(int req, char* nome, int tamanhoNome) {
+    char* cabecalhos = NULL; size_t tamanho = 0;
+    if (sceHttpGetAllResponseHeaders(req, &cabecalhos, &tamanho) < 0 || !cabecalhos) return false;
+    for (size_t i = 0; i + 10 < tamanho; i++) {
+        if (strncasecmp(cabecalhos + i, "filename=\"", 10) != 0) continue;
+        int n = 0;
+        for (size_t j = i + 10; j < tamanho && cabecalhos[j] != '"' && n < tamanhoNome - 1; j++) {
+            char c = cabecalhos[j];
+            if (c == '\r' || c == '\n') break;
+            nome[n++] = (c == '/' || c == '\\') ? '_' : c;
+        }
+        nome[n] = '\0';
+        return n > 0;
+    }
+    return false;
 }
 
 // Os arquivos do GitHub chegam por outro servidor, com uma URL enorme que o redirecionamento
@@ -949,6 +974,18 @@ static bool seguirRedirecionamentos(int tpl, int* conn, int* req) {
             }
         }
         if (!destino[0]) { logDownload("  sem Location"); return false; }
+        // O Dropbox termina o endereço em "#". O PS4 manda isso no pedido e o servidor responde 400.
+        char* fragmento = strchr(destino, '#');
+        if (fragmento) *fragmento = '\0';
+        if (destino[0] == '/') {
+            // Salto relativo: fica no mesmo servidor do pedido anterior.
+            static char relativo[4096];
+            int tamanhoServidor = 0; const char* resto = strstr(urlAtualDownload, "://");
+            if (resto) { const char* barra = strchr(resto + 3, '/'); tamanhoServidor = barra ? (int)(barra - urlAtualDownload) : (int)strlen(urlAtualDownload); }
+            snprintf(relativo, sizeof(relativo), "%.*s%s", tamanhoServidor, urlAtualDownload, destino);
+            strcpy(destino, relativo);
+        }
+        snprintf(urlAtualDownload, sizeof(urlAtualDownload), "%s", destino);
 
         sceHttpDeleteRequest(*req); sceHttpDeleteConnection(*conn);
         *conn = sceHttpCreateConnectionWithURL(tpl, destino, 0);
@@ -966,6 +1003,7 @@ static bool seguirRedirecionamentos(int tpl, int* conn, int* req) {
 // Primeiro segue os saltos à mão e, se não der, deixa o sistema tentar.
 static bool abrirDownloadWeb(int tpl, const char* url, int* conn, int* req) {
     bool apiGithub = strstr(url, "api.github.com") != NULL;
+    snprintf(urlAtualDownload, sizeof(urlAtualDownload), "%s", url);
     for (int tentativa = 0; tentativa < 2; tentativa++) {
         definirRedirecionamento(tpl, tentativa);
         *conn = sceHttpCreateConnectionWithURL(tpl, url, 0);
@@ -983,6 +1021,17 @@ static bool abrirDownloadWeb(int tpl, const char* url, int* conn, int* req) {
         *conn = -1; *req = -1;
     }
     return false;
+}
+
+// Dropbox e afins respondem 200 com uma página no lugar do arquivo quando o link falha.
+static bool downloadVeioComoPagina(const char* caminho, const char* ext) {
+    if (!ext || strcasecmp(ext, ".html") == 0 || strcasecmp(ext, ".htm") == 0 || strcasecmp(ext, ".xml") == 0 || strcasecmp(ext, ".txt") == 0) return false;
+    char inicio[16] = { 0 };
+    FILE* f = fopen(caminho, "rb");
+    if (!f) return false;
+    fread(inicio, 1, sizeof(inicio) - 1, f);
+    fclose(f);
+    return strncasecmp(inicio, "<!doctype", 9) == 0 || strncasecmp(inicio, "<html", 5) == 0;
 }
 
 void* threadDownloadBackground(void* arg) {
@@ -1014,6 +1063,7 @@ void* threadDownloadBackground(void* arg) {
         progressoAtualDownload = 0.0f; strcpy(msgDownloadBg, "CONECTANDO...");
 
         int tpl = sceHttpCreateTemplate(httpCtxId, "HyperNeiva/1.0", ORBIS_HTTP_VERSION_1_1, 1); sceHttpsSetSslCallback(tpl, skipSslCallback, NULL); int conn = -1, req = -1; bool enviouPedido = false;
+        definirLimiteCabecalho(tpl, 65536);
         if (urlDownloadBg[0] == '/') {
             char token[2048] = { 0 };
             obterTokenValido(token);
@@ -1023,11 +1073,16 @@ void* threadDownloadBackground(void* arg) {
             enviouPedido = sceHttpSendRequest(req, NULL, 0) >= 0;
         }
         else {
-            char urlTratada[1024]; strcpy(urlTratada, urlDownloadBg); char* dbox = strstr(urlTratada, "dropbox.com"); if (dbox) { char* dl0 = strstr(urlTratada, "?dl=0"); if (dl0) dl0[4] = '1'; }
+            char urlTratada[1024]; strcpy(urlTratada, urlDownloadBg); char* dbox = strstr(urlTratada, "dropbox.com"); if (dbox) { char* dl0 = strstr(urlTratada, "?dl=0"); if (!dl0) dl0 = strstr(urlTratada, "&dl=0"); if (dl0) dl0[4] = '1'; }
             enviouPedido = abrirDownloadWeb(tpl, urlTratada, &conn, &req);
         }
 
         if (enviouPedido) {
+            // O link do Drive termina em "uc": o nome do arquivo só vem na resposta.
+            if (strstr(urlDownloadBg, "drive.google.com") && nomeDaResposta(req, nomeArquivo, sizeof(nomeArquivo))) {
+                sprintf(pathFinal, "%s/%s", pathPasta, nomeArquivo);
+                ext = strrchr(nomeArquivo, '.');
+            }
             size_t tamanhoTotal = 0; int32_t statusRes = 0; sceHttpGetResponseContentLength(req, &statusRes, &tamanhoTotal);
             // Página de erro do servidor não pode virar arquivo baixado.
             int32_t codigoHttp = 0; sceHttpGetStatusCode(req, &codigoHttp);
@@ -1049,6 +1104,7 @@ void* threadDownloadBackground(void* arg) {
                 } fclose(f);
                 // Um PKG pela metade nunca deve chegar ao instalador.
                 if (!escreveuTudo || (tamanhoTotal > 0 && totalRecebido != tamanhoTotal)) { remove(pathFinal); sprintf(msgStatus, "DOWNLOAD INCOMPLETO! TENTE DE NOVO"); msgTimer = 300; }
+                else if (downloadVeioComoPagina(pathFinal, ext)) { remove(pathFinal); sprintf(msgStatus, "O LINK DEVOLVEU UMA PAGINA, NAO O ARQUIVO"); msgTimer = 400; }
                 else if (ext && (strcasecmp(ext, ".pkg") == 0 || strcasecmp(ext, ".PKG") == 0)) { sprintf(msgStatus, "DOWNLOAD CONCLUIDO! INSTALANDO..."); msgTimer = 300; instalarPkgLocal(pathFinal); }
                 else { sprintf(msgStatus, "ARQUIVO CONCLUIDO!"); msgTimer = 300; }
             }

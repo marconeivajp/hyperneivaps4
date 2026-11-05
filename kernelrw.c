@@ -115,3 +115,8 @@ int jbc_krw_write64(uintptr_t p, KmemKind kind, uintptr_t val)
 {
     return jbc_krw_memcpy(p, (uintptr_t)&val, sizeof(val), kind);
 }
+
+
+/* Leitura de RAR: fica neste arquivo porque a lista de objetos do build.bat nao pode mudar
+   e miniz.c ja tem tipos do SDK do 7z que colidem com os do libarchive. */
+#include "hn_rar/hn_rar_impl.h"

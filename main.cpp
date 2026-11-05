@@ -102,8 +102,34 @@ off_t imePh; void* imeVm = NULL;
 off_t mPh; void* mVm = NULL; size_t mSz_global = 0;
 OrbisImeDialogSetting* imeSetting = NULL;
 
+// Redimensionar o fundo pixel a pixel era a parte mais cara de cada volta do menu. Ele só muda
+// quando a imagem muda, então fica pronto em RAM e cada volta faz apenas uma cópia.
+static uint32_t* fundoPronto = NULL;
+static uint32_t fundoAssinatura = 0;
+
+static uint32_t assinaturaFundo() {
+    if (!backImg) return 1;
+    uint32_t soma = (uint32_t)wB * 31u + (uint32_t)hB;
+    size_t total = (size_t)wB * hB * 4;
+    for (size_t i = 0; i < total; i += total / 512 + 1) soma = soma * 33u + backImg[i];
+    return soma | 2u;
+}
+
+static void desenharFundoMenu(uint32_t* p) {
+    if (!fundoPronto) fundoPronto = (uint32_t*)malloc(1920 * 1080 * 4);
+    uint32_t* destino = fundoPronto ? fundoPronto : p;
+    uint32_t assinatura = assinaturaFundo();
+    if (!fundoPronto || assinatura != fundoAssinatura) {
+        for (int i = 0; i < 1920 * 1080; i++) destino[i] = 0xFF121212;
+        if (backImg) desenharRedimensionado(destino, backImg, wB, hB, 1920, 1080, 0, 0);
+        fundoAssinatura = assinatura;
+    }
+    if (fundoPronto) memcpy(p, fundoPronto, 1920 * 1080 * 4);
+}
+
 void desligarInterfaceGrafica() {
     if (backImg) { stbi_image_free(backImg); backImg = NULL; }
+    free(fundoPronto); fundoPronto = NULL; fundoAssinatura = 0;
 }
 
 // NOVO: Purga Agressiva para núcleos grandes (>20MB)
@@ -216,6 +242,17 @@ int main(void) {
     uint16_t t[] = { 'D','i','g','i','t','e',' ','o',' ','L','i','n','k','\0' }; memcpy(imeTitle, t, sizeof(t));
 
     inicializarPastas(); carregarConfiguracao(); inicializarElementosSonoros();
+
+    // Configurações já salvas tinham o elemento desligado: liga uma vez e depois respeita a escolha.
+    FILE* marcaPersonagem = fopen("/data/HyperNeiva/configuracao/personagem_padrao_v1.txt", "r");
+    if (marcaPersonagem) fclose(marcaPersonagem);
+    else {
+        extern void salvarConfiguracao();
+        ctrl1On = 1;
+        salvarConfiguracao();
+        marcaPersonagem = fopen("/data/HyperNeiva/configuracao/personagem_padrao_v1.txt", "w");
+        if (marcaPersonagem) fclose(marcaPersonagem);
+    }
 
     backImg = stbi_load("/data/HyperNeiva/configuracao/0_Defalt_Background.png", &wB, &hB, &cB, 4);
     if (!backImg) backImg = stbi_load("/app0/assets/images/0_Defalt_Background.png", &wB, &hB, &cB, 4);
@@ -378,9 +415,15 @@ int main(void) {
             }
 
             if (ctrl1On) {
+                extern int personagemDirX, personagemDirY; extern bool personagemAtacar;
                 int rx = pData.rightStick.x, ry = pData.rightStick.y, lx = pData.leftStick.x, ly = pData.leftStick.y;
-                if (rx > 180 || lx > 180) ctrl1X += 15; if ((rx < 80 && rx > 0) || (lx < 80 && lx > 0)) ctrl1X -= 15;
-                if (ry > 180 || ly > 180) ctrl1Y += 15; if ((ry < 80 && ry > 0) || (ly < 80 && ly > 0)) ctrl1Y -= 15;
+                // Fim do curso para a esquerda e para cima vale 0. Só os quatro em 0 quer dizer leitura vazia.
+                bool semLeitura = rx == 0 && ry == 0 && lx == 0 && ly == 0;
+                personagemDirX = semLeitura ? 0 : (rx > 180 || lx > 180) ? 1 : ((rx < 80 || lx < 80) ? -1 : 0);
+                personagemDirY = semLeitura ? 0 : (ry > 180 || ly > 180) ? 1 : ((ry < 80 || ly < 80) ? -1 : 0);
+                if (btn & ORBIS_PAD_BUTTON_SQUARE) personagemAtacar = true;
+                // Player, leitor e imagem usam o analógico para si.
+                if (videoRodando || visualizandoPDF || visualizandoMidiaImagem) { personagemDirX = 0; personagemDirY = 0; personagemAtacar = false; }
             }
 
             if (videoRodando) {
@@ -504,8 +547,7 @@ int main(void) {
         // Com o vídeo em PiP este buffer é a camada da interface: o vídeo entra por cima na
         // thread do vídeo, sem depender do tempo que o menu leva para ser desenhado.
         uint32_t* p = obterBufferVideo();
-        for (int i = 0; i < 1920 * 1080; i++) p[i] = 0xFF121212;
-        if (backImg) desenharRedimensionado(p, backImg, wB, hB, 1920, 1080, 0, 0);
+        desenharFundoMenu(p);
 
         atualizarImePasta(); atualizarImePasta_explorar();
 

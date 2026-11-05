@@ -6,5 +6,6 @@ void deletarPastaRecursivamente(const char* path);
 void criarCaminho(const char* filepath);
 void extrairZip(const char* zipPath, const char* outPath);
 void extrair7z(const char* zipPath, const char* outPath);
+void extrairRar(const char* rarPath, const char* outPath);
 
 #endif

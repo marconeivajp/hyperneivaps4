@@ -36,7 +36,8 @@ bool selecionandoMidiaElemento = false;
 
 int listXV = 1054, listYV = 204, listSpcV = 100, listXH = 50, listYH = 800, listSpcH = 300, listW = 676, listH = 65, capaX = 150, capaY = 640, capaW = 300, capaH = 400, discoX = 555, discoY = 650, discoW = 300, discoH = 300, backX = 0, backY = 0, backW = 1920, backH = 1080, barX = 95, barY = 911, barW = 345, barH = 15, audioX = 545, audioY = 632, audioW = 321, audioH = 378, upX = 545, upY = 632, upW = 321, upH = 378, fontTam = 35, msgX = 100, msgY = 970, msgTam = 40, listOri = 0, listBg = 0, barBg = 6, barFill = 7, listMark = 8, listHoverMark = 9, fontAlign = 0, fontScroll = 0;
 int elem1X = 100, elem1Y = 358, elem1W = 200, elem1H = 200, elem1On = 0;
-int ctrl1X = 724, ctrl1Y = 361, ctrl1W = 200, ctrl1H = 200, ctrl1On = 0;
+int ctrl1X = 724, ctrl1Y = 361, ctrl1W = 200, ctrl1H = 200, ctrl1On = 1;
+int ctrl1Livre = 0;   // 0 = anda no chão e pula, 1 = move livre pela tela
 int pont1X = 0, pont1Y = 0, pont1W = 50, pont1H = 50, pont1On = 0, pont1Modo = 0, pont1Lado = 0;
 int sfxLigado = 1, sfxVolume = 30, upBg = 0, upTextNorm = 12, upTextSel = 8;
 int numSlotsPadrao = 8;
@@ -61,7 +62,12 @@ void carregarCustomUI() {
 }
 void salvarCustomUI() { FILE* f = fopen("/data/HyperNeiva/configuracao/settings/custom_ui.bin", "wb"); if (f) { fwrite(customUI, sizeof(CustomElementDef), 60, f); fclose(f); } }
 
+// Fora do settings.bin: as leituras dele dependem do tamanho exato da struct.
+#define ARQUIVO_MODO_PERSONAGEM "/data/HyperNeiva/configuracao/personagem_modo.txt"
+
 void salvarConfiguracao() {
+    FILE* modoPersonagem = fopen(ARQUIVO_MODO_PERSONAGEM, "w");
+    if (modoPersonagem) { fputc(ctrl1Livre ? '1' : '0', modoPersonagem); fclose(modoPersonagem); }
     LayoutConfig cfg; memset(&cfg, 0, sizeof(LayoutConfig));
     cfg.lX = listXV; cfg.lY = listYV; cfg.lW = listW; cfg.lH = listH; cfg.cX = capaX; cfg.cY = capaY; cfg.cW = capaW; cfg.cH = capaH; cfg.dX = discoX; cfg.dY = discoY; cfg.dW = discoW; cfg.dH = discoH; cfg.bX = backX; cfg.bY = backY; cfg.bW = backW; cfg.bH = backH; cfg.brX = barX; cfg.brY = barY; cfg.brW = barW; cfg.brH = barH; cfg.numSlotsPadrao = numSlotsPadrao; cfg.corSelecao = corSelecao; cfg.msgColIndex = msgColIndex; cfg.fontColIndex = fontColIndex; cfg.p1Double = p1Double; cfg.listLoop = listLoop; cfg.listFocus = listFocus; cfg.aX = audioX; cfg.aY = audioY; cfg.aW = audioW; cfg.aH = audioH; cfg.uX = upX; cfg.uY = upY; cfg.uW = upW; cfg.uH = upH; cfg.fT = fontTam; cfg.mX = msgX; cfg.mY = msgY; cfg.mTam = msgTam; cfg.lSpcV = listSpcV; cfg.lOri = listOri; cfg.lBg = listBg; cfg.bBg = barBg; cfg.bFill = barFill; cfg.lMk = listMark; cfg.lHMk = listHoverMark; cfg.lXH = listXH; cfg.lYH = listYH; cfg.lSpcH = listSpcH; cfg.fAl = fontAlign; cfg.fSc = fontScroll;
     cfg.e1X = elem1X; cfg.e1Y = elem1Y; cfg.e1W = elem1W; cfg.e1H = elem1H; cfg.e1O = elem1On; cfg.c1X = ctrl1X; cfg.c1Y = ctrl1Y; cfg.c1W = ctrl1W; cfg.c1H = ctrl1H; cfg.c1O = ctrl1On; cfg.p1X = pont1X; cfg.p1Y = pont1Y; cfg.p1W = pont1W; cfg.p1H = pont1H; cfg.p1O = pont1On; cfg.p1M = pont1Modo; cfg.p1L = pont1Lado; cfg.sfxOn = sfxLigado; cfg.sfxVol = sfxVolume;
@@ -98,8 +104,10 @@ void salvarAnimacaoUnity(const char* nomeArquivo) {
 }
 
 void carregarConfiguracao() {
+    FILE* modoPersonagem = fopen(ARQUIVO_MODO_PERSONAGEM, "r");
+    if (modoPersonagem) { ctrl1Livre = fgetc(modoPersonagem) == '1'; fclose(modoPersonagem); }
     LayoutConfig cfg; FILE* f = fopen("/data/HyperNeiva/configuracao/settings/settings.bin", "rb");
-    elem1On = 0; ctrl1On = 0; pont1On = 0; sfxLigado = 1; sfxVolume = 30; upBg = 0; upTextNorm = 12; upTextSel = 8;
+    elem1On = 0; ctrl1On = 1; pont1On = 0; sfxLigado = 1; sfxVolume = 30; upBg = 0; upTextNorm = 12; upTextSel = 8;
     anim_ativo = false; anim_usarColorKey = true; anim_posX = 445; anim_posY = -130; anim_colunas = 24; anim_linhas = 19; anim_velocidade = 100; anim_escala = 4.5f; anim_keyR = 55; anim_keyG = 39; anim_keyB = 130; anim_offsetX = 65; anim_offsetY = 0; anim_frameInicial = 0; anim_frameFinal = 7; anim_usarColorKey2 = true; anim_keyR2 = 0; anim_keyG2 = 0; anim_keyB2 = 255; anim_autoCenter = false; anim_tolerancia = 100;
     listStyle = 0; fontAnim = 0; listCurvature = 15; listZoomCentro = 15; picX = 150; picY = 100; picW = 730; picH = 410;
     gridX = 220; gridY = 200; gridItemW = 340; gridItemH = 400; gridCols = 4; gridLins = 3; gridSpcX = 40; gridSpcY = 60;
@@ -187,6 +195,7 @@ void preencherMenuEditTarget() {
     }
     else if (editTarget >= 11 && editTarget <= 13) {
         strcpy(nomes[totalItens], "POSICAO"); mapAcoes[totalItens++] = 0; strcpy(nomes[totalItens], "TAMANHO"); mapAcoes[totalItens++] = 1; strcpy(nomes[totalItens], "ESTICAR"); mapAcoes[totalItens++] = 2; strcpy(nomes[totalItens], "LIGAR / DESLIGAR"); mapAcoes[totalItens++] = 12;
+        if (editTarget == 12) { strcpy(nomes[totalItens], ctrl1Livre ? "MOVIMENTO: LIVRE (X TROCA)" : "MOVIMENTO: CHAO (X TROCA)"); mapAcoes[totalItens++] = 83; }
         if (editTarget == 13) { strcpy(nomes[totalItens], "MODO ACOMPANHAR/ESTATICO"); mapAcoes[totalItens++] = 13; strcpy(nomes[totalItens], "LADO (ESQ/DIR/CIMA/BAIXO)"); mapAcoes[totalItens++] = 14; 
             strcpy(nomes[totalItens], "PONTEIROS (DUPLO)"); mapAcoes[totalItens++] = 82; 
         }

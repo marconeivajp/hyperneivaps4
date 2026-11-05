@@ -100,11 +100,11 @@ void preencherOpcoesContexto(const char* nomeArquivo) {
     if (nomeArquivo) {
         char temp[256]; strcpy(temp, nomeArquivo);
         for (int i = 0; temp[i]; i++) temp[i] = tolower(temp[i]);
-        if (strstr(temp, ".zip") != NULL || strstr(temp, ".xavatar") != NULL || strstr(temp, ".7z") != NULL) isZip = true;
+        if (strstr(temp, ".zip") != NULL || strstr(temp, ".xavatar") != NULL || strstr(temp, ".7z") != NULL || strstr(temp, ".rar") != NULL) isZip = true;
         if (strstr(temp, ".pdf") != NULL || strstr(temp, ".cbz") != NULL) isPdfOuManga = true;
     }
 
-    if (isZip) { listaOpcoes[9] = "extrair zip / 7z / avatar"; mapOpcoes[9] = 7; totalOpcoes = 10; }
+    if (isZip) { listaOpcoes[9] = "extrair zip / 7z / rar / avatar"; mapOpcoes[9] = 7; totalOpcoes = 10; }
     else { totalOpcoes = 9; }
 
     if (isPdfOuManga) {
@@ -173,6 +173,28 @@ void listarDiretorioEsq(const char* path) {
     }
     for (int i = 0; i < count; i++) { if (temp[i].ehPasta) sprintf(nomesEsq[i], "[%s]", temp[i].nome); else strcpy(nomesEsq[i], temp[i].nome); }
     totalItensEsq = count; strcpy(pathExplorarEsq, path); menuAtualEsq = MENU_EXPLORAR; selEsq = 0;
+}
+
+// Menu do X em imagem e avatar. O .xavatar é um pacote pronto de perfil, então não vira fundo.
+void abrirOpcoesImagem(const char* caminho, bool permitirExtrair) {
+    char minusculo[512]; snprintf(minusculo, sizeof(minusculo), "%s", caminho);
+    for (int i = 0; minusculo[i]; i++) minusculo[i] = tolower(minusculo[i]);
+    bool avatar = strstr(minusculo, ".xavatar") != NULL;
+
+    snprintf(caminhoImagemAberta, sizeof(caminhoImagemAberta), "%s", caminho);
+    for (int k = 0; k < 150; k++) { listaOpcoes[k] = ""; mapOpcoes[k] = -1; }
+    totalOpcoes = 0;
+    listaOpcoes[totalOpcoes] = "visualizar"; mapOpcoes[totalOpcoes++] = avatar ? 13 : 14;
+    listaOpcoes[totalOpcoes] = "definir imagem de perfil"; mapOpcoes[totalOpcoes++] = 12;
+    if (avatar) {
+        if (permitirExtrair) { listaOpcoes[totalOpcoes] = "extrair zip / avatar"; mapOpcoes[totalOpcoes++] = 7; }
+    }
+    else {
+        listaOpcoes[totalOpcoes] = "plano de fundo do ps4"; mapOpcoes[totalOpcoes++] = 11;
+        listaOpcoes[totalOpcoes] = "plano de fundo hyper neiva"; mapOpcoes[totalOpcoes++] = 10;
+        listaOpcoes[totalOpcoes] = "personalizar jogo (appmeta)"; mapOpcoes[totalOpcoes++] = 30;
+    }
+    showOpcoes = true; selOpcao = 0;
 }
 
 void acaoArquivo(int idxOpcao) {
@@ -248,14 +270,14 @@ void acaoArquivo(int idxOpcao) {
     }
     case 7: {
         int alvo = sAtual;
-        if (alvo < 0 || alvo >= tItens) { sprintf(msgStatus, "SELECIONE UM ARQUIVO .ZIP OU .7Z"); msgTimer = 120; break; }
-        char* nomeReal = nItems[alvo]; if (nomeReal[0] == '[') { sprintf(msgStatus, "SELECIONE UM ARQUIVO .ZIP OU .7Z"); msgTimer = 120; break; }
+        if (alvo < 0 || alvo >= tItens) { sprintf(msgStatus, "SELECIONE UM ARQUIVO .ZIP, .7Z OU .RAR"); msgTimer = 120; break; }
+        char* nomeReal = nItems[alvo]; if (nomeReal[0] == '[') { sprintf(msgStatus, "SELECIONE UM ARQUIVO .ZIP, .7Z OU .RAR"); msgTimer = 120; break; }
         char pathFinal[1024]; snprintf(pathFinal, sizeof(pathFinal), "%s/%s", pExplorar, nomeReal);
         char temp[512]; strcpy(temp, pathFinal); for (int i = 0; temp[i]; i++) temp[i] = tolower(temp[i]);
 
-        if (strstr(temp, ".zip") != NULL || strstr(temp, ".xavatar") != NULL) extrairZip(pathFinal, pExplorar);
-        else if (strstr(temp, ".7z") != NULL) extrair7z(pathFinal, pExplorar);
-        else { sprintf(msgStatus, "SOMENTE ARQUIVOS .ZIP, .7Z OU .XAVATAR SAO SUPORTADOS"); msgTimer = 120; }
+        // extrairZip olha o começo do arquivo e passa 7z e rar adiante, mesmo com a extensão trocada.
+        if (strstr(temp, ".zip") != NULL || strstr(temp, ".xavatar") != NULL || strstr(temp, ".7z") != NULL || strstr(temp, ".rar") != NULL) extrairZip(pathFinal, pExplorar);
+        else { sprintf(msgStatus, "SOMENTE ARQUIVOS .ZIP, .7Z, .RAR OU .XAVATAR SAO SUPORTADOS"); msgTimer = 120; }
         if (ehEsq) listarDiretorioEsq(pExplorar); else listarDiretorio(pExplorar); break;
     }
     case 8: { mItems[sAtual] = !mItems[sAtual]; break; }
@@ -377,9 +399,8 @@ void acaoArquivo(int idxOpcao) {
     }
 
     case 13: {
-        int alvo = sAtual; for (int i = 0; i < tItens; i++) if (mItems[i]) { alvo = i; break; }
-        char* nomeReal = nItems[alvo]; if (nomeReal[0] == '[') break;
-        char caminhoArquivo[512]; sprintf(caminhoArquivo, "%s/%s", pExplorar, nomeReal);
+        // Vem de Explorar, FTP ou Mídia: quem abriu o menu já guardou o caminho.
+        char caminhoArquivo[512]; snprintf(caminhoArquivo, sizeof(caminhoArquivo), "%s", caminhoImagemAberta);
 
         if (imgMidia) { stbi_image_free(imgMidia); imgMidia = NULL; }
         mz_zip_archive zip_archive; memset(&zip_archive, 0, sizeof(zip_archive));
