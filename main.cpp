@@ -93,10 +93,10 @@ extern void carregarApenasCaminhoUltimoVideo();
 
 // Declarações Externas para linkar com o menu_video.cpp
 extern bool videoRodando, video_minimizado, menu_video_aberto, pip_selecionado, bloqueio_fechar_video;
-extern void pararVideo(), atualizarVideoFFmpeg(uint32_t* tela), verificarTrocaDeVideo();
+extern void pararVideo(), verificarTrocaDeVideo();
 extern void pausarVideoParaTela(), retomarVideoAposTela();
+extern void definirApresentacaoVideo(bool naTela);
 extern void processarControlesMenuVideo(unsigned int btn, OrbisPadData* pData, bool& cross_consumido, bool& circle_consumido);
-extern void desenharMenuPlayerVideo(uint32_t* p);
 
 off_t imePh; void* imeVm = NULL;
 off_t mPh; void* mVm = NULL; size_t mSz_global = 0;
@@ -458,6 +458,14 @@ int main(void) {
         if (telaSemVideo) pausarVideoParaTela();
         else retomarVideoAposTela();
 
+        // A troca de vídeo precisa vir antes de pegar o buffer: ela reinicia o motor de vídeo.
+        bool videoNaTela = videoRodando && !telaSemVideo;
+        if (videoNaTela) {
+            verificarTrocaDeVideo();
+            videoNaTela = videoRodando;
+        }
+        definirApresentacaoVideo(videoNaTela);
+
         if (emuladorAtivo) {
             if (menuEmuladorAtivo) {
                 if (menuAtual == 50) desenharAjudaControles(obterBufferVideo());
@@ -469,19 +477,27 @@ int main(void) {
             continue; 
         }
 
+        extern void atualizarImePasta_explorar();
+
+        // Tela cheia: o vídeo cobre o menu, então não há por que desenhá-lo. A thread do
+        // vídeo cuida da tela, e aqui fica só a leitura do controle (33 ms mantém o ritmo
+        // de repetição dos botões do menu do player, que dependem da volta deste loop).
+        if (videoNaTela && !video_minimizado) {
+            atualizarImePasta(); atualizarImePasta_explorar();
+            if (msgTimer > 0) msgTimer--;
+            sceKernelUsleep(33000);
+            continue;
+        }
+
+        // Com o vídeo em PiP este buffer é a camada da interface: o vídeo entra por cima na
+        // thread do vídeo, sem depender do tempo que o menu leva para ser desenhado.
         uint32_t* p = obterBufferVideo();
         for (int i = 0; i < 1920 * 1080; i++) p[i] = 0xFF121212;
         if (backImg) desenharRedimensionado(p, backImg, wB, hB, 1920, 1080, 0, 0);
 
-        atualizarImePasta(); extern void atualizarImePasta_explorar(); atualizarImePasta_explorar();
+        atualizarImePasta(); atualizarImePasta_explorar();
 
         desenharInterface(p);
-
-        // Video por cima da interface (PiP sempre visivel; tela cheia cobre o menu)
-        if (videoRodando && !telaSemVideo) {
-            verificarTrocaDeVideo();
-            atualizarVideoFFmpeg(p);
-        }
 
         // ===== RENDERIZACAO DO LEITOR DE PDF =====
         if (visualizandoPDF && imgPaginaAtual) {
@@ -507,10 +523,6 @@ int main(void) {
             desenharTexto(p, hudPdf, 17, 20, 1063, 0xFFFFFFFF);
         }
         // ==========================================
-
-        if (videoRodando && !telaSemVideo) {
-            desenharMenuPlayerVideo(p);
-        }
 
         submeterTela();
     }

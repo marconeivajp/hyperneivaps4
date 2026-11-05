@@ -82,10 +82,114 @@ void inicializarVideo() {
 #endif
 }
 
+#ifndef _WIN32
+// =========================================================================
+// APRESENTAÇÃO DE VÍDEO
+// A interface vai para uma de três camadas em RAM (uma sendo desenhada, uma pronta e uma em
+// exibição), para o menu e o vídeo nunca esperarem um pelo outro. A saída usa dois buffers
+// próprios write-combining, o tipo de memória feito para a CPU só escrever.
+// =========================================================================
+#define BYTES_TELA (1920 * 1080 * 4)
+#define CAMADA_NOVA 4
+
+static uint32_t* camadasUI[3] = { NULL, NULL, NULL };
+static volatile bool desenhandoNaCamada = false;
+static int camadaEscrita = 0, camadaExibida = 1, camadaPronta = 2;
+static bool camadaComConteudo = false;
+
+static void* buffersSaida[2] = { NULL, NULL };
+static int indiceBaseSaida = -1;
+static bool saidaDedicada = false;
+static int saidaBack = 0, saidaExibida = -1;
+
+static void prepararBuffersSaida() {
+    if (indiceBaseSaida >= 0) return;
+
+    size_t bSz = (BYTES_TELA + 0x1FFFFF) & ~0x1FFFFF;
+    off_t ph;
+    void* vM = NULL;
+    if (sceKernelAllocateDirectMemory(0, sceKernelGetDirectMemorySize(), bSz * 2, 2097152, ORBIS_KERNEL_WC_GARLIC, &ph) == 0) {
+        if (sceKernelMapDirectMemory(&vM, bSz * 2, 0x33, 0, ph, 2097152) == 0 && vM) {
+            memset(vM, 0, bSz * 2);
+            buffersSaida[0] = vM;
+            buffersSaida[1] = (void*)((uint8_t*)vM + bSz);
+
+            OrbisVideoOutBufferAttribute attr;
+            memset(&attr, 0, sizeof(attr));
+            sceVideoOutSetBufferAttribute(&attr, 0x80000000, 1, 0, 1920, 1080, 1920);
+            if (sceVideoOutRegisterBuffers(video, 2, buffersSaida, 2, &attr) >= 0) {
+                indiceBaseSaida = 2;
+                saidaDedicada = true;
+                return;
+            }
+        }
+        else sceKernelReleaseDirectMemory(ph, bSz * 2);
+    }
+
+    // Sem os buffers próprios, o vídeo divide os buffers do menu: funciona, só é mais lento.
+    buffersSaida[0] = buffers[0];
+    buffersSaida[1] = buffers[1];
+    indiceBaseSaida = 0;
+    saidaDedicada = false;
+}
+
+// As camadas nunca são liberadas: threads de download também desenham nelas (atualizarBarra)
+// e podem estar escrevendo no instante em que o vídeo fecha.
+bool graficosPrepararApresentacao() {
+    prepararBuffersSaida();
+    for (int i = 0; i < 3; i++) {
+        if (!camadasUI[i]) camadasUI[i] = (uint32_t*)malloc(BYTES_TELA);
+        if (!camadasUI[i]) return false;
+    }
+    return true;
+}
+
+void graficosEntrarApresentacao() {
+    camadaEscrita = 0; camadaExibida = 1; camadaPronta = 2;
+    camadaComConteudo = false;
+    saidaExibida = -1;
+    saidaBack = saidaDedicada ? 0 : bA;
+    desenhandoNaCamada = true;
+}
+
+void graficosSairApresentacao() {
+    desenhandoNaCamada = false;
+    if (!saidaDedicada) bA = saidaBack;
+}
+
+uint32_t* graficosPegarCamada(bool* nova) {
+    *nova = false;
+    if (__atomic_load_n(&camadaPronta, __ATOMIC_ACQUIRE) & CAMADA_NOVA) {
+        camadaExibida = __atomic_exchange_n(&camadaPronta, camadaExibida, __ATOMIC_ACQ_REL) & 3;
+        camadaComConteudo = true;
+        *nova = true;
+    }
+    return camadaComConteudo ? camadasUI[camadaExibida] : NULL;
+}
+
+uint32_t* graficosBufferBack() { return (uint32_t*)buffersSaida[saidaBack]; }
+int graficosIndiceBack() { return saidaBack; }
+
+void graficosFlip() {
+    saidaExibida = indiceBaseSaida + saidaBack;
+    sceVideoOutSubmitFlip(video, saidaExibida, 1, 0);
+    saidaBack ^= 1;
+}
+
+// Repete o buffer que já está na tela: mantém o ritmo do vsync sem redesenhar nada.
+bool graficosRepetirFlip() {
+    if (saidaExibida < 0) return false;
+    return sceVideoOutSubmitFlip(video, saidaExibida, 1, 0) >= 0;
+}
+
+bool graficosFlipPendente() { return sceVideoOutIsFlipPending(video) > 0; }
+#endif
+
 uint32_t* obterBufferVideo() {
 #ifdef _WIN32
     return screenBuffer;
 #else
+    if (desenhandoNaCamada) return camadasUI[camadaEscrita];
     return (uint32_t*)buffers[bA];
 #endif
 }
@@ -104,9 +208,14 @@ void submeterTela() {
         }
     }
 #else
+    if (desenhandoNaCamada) {
+        camadaEscrita = __atomic_exchange_n(&camadaPronta, camadaEscrita | CAMADA_NOVA, __ATOMIC_ACQ_REL) & 3;
+        sceKernelUsleep(16000);
+        return;
+    }
     sceVideoOutSubmitFlip(video, bA, 1, 0);
-    bA = (bA + 1) % 2; 
-    sceKernelUsleep(16000); 
+    bA = (bA + 1) % 2;
+    sceKernelUsleep(16000);
 #endif
 }
 

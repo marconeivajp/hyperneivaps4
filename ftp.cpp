@@ -258,6 +258,7 @@ void adicionarFilaFTP(const char* sourcePath, const char* destPath, bool isUploa
     ftpFila[ftpFilaCount].isUpload = isUpload;
     ftpFila[ftpFilaCount].isDir = isDir;
     ftpFilaCount++;
+    if (ftpFilaRodando) totalFilaSessao = ftpFilaCount;
 }
 
 void* threadProcessarFilaFTP(void* arg) {
@@ -267,7 +268,7 @@ void* threadProcessarFilaFTP(void* arg) {
     sprintf(msgDownloadBg, "PREPARANDO FILA FTP...");
 
     int ctrl_sock = ftp_connect_control(servidorAtualFTPIndex);
-    if (ctrl_sock < 0) { ftpFilaRodando = false; downloadEmSegundoPlano = false; return NULL; }
+    if (ctrl_sock < 0) { ftpFilaRodando = false; ftpFilaCount = 0; ftpFilaCurrent = 0; totalFilaSessao = 0; baixadosFilaSessao = 0; downloadEmSegundoPlano = false; return NULL; }
 
     char resp[2048]; char cmdUser[128], cmdPass[128];
     sprintf(cmdUser, "USER %s", listaServidoresFTP[servidorAtualFTPIndex].user); send_ftp_cmd(ctrl_sock, cmdUser, resp);
@@ -397,7 +398,13 @@ void* threadProcessarFilaFTP(void* arg) {
 
 void iniciarProcessamentoFilaFTP() {
     if (ftpFilaRodando || ftpFilaCount == 0) return;
-    pthread_t tId; pthread_create(&tId, NULL, threadProcessarFilaFTP, NULL); pthread_detach(tId);
+    ftpFilaRodando = true;
+    pthread_t tId;
+    if (pthread_create(&tId, NULL, threadProcessarFilaFTP, NULL) != 0) {
+        ftpFilaRodando = false; ftpFilaCount = 0; ftpFilaCurrent = 0; totalFilaSessao = 0; baixadosFilaSessao = 0; downloadEmSegundoPlano = false;
+        return;
+    }
+    pthread_detach(tId);
 }
 
 void salvarServidoresFTP() { FILE* f = fopen("/data/HyperNeiva/configuracao/ftp_servers_v2.txt", "w"); if (f) { for (int i = 0; i < totalServidoresFTP; i++) { fprintf(f, "%s|%s|%d|%s|%s\n", listaServidoresFTP[i].name, listaServidoresFTP[i].ip, listaServidoresFTP[i].port, listaServidoresFTP[i].user, listaServidoresFTP[i].pass); } fclose(f); } }
@@ -904,7 +911,7 @@ void acaoOpcaoFTP(int idxOpcao, int32_t uId) {
 
     if (op == 500) {
         bool temMarcado = false; for (int i = 0; i < tItens; i++) if (mItems[i]) { temMarcado = true; break; }
-        ftpFilaCount = 0; ftpFilaCurrent = 0;
+        if (!ftpFilaRodando) { ftpFilaCount = 0; ftpFilaCurrent = 0; }
         for (int i = 0; i < tItens; i++) {
             if (mItems[i] || (!temMarcado && i == sAt)) {
                 bool isDir = (nItems[i][0] == '[') ? true : false; char nomeLimpo[256];

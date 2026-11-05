@@ -11,6 +11,7 @@ void iniciarVideoMP4(const char* caminho);
 void pararVideo();
 void pausarVideoParaTela();
 void retomarVideoAposTela();
+void definirApresentacaoVideo(bool naTela);
 void carregarApenasCaminhoUltimoVideo();
 void misturarAudioVideo(int16_t* out_buffer, int amostras);
 

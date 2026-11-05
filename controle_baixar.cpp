@@ -256,7 +256,7 @@ void acaoCross_Baixar(int32_t uId, OrbisImeDialogSetting* imeSetting, uint16_t* 
                         prepararPreviewFTP(urlSel);
                     }
                     else {
-                        iniciarDownloadFTP(urlSel);
+                        acaoOpcaoFTP(500, 0);
                     }
                 }
             }

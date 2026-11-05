@@ -141,6 +141,9 @@ SDL_AudioDeviceID winAudioDevice = 0;
 
 static void* audioThreadFunc(void* argp) {
 #ifndef _WIN32
+    // Cada bloco de som dura 5 ms: com as threads do vídeo ocupando os núcleos, esta thread
+    // precisa de prioridade para não falhar (256 = máxima, 700 = padrão).
+    scePthreadSetprio(scePthreadSelf(), 300);
     if (!sistemaAudioIniciado) { sceAudioOutInit(); sistemaAudioIniciado = true; }
     int32_t userId;
     if (sceUserServiceGetInitialUser(&userId) < 0) userId = ORBIS_USER_SERVICE_USER_ID_SYSTEM;
