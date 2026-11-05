@@ -220,7 +220,8 @@ void preencherMenuBaixar() {
     strcpy(nomes[2], "Dropbox");
     strcpy(nomes[3], "Lojas");
     strcpy(nomes[4], "FTP (PC / Android)");
-    totalItens = 5;
+    strcpy(nomes[5], "GitHub");
+    totalItens = 6;
     menuAtual = MENU_BAIXAR;
     sel = 0;
     off = 0;

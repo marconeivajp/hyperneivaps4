@@ -341,7 +341,12 @@ int main(void) {
                 else if (visualizandoMidiaTexto) { visualizandoMidiaTexto = false; circle_consumido = true; }
                 else if (visualizandoPDF) { fecharPDF(); circle_consumido = true; }
                 else if (videoRodando && !menu_video_aberto) {
-                    if (!video_minimizado) { bloqueio_fechar_video = false; pararVideo(); circle_consumido = true; }
+                    extern bool fecharControlesPlayer();
+                    // Com a barra do player na tela, a Bolinha só fecha a barra.
+                    if (!video_minimizado) {
+                        if (!fecharControlesPlayer()) { bloqueio_fechar_video = false; pararVideo(); }
+                        circle_consumido = true;
+                    }
                     else if (pip_selecionado) { pip_selecionado = false; circle_consumido = true; }
                 }
             }

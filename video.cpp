@@ -894,6 +894,8 @@ static void adiantarConversao() {
 // ==========================================
 // APRESENTADOR: mostra cada quadro na hora certa, sincronizado com o vsync
 // ==========================================
+static uint32_t* faixaControles = NULL;
+
 // Os buffers de saída são write-combining: a escrita em bloco que não passa pelo cache é a rápida.
 static inline void copiarPixels(uint32_t* destino, const uint32_t* origem, int pixels) {
     while (pixels > 0 && ((uintptr_t)destino & 15)) { *destino++ = *origem++; pixels--; }
@@ -924,6 +926,34 @@ static void desenharImagemVideo(uint32_t* tela, int dw, int dh, int dx, int dy) 
     for (int y = y0; y < y1; y++) {
         copiarPixels(tela + (dy + y) * 1920 + dx + x0, (const uint32_t*)(origem + (size_t)y * passo) + x0, x1 - x0);
     }
+}
+
+// A barra do player fica sobre o vídeo escurecido. Tudo é montado em RAM e copiado de uma vez:
+// ler da tela (write-combining) seria muito lento.
+static void desenharFaixaControles(uint32_t* tela, bool temImagem, int dw, int dh, int dx, int dy) {
+    const int altura = 1080 - PLAYER_FAIXA_Y;
+    if (!faixaControles) faixaControles = (uint32_t*)malloc((size_t)1920 * altura * 4);
+    if (!faixaControles) return;
+
+    const AVFrame* imagem = temImagem ? conversor.imagens[conversor.imagemAtual] : NULL;
+    for (int y = 0; y < altura; y++) {
+        uint32_t* linha = faixaControles + y * 1920;
+        memset(linha, 0, 1920 * 4);
+        int origemY = PLAYER_FAIXA_Y + y - dy;
+        if (imagem && origemY >= 0 && origemY < dh) {
+            int x0 = dx < 0 ? 0 : dx, x1 = dx + dw > 1920 ? 1920 : dx + dw;
+            if (x1 > x0) memcpy(linha + x0, (const uint32_t*)(imagem->data[0] + (size_t)origemY * imagem->linesize[0]) + (x0 - dx), (size_t)(x1 - x0) * 4);
+        }
+        // Começa sem escurecer para a faixa não ter borda visível sobre o vídeo.
+        uint32_t brilho = y < 70 ? 256 - (uint32_t)(y * 110 / 70) : 146 - (uint32_t)((y - 70) * 106 / (altura - 70));
+        for (int x = 0; x < 1920; x++) {
+            uint32_t px = linha[x];
+            linha[x] = 0xFF000000 | ((((px & 0xFF00FF) * brilho) >> 8) & 0xFF00FF) | ((((px & 0x00FF00) * brilho) >> 8) & 0x00FF00);
+        }
+    }
+
+    desenharControlesPlayer(faixaControles - (size_t)PLAYER_FAIXA_Y * 1920);
+    for (int y = 0; y < altura; y++) copiarPixels(tela + (size_t)(PLAYER_FAIXA_Y + y) * 1920, faixaControles + y * 1920, 1920);
 }
 
 static void calcularGeometria(int srcW, int srcH, bool pip, int* dw, int* dh, int* dx, int* dy) {
@@ -1062,7 +1092,8 @@ static void passoApresentador() {
     int dw = 0, dh = 0, dx = 0, dy = 0;
     if (frameAtual) calcularGeometria(frameAtual->width, frameAtual->height, pip, &dw, &dh, &dx, &dy);
 
-    bool overlay = lerCompartilhado(mostrar_timeline) || lerCompartilhado(menu_video_aberto) ||
+    bool controles = !pip && playerControlesVisiveis();
+    bool overlay = controles || lerCompartilhado(mostrar_timeline) || lerCompartilhado(menu_video_aberto) ||
         lerCompartilhado(exibir_botao_pular) || (pip && lerCompartilhado(pip_selecionado));
     bool geometriaMudou = dw != ultimoDw || dh != ultimoDh || dx != ultimoDx || dy != ultimoDy;
     apresentadorTick++;
@@ -1095,7 +1126,8 @@ static void passoApresentador() {
 
     if (temImagem) desenharImagemVideo(tela, dw, dh, dx, dy);
 
-    if (overlay) {
+    if (controles) desenharFaixaControles(tela, temImagem, dw, dh, dx, dy);
+    else if (overlay) {
         desenharLinhaDoTempo(tela);
         desenharMenuPlayerVideo(tela);
     }
@@ -1183,6 +1215,7 @@ static void liberarRecursosVideo() {
     }
     if (frameAtual) av_frame_free(&frameAtual);
     liberarConversor();
+    free(faixaControles); faixaControles = NULL;
 
     if (swr_ctx) swr_free(&swr_ctx);
     if (aCodecCtx) avcodec_free_context(&aCodecCtx);
@@ -1196,6 +1229,7 @@ static void liberarRecursosVideo() {
 void pararVideo() {
     if (!videoRodando || bloqueio_fechar_video) return;
 
+    reiniciarControlesPlayer();
     encerrarThreads();
     liberarRecursosVideo();
 
@@ -1318,7 +1352,11 @@ void iniciarVideoMP4(const char* caminho) {
         snprintf(ultimo_video_tocado, sizeof(ultimo_video_tocado), "%s", caminho);
     }
 
+    const char* nomeArquivo = strrchr(ultimo_video_tocado, '/');
+    snprintf(info_nome, sizeof(info_nome), "%s", nomeArquivo ? nomeArquivo + 1 : ultimo_video_tocado);
+
     rotacionarLogVideo();
+    reiniciarControlesPlayer();
     reiniciarEstadoMotor();
 
     if (avformat_open_input(&pFormatCtx, caminho, NULL, NULL) != 0) {

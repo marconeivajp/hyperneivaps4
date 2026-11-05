@@ -913,19 +913,95 @@ bool tentarBgft(const char* urlFinal, const char* nomeExibicao) {
     return false;
 }
 
+static int ultimoErroDownload = 0;
+
+// Registro de cada etapa: sem ele, uma falha de rede no console não deixa pista nenhuma.
+#define logDownload(...) do { FILE* logF = fopen("/data/HyperNeiva/download_debug_log.txt", "a"); if (logF) { fprintf(logF, __VA_ARGS__); fprintf(logF, "\n"); fclose(logF); } } while (0)
+
+// O stub do OpenOrbis declara esta função sem argumentos, mas a real recebe (id, ligar).
+static void definirRedirecionamento(int template_, int ligar) {
+    typedef int (*DefinirRedirecionamento)(int, int);
+    ((DefinirRedirecionamento)(void*)sceHttpSetAutoRedirect)(template_, ligar);
+}
+
+// Os arquivos do GitHub chegam por outro servidor, com uma URL enorme que o redirecionamento
+// automático do sistema não aguenta. Aqui o salto é feito à mão.
+static bool seguirRedirecionamentos(int tpl, int* conn, int* req) {
+    for (int tentativa = 0; tentativa < 5; tentativa++) {
+        int32_t codigo = 0;
+        sceHttpGetStatusCode(*req, &codigo);
+        logDownload("  status %d", (int)codigo);
+        if (codigo != 301 && codigo != 302 && codigo != 303 && codigo != 307 && codigo != 308) return true;
+
+        char* cabecalhos = NULL; size_t tamanho = 0;
+        int lidos = sceHttpGetAllResponseHeaders(*req, &cabecalhos, &tamanho);
+        if (lidos < 0 || !cabecalhos) { logDownload("  cabecalhos falharam 0x%08X", (unsigned int)lidos); return false; }
+
+        static char destino[4096];
+        destino[0] = '\0';
+        for (size_t i = 0; i + 9 < tamanho; i++) {
+            if ((i == 0 || cabecalhos[i - 1] == '\n') && strncasecmp(cabecalhos + i, "location:", 9) == 0) {
+                size_t j = i + 9, n = 0;
+                while (j < tamanho && cabecalhos[j] == ' ') j++;
+                while (j < tamanho && cabecalhos[j] != '\r' && cabecalhos[j] != '\n' && n < sizeof(destino) - 1) destino[n++] = cabecalhos[j++];
+                destino[n] = '\0';
+                break;
+            }
+        }
+        if (!destino[0]) { logDownload("  sem Location"); return false; }
+
+        sceHttpDeleteRequest(*req); sceHttpDeleteConnection(*conn);
+        *conn = sceHttpCreateConnectionWithURL(tpl, destino, 0);
+        *req = *conn >= 0 ? sceHttpCreateRequestWithURL(*conn, ORBIS_METHOD_GET, destino, 0) : -1;
+        logDownload("  salto para %.60s... (%d letras) conn:%d req:0x%08X", destino, (int)strlen(destino), *conn, (unsigned int)*req);
+        if (*conn < 0 || *req < 0) return false;
+
+        int enviado = sceHttpSendRequest(*req, NULL, 0);
+        logDownload("  envio 0x%08X", (unsigned int)enviado);
+        if (enviado < 0) { ultimoErroDownload = enviado; return false; }
+    }
+    return false;
+}
+
+// Primeiro segue os saltos à mão e, se não der, deixa o sistema tentar.
+static bool abrirDownloadWeb(int tpl, const char* url, int* conn, int* req) {
+    bool apiGithub = strstr(url, "api.github.com") != NULL;
+    for (int tentativa = 0; tentativa < 2; tentativa++) {
+        definirRedirecionamento(tpl, tentativa);
+        *conn = sceHttpCreateConnectionWithURL(tpl, url, 0);
+        *req = *conn >= 0 ? sceHttpCreateRequestWithURL(*conn, ORBIS_METHOD_GET, url, 0) : -1;
+        logDownload("tentativa %d: %.100s conn:%d req:0x%08X", tentativa + 1, url, *conn, (unsigned int)*req);
+        if (*conn >= 0 && *req >= 0) {
+            if (apiGithub) sceHttpAddRequestHeader(*req, "Accept", "application/octet-stream", 1);
+            int enviado = sceHttpSendRequest(*req, NULL, 0);
+            logDownload("  envio 0x%08X", (unsigned int)enviado);
+            if (enviado >= 0 && seguirRedirecionamentos(tpl, conn, req)) return true;
+            if (enviado < 0) ultimoErroDownload = enviado;
+        }
+        if (*req >= 0) sceHttpDeleteRequest(*req);
+        if (*conn >= 0) sceHttpDeleteConnection(*conn);
+        *conn = -1; *req = -1;
+    }
+    return false;
+}
+
 void* threadDownloadBackground(void* arg) {
     char urlDownloadBg[1024]; MenuLevel menuOrigemBg; char caminhoXMLOrigemBg[256];
     while (obterPrimeiroDaFila(urlDownloadBg, &menuOrigemBg, caminhoXMLOrigemBg)) {
+        ultimoErroDownload = 0;
         char nomeArquivo[128] = "arquivo.bin"; char* ref = strrchr(urlDownloadBg, '/'); if (ref) { strncpy(nomeArquivo, ref + 1, 127); nomeArquivo[127] = '\0'; }
         char* ptrInterrogacao = strchr(nomeArquivo, '?'); if (ptrInterrogacao) *ptrInterrogacao = '\0';
         char* ptrHash = strchr(nomeArquivo, '#'); if (ptrHash) *ptrHash = '\0';
         char nomeLimpo[128] = { 0 }; int j = 0;
         for (int i = 0; nomeArquivo[i] != '\0' && j < 127; i++) { if (nomeArquivo[i] == '%' && nomeArquivo[i + 1] == '2' && nomeArquivo[i + 2] == '0') { nomeLimpo[j++] = ' '; i += 2; } else { nomeLimpo[j++] = nomeArquivo[i]; } }
         strcpy(nomeArquivo, nomeLimpo);
+        // A URL da API termina num número: o nome real vem junto na fila.
+        if (menuOrigemBg == MENU_BAIXAR_GITHUB_ARQUIVOS && caminhoXMLOrigemBg[0]) { strncpy(nomeArquivo, caminhoXMLOrigemBg, 127); nomeArquivo[127] = '\0'; }
 
         char pathPasta[512]; sceKernelMkdir("/data/HyperNeiva/baixado", 0777);
         char* ext = strrchr(nomeArquivo, '.');
         if (ext && (strcasecmp(ext, ".pkg") == 0 || strcasecmp(ext, ".PKG") == 0)) { sceKernelMkdir("/data/pkg", 0777); sprintf(pathPasta, "/data/pkg"); }
+        else if (menuOrigemBg == MENU_BAIXAR_GITHUB_ARQUIVOS) { sceKernelMkdir("/data/HyperNeiva/baixado/github", 0777); sprintf(pathPasta, "/data/HyperNeiva/baixado/github"); }
         else if (menuOrigemBg == MENU_BAIXAR_DROPBOX_LISTA || menuOrigemBg == MENU_BAIXAR_DROPBOX_BACKUP) { sceKernelMkdir("/data/HyperNeiva/baixado/dropbox", 0777); sprintf(pathPasta, "/data/HyperNeiva/baixado/dropbox"); }
         else if (menuOrigemBg == MENU_BAIXAR_LINKS) {
             char nomeRepo[128] = "Games"; char* refBarra = strrchr(caminhoXMLOrigemBg, '/');
@@ -937,39 +1013,47 @@ void* threadDownloadBackground(void* arg) {
         char pathFinal[1024]; sprintf(pathFinal, "%s/%s", pathPasta, nomeArquivo);
         progressoAtualDownload = 0.0f; strcpy(msgDownloadBg, "CONECTANDO...");
 
-        int tpl = sceHttpCreateTemplate(httpCtxId, "HyperNeiva/1.0", ORBIS_HTTP_VERSION_1_1, 1); sceHttpsSetSslCallback(tpl, skipSslCallback, NULL); sceHttpSetAutoRedirect(); int conn, req;
+        int tpl = sceHttpCreateTemplate(httpCtxId, "HyperNeiva/1.0", ORBIS_HTTP_VERSION_1_1, 1); sceHttpsSetSslCallback(tpl, skipSslCallback, NULL); int conn = -1, req = -1; bool enviouPedido = false;
         if (urlDownloadBg[0] == '/') {
             char token[2048] = { 0 };
             obterTokenValido(token);
             const char* apiUrl = "https://content.dropboxapi.com/2/files/download"; conn = sceHttpCreateConnectionWithURL(tpl, apiUrl, 1); req = sceHttpCreateRequestWithURL(conn, ORBIS_METHOD_POST, apiUrl, 0);
             char authHeader[2048]; sprintf(authHeader, "Bearer %s", token); sceHttpAddRequestHeader(req, "Authorization", authHeader, 1);
             char apiArg[1024]; sprintf(apiArg, "{\"path\": \"%s\"}", urlDownloadBg); sceHttpAddRequestHeader(req, "Dropbox-API-Arg", apiArg, 1);
+            enviouPedido = sceHttpSendRequest(req, NULL, 0) >= 0;
         }
         else {
             char urlTratada[1024]; strcpy(urlTratada, urlDownloadBg); char* dbox = strstr(urlTratada, "dropbox.com"); if (dbox) { char* dl0 = strstr(urlTratada, "?dl=0"); if (dl0) dl0[4] = '1'; }
-            conn = sceHttpCreateConnectionWithURL(tpl, urlTratada, 1); req = sceHttpCreateRequestWithURL(conn, ORBIS_METHOD_GET, urlTratada, 0);
+            enviouPedido = abrirDownloadWeb(tpl, urlTratada, &conn, &req);
         }
 
-        if (sceHttpSendRequest(req, NULL, 0) >= 0) {
+        if (enviouPedido) {
             size_t tamanhoTotal = 0; int32_t statusRes = 0; sceHttpGetResponseContentLength(req, &statusRes, &tamanhoTotal);
-            FILE* f = fopen(pathFinal, "wb");
+            // Página de erro do servidor não pode virar arquivo baixado.
+            int32_t codigoHttp = 0; sceHttpGetStatusCode(req, &codigoHttp);
+            uint64_t totalRecebido = 0; bool escreveuTudo = true;
+            FILE* f = codigoHttp >= 300 ? NULL : fopen(pathFinal, "wb");
+            if (codigoHttp >= 300) { snprintf(msgStatus, sizeof(msgStatus), "ERRO %d NO DOWNLOAD!", (int)codigoHttp); msgTimer = 300; }
             if (f) {
                 unsigned char* buf = (unsigned char*)malloc(65536);
                 if (buf) {
                     int n; uint64_t baixado = 0;
                     while ((n = sceHttpReadData(req, buf, 65536)) > 0) {
-                        fwrite(buf, 1, n, f); baixado += n;
+                        if (fwrite(buf, 1, n, f) != (size_t)n) { escreveuTudo = false; break; }
+                        baixado += n; totalRecebido = baixado;
                         char msgTemp[256];
                         if (tamanhoTotal > 0) { progressoAtualDownload = (float)baixado / (float)tamanhoTotal; sprintf(msgTemp, "BAIXANDO: %s", nomeArquivo); }
                         else { progressoAtualDownload = 0.5f; sprintf(msgTemp, "BAIXANDO: %s... (%.2f MB)", nomeArquivo, (float)baixado / 1048576.0f); }
                         strcpy(msgDownloadBg, msgTemp); sceKernelUsleep(1000);
                     } free(buf);
                 } fclose(f);
-                if (ext && (strcasecmp(ext, ".pkg") == 0 || strcasecmp(ext, ".PKG") == 0)) { sprintf(msgStatus, "DOWNLOAD CONCLUIDO! INSTALANDO..."); msgTimer = 300; instalarPkgLocal(pathFinal); }
+                // Um PKG pela metade nunca deve chegar ao instalador.
+                if (!escreveuTudo || (tamanhoTotal > 0 && totalRecebido != tamanhoTotal)) { remove(pathFinal); sprintf(msgStatus, "DOWNLOAD INCOMPLETO! TENTE DE NOVO"); msgTimer = 300; }
+                else if (ext && (strcasecmp(ext, ".pkg") == 0 || strcasecmp(ext, ".PKG") == 0)) { sprintf(msgStatus, "DOWNLOAD CONCLUIDO! INSTALANDO..."); msgTimer = 300; instalarPkgLocal(pathFinal); }
                 else { sprintf(msgStatus, "ARQUIVO CONCLUIDO!"); msgTimer = 300; }
             }
         }
-        else { sprintf(msgStatus, "ERRO NO ARQUIVO ATUAL!"); msgTimer = 240; }
+        else { snprintf(msgStatus, sizeof(msgStatus), "ERRO NO DOWNLOAD: 0x%08X", (unsigned int)ultimoErroDownload); msgTimer = 400; }
 
         sceHttpDeleteRequest(req); sceHttpDeleteConnection(conn); sceHttpDeleteTemplate(tpl);
         removerPrimeiroDaFila(); baixadosFilaSessao++;
@@ -987,13 +1071,16 @@ void iniciarDownload(const char* url) {
     strcpy(nomeArquivo, nomeLimpo);
     char* ext = strrchr(nomeArquivo, '.');
     if (ext && (strcasecmp(ext, ".pkg") == 0 || strcasecmp(ext, ".PKG") == 0)) {
-        bool usarBgft = true; if (url[0] == '/' || strstr(url, "dropbox.com") != NULL) { usarBgft = false; }
+        // O GitHub redireciona para outro servidor: o downloader interno trata isso e mostra a barra.
+        bool ehGithub = menuAtual == MENU_BAIXAR_GITHUB_ARQUIVOS;
+        bool usarBgft = true; if (url[0] == '/' || strstr(url, "dropbox.com") != NULL || ehGithub) { usarBgft = false; }
         if (usarBgft) { if (tentarBgft(url, nomeArquivo)) return; sprintf(msgStatus, "BGFT FALHOU. USANDO DOWNLOADER INTERNO..."); msgTimer = 180; sceKernelUsleep(1000 * 1000); }
-        else { sprintf(msgStatus, "LINK DROPBOX: USANDO DOWNLOADER INTERNO..."); msgTimer = 180; }
+        else if (!ehGithub) { sprintf(msgStatus, "LINK DROPBOX: USANDO DOWNLOADER INTERNO..."); msgTimer = 180; }
     }
     int antes = obterTamanhoFila();
     if (!downloadEmSegundoPlano) { totalFilaSessao = antes; baixadosFilaSessao = 0; }
-    adicionarNaFila(url, menuAtual, caminhoXMLAtual);
+    extern char githubNomeDownload[128];
+    adicionarNaFila(url, menuAtual, menuAtual == MENU_BAIXAR_GITHUB_ARQUIVOS ? githubNomeDownload : caminhoXMLAtual);
     int depois = obterTamanhoFila();
     if (depois == antes) { sprintf(msgStatus, "LINK JA EXISTE NA FILA!"); msgTimer = 180; }
     else { sprintf(msgStatus, "ADICIONADO A FILA!"); msgTimer = 180; }

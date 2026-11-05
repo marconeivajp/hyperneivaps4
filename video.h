@@ -12,6 +12,14 @@ void pararVideo();
 void pausarVideoParaTela();
 void retomarVideoAposTela();
 void definirApresentacaoVideo(bool naTela);
+
+// Controles do player em tela cheia (menu_video.cpp)
+#define PLAYER_FAIXA_Y 860
+bool playerControlesVisiveis();
+bool fecharControlesPlayer();
+void desenharControlesPlayer(uint32_t* tela);
+void avisarPlayer(const char* texto);
+void reiniciarControlesPlayer();
 void carregarApenasCaminhoUltimoVideo();
 void misturarAudioVideo(int16_t* out_buffer, int amostras);
 

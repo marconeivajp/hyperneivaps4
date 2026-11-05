@@ -110,6 +110,11 @@ void preencherMenuBackup() {
 }
 
 void acaoCross_Baixar(int32_t uId, OrbisImeDialogSetting* imeSetting, uint16_t* imeTitle) {
+    extern bool showOpcoes; extern int selOpcao;
+    if (showOpcoes && (menuAtual == MENU_BAIXAR_GITHUB || menuAtual == MENU_BAIXAR_GITHUB_REPOS || menuAtual == MENU_BAIXAR_GITHUB_RELEASES || menuAtual == MENU_BAIXAR_GITHUB_ARQUIVOS)) {
+        acaoOpcaoGithub(selOpcao);
+        return;
+    }
     if (menuAtual == MENU_BAIXAR) {
         if (!emSubmenuLojas && !emSubmenuDropbox && !emSubmenuFTP) {
             if (sel == 0) preencherMenuRepositorios();
@@ -117,6 +122,7 @@ void acaoCross_Baixar(int32_t uId, OrbisImeDialogSetting* imeSetting, uint16_t* 
             else if (sel == 2) { preencherMenuDropbox(); }
             else if (sel == 3) { preencherMenuLojas(); }
             else if (sel == 4) { preencherMenuFTP(); }
+            else if (sel == 5) { preencherMenuGithub(); }
         }
         else if (emSubmenuFTP) {
             if (sel == 0) { preencherMenuFTPServidores(false); }
@@ -352,6 +358,13 @@ void acaoCross_Baixar(int32_t uId, OrbisImeDialogSetting* imeSetting, uint16_t* 
     else if (menuAtual == MENU_BAIXAR_REPOS) {
         listarXMLsRepositorio();
     }
+    else if (menuAtual == MENU_BAIXAR_GITHUB) {
+        if (sel == 0) abrirTecladoGithub(uId);
+        else githubAbrirReleases(linksAtuais[sel]);
+    }
+    else if (menuAtual == MENU_BAIXAR_GITHUB_REPOS) { if (linksAtuais[sel][0]) githubAbrirReleases(linksAtuais[sel]); }
+    else if (menuAtual == MENU_BAIXAR_GITHUB_RELEASES) githubAbrirRelease(sel);
+    else if (menuAtual == MENU_BAIXAR_GITHUB_ARQUIVOS) githubBaixarArquivo(sel);
     else if (menuAtual == MENU_BAIXAR_GAMES_XMLS) { if (strstr(nomes[sel], ".xml")) abrirXMLRepositorio(nomes[sel]); }
     else if (menuAtual == MENU_BAIXAR_GAMES_LIST) mostrarLinksJogo(sel);
     else if (menuAtual == MENU_BAIXAR_LINKS) {

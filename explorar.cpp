@@ -651,12 +651,10 @@ void verificarTrocaDeVideo() {
         i += direcao;
     }
 
-    if (!achou) { // Loop (Início ou Fim)
-        i = (direcao == 1) ? 0 : (tItens - 1);
-        while (i != *pSel) {
-            if (nItems[i][0] != '[' && ehArquivoVideo(nItems[i])) { achou = true; break; }
-            i += direcao;
-        }
+    if (!achou) {
+        extern void avisarPlayer(const char* texto);
+        avisarPlayer(direcao > 0 ? "Nao ha proximo video" : "Nao ha video anterior");
+        return;
     }
 
     if (achou) {

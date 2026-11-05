@@ -167,26 +167,64 @@ void renderizarCustomUI(uint32_t* p, int telaId) {
 // ==========================================
 // DESENHAR LISTAS (JOGOS X EXPLORADOR)
 // ==========================================
-static void drawSimpleIcon(uint32_t* p, const char* name, int drawX, int drawY, int iconSize) {
-    uint32_t cor = (name[0] == '[') ? 0xFFDAA520 : 0xFF4682B4;
-    // darker variant for the square
-    uint32_t corSq = (name[0] == '[') ? 0xFFB8860B : 0xFF2F4F4F;
-    int ix = drawX + 4;
-    int iy = drawY + (listH - iconSize) / 2;
-    for (int by = 0; by < iconSize; by++) for (int bx = 0; bx < iconSize; bx++) {
-        int pyy = iy + by, pxx = ix + bx;
-        if (pxx >= 0 && pxx < 1920 && pyy >= 0 && pyy < 1080) p[pyy * 1920 + pxx] = corSq;
+extern int idIcone(const char* nome);
+extern void desenharIcone(uint32_t* tela, int id, int tamanho, int posX, int posY);
+
+static int iconeArquivo(const char* extensao) {
+    static const char* apelidos[][2] = {
+        { "mkv", "mp4" }, { "webm", "mp4" }, { "wmv", "mp4" }, { "m4v", "mp4" }, { "ts", "mp4" }, { "3gp", "mp4" }, { "mpeg", "mpg" }, { "mov", "qt" },
+        { "jpeg", "jpg" }, { "webp", "png" }, { "flac", "wav" }, { "ogg", "mp3" }, { "m4a", "aac" }, { "7z", "zip" }, { "gz", "tgz" }, { "cbz", "zip" },
+        { "pkg", "iso" }, { "bin", "dat" }, { "json", "js" }, { "yaml", "yml" }, { "htm", "html" }, { "docx", "doc" }, { "pptx", "ppt" }, { "log", "txt" }, { "ini", "txt" }, { "cfg", "txt" }
+    };
+    static const char* jogos[] = { "gba", "gb", "gbc", "nes", "sfc", "smc", "md", "gen", "smd", "sms", "gg", "n64", "z64", "cue", "chd" };
+
+    char ext[12]; int n = 0;
+    for (; extensao[n] && n < 11; n++) ext[n] = (char)tolower((unsigned char)extensao[n]);
+    ext[n] = '\0';
+    for (unsigned int i = 0; i < sizeof(jogos) / sizeof(jogos[0]); i++) if (strcmp(ext, jogos[i]) == 0) return idIcone("m_jogar");
+    for (unsigned int i = 0; i < sizeof(apelidos) / sizeof(apelidos[0]); i++) if (strcmp(ext, apelidos[i][0]) == 0) { strcpy(ext, apelidos[i][1]); break; }
+
+    char nome[20]; snprintf(nome, sizeof(nome), "f_%s", ext);
+    int id = idIcone(nome);
+    return id >= 0 ? id : idIcone("f_page");
+}
+
+static int iconeDoItem(const char* nome, MenuLevel menu) {
+    static const char* palavras[][2] = {
+        { "pesquisar", "m_lupa" }, { "github", "m_caixa" }, { "adicionar", "m_mais" }, { "criar", "m_mais" }, { "[+]", "m_mais" }, { "radio", "m_radio" }, { "podcast", "m_radio" }, { "upload", "m_enviar" }, { "download", "m_baixar" }, { "baixar", "m_baixar" },
+        { "restaurar", "m_nuvem" }, { "backup", "m_nuvem" }, { "dropbox", "m_nuvem" }, { "ftp", "m_servidor" }, { "servidor", "m_servidor" },
+        { "loja", "m_loja" }, { "hb store", "m_loja" }, { "repositorio", "m_caixa" }, { "link", "m_link" }, { "xml", "m_lista" },
+        { "jog", "m_jogar" }, { "ps4", "m_jogar" }, { "retroarch", "m_jogar" }, { "nintendo", "m_jogar" }, { "sega", "m_jogar" }, { "sony", "m_jogar" }, { "controle", "m_jogar" },
+        { "midia", "m_midia" }, { "video", "m_video" }, { "filme", "m_video" }, { "serie", "m_video" }, { "anime", "m_video" },
+        { "audio", "m_nota" }, { "musica", "m_nota" }, { "piano", "m_nota" }, { "imag", "m_imagem" }, { "leitura", "m_livro" }, { "livro", "m_livro" }, { "manga", "m_livro" },
+        { "arquivo", "m_arquivos" }, { "editar", "m_editar" }, { "explorar", "m_explorar" }, { "extra", "m_extra" }, { "favorit", "m_extra" }, { "informac", "m_info" },
+        { "hyper neiva", "m_casa" }, { "raiz", "m_disco" }, { "usb", "m_usb" }, { "pesquisar", "m_lupa" },
+        { "erro", "m_aviso" }, { "nenhum", "m_aviso" }, { "vazia", "m_aviso" }, { "offline", "m_aviso" }, { "verifique", "m_aviso" }
+    };
+
+    if (nome[0] == '[' && nome[1] != ' ' && nome[1] != '+') return idIcone("f_pasta");
+
+    const char* ponto = strrchr(nome, '.');
+    if (ponto && ponto[1] && strlen(ponto) <= 6 && !strchr(ponto, ' ') && !strchr(ponto, ')')) return iconeArquivo(ponto + 1);
+
+    char minusculo[256]; int n = 0;
+    for (; nome[n] && n < 255; n++) minusculo[n] = (char)tolower((unsigned char)nome[n]);
+    minusculo[n] = '\0';
+
+    if (menu == MENU_RADIO_LISTA || menu == MENU_RADIO_FAVORITOS || menu == MENU_RADIO_CATEGORIA) return idIcone("m_radio");
+    if (menu == MENU_BAIXAR_GITHUB_REPOS || (menu == MENU_BAIXAR_GITHUB && strchr(nome, '/'))) return idIcone("m_caixa");
+    if (menu == MENU_BAIXAR_GITHUB_RELEASES) return idIcone("m_arquivos");
+    if (menu == MENU_EDITAR || menu == MENU_EDIT_TARGET) return idIcone("m_engrenagem");
+    if (menu == MENU_JOGAR_PS4 || menu == JOGAR_XML || menu == SCRAPER_LIST) return idIcone("m_jogar");
+
+    for (unsigned int i = 0; i < sizeof(palavras) / sizeof(palavras[0]); i++) {
+        if (strstr(minusculo, palavras[i][0])) return idIcone(palavras[i][1]);
     }
-    // draw a letter
-    char letter[2] = { 0, 0 };
-    if (name[0] == '[') letter[0] = 'D';
-    else {
-        const char* dot = strrchr(name, '.');
-        if (dot && dot[1]) letter[0] = (char)toupper((unsigned char)dot[1]);
-        else letter[0] = (char)toupper((unsigned char)name[0]);
-    }
-    // draw letter using desenharTexto at center (approximate)
-    desenharTexto(p, letter, 24, ix + iconSize/2 - 6, iy + iconSize/2 - 12, 0xFFFFFFFF);
+    return idIcone(menu == MENU_MIDIA ? "f_pasta" : "m_item");
+}
+
+static void drawSimpleIcon(uint32_t* p, const char* name, MenuLevel menu, int drawX, int drawY, int iconSize) {
+    desenharIcone(p, iconeDoItem(name, menu), iconSize, drawX + 4, drawY + (listH - iconSize) / 2);
 }
 void desenharListas(uint32_t* p, int refPainel) {
     int sAtual = (refPainel == 0) ? selEsq : sel;
@@ -446,7 +484,7 @@ void desenharListas(uint32_t* p, int refPainel) {
 
             if (aF > 10) { for (int by = 0; by < listH; by++) { for (int bx = 0; bx < larguraItem; bx++) { int pxX = drawX + bx; int pyY = drawY + by; if (pxX >= 0 && pxX < 1920 && pyY >= 0 && pyY < 1080) p[pyY * 1920 + pxX] = corFundo; } } }
 
-            { int iconSize = (listH > 48) ? 40 : listH - 4; if (iconSize < 16) iconSize = 16; drawSimpleIcon(p, nItems[gIdx], drawX, drawY, iconSize); desenharTextoAlinhadoAnimado(p, nItems[gIdx], currentFontTam, drawX + 48, drawY + (listH / 4), larguraItem - 48, corTexto, isSelected); }
+            { int iconSize = (listH > 48) ? 40 : listH - 4; if (iconSize < 16) iconSize = 16; drawSimpleIcon(p, nItems[gIdx], mAtual, drawX, drawY, iconSize); desenharTextoAlinhadoAnimado(p, nItems[gIdx], currentFontTam, drawX + 48, drawY + (listH / 4), larguraItem - 48, corTexto, isSelected); }
 
             if (isSelected) {
                 if (refPainel == 1 || !painelDuplo) {

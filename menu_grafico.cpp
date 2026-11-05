@@ -457,6 +457,9 @@ void desenharInterface(uint32_t* p) {
 }
 
 void atualizarImePasta() {
+    extern void atualizarImeGithub();
+    atualizarImeGithub();
+
     extern bool tecladoAtivo;
     extern int tecladoTipo;
     extern uint16_t* bufferTecladoW;

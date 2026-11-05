@@ -3,8 +3,11 @@
 #include <string.h>
 #include <math.h>
 #include <orbis/Pad.h>
+#include <orbis/libkernel.h>
 #include "graphics.h"
 #include "video.h"
+#include "stb_image.h"
+#include "icones_embutidos.h"
 
 extern bool videoRodando, video_pausado, video_minimizado, exibir_botao_pular, bloqueio_fechar_video, pCross;
 extern int frame_skip, video_volume, comando_trocar_video, pip_x, pip_y, pip_w, pip_h, total_audios, total_legendas;
@@ -47,6 +50,392 @@ int selected_marker_idx = -1;
 double cfg_skip_inicio = 0, cfg_skip_fim = 0;
 bool cfg_skip_global = false;
 
+// =========================================================================
+// ÍCONES EMBUTIDOS NO EXECUTÁVEL
+// =========================================================================
+struct IconeCarregado { unsigned char* rgba; int largura, altura; uint32_t* escalado; int tamanho; };
+static IconeCarregado iconesCarregados[TOTAL_ICONES_EMBUTIDOS];
+
+int idIcone(const char* nome) {
+    for (int i = 0; i < TOTAL_ICONES_EMBUTIDOS; i++) {
+        if (strcmp(iconesEmbutidos[i].nome, nome) == 0) return i;
+    }
+    return -1;
+}
+
+static uint32_t* iconeNoTamanho(int id, int tamanho) {
+    IconeCarregado* ic = &iconesCarregados[id];
+    if (!ic->rgba) {
+        int canais = 0;
+        ic->rgba = stbi_load_from_memory(iconesEmbutidos[id].png, iconesEmbutidos[id].tamanho, &ic->largura, &ic->altura, &canais, 4);
+        if (!ic->rgba) return NULL;
+    }
+    if (ic->escalado && ic->tamanho == tamanho) return ic->escalado;
+
+    free(ic->escalado);
+    ic->escalado = (uint32_t*)malloc((size_t)tamanho * tamanho * 4);
+    if (!ic->escalado) return NULL;
+    ic->tamanho = tamanho;
+
+    // Média da área de origem de cada pixel, com alfa pré-multiplicado para não sujar a borda.
+    for (int y = 0; y < tamanho; y++) {
+        int y0 = y * ic->altura / tamanho, y1 = (y + 1) * ic->altura / tamanho;
+        if (y1 <= y0) y1 = y0 + 1;
+        for (int x = 0; x < tamanho; x++) {
+            int x0 = x * ic->largura / tamanho, x1 = (x + 1) * ic->largura / tamanho;
+            if (x1 <= x0) x1 = x0 + 1;
+            unsigned int r = 0, g = 0, b = 0, a = 0, n = 0;
+            for (int sy = y0; sy < y1; sy++) for (int sx = x0; sx < x1; sx++) {
+                const unsigned char* px = ic->rgba + ((size_t)sy * ic->largura + sx) * 4;
+                r += px[0] * px[3]; g += px[1] * px[3]; b += px[2] * px[3]; a += px[3]; n++;
+            }
+            unsigned int alfa = a / n;
+            if (a == 0) { ic->escalado[y * tamanho + x] = 0; continue; }
+            ic->escalado[y * tamanho + x] = (alfa << 24) | ((r / a) << 16) | ((g / a) << 8) | (b / a);
+        }
+    }
+    return ic->escalado;
+}
+
+void desenharIcone(uint32_t* tela, int id, int tamanho, int posX, int posY) {
+    if (id < 0 || id >= TOTAL_ICONES_EMBUTIDOS || tamanho <= 0) return;
+    uint32_t* icone = iconeNoTamanho(id, tamanho);
+    if (!icone) return;
+
+    for (int y = 0; y < tamanho; y++) {
+        int py = posY + y;
+        if (py < 0 || py >= 1080) continue;
+        for (int x = 0; x < tamanho; x++) {
+            int px = posX + x;
+            if (px < 0 || px >= 1920) continue;
+            uint32_t cor = icone[y * tamanho + x];
+            uint32_t a = cor >> 24;
+            if (a < 6) continue;
+            if (a > 248) { tela[py * 1920 + px] = cor | 0xFF000000; continue; }
+            uint32_t fundo = tela[py * 1920 + px], inv = 255 - a;
+            uint32_t r = (((cor >> 16) & 255) * a + ((fundo >> 16) & 255) * inv) / 255;
+            uint32_t g = (((cor >> 8) & 255) * a + ((fundo >> 8) & 255) * inv) / 255;
+            uint32_t b = ((cor & 255) * a + (fundo & 255) * inv) / 255;
+            tela[py * 1920 + px] = 0xFF000000 | (r << 16) | (g << 8) | b;
+        }
+    }
+}
+
+// =========================================================================
+// CONTROLES DO PLAYER EM TELA CHEIA
+// =========================================================================
+#define TOQUE_DUPLO_US 450000ULL
+#define SEGURAR_US 300000ULL
+#define CONTROLES_VISIVEIS_US 4000000ULL
+#define CURSOR_ESPERA_US 10000000ULL
+
+enum IconePlayer { IC_ANTERIOR, IC_VOLTAR, IC_PLAY, IC_AVANCAR, IC_PROXIMO, IC_VOLUME, IC_MUDO, IC_PIP, IC_MENU, TOTAL_IC };
+static const char* rotulosPlayer[TOTAL_IC] = { "Video anterior", "Voltar 10s", "Reproduzir", "Adiantar 10s", "Proximo video", "Volume", "Mudo", "Tela pequena", "Menu do player" };
+
+struct GestoGatilho { uint64_t ultimoToque, inicioAperto; bool modoPulo, segurando; };
+static GestoGatilho gestoR2, gestoL2;
+static uint64_t ultimoL1 = 0, ultimoR1 = 0;
+
+static volatile uint64_t controlesAteUs = 0;
+static volatile bool focoNosIcones = false;
+static volatile int iconeFoco = IC_PLAY;
+static volatile bool editandoVolume = false;
+static volatile bool cursorAtivo = false;
+static volatile double cursorTempo = 0.0;
+static uint64_t cursorMovidoUs = 0, cursorInicioUs = 0, ultimoTickUs = 0, repeticaoVolumeUs = 0;
+static int direcaoXAnterior = 0, direcaoYAnterior = 0;
+static double multiplicadorSalvo = 1.0;
+static int volumeAntesMudo = 100;
+static char avisoControles[64] = "";
+static volatile uint64_t avisoAteUs = 0;
+
+static void mostrarControles(uint64_t duracaoUs) {
+    uint64_t ate = sceKernelGetProcessTime() + duracaoUs;
+    if (ate > controlesAteUs) controlesAteUs = ate;
+}
+
+void avisarPlayer(const char* texto) {
+    snprintf(avisoControles, sizeof(avisoControles), "%s", texto);
+    avisoAteUs = sceKernelGetProcessTime() + 2000000ULL;
+    mostrarControles(2000000ULL);
+}
+
+bool playerControlesVisiveis() {
+    return !menu_video_aberto && !video_minimizado && sceKernelGetProcessTime() < controlesAteUs;
+}
+
+static void confirmarCursor() {
+    if (!cursorAtivo) return;
+    cursorAtivo = false;
+    pularParaTempo(cursorTempo);
+}
+
+static void liberarGatilhos() {
+    if (gestoR2.segurando) video_fps_multiplier = multiplicadorSalvo;
+    if (gestoL2.segurando) confirmarCursor();
+    memset(&gestoR2, 0, sizeof(gestoR2));
+    memset(&gestoL2, 0, sizeof(gestoL2));
+}
+
+void reiniciarControlesPlayer() {
+    liberarGatilhos();
+    controlesAteUs = 0; focoNosIcones = false; iconeFoco = IC_PLAY; editandoVolume = false; cursorAtivo = false;
+    ultimoL1 = 0; ultimoR1 = 0; direcaoXAnterior = 0; direcaoYAnterior = 0; avisoAteUs = 0;
+}
+
+bool fecharControlesPlayer() {
+    if (!playerControlesVisiveis()) return false;
+    // Com o cursor movido, a Bolinha só desiste da posição e a barra continua aberta.
+    if (cursorAtivo) { cursorAtivo = false; avisarPlayer("Cancelado"); return true; }
+    editandoVolume = false; focoNosIcones = false; controlesAteUs = 0;
+    return true;
+}
+
+static void pularSegundos(double segundos) {
+    pularParaTempo(video_time_current + segundos);
+    char texto[16]; snprintf(texto, sizeof(texto), "%+.0fs", segundos);
+    avisarPlayer(texto);
+}
+
+static void alternarPausa() {
+    video_pausado = !video_pausado;
+    avisarPlayer(video_pausado ? "Pausado" : "Reproduzindo");
+}
+
+static void alternarMudo() {
+    if (video_volume > 0) { volumeAntesMudo = video_volume; video_volume = 0; avisarPlayer("Mudo"); }
+    else { video_volume = volumeAntesMudo > 0 ? volumeAntesMudo : 100; avisarPlayer("Som ligado"); }
+}
+
+// R2 e L2: segurar é a ação contínua. Dois toques pulam 10 s e, depois disso, cada toque seguido
+// pula de novo.
+static void processarGatilho(GestoGatilho* g, bool apertou, bool segurado, double direcao, uint64_t agora, double passou) {
+    if (apertou) {
+        if (g->ultimoToque && agora - g->ultimoToque < TOQUE_DUPLO_US) {
+            g->modoPulo = true;
+            pularSegundos(direcao * 10.0);
+        }
+        else g->modoPulo = false;
+        g->ultimoToque = agora;
+        g->inicioAperto = agora;
+    }
+
+    if (segurado && !g->modoPulo && !g->segurando && agora - g->inicioAperto > SEGURAR_US) {
+        g->segurando = true;
+        if (direcao > 0) {
+            multiplicadorSalvo = video_fps_multiplier;
+            video_fps_multiplier = 2.0;
+            avisarPlayer("Velocidade 2x");
+        }
+        else {
+            cursorAtivo = true;
+            cursorTempo = video_time_current;
+            avisarPlayer("Voltando");
+        }
+    }
+
+    if (g->segurando && segurado) {
+        mostrarControles(1500000ULL);
+        if (direcao < 0) {
+            double alvo = cursorTempo - passou * 5.0;
+            cursorTempo = alvo < 0.0 ? 0.0 : alvo;
+            cursorMovidoUs = agora;
+        }
+    }
+
+    if (g->segurando && !segurado) {
+        g->segurando = false;
+        g->ultimoToque = 0;
+        if (direcao > 0) video_fps_multiplier = multiplicadorSalvo;
+        else confirmarCursor();
+    }
+}
+
+static void trocarVideoComToqueDuplo(uint64_t* ultimo, int direcao, const char* dica, uint64_t agora) {
+    if (*ultimo && agora - *ultimo < TOQUE_DUPLO_US) {
+        comando_trocar_video = direcao;
+        *ultimo = 0;
+    }
+    else {
+        *ultimo = agora;
+        if (!video_minimizado) avisarPlayer(dica);
+    }
+}
+
+static void ativarIconePlayer(int icone, bool& cross_consumido) {
+    switch (icone) {
+    case IC_ANTERIOR: comando_trocar_video = -1; break;
+    case IC_PROXIMO: comando_trocar_video = 1; break;
+    case IC_VOLTAR: pularSegundos(-10.0); break;
+    case IC_AVANCAR: pularSegundos(10.0); break;
+    case IC_PLAY: alternarPausa(); break;
+    case IC_VOLUME: editandoVolume = !editandoVolume; break;
+    case IC_MUDO: alternarMudo(); break;
+    case IC_PIP:
+        fecharControlesPlayer();
+        video_minimizado = true;
+        pCross = true;
+        cross_consumido = false;
+        return;
+    case IC_MENU:
+        fecharControlesPlayer();
+        menu_video_aberto = true; vState = V_MAIN; menu_video_sel = 0; offVideoOpcao = 0; editando_opcao = false;
+        break;
+    }
+    cross_consumido = true;
+}
+
+static void processarControlesTelaCheia(unsigned int btn, OrbisPadData* pData, bool& cross_consumido) {
+    uint64_t agora = sceKernelGetProcessTime();
+    double passou = ultimoTickUs ? (double)(agora - ultimoTickUs) / 1000000.0 : 0.0;
+    if (passou > 0.2) passou = 0.2;
+    ultimoTickUs = agora;
+
+    processarGatilho(&gestoR2, (btn & ORBIS_PAD_BUTTON_R2) != 0, (pData->buttons & ORBIS_PAD_BUTTON_R2) != 0, 1.0, agora, passou);
+    processarGatilho(&gestoL2, (btn & pData->buttons & ORBIS_PAD_BUTTON_L2) != 0, (pData->buttons & ORBIS_PAD_BUTTON_L2) != 0, -1.0, agora, passou);
+
+    int dirX = 0, dirY = 0;
+    if ((pData->buttons & ORBIS_PAD_BUTTON_LEFT) || pData->leftStick.x < 70) dirX = -1;
+    else if ((pData->buttons & ORBIS_PAD_BUTTON_RIGHT) || pData->leftStick.x > 186) dirX = 1;
+    if ((pData->buttons & ORBIS_PAD_BUTTON_UP) || pData->leftStick.y < 70) dirY = -1;
+    else if ((pData->buttons & ORBIS_PAD_BUTTON_DOWN) || pData->leftStick.y > 186) dirY = 1;
+    int toqueX = dirX != direcaoXAnterior ? dirX : 0;
+    int toqueY = dirY != direcaoYAnterior ? dirY : 0;
+    direcaoXAnterior = dirX; direcaoYAnterior = dirY;
+
+    bool apertouX = (btn & ORBIS_PAD_BUTTON_CROSS) != 0 && !cross_consumido;
+
+    if (!playerControlesVisiveis()) {
+        if (cursorAtivo && !gestoL2.segurando) cursorAtivo = false;
+        if (toqueX || toqueY) {
+            focoNosIcones = false; editandoVolume = false; cursorAtivo = false;
+            mostrarControles(CONTROLES_VISIVEIS_US);
+        }
+        else if (apertouX) { alternarPausa(); cross_consumido = true; }
+        return;
+    }
+
+    if (dirX || dirY || apertouX) mostrarControles(CONTROLES_VISIVEIS_US);
+
+    if (!focoNosIcones) {
+        if (toqueY > 0) { cursorAtivo = false; focoNosIcones = true; iconeFoco = IC_PLAY; return; }
+
+        if (dirX) {
+            if (!cursorAtivo) { cursorAtivo = true; cursorTempo = video_time_current; cursorInicioUs = agora; }
+            if (toqueX) { cursorInicioUs = agora; cursorTempo = cursorTempo + dirX * 5.0; }
+            double tempoSegurado = (double)(agora - cursorInicioUs) / 1000000.0;
+            double velocidade = tempoSegurado < 0.3 ? 0.0 : tempoSegurado < 1.5 ? 20.0 : tempoSegurado < 4.0 ? 60.0 : 180.0;
+            double alvo = cursorTempo + dirX * velocidade * passou;
+            if (alvo < 0.0) alvo = 0.0;
+            if (video_time_total > 0.0 && alvo > video_time_total) alvo = video_time_total;
+            cursorTempo = alvo;
+            cursorMovidoUs = agora;
+            mostrarControles(CURSOR_ESPERA_US);
+        }
+
+        if (apertouX) {
+            if (cursorAtivo) confirmarCursor(); else alternarPausa();
+            cross_consumido = true;
+        }
+        return;
+    }
+
+    if (editandoVolume) {
+        if (dirX && (toqueX || agora - repeticaoVolumeUs > 120000ULL)) {
+            repeticaoVolumeUs = agora;
+            int volume = video_volume + dirX * 5;
+            video_volume = volume < 0 ? 0 : (volume > 100 ? 100 : volume);
+        }
+        if (toqueY < 0 || apertouX) { editandoVolume = false; if (apertouX) cross_consumido = true; }
+        return;
+    }
+
+    if (toqueY < 0) { focoNosIcones = false; return; }
+    if (toqueX) {
+        int proximo = iconeFoco + toqueX;
+        iconeFoco = proximo < 0 ? 0 : (proximo >= TOTAL_IC ? TOTAL_IC - 1 : proximo);
+    }
+    if (apertouX) ativarIconePlayer(iconeFoco, cross_consumido);
+}
+
+static void retanguloPlayer(uint32_t* tela, int x, int y, int largura, int altura, uint32_t cor) {
+    for (int py = y; py < y + altura; py++) {
+        if (py < PLAYER_FAIXA_Y || py >= 1080) continue;
+        for (int px = x; px < x + largura; px++) {
+            if (px >= 0 && px < 1920) tela[py * 1920 + px] = cor;
+        }
+    }
+}
+
+static void circuloPlayer(uint32_t* tela, int cx, int cy, int raio, uint32_t cor) {
+    for (int y = -raio; y <= raio; y++) for (int x = -raio; x <= raio; x++) {
+        if (x * x + y * y <= raio * raio) retanguloPlayer(tela, cx + x, cy + y, 1, 1, cor);
+    }
+}
+
+static void formatarTempoPlayer(double segundos, char* texto, int tamanho) {
+    int total = segundos > 0.0 ? (int)segundos : 0;
+    if (total >= 3600) snprintf(texto, tamanho, "%d:%02d:%02d", total / 3600, (total / 60) % 60, total % 60);
+    else snprintf(texto, tamanho, "%02d:%02d", total / 60, total % 60);
+}
+
+// Desenha na faixa em RAM que o video.cpp monta por cima do vídeo.
+void desenharControlesPlayer(uint32_t* tela) {
+    extern void desenharTexto(uint32_t* buffer, const char* texto, int tamanho, int x, int y, uint32_t corCorpo);
+    static const char* nomesIcones[TOTAL_IC] = { "p_anterior", "p_voltar", "p_play", "p_avancar", "p_proximo", "p_volume", "p_mudo", "p_pip", "p_tres_pontos" };
+    const uint32_t corDestaque = 0xFF29B6F6;
+
+    if (info_nome[0]) desenharTexto(tela, info_nome, 26, 60, 872, 0xFFFFFFFF);
+    if (sceKernelGetProcessTime() < avisoAteUs) desenharTexto(tela, avisoControles, 30, 1560, 870, corDestaque);
+
+    bool usandoCursor = cursorAtivo;
+    double tempo = usandoCursor ? cursorTempo : video_time_current;
+    double total = video_time_total > 0.0 ? video_time_total : 1.0;
+    double fracao = tempo / total;
+    if (fracao < 0.0) fracao = 0.0;
+    if (fracao > 1.0) fracao = 1.0;
+
+    const int barraX = 210, barraLargura = 1500, barraY = 930;
+    bool focoBarra = !focoNosIcones;
+    int espessura = focoBarra ? 10 : 6;
+    int preenchido = (int)(barraLargura * fracao);
+    retanguloPlayer(tela, barraX, barraY - espessura / 2, barraLargura, espessura, 0xFF5A5A5A);
+    retanguloPlayer(tela, barraX, barraY - espessura / 2, preenchido, espessura, corDestaque);
+    circuloPlayer(tela, barraX + preenchido, barraY, focoBarra ? 14 : 9, 0xFFFFFFFF);
+
+    char textoTempo[24], textoTotal[24];
+    formatarTempoPlayer(tempo, textoTempo, sizeof(textoTempo));
+    formatarTempoPlayer(video_time_total, textoTotal, sizeof(textoTotal));
+    desenharTexto(tela, textoTempo, 28, 60, 914, usandoCursor ? corDestaque : 0xFFFFFFFF);
+    if (usandoCursor && !gestoL2.segurando) desenharTexto(tela, "X confirma     O cancela", 26, 800, 872, 0xFFFFFFFF);
+    desenharTexto(tela, textoTotal, 28, 1735, 914, 0xFFCCCCCC);
+
+    const int tamanhoIcone = 52, passo = 104;
+    int inicioX = (1920 - TOTAL_IC * passo) / 2, iconeY = 968;
+    for (int i = 0; i < TOTAL_IC; i++) {
+        int x = inicioX + i * passo + (passo - tamanhoIcone) / 2;
+        const char* nome = nomesIcones[i];
+        if (i == IC_PLAY && !video_pausado) nome = "p_pause";
+        if (i == IC_VOLUME && video_volume == 0) nome = "p_mudo";
+
+        if (focoNosIcones && i == iconeFoco) {
+            retanguloPlayer(tela, x - 16, iconeY - 10, tamanhoIcone + 32, tamanhoIcone + 20, 0xFF3A3F46);
+            retanguloPlayer(tela, x - 16, iconeY + tamanhoIcone + 8, tamanhoIcone + 32, 4, corDestaque);
+        }
+        desenharIcone(tela, idIcone(nome), tamanhoIcone, x, iconeY);
+    }
+
+    if (focoNosIcones) {
+        char rotulo[40];
+        if (iconeFoco == IC_VOLUME) snprintf(rotulo, sizeof(rotulo), "%s %d%%%s", rotulosPlayer[IC_VOLUME], video_volume, editandoVolume ? "  < >" : "");
+        else if (iconeFoco == IC_PLAY) snprintf(rotulo, sizeof(rotulo), "%s", video_pausado ? "Reproduzir" : "Pausar");
+        else snprintf(rotulo, sizeof(rotulo), "%s", rotulosPlayer[iconeFoco]);
+        int rotuloX = inicioX + iconeFoco * passo + passo / 2 - (int)strlen(rotulo) * 5;
+        desenharTexto(tela, rotulo, 20, rotuloX, 1042, 0xFFFFFFFF);
+    }
+}
+
+
 void processarControlesMenuVideo(unsigned int btn, OrbisPadData* pData, bool& cross_consumido, bool& circle_consumido) {
     if (!videoRodando) return;
 
@@ -68,11 +457,11 @@ void processarControlesMenuVideo(unsigned int btn, OrbisPadData* pData, bool& cr
         pip_selecionado = false;
     }
 
-    if (!menu_video_aberto || vState == V_MAIN) {
-        if (!video_minimizado || pip_selecionado) {
-            if (btn & ORBIS_PAD_BUTTON_L1) { comando_trocar_video = -1; cross_consumido = true; }
-            if (btn & ORBIS_PAD_BUTTON_R1) { comando_trocar_video = 1;  cross_consumido = true; }
-        }
+    // L1 e R1 trocam de vídeo só no toque duplo, para não trocar sem querer.
+    if (!menu_video_aberto && (!video_minimizado || pip_selecionado)) {
+        uint64_t agoraToque = sceKernelGetProcessTime();
+        if (btn & ORBIS_PAD_BUTTON_L1) trocarVideoComToqueDuplo(&ultimoL1, -1, "L1 de novo: anterior", agoraToque);
+        if (btn & ORBIS_PAD_BUTTON_R1) trocarVideoComToqueDuplo(&ultimoR1, 1, "R1 de novo: proximo", agoraToque);
     }
 
     if (!menu_video_aberto && (btn & ORBIS_PAD_BUTTON_CROSS)) {
@@ -117,6 +506,7 @@ void processarControlesMenuVideo(unsigned int btn, OrbisPadData* pData, bool& cr
                 if (menu_video_sel == 2) { video_fps_multiplier -= 0.25f; if (video_fps_multiplier < 0.25f) video_fps_multiplier = 0.25f; }
                 if (menu_video_sel == 3) { video_volume -= 5; if (video_volume < 0) video_volume = 0; }
             }
+            if (btn & ORBIS_PAD_BUTTON_CIRCLE) { menu_video_aberto = false; circle_consumido = true; }
             if (btn & ORBIS_PAD_BUTTON_CROSS) {
                 cross_consumido = true;
                 if (menu_video_sel == 0) { vState = V_INFO; menu_video_sel = 0; }
@@ -230,6 +620,10 @@ void processarControlesMenuVideo(unsigned int btn, OrbisPadData* pData, bool& cr
         }
         else if (btn & (ORBIS_PAD_BUTTON_CIRCLE | ORBIS_PAD_BUTTON_CROSS)) { vState = V_MAIN; circle_consumido = true; cross_consumido = true; }
     }
+
+    // Por último: assim o X usado pelo menu acima não vira pausa aqui.
+    if (!menu_video_aberto && !video_minimizado) processarControlesTelaCheia(btn, pData, cross_consumido);
+    else liberarGatilhos();
 }
 
 void desenharMenuPlayerVideo(uint32_t* p) {
