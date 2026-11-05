@@ -6,3 +6,5 @@ Critical local constraint: `build.bat` is sensitive. Do not execute or modify it
 
 
 Sempre que eu corrigir bugs neste projeto, compilar, empacotar e enviar o PKG para o PS4 (192.168.1.101:2121/data/pkg/) automaticamente, sem perguntar.
+
+Claude Code: use as skills `hyperneiva-ps4-build` (build, PKG, FTP) e `hyperneiva-video-engine` (player de video e simulador no PC), em `%USERPROFILE%\.claude\skills`. O `CLAUDE.md` deste projeto resume as regras.
