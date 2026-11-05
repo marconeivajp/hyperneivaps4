@@ -42,7 +42,7 @@ void acessarFTP(int index, const char* path);
 void acessarFTPEsq(int index, const char* path);
 void acessarFTPDir(int index, const char* path);
 
-void adicionarFilaFTP(const char* sourcePath, const char* destPath, bool isUpload, bool isDir);
+void adicionarFilaFTP(const char* sourcePath, const char* destPath, bool isUpload, bool isDir, bool mover = false);
 void iniciarProcessamentoFilaFTP();
 
 void iniciarDownloadFTP(const char* remotePath);

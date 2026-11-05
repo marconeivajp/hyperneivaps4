@@ -47,6 +47,16 @@ void preencherExplorerHome() {
     menuAtual = MENU_EXPLORAR_HOME;
 }
 
+bool ehArquivoVideo(const char* nome) {
+    static const char* tipos[] = { ".mp4", ".m4v", ".mkv", ".avi", ".mov", ".webm", ".ts", ".flv", ".wmv", ".mpg", ".mpeg", ".3gp" };
+    const char* ext = strrchr(nome, '.');
+    if (!ext) return false;
+    for (unsigned int i = 0; i < sizeof(tipos) / sizeof(tipos[0]); i++) {
+        if (strcasecmp(ext, tipos[i]) == 0) return true;
+    }
+    return false;
+}
+
 void abrirPastaMidia(const char* caminho) {
     memset(nomes, 0, sizeof(nomes));
     totalItens = 0;
@@ -55,7 +65,7 @@ void abrirPastaMidia(const char* caminho) {
     DIR* d = opendir(caminhoMidiaAtual);
     if (d) {
         struct dirent* dir;
-        while ((dir = readdir(d)) != NULL) {
+        while ((dir = readdir(d)) != NULL && totalItens < 2999) {
             if (strcmp(dir->d_name, ".") != 0 && strcmp(dir->d_name, "..") != 0) {
                 strcpy(nomes[totalItens], dir->d_name);
                 totalItens++;
@@ -64,16 +74,17 @@ void abrirPastaMidia(const char* caminho) {
         closedir(d);
     }
 
-    if (totalItens == 0) {
-        strcpy(nomes[0], "Radio & Podcast");
-        totalItens = 1;
-    } else {
-        // Shifting for Radio
+    // Radio & Podcast é uma entrada só da raiz de Midia.
+    if (strcmp(caminhoMidiaAtual, "/data/HyperNeiva/midia") == 0) {
         for (int i = totalItens; i > 0; i--) {
             strcpy(nomes[i], nomes[i-1]);
         }
         strcpy(nomes[0], "Radio & Podcast");
         totalItens++;
+    }
+    else if (totalItens == 0) {
+        strcpy(nomes[0], "Pasta vazia");
+        totalItens = 1;
     }
 
     menuAtual = MENU_MIDIA;

@@ -358,7 +358,17 @@ void acaoCross_Root() {
         }
         else {
             int len = strlen(nomes[sel]);
-            if (len > 4 && (strcasecmp(&nomes[sel][len - 4], ".mp3") == 0 || strcasecmp(&nomes[sel][len - 4], ".wav") == 0)) { tocarMusicaNova(novoCaminho); sprintf(msgStatus, "TOCANDO: %s", nomes[sel]); msgTimer = 180; }
+            extern bool ehArquivoVideo(const char* nome);
+            if (ehArquivoVideo(nomes[sel])) {
+                extern bool videoRodando; extern char ultimo_video_tocado[512];
+                extern void iniciarVideoMP4(const char* caminho);
+                if (!(videoRodando && strcmp(novoCaminho, ultimo_video_tocado) == 0)) iniciarVideoMP4(novoCaminho);
+            }
+            else if (len > 4 && (strcasecmp(&nomes[sel][len - 4], ".pdf") == 0 || strcasecmp(&nomes[sel][len - 4], ".cbz") == 0)) {
+                extern void abrirLeitor(const char* caminho);
+                abrirLeitor(novoCaminho);
+            }
+            else if (len > 4 && (strcasecmp(&nomes[sel][len - 4], ".mp3") == 0 || strcasecmp(&nomes[sel][len - 4], ".wav") == 0)) { tocarMusicaNova(novoCaminho); sprintf(msgStatus, "TOCANDO: %s", nomes[sel]); msgTimer = 180; }
             else if ((len > 4 && (strcasecmp(&nomes[sel][len - 4], ".png") == 0 || strcasecmp(&nomes[sel][len - 4], ".jpg") == 0)) || (len > 5 && strcasecmp(&nomes[sel][len - 5], ".jpeg") == 0)) {
                 if (imgMidia) { stbi_image_free(imgMidia); imgMidia = NULL; } imgMidia = stbi_load(novoCaminho, &wM, &hM, &cM, 4);
                 if (imgMidia) { visualizandoMidiaImagem = true; zoomMidia = 1.0f; fullscreenMidia = true; panMidiaX = 0; panMidiaY = 0; }

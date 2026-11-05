@@ -104,6 +104,25 @@ struct EstadoNavegacao {
 };
 EstadoNavegacao pilhaNav[MAX_NAV_STACK]; int navTopo = 0;
 
+// Sobe uma pasta dentro de Midia e volta a selecionar a pasta de onde veio. Devolve false na
+// raiz, para a Bolinha seguir o caminho normal e sair de Midia.
+static bool voltarPastaMidia() {
+    extern char caminhoMidiaAtual[512]; extern void abrirPastaMidia(const char*);
+    const char* raiz = "/data/HyperNeiva/midia";
+    char pai[512]; strcpy(pai, caminhoMidiaAtual);
+    char* barra = strrchr(pai, '/');
+    if (!barra || (size_t)(barra - pai) < strlen(raiz)) return false;
+
+    char pastaAnterior[256]; strncpy(pastaAnterior, barra + 1, 255); pastaAnterior[255] = '\0';
+    *barra = '\0';
+    abrirPastaMidia(pai);
+    for (int i = 0; i < totalItens; i++) {
+        if (strcmp(nomes[i], pastaAnterior) == 0) { sel = i; break; }
+    }
+    off = sel >= numSlotsPadrao ? sel - numSlotsPadrao + 1 : 0;
+    return true;
+}
+
 void voltarNavegacao() {
     if (navTopo > 0) {
         navTopo--;
@@ -132,8 +151,9 @@ void voltarNavegacao() {
         else if (menuAtual == MENU_JOGAR_PS4) preencherMenuJogar();
         else if (menuAtual == JOGAR_XML) carregarXML("system.xml");
         else if (menuAtual == MENU_MIDIA) {
-            if (strlen(pathExplorar) > 0 && strcmp(pathExplorar, "/data/HyperNeiva/midia") != 0) abrirPastaMidia(pathExplorar);
-            else preencherMenuMidia();
+            extern char caminhoMidiaAtual[512];
+            char pastaMidia[512]; strcpy(pastaMidia, caminhoMidiaAtual);
+            abrirPastaMidia(pastaMidia);
         }
         else if (menuAtual == MENU_BAIXAR) preencherMenuBaixar();
         else if (menuAtual == MENU_EDITAR) preencherMenuEditar();
@@ -557,7 +577,8 @@ void processarControles(uint32_t botoes, int32_t uId, OrbisImeDialogSetting* ime
 
             if (menuAtual != mAntes || strcmp(pathExplorar, pAntes) != 0 || menuAtualEsq != mEsqAntes || strcmp(pathExplorarEsq, pEsqAntes) != 0) {
                 // Previne pushes duplicados para o mesmo nível de menu
-                bool isRedundant = (navTopo > 0 && pilhaNav[navTopo - 1].menu == mAntes && strcmp(pilhaNav[navTopo - 1].path, pAntes) == 0);
+                // As opções de áudio são um painel por cima do menu, não um nível para onde voltar.
+                bool isRedundant = mAntes == MENU_AUDIO_OPCOES || (navTopo > 0 && pilhaNav[navTopo - 1].menu == mAntes && strcmp(pilhaNav[navTopo - 1].path, pAntes) == 0);
                 if (!isRedundant && navTopo < MAX_NAV_STACK) {
                     pilhaNav[navTopo].menu = mAntes; strcpy(pilhaNav[navTopo].path, pAntes); pilhaNav[navTopo].sel = sAntes; pilhaNav[navTopo].off = oAntes;
                     pilhaNav[navTopo].menuEsq = mEsqAntes; strcpy(pilhaNav[navTopo].pathEsq, pEsqAntes); pilhaNav[navTopo].selEsq = sEsqAntes; pilhaNav[navTopo].offEsq = oEsqAntes;
@@ -587,6 +608,10 @@ void processarControles(uint32_t botoes, int32_t uId, OrbisImeDialogSetting* ime
             }
             else if (showOpcoes) {
                 showOpcoes = false;
+                if (menuAtual == MENU_AUDIO_OPCOES) {
+                    menuAtual = veioDeOutroMenuParaAudio ? menuAntesDoAudio : MENU_MUSICAS;
+                    veioDeOutroMenuParaAudio = false;
+                }
             }
             else if (visualizandoMidiaImagem || visualizandoMidiaTexto) {
                 extern void acaoCircle_Root(); acaoCircle_Root(); // Fecha previews
@@ -599,17 +624,19 @@ void processarControles(uint32_t botoes, int32_t uId, OrbisImeDialogSetting* ime
                 bool handled = false;
 
                 if (menuAtual == MENU_NOTEPAD) {
-                    if (notepadSomenteLeitura) menuAtual = MENU_EXPLORAR;
-                    else {
-                        if (estadoNotepad == 1) estadoNotepad = 0;
-                        else menuAtual = MENU_EXPLORAR;
-                    }
+                    if (!notepadSomenteLeitura && estadoNotepad == 1) estadoNotepad = 0;
+                    else voltarNavegacao();
                     handled = true;
                 }
-                else if (menuAtual == MENU_EXPLORAR || menuAtual == MENU_MUSICAS) {
-                    if (menuAtual == MENU_EXPLORAR) { extern void acaoCircle_Explorar(); acaoCircle_Explorar(); }
-                    else { extern void acaoCircle_Musicas(); acaoCircle_Musicas(); }
+                else if (menuAtual == MENU_EXPLORAR) {
+                    extern void acaoCircle_Explorar(); acaoCircle_Explorar();
                     handled = true;
+                }
+                else if (menuAtual == MENU_MUSICAS) {
+                    handled = acaoCircle_Musicas();
+                }
+                else if (menuAtual == MENU_MIDIA) {
+                    handled = voltarPastaMidia();
                 }
                 else if (menuAtual == MENU_RADIO_CATEGORIA || menuAtual == MENU_RADIO_LISTA || menuAtual == MENU_RADIO_FAVORITOS) {
                     handled = false; // Deixa o global voltar

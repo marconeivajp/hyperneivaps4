@@ -44,9 +44,8 @@ void acaoCross_Musicas() {
     }
 }
 
-void acaoCircle_Musicas() {
-    // A navegação agora é tratada centralmente no controle.cpp
-    // Esta função lida apenas com subir um nível de pasta nas músicas
+// Sobe um nível de pasta. Devolve false na raiz, para o controle.cpp sair das músicas.
+bool acaoCircle_Musicas() {
     if (strcmp(caminhoNavegacaoMusicas, "/data/HyperNeiva/Musicas") != 0) {
         char temp[512];
         strcpy(temp, caminhoNavegacaoMusicas);
@@ -56,12 +55,10 @@ void acaoCircle_Musicas() {
             strcpy(caminhoNavegacaoMusicas, temp);
             preencherMenuMusicas();
             sel = 0; off = 0;
+            return true;
         }
-    } else {
-        // Se já está na raiz, deixa o controle.cpp chamar voltarNavegacao()
-        // Nota: O controle.cpp já chamará voltarNavegacao() se handled for true 
-        // mas aqui nós podemos apenas sinalizar ou não fazer nada.
     }
+    return false;
 }
 
 void acaoTriangle_Musicas() {

@@ -52,6 +52,7 @@ extern int cd;
 extern void preencherExplorerHome();
 extern void preencherRoot();
 extern void atualizarBarra(float progresso);
+extern bool ehArquivoVideo(const char* nome);
 
 extern float zoomMidia;
 extern bool fullscreenMidia;
@@ -270,7 +271,7 @@ void acaoCross_Explorar() {
             // ==========================================================
             // LOGICA PARA REPRODUZIR Vï¿½DEO MP4 ADICIONADA AQUI
             // ==========================================================
-            else if (strstr(nomeBlindado, ".mp4")) {
+            else if (ehArquivoVideo(nomeBlindado)) {
                 extern char ultimo_video_tocado[512];
                 if (!(videoRodando && strcmp(caminhoArquivo, ultimo_video_tocado) == 0)) {
                     iniciarVideoMP4(caminhoArquivo);

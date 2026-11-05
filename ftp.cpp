@@ -243,20 +243,25 @@ struct FtpTransfer {
     char destPath[1024];
     bool isUpload;
     bool isDir;
+    bool mover;      // recortar: apaga a origem depois de confirmar a transferência
+    bool concluido;
 };
 
 FtpTransfer* ftpFila = NULL;
 int ftpFilaCount = 0;
 int ftpFilaCurrent = 0;
 bool ftpFilaRodando = false;
+static int ftpFilaRecusados = 0;
 
-void adicionarFilaFTP(const char* sourcePath, const char* destPath, bool isUpload, bool isDir) {
+void adicionarFilaFTP(const char* sourcePath, const char* destPath, bool isUpload, bool isDir, bool mover) {
     if (!ftpFila) ftpFila = (FtpTransfer*)malloc(sizeof(FtpTransfer) * 1000);
-    if (ftpFilaCount >= 999) return;
+    if (ftpFilaCount >= 999) { ftpFilaRecusados++; return; }
     strcpy(ftpFila[ftpFilaCount].sourcePath, sourcePath);
     strcpy(ftpFila[ftpFilaCount].destPath, destPath);
     ftpFila[ftpFilaCount].isUpload = isUpload;
     ftpFila[ftpFilaCount].isDir = isDir;
+    ftpFila[ftpFilaCount].mover = mover;
+    ftpFila[ftpFilaCount].concluido = false;
     ftpFilaCount++;
     if (ftpFilaRodando) totalFilaSessao = ftpFilaCount;
 }
@@ -270,7 +275,7 @@ void* threadProcessarFilaFTP(void* arg) {
     int ctrl_sock = ftp_connect_control(servidorAtualFTPIndex);
     if (ctrl_sock < 0) { ftpFilaRodando = false; ftpFilaCount = 0; ftpFilaCurrent = 0; totalFilaSessao = 0; baixadosFilaSessao = 0; downloadEmSegundoPlano = false; return NULL; }
 
-    char resp[2048]; char cmdUser[128], cmdPass[128];
+    char resp[2048]; char cmdUser[128], cmdPass[128]; char cmdSize512[1100];
     sprintf(cmdUser, "USER %s", listaServidoresFTP[servidorAtualFTPIndex].user); send_ftp_cmd(ctrl_sock, cmdUser, resp);
     if (strlen(listaServidoresFTP[servidorAtualFTPIndex].pass) > 0) sprintf(cmdPass, "PASS %s", listaServidoresFTP[servidorAtualFTPIndex].pass); else sprintf(cmdPass, "PASS hyperneiva@ps4.com"); send_ftp_cmd(ctrl_sock, cmdPass, resp);
     send_ftp_cmd(ctrl_sock, "TYPE I", resp);
@@ -285,6 +290,7 @@ void* threadProcessarFilaFTP(void* arg) {
                 char cmdMkd[1024]; sprintf(cmdMkd, "MKD %s", t->destPath); send_ftp_cmd(ctrl_sock, cmdMkd, resp);
                 DIR* d = opendir(t->sourcePath);
                 if (d) {
+                    t->concluido = true;
                     struct dirent* dir;
                     while ((dir = readdir(d)) != NULL) {
                         if (strcmp(dir->d_name, ".") == 0 || strcmp(dir->d_name, "..") == 0) continue;
@@ -292,7 +298,7 @@ void* threadProcessarFilaFTP(void* arg) {
                         sprintf(newSrc, "%s/%s", t->sourcePath, dir->d_name); sprintf(newDst, "%s/%s", t->destPath, dir->d_name);
                         struct stat st; bool isD = false;
                         if (dir->d_type == DT_DIR || (dir->d_type == DT_UNKNOWN && stat(newSrc, &st) == 0 && S_ISDIR(st.st_mode))) isD = true;
-                        adicionarFilaFTP(newSrc, newDst, true, isD);
+                        adicionarFilaFTP(newSrc, newDst, true, isD, t->mover);
                         totalFilaSessao = ftpFilaCount;
                     } closedir(d);
                 }
@@ -306,6 +312,7 @@ void* threadProcessarFilaFTP(void* arg) {
                     char* list_data = (char*)malloc(1024 * 1024); int list_len = 0; int n;
                     while ((n = recv(data_sock, list_data + list_len, 65536, 0)) > 0) { list_len += n; if (list_len >= 1024 * 1024 - 65536) break; }
                     list_data[list_len] = '\0'; close(data_sock); send_ftp_cmd(ctrl_sock, NULL, resp);
+                    t->concluido = resp[0] == '2';
 
                     char* line = strtok(list_data, "\r\n");
                     while (line) {
@@ -314,7 +321,7 @@ void* threadProcessarFilaFTP(void* arg) {
                             if (strcmp(filename, ".") != 0 && strcmp(filename, "..") != 0) {
                                 char newSrc[1024], newDst[1024];
                                 sprintf(newSrc, "%s/%s", t->sourcePath, filename); sprintf(newDst, "%s/%s", t->destPath, filename);
-                                adicionarFilaFTP(newSrc, newDst, false, isD);
+                                adicionarFilaFTP(newSrc, newDst, false, isD, t->mover);
                                 totalFilaSessao = ftpFilaCount;
                             }
                         } line = strtok(NULL, "\r\n");
@@ -333,21 +340,37 @@ void* threadProcessarFilaFTP(void* arg) {
                 if (data_sock >= 0) {
                     char* justName = strrchr(t->destPath, '/'); if (justName) justName++; else justName = t->destPath;
                     char cmdStor[512]; sprintf(cmdStor, "STOR %s", justName); send_ftp_cmd(ctrl_sock, cmdStor, resp);
-                    FILE* f = fopen(t->sourcePath, "rb");
+                    bool aceito = resp[0] == '1';
+                    bool envioOk = false; uint64_t tamanhoLocal = 0;
+                    FILE* f = aceito ? fopen(t->sourcePath, "rb") : NULL;
                     if (f) {
                         fseek(f, 0, SEEK_END); uint64_t totalSize = ftell(f); fseek(f, 0, SEEK_SET);
+                        tamanhoLocal = totalSize;
                         unsigned char* buf = (unsigned char*)malloc(65536);
                         if (buf) {
                             int n; uint64_t enviado = 0; int lastPct = -1;
+                            envioOk = true;
                             while ((n = fread(buf, 1, 65536, f)) > 0) {
-                                send(data_sock, buf, n, 0); enviado += n;
+                                if (send(data_sock, buf, n, 0) != n) { envioOk = false; break; }
+                                enviado += n;
                                 if (totalSize > 0) {
                                     int pct = (int)(((float)enviado / (float)totalSize) * 100.0f);
                                     if (pct != lastPct) { progressoAtualDownload = (float)enviado / (float)totalSize; sprintf(msgDownloadBg, "ENVIANDO LOTE PARA O PC..."); lastPct = pct; }
                                 }
-                            } free(buf);
+                            }
+                            if (enviado != totalSize) envioOk = false;
+                            free(buf);
                         } fclose(f);
-                    } close(data_sock); send_ftp_cmd(ctrl_sock, NULL, resp);
+                    }
+                    close(data_sock);
+                    if (aceito) send_ftp_cmd(ctrl_sock, NULL, resp);
+                    t->concluido = aceito && envioOk && resp[0] == '2';
+                    // Se o servidor informar o tamanho, ele precisa bater com o arquivo enviado.
+                    if (t->concluido && t->mover) {
+                        sprintf(cmdSize512, "SIZE %s", t->destPath); send_ftp_cmd(ctrl_sock, cmdSize512, resp);
+                        uint64_t tamanhoRemoto = 0;
+                        if (strncmp(resp, "213", 3) == 0 && sscanf(resp + 4, "%lu", &tamanhoRemoto) == 1 && tamanhoRemoto != tamanhoLocal) t->concluido = false;
+                    }
                 }
             }
             else {
@@ -357,20 +380,30 @@ void* threadProcessarFilaFTP(void* arg) {
                 int data_sock = ftp_enter_pasv(ctrl_sock);
                 if (data_sock >= 0) {
                     char cmdRetr[512]; sprintf(cmdRetr, "RETR %s", t->sourcePath); send_ftp_cmd(ctrl_sock, cmdRetr, resp);
-                    FILE* f = fopen(t->destPath, "wb");
+                    bool aceito = resp[0] == '1';
+                    bool recebeuOk = false;
+                    FILE* f = aceito ? fopen(t->destPath, "wb") : NULL;
                     if (f) {
                         unsigned char* buf = (unsigned char*)malloc(65536);
                         if (buf) {
                             int n; uint64_t baixado = 0; int lastPct = -1;
+                            recebeuOk = true;
                             while ((n = recv(data_sock, buf, 65536, 0)) > 0) {
-                                fwrite(buf, 1, n, f); baixado += n;
+                                if (fwrite(buf, 1, n, f) != (size_t)n) { recebeuOk = false; break; }
+                                baixado += n;
                                 if (totalSize > 0) {
                                     int pct = (int)(((float)baixado / (float)totalSize) * 100.0f);
                                     if (pct != lastPct) { progressoAtualDownload = (float)baixado / (float)totalSize; sprintf(msgDownloadBg, "BAIXANDO LOTE..."); lastPct = pct; }
                                 }
-                            } free(buf);
-                        } fclose(f);
-                    } close(data_sock); send_ftp_cmd(ctrl_sock, NULL, resp);
+                            }
+                            if (totalSize > 0 && baixado != totalSize) recebeuOk = false;
+                            free(buf);
+                        }
+                        if (fclose(f) != 0) recebeuOk = false;
+                    }
+                    close(data_sock);
+                    if (aceito) send_ftp_cmd(ctrl_sock, NULL, resp);
+                    t->concluido = aceito && recebeuOk && resp[0] == '2';
                 }
 
                 char* ext = strrchr(t->destPath, '.');
@@ -386,10 +419,31 @@ void* threadProcessarFilaFTP(void* arg) {
         ftpFilaCurrent++;
     }
 
+    // Recortar: só apaga o que chegou inteiro. Filhos vêm depois dos pais na fila, então de trás
+    // para a frente as pastas ficam vazias antes de serem removidas; uma pasta com arquivo que
+    // falhou não está vazia e continua lá, com o arquivo.
+    int falhas = ftpFilaRecusados; bool moveu = false;
+    for (int i = ftpFilaCount - 1; i >= 0; i--) {
+        FtpTransfer* t = &ftpFila[i];
+        if (!t->concluido) { falhas++; continue; }
+        if (!t->mover) continue;
+        moveu = true;
+        if (t->isUpload) {
+            if (t->isDir) sceKernelRmdir(t->sourcePath); else unlink(t->sourcePath);
+        }
+        else {
+            char cmdApagar[1100]; sprintf(cmdApagar, "%s %s", t->isDir ? "RMD" : "DELE", t->sourcePath);
+            send_ftp_cmd(ctrl_sock, cmdApagar, resp);
+        }
+    }
+    ftpFilaRecusados = 0;
+
     send_ftp_cmd(ctrl_sock, "QUIT", resp); close(ctrl_sock);
     ftpFilaRodando = false; ftpFilaCount = 0; ftpFilaCurrent = 0;
     downloadEmSegundoPlano = false;
-    sprintf(msgStatus, "TRANSFERENCIA CONCLUIDA!"); msgTimer = 240;
+    if (falhas > 0) snprintf(msgStatus, sizeof(msgStatus), "%d ITEM(NS) FALHARAM! ORIGEM MANTIDA", falhas);
+    else sprintf(msgStatus, moveu ? "ARQUIVOS MOVIDOS!" : "TRANSFERENCIA CONCLUIDA!");
+    msgTimer = 240;
 
     // ATUALIZAÇÃO REMOVIDA A PEDIDO DO UTILIZADOR PARA NÃO REDIRECIONAR / LIMPAR A TELA!
 
@@ -1051,12 +1105,13 @@ void acaoOpcaoFTP(int idxOpcao, int32_t uId) {
             else { sprintf(msgStatus, "SEM MEMORIA PARA COPIAR!"); msgTimer = 180; }
         }
         else {
+            if (ftpFilaRodando) { sprintf(msgStatus, "AGUARDE A TRANSFERENCIA ATUAL!"); msgTimer = 180; showOpcoes = false; return; }
             ftpFilaCount = 0; ftpFilaCurrent = 0;
             for (int i = 0; i < ftpClipCount; i++) {
                 char* nomeBase = strrchr(ftpClipPaths[i], '/'); if (nomeBase) nomeBase++; else nomeBase = ftpClipPaths[i];
                 char dest[1024]; sprintf(dest, "%s%s%s", destFolder, strcmp(destFolder, "/") == 0 ? "" : "/", nomeBase);
-                if (isLocal && ftpClipSource == 1) adicionarFilaFTP(ftpClipPaths[i], dest, false, ftpClipIsDir[i]);
-                else if (!isLocal && ftpClipSource == 2) adicionarFilaFTP(ftpClipPaths[i], dest, true, ftpClipIsDir[i]);
+                if (isLocal && ftpClipSource == 1) adicionarFilaFTP(ftpClipPaths[i], dest, false, ftpClipIsDir[i], ftpClipIsCut);
+                else if (!isLocal && ftpClipSource == 2) adicionarFilaFTP(ftpClipPaths[i], dest, true, ftpClipIsDir[i], ftpClipIsCut);
             }
             if (ftpClipIsCut) { ftpClipCount = 0; ftpClipIsCut = false; }
             iniciarProcessamentoFilaFTP();

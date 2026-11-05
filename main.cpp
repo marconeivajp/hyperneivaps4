@@ -237,6 +237,9 @@ int main(void) {
     }
 
     static unsigned int ultimos_botoes = 0;
+    // Botões já usados por uma tela (vídeo, imagem...): ficam bloqueados até serem soltos.
+    // Sem isso, segurar o botão repetia a ação a cada volta do loop.
+    static unsigned int botoesConsumidos = 0;
 
     for (;;) {
         OrbisPadData pData;
@@ -309,7 +312,10 @@ int main(void) {
                 }
             }
 
-            unsigned int btn = pData.buttons & ~ultimos_botoes;
+            unsigned int botoesFisicos = pData.buttons;
+            botoesConsumidos &= botoesFisicos;
+            unsigned int btn = botoesFisicos & ~ultimos_botoes;
+            pData.buttons &= ~botoesConsumidos;
             bool cross_consumido = false;
             bool circle_consumido = false;
 
@@ -447,8 +453,9 @@ int main(void) {
                 menuEmuladorAtivo = false;
             }
 
-            ultimos_botoes_globais = botoes_preservados;
-            ultimos_botoes = botoes_preservados; 
+            botoesConsumidos |= botoesFisicos & ~botoes_preservados;
+            ultimos_botoes_globais = botoesFisicos;
+            ultimos_botoes = botoesFisicos;
         }
 
         bool telaSemVideo = (menuAtual == MENU_INSTRUMENTOS || menuAtual == MENU_CONTROLE_TESTE ||

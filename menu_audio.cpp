@@ -150,7 +150,7 @@ void tratarSelecaoAudio(int op) {
         salvarConfiguracaoAudio();
         break;
     }
-    case 10: showOpcoes = false; break;
+    case 10: showOpcoes = false; if (menuAtual == MENU_AUDIO_OPCOES) menuAtual = MENU_MUSICAS; break;
     default: sprintf(msgStatus, "FUNCAO EM DESENVOLVIMENTO"); msgTimer = 60; break;
     }
 }

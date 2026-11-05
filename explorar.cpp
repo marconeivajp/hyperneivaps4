@@ -634,7 +634,9 @@ void verificarTrocaDeVideo() {
     bool ehEsq = (painelDuplo && painelAtivo == 0);
     int tItens = ehEsq ? totalItensEsq : totalItens;
     char (*nItems)[256] = ehEsq ? nomesEsq : nomes;
-    char* pExplorar = ehEsq ? pathExplorarEsq : pathExplorar;
+    // Vídeos abertos por Midia estão na pasta de Midia, não na do Explorador.
+    extern char caminhoMidiaAtual[512]; extern bool ehArquivoVideo(const char* nome);
+    char* pExplorar = (menuAtual == MENU_MIDIA) ? caminhoMidiaAtual : (ehEsq ? pathExplorarEsq : pathExplorar);
     int* pSel = ehEsq ? &selEsq : &sel;
 
     int direcao = comando_trocar_video;
@@ -645,22 +647,14 @@ void verificarTrocaDeVideo() {
 
     // Busca circular na pasta atual
     while (i >= 0 && i < tItens) {
-        if (nItems[i][0] != '[') {
-            char temp[256]; strcpy(temp, nItems[i]);
-            for (int c = 0; temp[c]; c++) temp[c] = tolower(temp[c]);
-            if (strstr(temp, ".mp4")) { achou = true; break; }
-        }
+        if (nItems[i][0] != '[' && ehArquivoVideo(nItems[i])) { achou = true; break; }
         i += direcao;
     }
 
     if (!achou) { // Loop (Início ou Fim)
         i = (direcao == 1) ? 0 : (tItens - 1);
         while (i != *pSel) {
-            if (nItems[i][0] != '[') {
-                char temp[256]; strcpy(temp, nItems[i]);
-                for (int c = 0; temp[c]; c++) temp[c] = tolower(temp[c]);
-                if (strstr(temp, ".mp4")) { achou = true; break; }
-            }
+            if (nItems[i][0] != '[' && ehArquivoVideo(nItems[i])) { achou = true; break; }
             i += direcao;
         }
     }
