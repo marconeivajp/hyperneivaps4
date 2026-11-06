@@ -1229,9 +1229,12 @@ static void liberarRecursosVideo() {
 void pararVideo() {
     if (!videoRodando || bloqueio_fechar_video) return;
 
+    extern void telegramPararFluxo(), telegramFecharFluxo();
+    telegramPararFluxo();   // a leitura pode estar esperando a rede: solta antes de encerrar as threads
     reiniciarControlesPlayer();
     encerrarThreads();
     liberarRecursosVideo();
+    telegramFecharFluxo();
 
     videoRodando = false; video_minimizado = false;
     bloqueio_audio_nativo = false;
@@ -1359,6 +1362,14 @@ void iniciarVideoMP4(const char* caminho) {
     reiniciarControlesPlayer();
     reiniciarEstadoMotor();
 
+    // Vídeo do Telegram em andamento: lê pelo TDLib em vez de direto do arquivo.
+    extern AVIOContext* telegramAbrirFluxo(const char* caminho);
+    AVIOContext* fluxoTelegram = telegramAbrirFluxo(caminho);
+    if (fluxoTelegram) {
+        pFormatCtx = avformat_alloc_context();
+        pFormatCtx->pb = fluxoTelegram;
+        pFormatCtx->flags |= AVFMT_FLAG_CUSTOM_IO;
+    }
     if (avformat_open_input(&pFormatCtx, caminho, NULL, NULL) != 0) {
         logVideoInfo("ERRO: nao abriu %s", ultimo_video_tocado);
         bloqueio_audio_nativo = false;

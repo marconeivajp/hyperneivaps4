@@ -100,7 +100,7 @@ void preencherOpcoesContexto(const char* nomeArquivo) {
     if (nomeArquivo) {
         char temp[256]; strcpy(temp, nomeArquivo);
         for (int i = 0; temp[i]; i++) temp[i] = tolower(temp[i]);
-        if (strstr(temp, ".zip") != NULL || strstr(temp, ".xavatar") != NULL || strstr(temp, ".7z") != NULL || strstr(temp, ".rar") != NULL) isZip = true;
+        if (strstr(temp, ".zip") != NULL || strstr(temp, ".xavatar") != NULL || strstr(temp, ".7z") != NULL || strstr(temp, ".rar") != NULL || hnEhParteCompactada(temp)) isZip = true;
         if (strstr(temp, ".pdf") != NULL || strstr(temp, ".cbz") != NULL) isPdfOuManga = true;
     }
 
@@ -276,7 +276,7 @@ void acaoArquivo(int idxOpcao) {
         char temp[512]; strcpy(temp, pathFinal); for (int i = 0; temp[i]; i++) temp[i] = tolower(temp[i]);
 
         // extrairZip olha o começo do arquivo e passa 7z e rar adiante, mesmo com a extensão trocada.
-        if (strstr(temp, ".zip") != NULL || strstr(temp, ".xavatar") != NULL || strstr(temp, ".7z") != NULL || strstr(temp, ".rar") != NULL) extrairZip(pathFinal, pExplorar);
+        if (strstr(temp, ".zip") != NULL || strstr(temp, ".xavatar") != NULL || strstr(temp, ".7z") != NULL || strstr(temp, ".rar") != NULL || hnEhParteCompactada(temp)) hnEnfileirarExtracao(pathFinal, pExplorar);
         else { sprintf(msgStatus, "SOMENTE ARQUIVOS .ZIP, .7Z, .RAR OU .XAVATAR SAO SUPORTADOS"); msgTimer = 120; }
         if (ehEsq) listarDiretorioEsq(pExplorar); else listarDiretorio(pExplorar); break;
     }

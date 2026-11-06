@@ -7,6 +7,9 @@
 #include <unistd.h>
 #include <orbis/libkernel.h>
 #include "miniz.h"
+#include <pthread.h>
+#include "menu.h"
+#include <strings.h>
 
 extern void atualizarBarra(float progresso);
 extern char msgStatus[128];
@@ -39,6 +42,375 @@ void criarCaminho(const char* filepath) {
     for (char* p = strchr(tmp + 1, '/'); p; p = strchr(p + 1, '/')) {
         *p = '\0'; sceKernelMkdir(tmp, 0777); *p = '/';
     }
+}
+
+// HN_PARTES_INICIO
+#define HN_MAX_PARTES 256
+#define HN_PASSO 1024
+enum { HN_NORMAL, HN_RAR_VOLUMES, HN_JUNTAR, HN_ZIP_DIVIDIDO };
+
+static bool hnExiste(const char* caminho) {
+    FILE* f = fopen(caminho, "rb");
+    if (f) fclose(f);
+    return f != NULL;
+}
+
+static bool hnTermina(const char* texto, const char* fim) {
+    size_t a = strlen(texto), b = strlen(fim);
+    return a >= b && strcasecmp(texto + a - b, fim) == 0;
+}
+
+// Procura as partes de um arquivo. Devolve o tipo; faltando recebe o número da parte que não existe.
+static int hnListarPartes(const char* caminho, char* lista, int* total, int* faltando) {
+    const char* nome = strrchr(caminho, '/');
+    nome = nome ? nome + 1 : caminho;
+    size_t tamanho = strlen(caminho);
+    *total = 0;
+    *faltando = 0;
+    char* item = lista;
+
+    // nome.part01.rar
+    if (hnTermina(caminho, ".rar")) {
+        size_t fimDigitos = tamanho - 4, inicio = fimDigitos;
+        while (inicio > 0 && caminho[inicio - 1] >= '0' && caminho[inicio - 1] <= '9') inicio--;
+        if (inicio < fimDigitos && inicio >= 5 && strncasecmp(caminho + inicio - 5, ".part", 5) == 0) {
+            int largura = (int)(fimDigitos - inicio);
+            char prefixo[HN_PASSO];
+            snprintf(prefixo, sizeof(prefixo), "%.*s", (int)inicio, caminho);
+            int n = 1;
+            while (n <= HN_MAX_PARTES) {
+                snprintf(item, HN_PASSO, "%s%0*d%s", prefixo, largura, n, caminho + fimDigitos);
+                if (!hnExiste(item)) break;
+                item += HN_PASSO; (*total)++; n++;
+            }
+            // Se a próxima não existe mas uma depois existe, faltou uma do meio.
+            char teste[HN_PASSO + 16];
+            for (int k = n + 1; k <= n + 8; k++) {
+                snprintf(teste, sizeof(teste), "%s%0*d%s", prefixo, largura, k, caminho + fimDigitos);
+                if (hnExiste(teste)) { *faltando = n; break; }
+            }
+            if (*total == 0) *faltando = 1;
+            return HN_RAR_VOLUMES;
+        }
+    }
+
+    // nome.rar, nome.r00, nome.r01...
+    const char* ponto = strrchr(nome, '.');
+    bool extensaoR = ponto && strlen(ponto) == 4 && (ponto[1] == 'r' || ponto[1] == 'R' || ponto[1] == 's' || ponto[1] == 'S') && ponto[2] >= '0' && ponto[2] <= '9' && ponto[3] >= '0' && ponto[3] <= '9';
+    if (hnTermina(caminho, ".rar") || extensaoR) {
+        char base[HN_PASSO];
+        snprintf(base, sizeof(base), "%.*s", (int)(tamanho - 4), caminho);
+        char teste[HN_PASSO + 16];
+        snprintf(teste, sizeof(teste), "%s.r00", base);
+        bool minusculo = hnExiste(teste);
+        snprintf(teste, sizeof(teste), "%s.R00", base);
+        bool maiusculo = hnExiste(teste);
+        if (minusculo || maiusculo || extensaoR) {
+            snprintf(item, HN_PASSO, "%s.rar", base);
+            if (!hnExiste(item)) snprintf(item, HN_PASSO, "%s.RAR", base);
+            if (!hnExiste(item)) { *faltando = 1; return HN_RAR_VOLUMES; }
+            item += HN_PASSO; (*total)++;
+            for (int k = 0; k < HN_MAX_PARTES - 1; k++) {
+                char letra = (char)((maiusculo ? 'R' : 'r') + k / 100);
+                snprintf(item, HN_PASSO, "%s.%c%02d", base, letra, k % 100);
+                if (!hnExiste(item)) {
+                    snprintf(teste, sizeof(teste), "%s.%c%02d", base, letra, (k + 1) % 100);
+                    if (hnExiste(teste)) *faltando = k + 2;
+                    break;
+                }
+                item += HN_PASSO; (*total)++;
+            }
+            return HN_RAR_VOLUMES;
+        }
+    }
+
+    // nome.7z.001, nome.zip.001, nome.pkg.001...
+    if (ponto && strlen(ponto) == 4 && ponto[1] >= '0' && ponto[1] <= '9' && ponto[2] >= '0' && ponto[2] <= '9' && ponto[3] >= '0' && ponto[3] <= '9') {
+        char base[HN_PASSO];
+        snprintf(base, sizeof(base), "%.*s", (int)(tamanho - 4), caminho);
+        int n = 1;
+        while (n <= HN_MAX_PARTES) {
+            snprintf(item, HN_PASSO, "%s.%03d", base, n);
+            if (!hnExiste(item)) break;
+            item += HN_PASSO; (*total)++; n++;
+        }
+        char teste[HN_PASSO + 16];
+        for (int k = n + 1; k <= n + 8; k++) {
+            snprintf(teste, sizeof(teste), "%s.%03d", base, k);
+            if (hnExiste(teste)) { *faltando = n; break; }
+        }
+        if (*total == 0) *faltando = 1;
+        return HN_JUNTAR;
+    }
+
+    // nome.z01 com nome.zip no fim: o ZIP dividido guarda posições por disco.
+    if (hnTermina(caminho, ".zip") || (ponto && strlen(ponto) == 4 && (ponto[1] == 'z' || ponto[1] == 'Z') && ponto[2] >= '0' && ponto[2] <= '9')) {
+        char teste[HN_PASSO + 16];
+        snprintf(teste, sizeof(teste), "%.*s.z01", (int)(tamanho - 4), caminho);
+        if (hnExiste(teste)) return HN_ZIP_DIVIDIDO;
+    }
+    return HN_NORMAL;
+}
+
+bool hnEhParteCompactada(const char* nomeMinusculo) {
+    const char* ponto = strrchr(nomeMinusculo, '.');
+    if (!ponto || strlen(ponto) != 4) return false;
+    if (strcmp(ponto, ".001") == 0) return true;
+    return ponto[1] == 'r' && ponto[2] >= '0' && ponto[2] <= '9' && ponto[3] >= '0' && ponto[3] <= '9';
+}
+
+static unsigned int hnLerBE(const unsigned char* p) { return ((unsigned int)p[0] << 24) | ((unsigned int)p[1] << 16) | ((unsigned int)p[2] << 8) | p[3]; }
+static unsigned int hnLerLE(const unsigned char* p) { return ((unsigned int)p[3] << 24) | ((unsigned int)p[2] << 16) | ((unsigned int)p[1] << 8) | p[0]; }
+
+// Lê um texto do param.sfo que fica dentro do PKG.
+static bool hnValorSfo(const char* caminho, const char* chaveBuscada, char* saida, int tamanho) {
+    FILE* f = fopen(caminho, "rb");
+    if (!f) return false;
+    bool achou = false;
+    unsigned char cabecalho[0x20];
+    if (fread(cabecalho, 1, sizeof(cabecalho), f) == sizeof(cabecalho) && hnLerBE(cabecalho) == 0x7F434E54) {
+        unsigned int entradas = hnLerBE(cabecalho + 0x10), tabela = hnLerBE(cabecalho + 0x18);
+        fseeko(f, tabela, SEEK_SET);
+        for (unsigned int i = 0; i < entradas && i < 4096; i++) {
+            unsigned char e[32];
+            if (fread(e, 1, 32, f) != 32) break;
+            if (hnLerBE(e) != 0x1000) continue;
+            unsigned int inicio = hnLerBE(e + 16), bytes = hnLerBE(e + 20);
+            unsigned char* sfo = bytes > 0x14 && bytes < 1024 * 1024 ? (unsigned char*)malloc(bytes) : NULL;
+            if (sfo && fseeko(f, inicio, SEEK_SET) == 0 && fread(sfo, 1, bytes, f) == bytes && hnLerBE(sfo) == 0x00505346) {
+                unsigned int chaves = hnLerLE(sfo + 8), dados = hnLerLE(sfo + 12), total = hnLerLE(sfo + 16);
+                for (unsigned int k = 0; k < total && 0x14 + (k + 1) * 16 <= bytes; k++) {
+                    const unsigned char* r = sfo + 0x14 + k * 16;
+                    unsigned int chave = chaves + (r[0] | (r[1] << 8)), valor = dados + hnLerLE(r + 12), usado = hnLerLE(r + 4);
+                    if (chave + strlen(chaveBuscada) + 1 > bytes || valor + usado > bytes || strcmp((const char*)sfo + chave, chaveBuscada) != 0 || usado < 2) continue;
+                    snprintf(saida, tamanho, "%.*s", (int)usado, (const char*)sfo + valor);
+                    achou = true;
+                    break;
+                }
+            }
+            free(sfo);
+            break;
+        }
+    }
+    fclose(f);
+    return achou;
+}
+
+// O nome do jogo vem do PKG; sem ele, usa o nome do arquivo.
+void hnTituloPkg(const char* caminho, char* saida, int tamanho) {
+    if (hnValorSfo(caminho, "TITLE", saida, tamanho)) return;
+    const char* nome = strrchr(caminho, '/');
+    nome = nome ? nome + 1 : caminho;
+    snprintf(saida, tamanho, "%s", nome);
+    char* ponto = strrchr(saida, '.');
+    if (ponto && strcasecmp(ponto, ".pkg") == 0) *ponto = '\0';
+}
+
+// Atualização (categoria gp) precisa do jogo base instalado antes.
+bool hnPkgEhAtualizacao(const char* caminho) {
+    char categoria[8] = "";
+    return hnValorSfo(caminho, "CATEGORY", categoria, sizeof(categoria)) && strncmp(categoria, "gp", 2) == 0;
+}
+
+// O cabeçalho guarda o tamanho total em 0x430. Devolve quantos bytes faltam; 0 está completo.
+long long hnBytesFaltandoPkg(const char* caminho) {
+    FILE* f = fopen(caminho, "rb");
+    if (!f) return 0;
+    unsigned char c[8];
+    long long declarado = 0;
+    fseeko(f, 0, SEEK_END);
+    long long real = (long long)ftello(f);
+    if (fseeko(f, 0x430, SEEK_SET) == 0 && fread(c, 1, 8, f) == 8) {
+        declarado = ((long long)hnLerBE(c) << 32) | hnLerBE(c + 4);
+    }
+    fclose(f);
+    return declarado > real ? declarado - real : 0;
+}
+// HN_PARTES_FIM
+
+// ---- Fila de extração: roda fora da thread da tela e faz um arquivo por vez ----
+extern "C" void* hnrar_abrir_lista(const char* lista, int total, int passo);
+static void extrairRarAberto(void* h, const char* rarPath, const char* outPath);
+struct HnExtracao { char arquivo[1024], destino[512]; };
+static HnExtracao hnFila[16];
+static volatile int hnFilaTotal = 0;
+static char hnPkgs[16][1024];
+static volatile int hnPkgsTotal = 0;
+static volatile bool hnListaMudou = false;
+volatile bool hnBarraAtiva = false;
+volatile float hnBarraProgresso = 0.0f;
+volatile int hnBarraFeitos = 0, hnBarraTotal = 0;
+char hnBarraTexto[256] = "";
+static pthread_mutex_t hnTrava = PTHREAD_MUTEX_INITIALIZER;
+static pthread_t hnThread;
+static volatile bool hnThreadViva = false;
+
+bool hnNaThreadExtracao() { return hnThreadViva && pthread_equal(pthread_self(), hnThread); }
+
+// Chamada por atualizarBarra na thread de extração: alimenta a mesma barra dos downloads.
+void hnProgressoExtracao(float progresso) {
+    hnBarraProgresso = progresso;
+    snprintf(hnBarraTexto, sizeof(hnBarraTexto), "%s", msgStatus);
+    msgTimer = 0;
+}
+
+static void hnAnotarPkg(const char* caminho) {
+    if (!hnTermina(caminho, ".pkg")) return;
+    pthread_mutex_lock(&hnTrava);
+    if (hnPkgsTotal < 16) snprintf(hnPkgs[hnPkgsTotal++], sizeof(hnPkgs[0]), "%s", caminho);
+    pthread_mutex_unlock(&hnTrava);
+}
+
+static bool hnJuntar(const char* lista, int total, const char* destino) {
+    static char bloco[1 << 20];
+    FILE* saida = fopen(destino, "wb");
+    if (!saida) return false;
+    bool certo = true;
+    for (int i = 0; i < total && certo; i++) {
+        FILE* f = fopen(lista + (size_t)i * HN_PASSO, "rb");
+        if (!f) { certo = false; break; }
+        size_t n;
+        while (certo && (n = fread(bloco, 1, sizeof(bloco), f)) > 0) certo = fwrite(bloco, 1, n, saida) == n;
+        fclose(f);
+        snprintf(msgStatus, sizeof(msgStatus), "JUNTANDO PARTES: %d DE %d", i + 1, total);
+        hnProgressoExtracao((float)(i + 1) / (float)total);
+    }
+    fclose(saida);
+    if (!certo) remove(destino);
+    return certo;
+}
+
+static void hnExtrairComPartes(const char* arquivo, const char* destino) {
+    char* lista = (char*)malloc((size_t)HN_MAX_PARTES * HN_PASSO);
+    if (!lista) { snprintf(msgStatus, sizeof(msgStatus), "SEM MEMORIA PARA LER AS PARTES"); msgTimer = 300; return; }
+    int total = 0, faltando = 0;
+    int tipo = hnListarPartes(arquivo, lista, &total, &faltando);
+    if (faltando) { snprintf(msgStatus, sizeof(msgStatus), "FALTA A PARTE %d: BAIXE TODAS AS PARTES", faltando); msgTimer = 500; }
+    else if (tipo == HN_ZIP_DIVIDIDO) { snprintf(msgStatus, sizeof(msgStatus), "ZIP DIVIDIDO (.Z01) NAO E SUPORTADO: JUNTE NO PC"); msgTimer = 500; }
+    else if (tipo == HN_RAR_VOLUMES) {
+        snprintf(msgStatus, sizeof(msgStatus), "LENDO RAR EM %d PARTES...", total);
+        hnProgressoExtracao(0.0f);
+        extrairRarAberto(hnrar_abrir_lista(lista, total, HN_PASSO), lista, destino);
+    }
+    else if (tipo == HN_JUNTAR) {
+        char junto[1024];
+        snprintf(junto, sizeof(junto), "%s", lista);
+        junto[strlen(junto) - 4] = '\0';
+        bool jaExistia = hnExiste(junto);
+        if (jaExistia) snprintf(junto + strlen(junto), sizeof(junto) - strlen(junto), ".junto");
+        if (!hnJuntar(lista, total, junto)) { snprintf(msgStatus, sizeof(msgStatus), "ERRO AO JUNTAR: VEJA O ESPACO LIVRE"); msgTimer = 500; }
+        else if (hnTermina(junto, ".pkg")) hnAnotarPkg(junto);
+        else {
+            extrairZip(junto, destino);
+            remove(junto);
+        }
+    }
+    else extrairZip(arquivo, destino);
+    free(lista);
+}
+
+static void* hnThreadFila(void*) {
+    static HnExtracao atual;
+    for (;;) {
+        pthread_mutex_lock(&hnTrava);
+        bool tem = hnFilaTotal > 0;
+        if (tem) {
+            atual = hnFila[0];
+            memmove(&hnFila[0], &hnFila[1], sizeof(HnExtracao) * (hnFilaTotal - 1));
+            hnFilaTotal--;
+        }
+        pthread_mutex_unlock(&hnTrava);
+        if (!tem) {
+            hnBarraAtiva = false;
+            hnBarraFeitos = 0;
+            hnBarraTotal = 0;
+            sceKernelUsleep(100000);
+            continue;
+        }
+        hnBarraProgresso = 0.0f;
+        const char* nome = strrchr(atual.arquivo, '/');
+        snprintf(hnBarraTexto, sizeof(hnBarraTexto), "EXTRAINDO %.200s", nome ? nome + 1 : atual.arquivo);
+        hnBarraAtiva = true;
+        hnExtrairComPartes(atual.arquivo, atual.destino);
+        hnBarraFeitos++;
+        hnListaMudou = true;
+    }
+    return NULL;
+}
+
+void hnEnfileirarExtracao(const char* arquivo, const char* destino) {
+    pthread_mutex_lock(&hnTrava);
+    bool repetido = false;
+    for (int i = 0; i < hnFilaTotal; i++) if (strcmp(hnFila[i].arquivo, arquivo) == 0) repetido = true;
+    if (!repetido && hnFilaTotal < 16) {
+        snprintf(hnFila[hnFilaTotal].arquivo, sizeof(hnFila[0].arquivo), "%s", arquivo);
+        snprintf(hnFila[hnFilaTotal].destino, sizeof(hnFila[0].destino), "%s", destino);
+        hnFilaTotal++;
+        hnBarraTotal++;
+        snprintf(msgStatus, sizeof(msgStatus), "NA FILA DE EXTRACAO: %d", hnFilaTotal);
+    }
+    else snprintf(msgStatus, sizeof(msgStatus), repetido ? "ESTE ARQUIVO JA ESTA NA FILA" : "FILA DE EXTRACAO CHEIA");
+    msgTimer = 180;
+    pthread_mutex_unlock(&hnTrava);
+    if (!hnThreadViva) {
+        pthread_attr_t atributos;
+        pthread_attr_init(&atributos);
+        pthread_attr_setstacksize(&atributos, 4 * 1024 * 1024);
+        if (pthread_create(&hnThread, &atributos, hnThreadFila, NULL) == 0) hnThreadViva = true;
+        pthread_attr_destroy(&atributos);
+    }
+}
+
+// Roda na thread principal: lista e instalador não podem ser usados de outra thread.
+void hnAtualizarExtracao() {
+    extern void instalarPkgLocal(const char* caminhoAbsoluto);
+    extern void listarDiretorio(const char* caminho);
+    extern char pathExplorar[256];
+    extern int sel, off, totalItens;
+    if (hnListaMudou) {
+        hnListaMudou = false;
+        if (menuAtual == MENU_EXPLORAR) {
+            int selAntes = sel, offAntes = off;
+            listarDiretorio(pathExplorar);
+            sel = selAntes < totalItens ? selAntes : 0;
+            off = offAntes;
+        }
+    }
+    static char caminho[1024];
+    // Só instala com a fila vazia: o jogo base e a atualização podem sair do mesmo arquivo.
+    static int esperaEntrePkgs = 0;
+    if (esperaEntrePkgs > 0) { esperaEntrePkgs--; return; }
+    if (hnBarraAtiva || hnFilaTotal > 0) return;
+    pthread_mutex_lock(&hnTrava);
+    bool tem = hnPkgsTotal > 0;
+    int escolhido = 0;
+    for (int i = hnPkgsTotal - 1; i >= 0; i--) if (!hnPkgEhAtualizacao(hnPkgs[i])) escolhido = i;
+    if (tem) {
+        strcpy(caminho, hnPkgs[escolhido]);
+        memmove(&hnPkgs[escolhido], &hnPkgs[escolhido + 1], sizeof(hnPkgs[0]) * (hnPkgsTotal - escolhido - 1));
+        hnPkgsTotal--;
+    }
+    pthread_mutex_unlock(&hnTrava);
+    if (tem) {
+        esperaEntrePkgs = 180;
+        instalarPkgLocal(caminho);
+    }
+}
+
+struct HnZipSaida { FILE* f; unsigned long long feito, total; int indice, arquivos; };
+
+static size_t hnEscreverZip(void* dados, mz_uint64 posicao, const void* bloco, size_t tamanho) {
+    HnZipSaida* s = (HnZipSaida*)dados;
+    (void)posicao;
+    size_t n = fwrite(bloco, 1, tamanho, s->f);
+    s->feito += n;
+    static int contador = 0;
+    if (s->total && ++contador % 256 == 0) {
+        float prog = ((float)s->indice + (float)((double)s->feito / (double)s->total)) / (float)s->arquivos;
+        snprintf(msgStatus, sizeof(msgStatus), "EXTRAINDO: %d%%", (int)(prog * 100));
+        atualizarBarra(prog);
+    }
+    return n;
 }
 
 void extrairZip(const char* zipPath, const char* outPath) {
@@ -91,8 +463,11 @@ void extrairZip(const char* zipPath, const char* outPath) {
             semSuporte++;
         } else {
             criarCaminho(out_file);
-            if (mz_zip_reader_extract_to_file(&zip_archive, i, out_file, 0)) extraidos++;
-            else falhas++;
+            HnZipSaida saida = { fopen(out_file, "wb"), 0, file_stat.m_uncomp_size, i, totalArquivos };
+            bool certo = saida.f && mz_zip_reader_extract_to_callback(&zip_archive, i, hnEscreverZip, &saida, 0);
+            if (saida.f) fclose(saida.f);
+            if (certo) { extraidos++; hnAnotarPkg(out_file); }
+            else { falhas++; remove(out_file); }
         }
         float prog = (float)(i + 1) / (float)totalArquivos;
         snprintf(msgStatus, sizeof(msgStatus), "EXTRAINDO: %d%%", (int)(prog * 100)); atualizarBarra(prog);
@@ -134,11 +509,17 @@ long hnrar_ler(void* h, void* destino, long tamanho);
 int hnrar_progresso(void* h);
 const char* hnrar_erro(void* h);
 void hnrar_fechar(void* h);
+void* hnrar_abrir_lista(const char* lista, int total, int passo);
 }
+
+static void extrairRarAberto(void* h, const char* rarPath, const char* outPath);
 
 void extrairRar(const char* rarPath, const char* outPath) {
     snprintf(msgStatus, sizeof(msgStatus), "LENDO ARQUIVO RAR..."); atualizarBarra(0.01f);
-    void* h = hnrar_abrir(rarPath);
+    extrairRarAberto(hnrar_abrir(rarPath), rarPath, outPath);
+}
+
+static void extrairRarAberto(void* h, const char* rarPath, const char* outPath) {
     unsigned char* buf = (unsigned char*)malloc(262144);
     if (!h || !buf) {
         free(buf); hnrar_fechar(h);
@@ -171,7 +552,7 @@ void extrairRar(const char* rarPath, const char* outPath) {
         }
         fclose(fo);
         if (n < 0) { ok = false; snprintf(ultimoErro, sizeof(ultimoErro), "%s", hnrar_erro(h)); }
-        if (ok) extraidos++; else { falhas++; remove(out_file); }
+        if (ok) { extraidos++; hnAnotarPkg(out_file); } else { falhas++; remove(out_file); }
         if (strstr(ultimoErro, "ncrypt") || strstr(ultimoErro, "assword")) { comSenha = true; break; }
         int pct = hnrar_progresso(h);
         snprintf(msgStatus, sizeof(msgStatus), "EXTRAINDO RAR: %d%%", pct); atualizarBarra(pct / 100.0f);
@@ -228,12 +609,20 @@ void extrair7z(const char* zipPath, const char* outPath) {
             FILE* fo = fopen(out_file, "wb");
             if (!fo) { falhas++; continue; }
             long n; bool ok = true;
+            unsigned long long feito = 0;
+            int blocos = 0;
             while ((n = hn7z_ler(h, i, buf, 262144)) > 0) {
                 if (fwrite(buf, 1, (size_t)n, fo) != (size_t)n) { ok = false; break; }
+                feito += (unsigned long long)n;
+                if (fsz && ++blocos % 64 == 0) {
+                    float prog = ((float)i + (float)((double)feito / (double)fsz)) / (float)totalArquivos;
+                    snprintf(msgStatus, sizeof(msgStatus), "EXTRAINDO 7Z: %d%%", (int)(prog * 100));
+                    atualizarBarra(prog);
+                }
             }
             fclose(fo);
             if (n < 0) ok = false;
-            if (ok) extraidos++; else { falhas++; remove(out_file); }
+            if (ok) { extraidos++; hnAnotarPkg(out_file); } else { falhas++; remove(out_file); }
             // Num bloco sólido, depois de um erro de dados nada mais sai certo.
             if (n < 0) break;
         }

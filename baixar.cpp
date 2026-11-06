@@ -78,6 +78,10 @@ void atualizarBarra(float progresso) {
 }
 
 void atualizarBarra(float progresso, int arquivoAtual, int totalArquivos) {
+    // A extração roda em outra thread e não pode desenhar: só atualiza os dados da barra.
+    extern bool hnNaThreadExtracao();
+    extern void hnProgressoExtracao(float progresso);
+    if (hnNaThreadExtracao()) { hnProgressoExtracao(progresso); return; }
     uint32_t* p = obterBufferVideo();
     for (int i = 0; i < 1920 * 1080; i++) p[i] = 0xFF121212;
     if (backImg) desenharRedimensionado(p, backImg, wB, hB, 1920, 1080, 0, 0);

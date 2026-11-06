@@ -33,6 +33,7 @@ extern int selOpcao;
 extern bool selecionandoMidiaElemento;
 extern void acaoCross_Notepad(int32_t uId, OrbisImeDialogSetting* imeSetting, uint16_t* imeTitle, const char* textoInicial);
 extern void instalarPkgLocal(const char* caminhoAbsoluto);
+extern bool hnEhParteCompactada(const char* nomeMinusculo);
 
 extern bool emSubmenuDropbox;
 extern bool emSubmenuFTP;
@@ -206,7 +207,7 @@ void acaoCross_Baixar(int32_t uId, OrbisImeDialogSetting* imeSetting, uint16_t* 
                         for (int i = 0; nomeBlindado[i]; i++) { nomeBlindado[i] = tolower(nomeBlindado[i]); }
 
                         if (strstr(nomeBlindado, ".pkg")) { instalarPkgLocal(absPath); }
-                        else if (strstr(nomeBlindado, ".zip") || strstr(nomeBlindado, ".7z") || strstr(nomeBlindado, ".rar")) {
+                        else if (strstr(nomeBlindado, ".zip") || strstr(nomeBlindado, ".7z") || strstr(nomeBlindado, ".rar") || hnEhParteCompactada(nomeBlindado)) {
                             listaOpcoes[0] = "extrair aqui"; mapOpcoes[0] = 7;
                             for (int k = 1; k < 150; k++) { listaOpcoes[k] = ""; mapOpcoes[k] = -1; }
                             totalOpcoes = 1; showOpcoes = true; selOpcao = 0;

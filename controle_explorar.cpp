@@ -111,6 +111,18 @@ static void carregarPreviewArquivo(const char* caminhoAbsoluto) {
 }
 
 char caminhoPkgAtual[512] = ""; bool servidorRodando = false;
+extern bool hnEhParteCompactada(const char* nomeMinusculo);
+extern void hnTituloPkg(const char* caminho, char* saida, int tamanho);
+extern long long hnBytesFaltandoPkg(const char* caminho);
+
+// O console pede cada PKG pelo content id: várias instalações podem correr juntas.
+static struct { char id[40]; char caminho[512]; char titulo[128]; } pkgsServidor[32];
+static int proximoPkgServidor = 0;
+
+static const char* caminhoDoPedido(const char* pedido) {
+    for (int i = 0; i < 32; i++) if (pkgsServidor[i].id[0] && strstr(pedido, pkgsServidor[i].id)) return pkgsServidor[i].caminho;
+    return caminhoPkgAtual;
+}
 
 static void* handle_client(void* arg) {
     int client_fd = *(int*)arg; free(arg); int set = 1;
@@ -119,7 +131,7 @@ static void* handle_client(void* arg) {
     recv(client_fd, buffer_req, sizeof(buffer_req) - 1, 0);
     if (strlen(caminhoPkgAtual) > 0 && strlen(buffer_req) > 0) {
         bool is_head_request = (strncmp(buffer_req, "HEAD", 4) == 0);
-        FILE* f = fopen(caminhoPkgAtual, "rb");
+        FILE* f = fopen(caminhoDoPedido(buffer_req), "rb");
         if (f) {
             fseek(f, 0, SEEK_END); size_t fsize = ftell(f); fseek(f, 0, SEEK_SET);
             size_t start_range = 0; char* range_str = strstr(buffer_req, "Range: bytes=");
@@ -153,21 +165,37 @@ static void ligarServidorSeNecessario() {
 }
 
 void instalarPkgLocal(const char* caminhoAbsoluto) {
+    // PKG cortado sempre falha no console: melhor dizer o motivo antes de tentar.
+    long long faltam = hnBytesFaltandoPkg(caminhoAbsoluto);
+    if (faltam > 0) {
+        snprintf(msgStatus, sizeof(msgStatus), "PKG INCOMPLETO: FALTAM %.2f GB. BAIXE E EXTRAIA TODAS AS PARTES", (double)faltam / 1073741824.0);
+        msgTimer = 600;
+        return;
+    }
     sprintf(msgStatus, "ANALISANDO FILA DE DOWNLOADS..."); atualizarBarra(0.2f);
     strcpy(caminhoPkgAtual, caminhoAbsoluto); ligarServidorSeNecessario();
-    char contentId[40]; memset(contentId, 0, sizeof(contentId)); uint32_t fileSize = 0; FILE* f = fopen(caminhoAbsoluto, "rb");
-    if (f) { fseek(f, 0x40, SEEK_SET); fread(contentId, 1, 36, f); fseek(f, 0, SEEK_END); fileSize = (uint32_t)ftell(f); fclose(f); }
+    char contentId[40]; memset(contentId, 0, sizeof(contentId)); uint64_t fileSize = 0; FILE* f = fopen(caminhoAbsoluto, "rb");
+    if (f) { fseek(f, 0x40, SEEK_SET); fread(contentId, 1, 36, f); fseek(f, 0, SEEK_END); fileSize = (uint64_t)ftello(f); fclose(f); }
     else { strcpy(contentId, "UP0000-000000000_00-0000000000000000"); }
+    // Reinstalar o mesmo pacote reaproveita a vaga; o título continua vivo para a notificação.
+    int vaga = -1;
+    for (int i = 0; i < 32; i++) if (strcmp(pkgsServidor[i].id, contentId) == 0) vaga = i;
+    if (vaga < 0) { vaga = proximoPkgServidor; proximoPkgServidor = (proximoPkgServidor + 1) % 32; }
+    snprintf(pkgsServidor[vaga].id, sizeof(pkgsServidor[vaga].id), "%s", contentId);
+    snprintf(pkgsServidor[vaga].caminho, sizeof(pkgsServidor[vaga].caminho), "%s", caminhoAbsoluto);
+    hnTituloPkg(caminhoAbsoluto, pkgsServidor[vaga].titulo, sizeof(pkgsServidor[vaga].titulo));
     sceSysmoduleLoadModuleInternal(ORBIS_SYSMODULE_INTERNAL_APP_INST_UTIL); sceSysmoduleLoadModuleInternal(ORBIS_SYSMODULE_INTERNAL_BGFT);
     static void* bgftHeap = NULL;
     if (!bgftHeap) { sceAppInstUtilInitialize(); OrbisBgftInitParams bgftInit; memset(&bgftInit, 0, sizeof(OrbisBgftInitParams)); bgftInit.heapSize = 2 * 1024 * 1024; bgftHeap = memalign(4096, bgftInit.heapSize); bgftInit.heap = bgftHeap; sceBgftServiceIntInit(&bgftInit); }
     OrbisBgftTaskId tarefaAntiga = -1; sceBgftServiceIntDownloadFindActiveTask(contentId, ORBIS_BGFT_TASK_SUB_TYPE_PACKAGE, &tarefaAntiga); if (tarefaAntiga != -1) { sceBgftServiceIntDownloadUnregisterTask(tarefaAntiga); }
     int32_t userId = 0; sceUserServiceGetInitialUser(&userId);
     char urlPkg[1024]; sprintf(urlPkg, "http://127.0.0.1:8080/%s.pkg", contentId);
-    OrbisBgftDownloadParam params; memset(&params, 0, sizeof(OrbisBgftDownloadParam)); params.userId = userId; params.entitlementType = 5; params.id = contentId; params.contentUrl = urlPkg; params.contentName = "Hyper Neiva - Instalando PKG"; params.playgoScenarioId = "0"; params.packageSize = fileSize;
+    OrbisBgftDownloadParam params; memset(&params, 0, sizeof(OrbisBgftDownloadParam)); params.userId = userId; params.entitlementType = 5; params.id = contentId; params.contentUrl = urlPkg; params.contentName = pkgsServidor[vaga].titulo; params.playgoScenarioId = "0"; memcpy(&params.packageSize, &fileSize, sizeof(fileSize));
     OrbisBgftTaskId taskId = -1; int res = sceBgftServiceIntDebugDownloadRegisterPkg(&params, &taskId);
     if (res == 0 && taskId >= 0) { sceBgftServiceDownloadStartTask(taskId); sprintf(msgStatus, "DOWNLOAD INICIADO! Verifique as Notificacoes."); atualizarBarra(1.0f); }
     else { sprintf(msgStatus, "ERRO: 0x%08X", res); atualizarBarra(0.0f); }
+    FILE* registro = fopen("/data/HyperNeiva/zip_debug_log.txt", "a");
+    if (registro) { fprintf(registro, "INSTALAR res=0x%08X tarefa=%d tamanho=%llu %s\n", (unsigned int)res, (int)taskId, (unsigned long long)fileSize, caminhoAbsoluto); fclose(registro); }
     msgTimer = 400;
 }
 
@@ -228,7 +256,7 @@ void acaoCross_Explorar() {
                 snprintf(msgStatus, sizeof(msgStatus), "ROM Detectada!"); msgTimer = 120;
                 iniciarEmulador(caminhoArquivo);
             }
-            else if (strstr(nomeBlindado, ".zip") || strstr(nomeBlindado, ".rar") || strstr(nomeBlindado, ".7z")) {
+            else if (strstr(nomeBlindado, ".zip") || strstr(nomeBlindado, ".rar") || strstr(nomeBlindado, ".7z") || hnEhParteCompactada(nomeBlindado)) {
                 for (int i = 0; i < 150; i++) { listaOpcoes[i] = ""; mapOpcoes[i] = -1; }
                 listaOpcoes[0] = "extrair aqui"; 
                 mapOpcoes[0] = 7;

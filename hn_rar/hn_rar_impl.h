@@ -38,51 +38,72 @@ int archive_random(void* destino, size_t tamanho) {
 }
 
 /* Interface pequena para explorar_utilitarios.cpp, no mesmo jeito do hn7z_*. */
-typedef struct { struct archive* a; FILE* f; long long lido; long long total; char buf[65536]; } HnRar;
+struct HnRarS;
+typedef struct { struct HnRarS* h; FILE* f; long long base; } HnVol;
+typedef struct HnRarS { struct archive* a; HnVol* vols; int n; long long lido; long long total; char buf[65536]; } HnRar;
 
 static la_ssize_t hnrar_cb_ler(struct archive* a, void* d, const void** out) {
-    HnRar* h = (HnRar*)d; (void)a;
-    size_t n = fread(h->buf, 1, sizeof(h->buf), h->f);
-    h->lido += (long long)n; *out = h->buf;
+    HnVol* v = (HnVol*)d; (void)a;
+    size_t n = fread(v->h->buf, 1, sizeof(v->h->buf), v->f);
+    v->h->lido += (long long)n; *out = v->h->buf;
     return (la_ssize_t)n;
 }
 static la_int64_t hnrar_cb_pular(struct archive* a, void* d, la_int64_t n) {
-    HnRar* h = (HnRar*)d; (void)a;
-    if (fseeko(h->f, (off_t)n, SEEK_CUR) != 0) return 0;
-    h->lido += n;
+    HnVol* v = (HnVol*)d; (void)a;
+    if (fseeko(v->f, (off_t)n, SEEK_CUR) != 0) return 0;
+    v->h->lido += n;
     return n;
 }
 static la_int64_t hnrar_cb_buscar(struct archive* a, void* d, la_int64_t pos, int origem) {
-    HnRar* h = (HnRar*)d; (void)a;
-    if (fseeko(h->f, (off_t)pos, origem) != 0) return ARCHIVE_FATAL;
-    h->lido = (long long)ftello(h->f);
-    return h->lido;
+    HnVol* v = (HnVol*)d; (void)a;
+    if (fseeko(v->f, (off_t)pos, origem) != 0) return ARCHIVE_FATAL;
+    long long agora = (long long)ftello(v->f);
+    v->h->lido = v->base + agora;
+    return agora;
+}
+static int hnrar_cb_trocar(struct archive* a, void* antigo, void* novo) {
+    HnVol* v = (HnVol*)novo; (void)a; (void)antigo;
+    if (v) { fseeko(v->f, 0, SEEK_SET); v->h->lido = v->base; }
+    return ARCHIVE_OK;
 }
 
 void hnrar_fechar(void* p) {
     HnRar* h = (HnRar*)p;
+    int i;
     if (!h) return;
     if (h->a) archive_read_free(h->a);
-    if (h->f) fclose(h->f);
+    for (i = 0; i < h->n; i++) if (h->vols[i].f) fclose(h->vols[i].f);
+    free(h->vols);
     free(h);
 }
 
-void* hnrar_abrir(const char* caminho) {
+/* lista: caminhos em blocos de "passo" bytes, na ordem dos volumes. */
+void* hnrar_abrir_lista(const char* lista, int total, int passo) {
     HnRar* h = (HnRar*)calloc(1, sizeof(HnRar));
+    int i;
     if (!h) return NULL;
-    h->f = fopen(caminho, "rb");
+    h->vols = (HnVol*)calloc((size_t)total, sizeof(HnVol));
     h->a = archive_read_new();
-    if (!h->f || !h->a) { hnrar_fechar(h); return NULL; }
-    fseeko(h->f, 0, SEEK_END); h->total = (long long)ftello(h->f); fseeko(h->f, 0, SEEK_SET);
+    if (!h->vols || !h->a) { hnrar_fechar(h); return NULL; }
+    for (i = 0; i < total; i++) {
+        FILE* f = fopen(lista + (size_t)i * passo, "rb");
+        if (!f) { hnrar_fechar(h); return NULL; }
+        h->vols[i].f = f; h->vols[i].h = h; h->vols[i].base = h->total; h->n = i + 1;
+        fseeko(f, 0, SEEK_END); h->total += (long long)ftello(f); fseeko(f, 0, SEEK_SET);
+    }
     archive_read_support_format_rar(h->a);
     archive_read_support_format_rar5(h->a);
-    archive_read_set_callback_data(h->a, h);
     archive_read_set_read_callback(h->a, hnrar_cb_ler);
     archive_read_set_skip_callback(h->a, hnrar_cb_pular);
     archive_read_set_seek_callback(h->a, hnrar_cb_buscar);
+    archive_read_set_switch_callback(h->a, hnrar_cb_trocar);
+    archive_read_set_callback_data(h->a, &h->vols[0]);
+    for (i = 1; i < total; i++) archive_read_add_callback_data(h->a, &h->vols[i], (unsigned int)i);
     if (archive_read_open1(h->a) != ARCHIVE_OK) { hnrar_fechar(h); return NULL; }
     return h;
 }
+
+void* hnrar_abrir(const char* caminho) { return hnrar_abrir_lista(caminho, 1, 0); }
 
 /* 1 = achou item, 0 = acabou, -1 = erro. */
 int hnrar_proximo(void* p, char* nome, int tamanhoNome, int* ehPasta) {

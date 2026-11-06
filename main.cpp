@@ -552,6 +552,8 @@ int main(void) {
         atualizarImePasta(); atualizarImePasta_explorar();
 
         desenharInterface(p);
+        extern void hnAtualizarExtracao();
+        hnAtualizarExtracao();
 
         // ===== RENDERIZACAO DO LEITOR DE PDF =====
         if (visualizandoPDF && imgPaginaAtual) {

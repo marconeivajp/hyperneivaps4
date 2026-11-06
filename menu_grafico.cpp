@@ -359,8 +359,14 @@ void desenharInterface(uint32_t* p) {
             }
         }
     // Download Bar
-    if (downloadEmSegundoPlano || (editMode && editTarget == 5)) {
-        float prog = downloadEmSegundoPlano ? progressoAtualDownload : 0.5f;
+    extern volatile bool hnBarraAtiva;
+    extern volatile float hnBarraProgresso;
+    extern volatile int hnBarraFeitos, hnBarraTotal;
+    extern char hnBarraTexto[256];
+    // Download tem prioridade na barra; sem ele, a mesma barra mostra a extração.
+    bool barraExtracao = hnBarraAtiva && !downloadEmSegundoPlano;
+    if (downloadEmSegundoPlano || barraExtracao || (editMode && editTarget == 5)) {
+        float prog = downloadEmSegundoPlano ? progressoAtualDownload : barraExtracao ? hnBarraProgresso : 0.5f;
         if (prog < 0.0f) prog = 0.0f; if (prog > 1.0f) prog = 1.0f;
         int fill = (int)(barW * prog); if (fill > barW) fill = barW; if (fill < 0) fill = 0;
         for (int y = barY; y < barY + barH; y++) for (int x = barX; x < barX + barW; x++) if (x >= 0 && x < 1920 && y >= 0 && y < 1080) p[y * 1920 + x] = (x < barX + fill) ? getSysColor(barFill) : getSysColor(barBg);
@@ -370,6 +376,10 @@ void desenharInterface(uint32_t* p) {
         if (downloadEmSegundoPlano) {
             if (totalFilaSessao > 0) snprintf(txtBarra, sizeof(txtBarra), "%d%%  [%d/%d]  %.160s", pctBarra, baixadosFilaSessao + 1, totalFilaSessao, msgDownloadBg);
             else snprintf(txtBarra, sizeof(txtBarra), "%d%%  %.180s", pctBarra, msgDownloadBg);
+        }
+        else if (barraExtracao) {
+            if (hnBarraTotal > 1) snprintf(txtBarra, sizeof(txtBarra), "%d%%  [%d/%d]  %.160s", pctBarra, hnBarraFeitos + 1, hnBarraTotal, hnBarraTexto);
+            else snprintf(txtBarra, sizeof(txtBarra), "%d%%  %.180s", pctBarra, hnBarraTexto);
         }
         else snprintf(txtBarra, sizeof(txtBarra), "%d%%  EXEMPLO DE TEXTO DA BARRA", pctBarra);
 
