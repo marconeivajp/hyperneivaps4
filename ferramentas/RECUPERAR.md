@@ -9,7 +9,7 @@ Passo a passo para gerar o PKG do Hyper Neiva depois de formatar.
 
 ## 2. Baixar o SDK
 
-Clone https://github.com/marconeivajp/openorbs em `C:\OpenOrbis` e extraia `OpenOrbisCompleto.part01.rar` nessa mesma pasta. As partes antigas `OpenOrbis.partNN.rar` não têm a pasta `lib`.
+Clone https://github.com/marconeivajp/openorbs em `C:\OpenOrbis` e extraia `OpenOrbis.part01.rar` nessa mesma pasta. O arquivo tem o SDK inteiro, incluindo `lib` e os arquivos gerados do TDLib.
 
 ## 3. Baixar o projeto
 
