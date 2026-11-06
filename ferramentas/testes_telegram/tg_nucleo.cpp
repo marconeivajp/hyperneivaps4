@@ -1117,7 +1117,7 @@ static void tgTocarAudio(const char* caminho, long long mensagem) {
     pthread_detach(t);
 }
 
-static long long tgPendenteMensagem = 0;
+static long long tgPendenteMensagem = 0, tgVideoMensagem = 0;
 static char tgCopiaOrigem[220], tgCopiaDestino[320], tgInstalar[320] = "";
 static int tgCopiaArquivo = 0;
 static bool tgCopiaPkg = false;
@@ -1318,8 +1318,16 @@ static void tgAbrirPendente() {
     if (!abrir) return;
     if (tipo == TG_M_AUDIO) tgTocarAudio(tgPendenteCaminho, mensagem);
     else {
+        extern bool video_repetir, video_telegram, video_repetir_telegram;
         tgPararAudio();
         iniciarVideoMP4(tgPendenteCaminho);
+        pthread_mutex_lock(&tgTrava);
+        tgVideoMensagem = mensagem;
+        video_telegram = true;
+        // GIF sempre repete; vídeo segue a escolha feita no menu do player.
+        video_repetir = video_repetir_telegram;
+        for (int i = 0; i < tgTotalMensagens; i++) if (tgMensagens[i].id == mensagem && !strcmp(tgMensagens[i].rotulo, "GIF")) video_repetir = true;
+        pthread_mutex_unlock(&tgTrava);
         if (!videoRodando) {
             telegramFecharFluxo();
             pthread_mutex_lock(&tgTrava);
@@ -1362,6 +1370,21 @@ static void tgAbrirMidia(const TgMensagem* m) {
     tgNovoDownload(a->id, m->arquivoNome[0] ? m->arquivoNome : "Áudio", m->id);
     strcpy(tgAviso, "Baixando 0%   Options: downloads");
     tgEnviar("{\"@type\":\"downloadFile\",\"file_id\":%d,\"priority\":32,\"offset\":0,\"limit\":0,\"synchronous\":false}", a->id);
+}
+
+// O vídeo acabou ou o usuário pediu outro: abre o próximo vídeo da conversa, sem GIFs.
+void telegramTrocarVideo(int direcao) {
+    pthread_mutex_lock(&tgTrava);
+    int atual = -1;
+    for (int i = 0; i < tgTotalMensagens; i++) if (tgMensagens[i].id == tgVideoMensagem) atual = i;
+    const TgMensagem* m = NULL;
+    for (int i = atual + direcao; atual >= 0 && i >= 0 && i < tgTotalMensagens && !m; i += direcao) {
+        if (tgMensagens[i].midia == TG_M_VIDEO && strcmp(tgMensagens[i].rotulo, "GIF") != 0) m = &tgMensagens[i];
+    }
+    if (m) { tgSelId = m->id; tgAbrirMidia(m); }
+    else strcpy(tgAviso, direcao > 0 ? "Não há próximo vídeo nesta conversa." : "Não há vídeo anterior nesta conversa.");
+    pthread_mutex_unlock(&tgTrava);
+    tgSujo = true;
 }
 
 static void tgBaixarParaPasta(const TgMensagem* m) {

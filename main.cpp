@@ -244,13 +244,16 @@ int main(void) {
     inicializarPastas(); carregarConfiguracao(); inicializarElementosSonoros();
 
     // Configurações já salvas tinham o elemento desligado: liga uma vez e depois respeita a escolha.
-    FILE* marcaPersonagem = fopen("/data/HyperNeiva/configuracao/personagem_padrao_v1.txt", "r");
+    FILE* marcaPersonagem = fopen("/data/HyperNeiva/configuracao/personagem_padrao_v2.txt", "r");
     if (marcaPersonagem) fclose(marcaPersonagem);
     else {
         extern void salvarConfiguracao();
+        extern int ctrl1Livre, pont1On;
         ctrl1On = 1;
+        pont1On = 1;
+        ctrl1Livre = 1;
         salvarConfiguracao();
-        marcaPersonagem = fopen("/data/HyperNeiva/configuracao/personagem_padrao_v1.txt", "w");
+        marcaPersonagem = fopen("/data/HyperNeiva/configuracao/personagem_padrao_v2.txt", "w");
         if (marcaPersonagem) fclose(marcaPersonagem);
     }
 
@@ -505,6 +508,9 @@ int main(void) {
             ultimos_botoes_globais = botoesFisicos;
             ultimos_botoes = botoesFisicos;
         }
+
+        extern void atenderFimDeVideo();
+        atenderFimDeVideo();
 
         bool telaSemVideo = (menuAtual == MENU_INSTRUMENTOS || menuAtual == MENU_CONTROLE_TESTE || (menuAtual == MENU_TELEGRAM && !videoRodando) ||
             menuAtual == MENU_NOTEPAD || menuAtualEsq == MENU_NOTEPAD ||

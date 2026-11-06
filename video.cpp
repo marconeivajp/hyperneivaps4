@@ -44,6 +44,8 @@ extern bool menu_video_aberto, pip_selecionado;
 bool videoRodando = false, video_pausado = false, video_minimizado = false;
 static bool video_pausado_por_tela = false;
 bool bloqueio_audio_nativo = false;
+bool video_repetir = true, video_telegram = false, video_repetir_telegram = false;
+static volatile bool video_terminou = false;
 char ultimo_video_tocado[512] = "";
 char path_pasta_video[512] = "";
 double video_time_current = 0;
@@ -469,8 +471,32 @@ static void tratarFimDoArquivo() {
     }
     if (pararThreads || seekPedido) return;
 
+    if (!video_repetir) {
+        // Quem fecha é a thread principal: esta é uma das threads que o fechamento aguarda.
+        logVideoInfo("--- FIM DO ARQUIVO ---");
+        video_terminou = true;
+        while (!pararThreads && !seekPedido) sceKernelUsleep(20000);
+        video_terminou = false;
+        return;
+    }
     logVideoInfo("--- FIM DO ARQUIVO / REPETINDO ---");
     executarSeek(0.0);
+}
+
+void pararVideo();
+
+// Roda na thread principal: fecha o vídeo que acabou e, no Telegram, passa para o seguinte.
+void atenderFimDeVideo() {
+    extern void telegramTrocarVideo(int direcao);
+    if (!videoRodando) return;
+    int comando = video_telegram ? comando_trocar_video : 0;
+    if (!video_terminou && !comando) return;
+    bool doTelegram = video_telegram;
+    if (doTelegram) comando_trocar_video = 0;
+    video_terminou = false;
+    bloqueio_fechar_video = false;
+    pararVideo();
+    if (doTelegram) telegramTrocarVideo(comando < 0 ? -1 : 1);
 }
 
 static void* threadDemux(void*) {
@@ -1334,6 +1360,9 @@ static void reiniciarEstadoMotor() {
 }
 
 void iniciarVideoMP4(const char* caminho) {
+    video_repetir = true;
+    video_telegram = false;
+    video_terminou = false;
     bloqueio_fechar_video = false;
     bloqueio_audio_nativo = true;
 

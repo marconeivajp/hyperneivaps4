@@ -490,9 +490,9 @@ void processarControlesMenuVideo(unsigned int btn, OrbisPadData* pData, bool& cr
         }
         if (vState == V_MAIN) {
             static int last_volume = 100;
-            // AGORA TEMOS 12 OPÇÕES (0 a 11)
-            if (menu_video_sel < 0)  { menu_video_sel = 11; offVideoOpcao = 11 - 9; if (offVideoOpcao < 0) offVideoOpcao = 0; }
-            if (menu_video_sel > 11) { menu_video_sel = 0; offVideoOpcao = 0; }
+            // AGORA TEMOS 13 OPÇÕES (0 a 12)
+            if (menu_video_sel < 0)  { menu_video_sel = 12; offVideoOpcao = 12 - 9; if (offVideoOpcao < 0) offVideoOpcao = 0; }
+            if (menu_video_sel > 12) { menu_video_sel = 0; offVideoOpcao = 0; }
             if (menu_video_sel < offVideoOpcao) offVideoOpcao = menu_video_sel;
             if (menu_video_sel >= offVideoOpcao + 10) offVideoOpcao = menu_video_sel - 9;
             
@@ -525,7 +525,12 @@ void processarControlesMenuVideo(unsigned int btn, OrbisPadData* pData, bool& cr
                 }
                 if (menu_video_sel == 9) { vState = V_TRACKS; menu_video_sel = 0; }
                 if (menu_video_sel == 10) { mostrar_timeline = !mostrar_timeline; menu_video_aberto = false; } // NOVA OPÇÃO TIMELINE!
-                if (menu_video_sel == 11) { bloqueio_fechar_video = false; pararVideo(); menu_video_aberto = false; } // FECHAR PASSOU PARA O 11
+                if (menu_video_sel == 11) {
+                    extern bool video_repetir, video_telegram, video_repetir_telegram;
+                    video_repetir = !video_repetir;
+                    if (video_telegram) video_repetir_telegram = video_repetir;
+                }
+                if (menu_video_sel == 12) { bloqueio_fechar_video = false; pararVideo(); menu_video_aberto = false; } // FECHAR PASSOU PARA O 11
             }
         }
         else if (vState == V_PIP) {
@@ -687,7 +692,8 @@ void desenharMenuPlayerVideo(uint32_t* p) {
         for (int rx = mx; rx < mx + mw; rx++) p[(my + 62) * 1920 + rx] = 0xFF333355;
 
         if (vState == V_MAIN) {
-            char opts[12][48];
+            extern bool video_repetir;
+            char opts[13][48];
             sprintf(opts[0],  "%c Informacoes",   (menu_video_sel == 0  ? '>' : ' '));
             sprintf(opts[1],  "%c SkipFr: %d",    (menu_video_sel == 1  ? '>' : ' '), frame_skip);
             sprintf(opts[2],  "%c Veloc: %.2fx",  (menu_video_sel == 2  ? '>' : ' '), video_fps_multiplier);
@@ -699,11 +705,12 @@ void desenharMenuPlayerVideo(uint32_t* p) {
             sprintf(opts[8],  "%c Abertura",      (menu_video_sel == 8  ? '>' : ' '));
             sprintf(opts[9],  "%c Faixas",        (menu_video_sel == 9  ? '>' : ' '));
             sprintf(opts[10], "%c %s Timeline",   (menu_video_sel == 10 ? '>' : ' '), mostrar_timeline ? "Ocultar" : "Mostrar"); // TIMELINE AQUI!
-            sprintf(opts[11], "%c Fechar Video",  (menu_video_sel == 11 ? '>' : ' '));
+            sprintf(opts[11], "%c Repetir: %s",   (menu_video_sel == 11 ? '>' : ' '), video_repetir ? "Ligado" : "Desligado");
+            sprintf(opts[12], "%c Fechar Video",  (menu_video_sel == 12 ? '>' : ' '));
 
             int maxVis = (mh - 70) / 40;
             for (int i = 0; i < maxVis; i++) {
-                int gIdx = i + offVideoOpcao; if (gIdx >= 12) break;
+                int gIdx = i + offVideoOpcao; if (gIdx >= 13) break;
                 uint32_t cor = (gIdx == menu_video_sel) ? 0xFF00FFFF : 0xFFFFFFFF;
                 desenharTexto(p, opts[gIdx], 23, mx + 10, my + 70 + (i * 40), cor);
             }

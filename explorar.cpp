@@ -233,15 +233,11 @@ void acaoArquivo(int idxOpcao) {
     case 4: {
         for (int i = 0; i < clipboardCount; i++) {
             char* baseName = strrchr(clipboardPaths[i], '/'); if (baseName) baseName++; else baseName = clipboardPaths[i];
-            char dest[512]; sprintf(dest, "%s/%s", pExplorar, baseName); copiarArquivoReal(clipboardPaths[i], dest);
-            if (clipboardIsCut) {
-                struct stat path_stat; stat(clipboardPaths[i], &path_stat);
-                if (S_ISDIR(path_stat.st_mode)) deletarPastaRecursivamente(clipboardPaths[i]); else unlink(clipboardPaths[i]);
-            }
+            char dest[512]; snprintf(dest, sizeof(dest), "%s/%s", pExplorar, baseName);
+            hnEnfileirarColar(clipboardPaths[i], dest, clipboardIsCut);
         }
-        if (ehEsq) listarDiretorioEsq(pathExplorarEsq); else listarDiretorio(pathExplorar);
         if (clipboardIsCut) { clipboardCount = 0; clipboardIsCut = false; }
-        sprintf(msgStatus, "ARQUIVO(S) COLADO(S)"); msgTimer = 90; break;
+        break;
     }
     case 5: {
         int alvo = sAtual; for (int i = 0; i < tItens; i++) if (mItems[i]) { alvo = i; break; }

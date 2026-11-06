@@ -20,13 +20,23 @@ c = r'''#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
+#include <sys/stat.h>
+#include <dirent.h>
+#include <unistd.h>
+#include <io.h>
 #define fseeko fseeko64
+static void hnAvisarCopia(float p) {}
+static void sceKernelMkdir(const char* c, int m) { mkdir(c); }
+void deletarPastaRecursivamente(const char* c);
+#define ftello ftello64
 ''' + s + r'''
 extern "C" { void* hnrar_abrir_lista(const char*, int, int); int hnrar_proximo(void*, char*, int, int*); long hnrar_ler(void*, void*, long); void hnrar_fechar(void*); const char* hnrar_erro(void*); int hnrar_progresso(void*); }
+void deletarPastaRecursivamente(const char* c) { char x[600]; snprintf(x, sizeof(x), "rmdir /s /q \"%s\"", c); for (char* q = x; *q; q++) if (*q == '/') *q = '\\'; system(x); }
 int main(int argc, char** argv) {
     static char lista[HN_MAX_PARTES * HN_PASSO];
     int total, faltando;
-    if (!strcmp(argv[1], "titulo")) { char t[128]; hnTituloPkg(argv[2], t, sizeof(t)); printf("TITULO [%s]\n", t); return 0; }
+    if (!strcmp(argv[1], "mover")) { bool r = hnCopiarOuMover(argv[2], argv[3], argv[4][0] == '1'); printf("MOVER %d\n", r); return 0; }
+    if (!strcmp(argv[1], "titulo")) { char t[128]; hnTituloPkg(argv[2], t, sizeof(t)); printf("TITULO [%s] update=%d falta=%lld\n", t, hnPkgEhAtualizacao(argv[2]), hnBytesFaltandoPkg(argv[2])); return 0; }
     int tipo = hnListarPartes(argv[2], lista, &total, &faltando);
     printf("tipo=%d total=%d faltando=%d primeira=%s\n", tipo, total, faltando, total ? strrchr(lista, '/') + 1 : "-");
     if (!strcmp(argv[1], "rar")) {
@@ -110,3 +120,32 @@ for k in (os.path.join(os.environ["TEMP"], "opencode", "pkg_HyperNeiva_v2.47", "
           os.path.join(os.environ["TEMP"], "opencode", "pkg_HyperNeivaTelegram_stream_barra_posicao_20261106", "HyperNeivaTelegram_stream_barra_posicao_20261106.pkg")):
     rodar("titulo", k.replace("\\", "/"))
 rodar("titulo", os.path.join(p, "a.zip").replace("\\", "/"))
+cortado = os.path.join(W, "cortado.pkg")
+with open(k, "rb") as a, open(cortado, "wb") as b:
+    b.write(a.read(50 << 20))
+rodar("titulo", cortado.replace("\\", "/"))
+
+
+def arvore(p):
+    return sorted(os.path.relpath(os.path.join(a, f), p).replace("\\", "/") + ":" + str(os.path.getsize(os.path.join(a, f))) for a, _, fs in os.walk(p) for f in fs)
+
+
+print("--- copiar e mover")
+b = os.path.join(W, "mover")
+os.makedirs(os.path.join(b, "pasta", "sub", "fundo"))
+os.makedirs(os.path.join(b, "alvo"))
+for n, t in (("pasta/a.bin", 3000000), ("pasta/sub/b.txt", 12), ("pasta/sub/fundo/c.bin", 2500000), ("solto.bin", 1000)):
+    with open(os.path.join(b, n), "wb") as f:
+        f.write(os.urandom(t))
+antes = arvore(os.path.join(b, "pasta"))
+barra = b.replace("\\", "/")
+rodar("mover", barra + "/pasta", barra + "/alvo/copia", "0")
+print("  pasta copiada igual:", arvore(os.path.join(b, "alvo", "copia")) == antes, "origem preservada:", arvore(os.path.join(b, "pasta")) == antes)
+rodar("mover", barra + "/solto.bin", barra + "/solto.bin", "0")
+print("  mesma pasta nao zerou:", os.path.getsize(os.path.join(b, "solto.bin")) == 1000)
+rodar("mover", barra + "/pasta", barra + "/pasta/sub/dentro", "1")
+print("  dentro de si recusado:", arvore(os.path.join(b, "pasta")) == antes)
+rodar("mover", barra + "/solto.bin", barra + "/alvo/movido.bin", "1")
+print("  recortar:", not os.path.exists(os.path.join(b, "solto.bin")), os.path.getsize(os.path.join(b, "alvo", "movido.bin")) == 1000)
+rodar("mover", barra + "/naoexiste.bin", barra + "/alvo/x.bin", "1")
+print("  origem inexistente nao cria:", not os.path.exists(os.path.join(b, "alvo", "x.bin")))

@@ -9,6 +9,7 @@
 #include "miniz.h"
 #include <pthread.h>
 #include "menu.h"
+#include <orbis/Bgft.h>
 #include <strings.h>
 
 extern void atualizarBarra(float progresso);
@@ -43,6 +44,8 @@ void criarCaminho(const char* filepath) {
         *p = '\0'; sceKernelMkdir(tmp, 0777); *p = '/';
     }
 }
+
+static void hnAvisarCopia(float progresso);
 
 // HN_PARTES_INICIO
 #define HN_MAX_PARTES 256
@@ -152,6 +155,77 @@ static int hnListarPartes(const char* caminho, char* lista, int* total, int* fal
     return HN_NORMAL;
 }
 
+static long long hnTamanhoTotal(const char* caminho) {
+    struct stat st;
+    if (stat(caminho, &st) != 0) return 0;
+    if (!S_ISDIR(st.st_mode)) return (long long)st.st_size;
+    long long total = 0;
+    DIR* d = opendir(caminho);
+    if (!d) return 0;
+    struct dirent* item;
+    while ((item = readdir(d)) != NULL) {
+        if (!strcmp(item->d_name, ".") || !strcmp(item->d_name, "..")) continue;
+        char filho[1024];
+        snprintf(filho, sizeof(filho), "%s/%s", caminho, item->d_name);
+        total += hnTamanhoTotal(filho);
+    }
+    closedir(d);
+    return total;
+}
+
+static long long hnCopiaFeita = 0, hnCopiaTotal = 0;
+
+static bool hnCopiarRecursivo(const char* origem, const char* destino) {
+    struct stat st;
+    if (stat(origem, &st) != 0) return false;
+    if (S_ISDIR(st.st_mode)) {
+        sceKernelMkdir(destino, 0777);
+        DIR* d = opendir(origem);
+        if (!d) return false;
+        bool certo = true;
+        struct dirent* item;
+        while (certo && (item = readdir(d)) != NULL) {
+            if (!strcmp(item->d_name, ".") || !strcmp(item->d_name, "..")) continue;
+            char a[1024], b[1024];
+            snprintf(a, sizeof(a), "%s/%s", origem, item->d_name);
+            snprintf(b, sizeof(b), "%s/%s", destino, item->d_name);
+            certo = hnCopiarRecursivo(a, b);
+        }
+        closedir(d);
+        return certo;
+    }
+    FILE* f = fopen(origem, "rb");
+    FILE* g = f ? fopen(destino, "wb") : NULL;
+    bool certo = f && g;
+    static char bloco[1 << 20];
+    size_t n;
+    while (certo && (n = fread(bloco, 1, sizeof(bloco), f)) > 0) {
+        certo = fwrite(bloco, 1, n, g) == n;
+        hnCopiaFeita += (long long)n;
+        hnAvisarCopia(hnCopiaTotal > 0 ? (float)((double)hnCopiaFeita / (double)hnCopiaTotal) : 0.0f);
+    }
+    if (f) fclose(f);
+    if (g) fclose(g);
+    if (!certo) remove(destino);
+    return certo;
+}
+
+// Recortar só apaga a origem depois de copiar tudo; na mesma partição apenas renomeia.
+static bool hnCopiarOuMover(const char* origem, const char* destino, bool recortar) {
+    size_t tamanho = strlen(origem);
+    if (strcmp(origem, destino) == 0 || (strncmp(origem, destino, tamanho) == 0 && destino[tamanho] == '/')) return false;
+    if (recortar && rename(origem, destino) == 0) return true;
+    hnCopiaFeita = 0;
+    hnCopiaTotal = hnTamanhoTotal(origem);
+    if (!hnCopiarRecursivo(origem, destino)) return false;
+    if (recortar) {
+        struct stat st;
+        if (stat(origem, &st) == 0 && S_ISDIR(st.st_mode)) deletarPastaRecursivamente(origem);
+        else unlink(origem);
+    }
+    return true;
+}
+
 bool hnEhParteCompactada(const char* nomeMinusculo) {
     const char* ponto = strrchr(nomeMinusculo, '.');
     if (!ponto || strlen(ponto) != 4) return false;
@@ -231,8 +305,9 @@ long long hnBytesFaltandoPkg(const char* caminho) {
 // ---- Fila de extração: roda fora da thread da tela e faz um arquivo por vez ----
 extern "C" void* hnrar_abrir_lista(const char* lista, int total, int passo);
 static void extrairRarAberto(void* h, const char* rarPath, const char* outPath);
-struct HnExtracao { char arquivo[1024], destino[512]; };
-static HnExtracao hnFila[16];
+#define HN_MAX_FILA 128
+struct HnExtracao { int colar; bool recortar; char arquivo[1024], destino[1024]; };
+static HnExtracao hnFila[HN_MAX_FILA];
 static volatile int hnFilaTotal = 0;
 static char hnPkgs[16][1024];
 static volatile int hnPkgsTotal = 0;
@@ -252,6 +327,15 @@ void hnProgressoExtracao(float progresso) {
     hnBarraProgresso = progresso;
     snprintf(hnBarraTexto, sizeof(hnBarraTexto), "%s", msgStatus);
     msgTimer = 0;
+}
+
+static void hnAvisarCopia(float progresso) {
+    static int ultimo = -1;
+    int pct = (int)(progresso * 100);
+    if (pct == ultimo) return;
+    ultimo = pct;
+    snprintf(msgStatus, sizeof(msgStatus), "COPIANDO: %d%%", pct);
+    hnProgressoExtracao(progresso);
 }
 
 static void hnAnotarPkg(const char* caminho) {
@@ -329,27 +413,34 @@ static void* hnThreadFila(void*) {
         }
         hnBarraProgresso = 0.0f;
         const char* nome = strrchr(atual.arquivo, '/');
-        snprintf(hnBarraTexto, sizeof(hnBarraTexto), "EXTRAINDO %.200s", nome ? nome + 1 : atual.arquivo);
+        snprintf(hnBarraTexto, sizeof(hnBarraTexto), "%s %.200s", atual.colar ? "COPIANDO" : "EXTRAINDO", nome ? nome + 1 : atual.arquivo);
         hnBarraAtiva = true;
-        hnExtrairComPartes(atual.arquivo, atual.destino);
+        if (atual.colar) {
+            bool certo = hnCopiarOuMover(atual.arquivo, atual.destino, atual.recortar);
+            snprintf(msgStatus, sizeof(msgStatus), certo ? "COLADO: %.100s" : "NAO FOI POSSIVEL COLAR: %.90s", nome ? nome + 1 : atual.arquivo);
+            msgTimer = 240;
+        }
+        else hnExtrairComPartes(atual.arquivo, atual.destino);
         hnBarraFeitos++;
         hnListaMudou = true;
     }
     return NULL;
 }
 
-void hnEnfileirarExtracao(const char* arquivo, const char* destino) {
+static void hnEnfileirar(int colar, bool recortar, const char* arquivo, const char* destino) {
     pthread_mutex_lock(&hnTrava);
     bool repetido = false;
-    for (int i = 0; i < hnFilaTotal; i++) if (strcmp(hnFila[i].arquivo, arquivo) == 0) repetido = true;
-    if (!repetido && hnFilaTotal < 16) {
+    for (int i = 0; i < hnFilaTotal; i++) if (strcmp(hnFila[i].arquivo, arquivo) == 0 && strcmp(hnFila[i].destino, destino) == 0) repetido = true;
+    if (!repetido && hnFilaTotal < HN_MAX_FILA) {
+        hnFila[hnFilaTotal].colar = colar;
+        hnFila[hnFilaTotal].recortar = recortar;
         snprintf(hnFila[hnFilaTotal].arquivo, sizeof(hnFila[0].arquivo), "%s", arquivo);
         snprintf(hnFila[hnFilaTotal].destino, sizeof(hnFila[0].destino), "%s", destino);
         hnFilaTotal++;
         hnBarraTotal++;
-        snprintf(msgStatus, sizeof(msgStatus), "NA FILA DE EXTRACAO: %d", hnFilaTotal);
+        snprintf(msgStatus, sizeof(msgStatus), "ADICIONADO A FILA: %d", hnFilaTotal);
     }
-    else snprintf(msgStatus, sizeof(msgStatus), repetido ? "ESTE ARQUIVO JA ESTA NA FILA" : "FILA DE EXTRACAO CHEIA");
+    else snprintf(msgStatus, sizeof(msgStatus), repetido ? "ESTE ARQUIVO JA ESTA NA FILA" : "FILA CHEIA");
     msgTimer = 180;
     pthread_mutex_unlock(&hnTrava);
     if (!hnThreadViva) {
@@ -361,11 +452,35 @@ void hnEnfileirarExtracao(const char* arquivo, const char* destino) {
     }
 }
 
+void hnEnfileirarExtracao(const char* arquivo, const char* destino) { hnEnfileirar(0, false, arquivo, destino); }
+void hnEnfileirarColar(const char* origem, const char* destino, bool recortar) { hnEnfileirar(1, recortar, origem, destino); }
+
+volatile int hnTarefaPkg = -1;
+
+// O console só dá retorno da tarefa em andamento: sem dado confiável, segue a fila.
+static bool hnInstalacaoEmAndamento() {
+    static int esperas = 0;
+    if (hnTarefaPkg < 0) return false;
+    OrbisBgftTaskProgress progresso;
+    memset(&progresso, 0, sizeof(progresso));
+    int r = sceBgftServiceDownloadGetProgress(hnTarefaPkg, &progresso);
+    bool ativa = r == 0 && progresso.errorResult == 0 && progresso.length > 0 && progresso.transferred < progresso.length;
+    if (ativa && ++esperas < 1200) return true;
+    FILE* f = fopen("/data/HyperNeiva/zip_debug_log.txt", "a");
+    if (f) { fprintf(f, "TAREFA %d fim r=0x%08X erro=0x%08X %u/%u esperas=%d\n", hnTarefaPkg, (unsigned int)r, (unsigned int)progresso.errorResult, progresso.transferred, progresso.length, esperas); fclose(f); }
+    esperas = 0;
+    hnTarefaPkg = -1;
+    return false;
+}
+
 // Roda na thread principal: lista e instalador não podem ser usados de outra thread.
 void hnAtualizarExtracao() {
     extern void instalarPkgLocal(const char* caminhoAbsoluto);
     extern void listarDiretorio(const char* caminho);
-    extern char pathExplorar[256];
+    extern void listarDiretorioEsq(const char* caminho);
+    extern char pathExplorar[256], pathExplorarEsq[256];
+    extern MenuLevel menuAtualEsq;
+    extern bool painelDuplo;
     extern int sel, off, totalItens;
     if (hnListaMudou) {
         hnListaMudou = false;
@@ -375,26 +490,39 @@ void hnAtualizarExtracao() {
             sel = selAntes < totalItens ? selAntes : 0;
             off = offAntes;
         }
+        if (painelDuplo && menuAtualEsq == MENU_EXPLORAR) listarDiretorioEsq(pathExplorarEsq);
     }
     static char caminho[1024];
-    // Só instala com a fila vazia: o jogo base e a atualização podem sair do mesmo arquivo.
+    // Um PKG por vez, depois de tudo extraído: o jogo base e a atualização saem do mesmo arquivo.
     static int esperaEntrePkgs = 0;
     if (esperaEntrePkgs > 0) { esperaEntrePkgs--; return; }
-    if (hnBarraAtiva || hnFilaTotal > 0) return;
+    if (hnBarraAtiva || hnFilaTotal > 0 || hnPkgsTotal == 0) return;
+    if (hnInstalacaoEmAndamento()) {
+        esperaEntrePkgs = 120;
+        snprintf(msgStatus, sizeof(msgStatus), "INSTALANDO. PROXIMOS NA FILA: %d", hnPkgsTotal);
+        msgTimer = 150;
+        return;
+    }
+    // Começa pelo jogo base, que costuma ser o maior; atualizações vão depois, da maior à menor.
     pthread_mutex_lock(&hnTrava);
-    bool tem = hnPkgsTotal > 0;
     int escolhido = 0;
-    for (int i = hnPkgsTotal - 1; i >= 0; i--) if (!hnPkgEhAtualizacao(hnPkgs[i])) escolhido = i;
-    if (tem) {
-        strcpy(caminho, hnPkgs[escolhido]);
-        memmove(&hnPkgs[escolhido], &hnPkgs[escolhido + 1], sizeof(hnPkgs[0]) * (hnPkgsTotal - escolhido - 1));
-        hnPkgsTotal--;
+    bool melhorEhAtualizacao = true;
+    long long melhorTamanho = -1;
+    for (int i = 0; i < hnPkgsTotal; i++) {
+        bool atualizacao = hnPkgEhAtualizacao(hnPkgs[i]);
+        long long tamanho = hnTamanhoTotal(hnPkgs[i]);
+        if ((melhorEhAtualizacao && !atualizacao) || (atualizacao == melhorEhAtualizacao && tamanho > melhorTamanho)) {
+            escolhido = i;
+            melhorEhAtualizacao = atualizacao;
+            melhorTamanho = tamanho;
+        }
     }
+    strcpy(caminho, hnPkgs[escolhido]);
+    memmove(&hnPkgs[escolhido], &hnPkgs[escolhido + 1], sizeof(hnPkgs[0]) * (hnPkgsTotal - escolhido - 1));
+    hnPkgsTotal--;
     pthread_mutex_unlock(&hnTrava);
-    if (tem) {
-        esperaEntrePkgs = 180;
-        instalarPkgLocal(caminho);
-    }
+    esperaEntrePkgs = 300;
+    instalarPkgLocal(caminho);
 }
 
 struct HnZipSaida { FILE* f; unsigned long long feito, total; int indice, arquivos; };

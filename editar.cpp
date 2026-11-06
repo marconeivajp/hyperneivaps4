@@ -37,8 +37,8 @@ bool selecionandoMidiaElemento = false;
 int listXV = 1054, listYV = 204, listSpcV = 100, listXH = 50, listYH = 800, listSpcH = 300, listW = 676, listH = 65, capaX = 150, capaY = 640, capaW = 300, capaH = 400, discoX = 555, discoY = 650, discoW = 300, discoH = 300, backX = 0, backY = 0, backW = 1920, backH = 1080, barX = 95, barY = 911, barW = 345, barH = 15, audioX = 545, audioY = 632, audioW = 321, audioH = 378, upX = 545, upY = 632, upW = 321, upH = 378, fontTam = 35, msgX = 100, msgY = 970, msgTam = 40, listOri = 0, listBg = 0, barBg = 6, barFill = 7, listMark = 8, listHoverMark = 9, fontAlign = 0, fontScroll = 0;
 int elem1X = 100, elem1Y = 358, elem1W = 200, elem1H = 200, elem1On = 0;
 int ctrl1X = 724, ctrl1Y = 361, ctrl1W = 200, ctrl1H = 200, ctrl1On = 1;
-int ctrl1Livre = 0;   // 0 = anda no chão e pula, 1 = move livre pela tela
-int pont1X = 0, pont1Y = 0, pont1W = 50, pont1H = 50, pont1On = 0, pont1Modo = 0, pont1Lado = 0;
+int ctrl1Livre = 1;   // 0 = anda no chão e pula, 1 = move livre pela tela
+int pont1X = 0, pont1Y = 0, pont1W = 50, pont1H = 50, pont1On = 1, pont1Modo = 0, pont1Lado = 0;
 int sfxLigado = 1, sfxVolume = 30, upBg = 0, upTextNorm = 12, upTextSel = 8;
 int numSlotsPadrao = 8;
 int corSelecao = 10;
@@ -107,7 +107,7 @@ void carregarConfiguracao() {
     FILE* modoPersonagem = fopen(ARQUIVO_MODO_PERSONAGEM, "r");
     if (modoPersonagem) { ctrl1Livre = fgetc(modoPersonagem) == '1'; fclose(modoPersonagem); }
     LayoutConfig cfg; FILE* f = fopen("/data/HyperNeiva/configuracao/settings/settings.bin", "rb");
-    elem1On = 0; ctrl1On = 1; pont1On = 0; sfxLigado = 1; sfxVolume = 30; upBg = 0; upTextNorm = 12; upTextSel = 8;
+    elem1On = 0; ctrl1On = 1; pont1On = 1; sfxLigado = 1; sfxVolume = 30; upBg = 0; upTextNorm = 12; upTextSel = 8;
     anim_ativo = false; anim_usarColorKey = true; anim_posX = 445; anim_posY = -130; anim_colunas = 24; anim_linhas = 19; anim_velocidade = 100; anim_escala = 4.5f; anim_keyR = 55; anim_keyG = 39; anim_keyB = 130; anim_offsetX = 65; anim_offsetY = 0; anim_frameInicial = 0; anim_frameFinal = 7; anim_usarColorKey2 = true; anim_keyR2 = 0; anim_keyG2 = 0; anim_keyB2 = 255; anim_autoCenter = false; anim_tolerancia = 100;
     listStyle = 0; fontAnim = 0; listCurvature = 15; listZoomCentro = 15; picX = 150; picY = 100; picW = 730; picH = 410;
     gridX = 220; gridY = 200; gridItemW = 340; gridItemH = 400; gridCols = 4; gridLins = 3; gridSpcX = 40; gridSpcY = 60;
