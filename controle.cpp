@@ -431,6 +431,20 @@ void processarControles(uint32_t botoes, int32_t uId, OrbisImeDialogSetting* ime
         return;
     }
 
+    if (menuAtual == MENU_TELEGRAM) {
+        extern bool telegramControles(uint32_t botoes, uint32_t antigos, int32_t usuario);
+        if (telegramControles(botoes, botoesAntigos, uId)) {
+            voltarNavegacao();
+            extern void ligarInterfaceGrafica();
+            ligarInterfaceGrafica();
+            isFirstFrameUI = true;
+            pCross = pTri = pSquare = pL1 = pR1 = pL2 = false;
+            pCircle = true;   // a bolinha que saiu do Telegram não pode voltar mais um menu
+        }
+        botoesAntigos = botoes;
+        return;
+    }
+
     if (menuAtual == MENU_CONTROLE_TESTE || menuAtual == MENU_INSTRUMENTOS) {
         bool optionsPressed = (botoes & ORBIS_PAD_BUTTON_OPTIONS) &&
             !(botoesAntigos & ORBIS_PAD_BUTTON_OPTIONS);

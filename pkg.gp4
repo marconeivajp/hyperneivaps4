@@ -50,6 +50,7 @@
 		<file targ_path="assets/images/nome3.png" orig_path="assets/images/nome3.png" />
 		<file targ_path="assets/fonts/.gitkeep" orig_path="assets/fonts/.gitkeep" />
 		<file targ_path="assets/fonts/font.ttf" orig_path="assets/fonts/font.ttf" />
+		<file targ_path="assets/emoji.pack" orig_path="assets/emoji.pack" />
 		<file targ_path="assets/audio/.gitkeep" orig_path="assets/audio/.gitkeep" />
 		<file targ_path="assets/audio/0_Defalt_bolinha.wav" orig_path="assets/audio/0_Defalt_bolinha.wav" />
 		<file targ_path="assets/audio/0_Defalt_direcinal_cima.wav" orig_path="assets/audio/0_Defalt_direcinal_cima.wav" />

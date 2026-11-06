@@ -506,7 +506,7 @@ int main(void) {
             ultimos_botoes = botoesFisicos;
         }
 
-        bool telaSemVideo = (menuAtual == MENU_INSTRUMENTOS || menuAtual == MENU_CONTROLE_TESTE ||
+        bool telaSemVideo = (menuAtual == MENU_INSTRUMENTOS || menuAtual == MENU_CONTROLE_TESTE || (menuAtual == MENU_TELEGRAM && !videoRodando) ||
             menuAtual == MENU_NOTEPAD || menuAtualEsq == MENU_NOTEPAD ||
             visualizandoPDF || visualizandoMidiaTexto || visualizandoMidiaImagem ||
             visualizandoPic1 || emuladorAtivo);

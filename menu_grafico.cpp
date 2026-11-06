@@ -30,6 +30,7 @@ extern int cursX, cursY, cursW, cursH;
 extern void desenharElementos(uint32_t* p, int selX, int selY, int selW, int selH);
 
 extern void renderizarControleTeste(uint32_t* p);
+extern void renderizarTelegram(uint32_t* p);
 extern void renderizarInstrumentos(uint32_t* p);
 extern void renderizarInformacao(uint32_t* p);
 
@@ -135,6 +136,10 @@ void desenharInterface(uint32_t* p) {
     }
     if (menuAtual == MENU_INSTRUMENTOS) {
         renderizarInstrumentos(p);
+        return;
+    }
+    if (menuAtual == MENU_TELEGRAM) {
+        renderizarTelegram(p);
         return;
     }
     if (menuAtual == MENU_INFORMACAO) {
