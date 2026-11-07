@@ -17,6 +17,7 @@ extern void tocarMusicaNova(const char* path);
 extern void abrirMenuAudioOpcoes();
 extern void tratarSelecaoAudio(int op);
 extern void preencherMenuMidia(); // Declaração para voltar ao menu MIDIA
+extern char caminhoBaseMusicas[512];
 
 void acaoCross_Musicas() {
     if (showOpcoes && menuAtual == MENU_AUDIO_OPCOES) {
@@ -46,12 +47,13 @@ void acaoCross_Musicas() {
 
 // Sobe um nível de pasta. Devolve false na raiz, para o controle.cpp sair das músicas.
 bool acaoCircle_Musicas() {
-    if (strcmp(caminhoNavegacaoMusicas, "/data/HyperNeiva/Musicas") != 0) {
+    if (strcmp(caminhoNavegacaoMusicas, caminhoBaseMusicas) != 0) {
         char temp[512];
         strcpy(temp, caminhoNavegacaoMusicas);
         char* ultimaBarra = strrchr(temp, '/');
         if (ultimaBarra != NULL) {
-            *ultimaBarra = '\0';
+            if (ultimaBarra == temp) ultimaBarra[1] = '\0';
+            else *ultimaBarra = '\0';
             strcpy(caminhoNavegacaoMusicas, temp);
             preencherMenuMusicas();
             sel = 0; off = 0;

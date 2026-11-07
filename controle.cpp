@@ -166,6 +166,7 @@ void voltarNavegacao() {
         }
         else if (menuAtual == MENU_BAIXAR) preencherMenuBaixar();
         else if (menuAtual == MENU_EDITAR) preencherMenuEditar();
+        else if (menuAtual == MENU_EDIT_TARGET) { extern void preencherMenuEditTarget(); preencherMenuEditTarget(); }
         else if (menuAtual == MENU_EXPLORAR_HOME) preencherExplorerHome();
         else if (menuAtual == MENU_EXPLORAR) {
             if (painelAtivo == 0 && painelDuplo) listarDiretorioEsq(pathExplorarEsq);

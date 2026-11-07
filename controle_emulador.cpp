@@ -49,8 +49,8 @@ const char* getNomeBotaoPS4(int btn) {
 }
 
 const char* gba_button_names_modular[] = {
-    "A (BOTAO)", "B (BOTAO)", "SELECT", "START", "CIMA", "BAIXO", "ESQUERDA", "DIREITA",
-    "L (OMBRO)", "R (OMBRO)", "L2", "R2", "L3", "R3", "NAO USA", "NAO USA"
+    "B (BOTAO)", "NAO USA", "SELECT", "START", "CIMA", "BAIXO", "ESQUERDA", "DIREITA",
+    "A (BOTAO)", "NAO USA", "L (OMBRO)", "R (OMBRO)", "L2", "R2", "L3", "R3"
 };
 
 void atualizarMapeamentoControles(const OrbisPadData* pData, uint32_t ultimos) {

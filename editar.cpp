@@ -146,11 +146,28 @@ void preencherMenuEditar() {
     strcpy(nomes[15], "ANIMACAO (SPRITES)");
     strcpy(nomes[16], "INTERFACE ELEMENTOS (CUSTOM UI)");
     strcpy(nomes[17], "RESETAR TUDO");
-    totalItens = 18; menuAtual = MENU_EDITAR;
+    strcpy(nomes[18], "MUSICA DE FUNDO");
+    totalItens = 19; menuAtual = MENU_EDITAR;
 }
 
 void preencherMenuEditTarget() {
     memset(nomes, 0, sizeof(nomes)); totalItens = 0;
+
+    if (editTarget == 30) {
+        extern char musicaAtual[256];
+        extern int volumeGeral;
+        extern bool musicaFundoLigada();
+        const char* nome = strrchr(musicaAtual, '/');
+        nome = nome ? nome + 1 : musicaAtual;
+        sprintf(nomes[totalItens], "MUSICA: %s", musicaFundoLigada() ? "[LIGADA]" : "[DESLIGADA]"); mapAcoes[totalItens++] = 300;
+        sprintf(nomes[totalItens], "VOLUME DA MUSICA: %d%%", volumeGeral); mapAcoes[totalItens++] = 301;
+        strcpy(nomes[totalItens], "BUSCAR NA PASTA MUSICAS DO HYPER NEIVA"); mapAcoes[totalItens++] = 303;
+        strcpy(nomes[totalItens], "BUSCAR NA RAIZ"); mapAcoes[totalItens++] = 306;
+        strcpy(nomes[totalItens], "USAR A MUSICA PADRAO"); mapAcoes[totalItens++] = 304;
+        snprintf(nomes[totalItens], 200, "TOCANDO: %.170s", musicaFundoLigada() ? (strcmp(nome, "bgm.mp3") == 0 ? "MUSICA PADRAO" : nome) : "NADA"); mapAcoes[totalItens++] = 305;
+        menuAtual = MENU_EDIT_TARGET;
+        return;
+    }
 
     if (editTarget == 16) {
         strcpy(nomes[totalItens], "TELA ROOT (MENU PRINCIPAL)"); mapAcoes[totalItens++] = 100;

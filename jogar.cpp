@@ -58,6 +58,8 @@ void iniciarEmulador(const char* romPath) {
     }
     snprintf(msgStatus, sizeof(msgStatus), "Iniciando: %s", romPath); msgTimer = 180;
     if (bridge_iniciar(caminhoCoreSelecionado, romPath)) {
+        extern void pausarMusicaParaVideo();
+        pausarMusicaParaVideo();
         emuladorAtivo = true;
         extern MenuLevel menuAtual;
         menuAtual = MENU_EMULADOR_EXECUCAO; // V21: Foca no emulador e esconde menus
@@ -65,8 +67,10 @@ void iniciarEmulador(const char* romPath) {
 }
 
 void fecharEmulador() {
+    extern void retomarMusicaAposVideo();
     bridge_finalizar();
     emuladorAtivo = false;
+    retomarMusicaAposVideo();
 }
 
 struct app_launch_ctx {

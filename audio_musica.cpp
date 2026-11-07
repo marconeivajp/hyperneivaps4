@@ -9,6 +9,8 @@
 
 char caminhosMusicasMenu[3000][256];
 char caminhoNavegacaoMusicas[512] = "/data/HyperNeiva/Musicas";
+// Até onde o Círculo sobe: a pasta Musicas ou a raiz, conforme a busca escolhida em Editar.
+char caminhoBaseMusicas[512] = "/data/HyperNeiva/Musicas";
 
 #define MAX_PLAYLIST 2000
 
@@ -174,7 +176,7 @@ void preencherMenuMusicas() {
             if (strcmp(dir->d_name, ".") == 0 || strcmp(dir->d_name, "..") == 0) continue;
 
             char fullPath[512];
-            snprintf(fullPath, sizeof(fullPath), "%s/%s", caminhoNavegacaoMusicas, dir->d_name);
+            snprintf(fullPath, sizeof(fullPath), "%s/%s", strcmp(caminhoNavegacaoMusicas, "/") == 0 ? "" : caminhoNavegacaoMusicas, dir->d_name);
 
             struct stat st;
 

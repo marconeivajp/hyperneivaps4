@@ -127,7 +127,6 @@ void listarDiretorio(const char* path) {
     while ((dir = readdir(d)) != NULL && count < 3000) {
         if (strcmp(dir->d_name, ".") == 0 || strcmp(dir->d_name, "..") == 0) continue;
         char cleanName[256]; strcpy(cleanName, dir->d_name); int len = strlen(cleanName);
-        while (len > 0 && (cleanName[len - 1] == ' ' || cleanName[len - 1] == '\r' || cleanName[len - 1] == '\n')) { cleanName[len - 1] = '\0'; len--; }
         strncpy(temp[count].nome, cleanName, 255); char fullPath[1024]; snprintf(fullPath, sizeof(fullPath), "%s/%s", path, cleanName); struct stat st;
         if (dir->d_type == DT_DIR || (dir->d_type == DT_UNKNOWN && stat(fullPath, &st) == 0 && S_ISDIR(st.st_mode))) temp[count].ehPasta = true;
         else temp[count].ehPasta = false; count++;
@@ -159,7 +158,6 @@ void listarDiretorioEsq(const char* path) {
     while ((dir = readdir(d)) != NULL && count < 3000) {
         if (strcmp(dir->d_name, ".") == 0 || strcmp(dir->d_name, "..") == 0) continue;
         char cleanName[256]; strcpy(cleanName, dir->d_name); int len = strlen(cleanName);
-        while (len > 0 && (cleanName[len - 1] == ' ' || cleanName[len - 1] == '\r' || cleanName[len - 1] == '\n')) { cleanName[len - 1] = '\0'; len--; }
         strncpy(temp[count].nome, cleanName, 255); char fullPath[1024]; snprintf(fullPath, sizeof(fullPath), "%s/%s", path, cleanName); struct stat st;
         if (dir->d_type == DT_DIR || (dir->d_type == DT_UNKNOWN && stat(fullPath, &st) == 0 && S_ISDIR(st.st_mode))) temp[count].ehPasta = true;
         else temp[count].ehPasta = false; count++;
@@ -257,12 +255,12 @@ void acaoArquivo(int idxOpcao) {
     case 6: {
         for (int i = 0; i < tItens; i++) {
             if (temMarcado ? mItems[i] : (i == sAtual)) {
-                char f[512]; char* l = (nItems[i][0] == '[') ? &nItems[i][1] : nItems[i];
-                sprintf(f, "%s/%s", pExplorar, l);
-                if (nItems[i][0] == '[') { f[strlen(f) - 1] = '\0'; deletarPastaRecursivamente(f); }
-                else { unlink(f); }
+                char f[1024]; char* l = (nItems[i][0] == '[') ? &nItems[i][1] : nItems[i];
+                snprintf(f, sizeof(f), "%s/%s", pExplorar, l);
+                if (nItems[i][0] == '[') f[strlen(f) - 1] = '\0';
+                hnEnfileirarApagar(f);
             }
-        } if (ehEsq) listarDiretorioEsq(pExplorar); else listarDiretorio(pExplorar); break;
+        } break;
     }
     case 7: {
         int alvo = sAtual;

@@ -7,6 +7,7 @@ void criarCaminho(const char* filepath);
 void extrairZip(const char* zipPath, const char* outPath);
 void hnEnfileirarExtracao(const char* arquivo, const char* destino);
 void hnEnfileirarColar(const char* origem, const char* destino, bool recortar);
+void hnEnfileirarApagar(const char* caminho);
 void hnAtualizarExtracao();
 bool hnNaThreadExtracao();
 bool hnEhParteCompactada(const char* nomeMinusculo);

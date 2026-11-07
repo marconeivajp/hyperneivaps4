@@ -1391,6 +1391,29 @@ static void tgDesenharFila(uint32_t* p) {
     tgEscrever(p, dica, 0, 1 << 30, 22, x + 28, y + altura - 42, TG_COR(150, 165, 180));
 }
 
+// Monta a faixa com a mensagem do vídeo: nome do arquivo e legenda. Devolve a altura usada.
+static int tgMontarLegenda(const TgMensagem* m, uint32_t* p, int alturaMaxima) {
+    const int tam = 28, linha = 38, largura = 1760;
+    static char texto[1200];
+    snprintf(texto, sizeof(texto), "%s%s%s", m->texto, m->texto[0] && m->arquivoNome[0] ? "\n" : "", m->arquivoNome);
+    if (!texto[0]) return 0;
+    int linhas = 0, i = 0;
+    while (texto[i]) { int proximo; tgQuebrar(texto, i, tam, largura, &proximo); linhas++; i = proximo; }
+    int altura = linhas * linha + 32;
+    if (altura > alturaMaxima) altura = alturaMaxima;
+    for (int k = 0; k < 1920 * altura; k++) p[k] = TG_COR(18, 24, 32);
+    int y = 16;
+    i = 0;
+    while (texto[i] && y + linha <= altura) {
+        int proximo;
+        int fim = tgQuebrar(texto, i, tam, largura, &proximo);
+        tgEscreverComLinks(p, texto, i, fim, tam, 80, y, TG_COR(245, 245, 245));
+        y += linha;
+        i = proximo;
+    }
+    return altura;
+}
+
 static void tgDesenharVisor(uint32_t* p) {
     tgRetangulo(p, 0, 0, 1920, 1080, TG_COR(0, 0, 0));
     TgArquivo* a = tgArquivo(tgVisor);
@@ -2072,7 +2095,9 @@ static void* threadAudio(void* argumento) {
         }
     }
     if (conversor) porta = sceAudioOutOpen(global_uId, ORBIS_AUDIO_OUT_PORT_TYPE_MAIN, 0, passo, 48000, ORBIS_AUDIO_OUT_PARAM_FORMAT_S16_STEREO);
+    extern void pausarMusicaParaVideo(), retomarMusicaAposVideo();
     if (porta >= 0) {
+        pausarMusicaParaVideo();
         while (!tgAudioParar && av_read_frame(formato, pacote) >= 0) {
             if (pacote->stream_index == faixa && avcodec_send_packet(contexto, pacote) >= 0) {
                 while (!tgAudioParar && avcodec_receive_frame(contexto, quadro) >= 0) {
@@ -2092,6 +2117,7 @@ static void* threadAudio(void* argumento) {
         }
         sceAudioOutOutput(porta, NULL);
         sceAudioOutClose(porta);
+        retomarMusicaAposVideo();
     }
     else {
         pthread_mutex_lock(&tgTrava);
@@ -2337,6 +2363,18 @@ static void tgAbrirPendente() {
         // GIF sempre repete; vídeo segue a escolha feita no menu do player.
         video_repetir = video_repetir_telegram;
         for (int i = 0; i < tgTotalMensagens; i++) if (tgMensagens[i].id == mensagem && !strcmp(tgMensagens[i].rotulo, "GIF")) video_repetir = true;
+        // A thread do vídeo não usa a fonte: a mensagem vai pronta, na ordem de cor da tela.
+        extern uint32_t* video_legenda_pixels;
+        extern volatile int video_legenda_altura;
+        static uint32_t legenda[1920 * 300];
+        int altura = 0;
+        for (int i = 0; i < tgTotalMensagens; i++) if (tgMensagens[i].id == mensagem) altura = tgMontarLegenda(&tgMensagens[i], legenda, 300);
+        for (int i = 0; i < 1920 * altura; i++) {
+            uint32_t c = legenda[i];
+            legenda[i] = (c & 0xFF00FF00u) | ((c & 255) << 16) | ((c >> 16) & 255);
+        }
+        video_legenda_pixels = legenda;
+        video_legenda_altura = altura;
         pthread_mutex_unlock(&tgTrava);
         if (!videoRodando) {
             telegramFecharFluxo();

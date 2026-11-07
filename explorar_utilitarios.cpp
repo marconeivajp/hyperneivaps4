@@ -9,6 +9,7 @@
 #include "miniz.h"
 #include <pthread.h>
 #include "menu.h"
+#include <errno.h>
 #include <orbis/Bgft.h>
 #include <strings.h>
 
@@ -305,7 +306,7 @@ long long hnBytesFaltandoPkg(const char* caminho) {
 // ---- Fila de extração: roda fora da thread da tela e faz um arquivo por vez ----
 extern "C" void* hnrar_abrir_lista(const char* lista, int total, int passo);
 static void extrairRarAberto(void* h, const char* rarPath, const char* outPath);
-#define HN_MAX_FILA 128
+#define HN_MAX_FILA 1024
 struct HnExtracao { int colar; bool recortar; char arquivo[1024], destino[1024]; };
 static HnExtracao hnFila[HN_MAX_FILA];
 static volatile int hnFilaTotal = 0;
@@ -327,6 +328,24 @@ void hnProgressoExtracao(float progresso) {
     hnBarraProgresso = progresso;
     snprintf(hnBarraTexto, sizeof(hnBarraTexto), "%s", msgStatus);
     msgTimer = 0;
+}
+
+static volatile int hnApagados = 0, hnNaoApagados = 0;
+
+// Confere se sumiu de verdade: arquivo em uso pode recusar a primeira tentativa.
+static void hnApagar(const char* caminho) {
+    struct stat st;
+    for (int tentativa = 0; tentativa < 4; tentativa++) {
+        if (stat(caminho, &st) != 0) break;
+        if (S_ISDIR(st.st_mode)) deletarPastaRecursivamente(caminho);
+        else unlink(caminho);
+        if (stat(caminho, &st) != 0) break;
+        sceKernelUsleep(250000);
+    }
+    if (stat(caminho, &st) != 0) { hnApagados++; return; }
+    hnNaoApagados++;
+    FILE* f = fopen("/data/HyperNeiva/zip_debug_log.txt", "a");
+    if (f) { fprintf(f, "APAGAR falhou errno=%d %s\n", errno, caminho); fclose(f); }
 }
 
 static void hnAvisarCopia(float progresso) {
@@ -413,16 +432,30 @@ static void* hnThreadFila(void*) {
         }
         hnBarraProgresso = 0.0f;
         const char* nome = strrchr(atual.arquivo, '/');
-        snprintf(hnBarraTexto, sizeof(hnBarraTexto), "%s %.200s", atual.colar ? "COPIANDO" : "EXTRAINDO", nome ? nome + 1 : atual.arquivo);
+        snprintf(hnBarraTexto, sizeof(hnBarraTexto), "%s %.200s", atual.colar == 2 ? "APAGANDO" : atual.colar ? "COPIANDO" : "EXTRAINDO", nome ? nome + 1 : atual.arquivo);
         hnBarraAtiva = true;
-        if (atual.colar) {
+        if (atual.colar == 2) {
+            hnApagar(atual.arquivo);
+            hnBarraProgresso = 1.0f;
+        }
+        else if (atual.colar) {
             bool certo = hnCopiarOuMover(atual.arquivo, atual.destino, atual.recortar);
             snprintf(msgStatus, sizeof(msgStatus), certo ? "COLADO: %.100s" : "NAO FOI POSSIVEL COLAR: %.90s", nome ? nome + 1 : atual.arquivo);
             msgTimer = 240;
         }
         else hnExtrairComPartes(atual.arquivo, atual.destino);
         hnBarraFeitos++;
-        hnListaMudou = true;
+        // Com a fila vazia a lista recarrega uma vez só, sem perder a posição a cada arquivo.
+        if (hnFilaTotal == 0) {
+            hnListaMudou = true;
+            if (hnApagados || hnNaoApagados) {
+                if (hnNaoApagados) snprintf(msgStatus, sizeof(msgStatus), "APAGADOS: %d. NAO APAGADOS: %d", hnApagados, hnNaoApagados);
+                else snprintf(msgStatus, sizeof(msgStatus), "APAGADOS: %d", hnApagados);
+                msgTimer = 300;
+                hnApagados = 0;
+                hnNaoApagados = 0;
+            }
+        }
     }
     return NULL;
 }
@@ -454,6 +487,7 @@ static void hnEnfileirar(int colar, bool recortar, const char* arquivo, const ch
 
 void hnEnfileirarExtracao(const char* arquivo, const char* destino) { hnEnfileirar(0, false, arquivo, destino); }
 void hnEnfileirarColar(const char* origem, const char* destino, bool recortar) { hnEnfileirar(1, recortar, origem, destino); }
+void hnEnfileirarApagar(const char* caminho) { hnEnfileirar(2, false, caminho, ""); }
 
 volatile int hnTarefaPkg = -1;
 
@@ -764,3 +798,52 @@ void extrair7z(const char* zipPath, const char* outPath) {
     else if (falhas > 0) { snprintf(msgStatus, sizeof(msgStatus), "EXTRAIDO 7Z: %d OK, %d falhas", extraidos, falhas); msgTimer = 300; }
     else { snprintf(msgStatus, sizeof(msgStatus), "7Z EXTRAIDO COM SUCESSO! (%d arquivos)", extraidos); msgTimer = 180; }
 }
+
+// HN_ROM_INICIO
+// Lê o .gba de dentro do compactado direto para a memória, sem criar arquivo em disco.
+bool hnCarregarRomGba(const char* arquivo, void** dados, size_t* tamanho, char* nome, int tamanhoNome) {
+    unsigned char assinatura[6] = { 0 };
+    FILE* f = fopen(arquivo, "rb");
+    if (!f) return false;
+    size_t lidos = fread(assinatura, 1, sizeof(assinatura), f);
+    fclose(f);
+    *dados = NULL;
+    *tamanho = 0;
+    if (lidos >= 2 && assinatura[0] == 'P' && assinatura[1] == 'K') {
+        mz_zip_archive zip;
+        memset(&zip, 0, sizeof(zip));
+        if (!mz_zip_reader_init_file(&zip, arquivo, 0)) return false;
+        int total = (int)mz_zip_reader_get_num_files(&zip);
+        for (int i = 0; i < total && !*dados; i++) {
+            mz_zip_archive_file_stat info;
+            if (!mz_zip_reader_file_stat(&zip, i, &info) || mz_zip_reader_is_file_a_directory(&zip, i) || !hnTermina(info.m_filename, ".gba")) continue;
+            *dados = mz_zip_reader_extract_to_heap(&zip, i, tamanho, 0);
+            const char* base = strrchr(info.m_filename, '/');
+            snprintf(nome, tamanhoNome, "%s", base ? base + 1 : info.m_filename);
+        }
+        mz_zip_reader_end(&zip);
+        return *dados != NULL;
+    }
+    void* h = NULL;
+    if (hn7z_open(arquivo, &h) != 0 || !h) return false;
+    int total = hn7z_num(h);
+    for (int i = 0; i < total && !*dados; i++) {
+        char item[1024];
+        int pasta = 0;
+        unsigned long long bytes = 0;
+        if (hn7z_info(h, i, item, sizeof(item), &pasta, &bytes) != 0 || pasta || !hnTermina(item, ".gba") || !bytes) continue;
+        unsigned char* memoria = (unsigned char*)malloc((size_t)bytes);
+        if (!memoria) break;
+        unsigned long long feito = 0;
+        long n;
+        while (feito < bytes && (n = hn7z_ler(h, i, memoria + feito, (long)(bytes - feito))) > 0) feito += (unsigned long long)n;
+        if (feito != bytes) { free(memoria); break; }
+        *dados = memoria;
+        *tamanho = (size_t)bytes;
+        const char* base = strrchr(item, '/');
+        snprintf(nome, tamanhoNome, "%s", base ? base + 1 : item);
+    }
+    hn7z_close(h);
+    return *dados != NULL;
+}
+// HN_ROM_FIM

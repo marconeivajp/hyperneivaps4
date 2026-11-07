@@ -87,7 +87,11 @@ void verificarTecladoVirtual() {
 
 void acaoCross_Editar() {
     if (menuAtual == MENU_EDITAR) {
-        if (sel == 17) {
+        if (sel == 18) {
+            editTarget = 30; preencherMenuEditTarget();
+            sel = 0; if (listFocus) off = sel - (numSlotsPadrao / 2); else off = 0;
+        }
+        else if (sel == 17) {
             listXV = 1054; listYV = 204; listW = 676; listH = 65; listSpcV = 100;
             capaX = 330; capaY = 280; capaW = 480; capaH = 680;
             discoX = 640; discoY = 600; discoW = 280; discoH = 280;
@@ -109,7 +113,27 @@ void acaoCross_Editar() {
     }
     else if (menuAtual == MENU_EDIT_TARGET) {
         int acaoReal = mapAcoes[sel];
-        if (acaoReal >= 100 && acaoReal <= 105) { 
+        if (acaoReal >= 300 && acaoReal <= 306) {
+            extern void alternarMusicaFundo(), tocarMusicaPadrao(), preencherMenuMusicas();
+            extern char caminhoNavegacaoMusicas[512], caminhoBaseMusicas[512];
+            if (acaoReal == 303 || acaoReal == 306) {
+                strcpy(caminhoBaseMusicas, acaoReal == 306 ? "/" : "/data/HyperNeiva/Musicas");
+                strcpy(caminhoNavegacaoMusicas, caminhoBaseMusicas);
+                preencherMenuMusicas();
+                sel = 0; off = 0;
+                return;
+            }
+            if (acaoReal == 301) {
+                editType = acaoReal; editMode = true; crossReleaseRequired = true; circleReleaseRequired = true;
+                return;
+            }
+            if (acaoReal == 300) alternarMusicaFundo();
+            else if (acaoReal == 304) tocarMusicaPadrao();
+            int selAntes = sel;
+            preencherMenuEditTarget();
+            sel = selAntes;
+        }
+        else if (acaoReal >= 100 && acaoReal <= 105) { 
             interfaceTelaAlvo = acaoReal - 100; editTarget = 17; preencherMenuEditTarget(); 
             sel = 0; if (listFocus) off = sel - (numSlotsPadrao / 2); else off = 0; 
         }
@@ -289,6 +313,11 @@ void processarControlesEdicao(uint32_t buttons) {
     else if (editType == 14) { if (buttons & ORBIS_PAD_BUTTON_LEFT) { pont1Lado--; if (pont1Lado < 0) pont1Lado = 3; } if (buttons & ORBIS_PAD_BUTTON_RIGHT) { pont1Lado++; if (pont1Lado > 3) pont1Lado = 0; } }
     else if (editType == 15) { if (buttons & (ORBIS_PAD_BUTTON_LEFT | ORBIS_PAD_BUTTON_RIGHT)) sfxLigado = (sfxLigado == 0) ? 1 : 0; }
     else if (editType == 16) { if (buttons & ORBIS_PAD_BUTTON_LEFT) { sfxVolume -= 5; if (sfxVolume < 0) sfxVolume = 0; } if (buttons & ORBIS_PAD_BUTTON_RIGHT) { sfxVolume += 5; if (sfxVolume > 100) sfxVolume = 100; } }
+    else if (editType == 301) {
+        extern void aumentarVolume(), diminuirVolume();
+        if (pDelay == 0 && (buttons & ORBIS_PAD_BUTTON_LEFT)) { diminuirVolume(); pDelay = 8; }
+        else if (pDelay == 0 && (buttons & ORBIS_PAD_BUTTON_RIGHT)) { aumentarVolume(); pDelay = 8; }
+    }
     else if (editType == 17) { if (buttons & ORBIS_PAD_BUTTON_UP) upY -= 2; if (buttons & ORBIS_PAD_BUTTON_DOWN) upY += 2; if (buttons & ORBIS_PAD_BUTTON_LEFT) upX -= 2; if (buttons & ORBIS_PAD_BUTTON_RIGHT) upX += 2; }
     else if (editType == 18) { if (buttons & ORBIS_PAD_BUTTON_UP) { upH -= 2; upW -= 2; } if (buttons & ORBIS_PAD_BUTTON_DOWN) { upH += 2; upW += 2; } }
     else if (editType == 19) { if (buttons & ORBIS_PAD_BUTTON_UP) upH -= 2; if (buttons & ORBIS_PAD_BUTTON_DOWN) upH += 2; if (buttons & ORBIS_PAD_BUTTON_LEFT) upW -= 2; if (buttons & ORBIS_PAD_BUTTON_RIGHT) upW += 2; }
@@ -383,7 +412,7 @@ void processarControlesEdicao(uint32_t buttons) {
     if (buttons & ORBIS_PAD_BUTTON_CIRCLE) {
         if (!pCircleEdit && !circleReleaseRequired) {
             if (editType >= 62 && editType <= 71) { extern void carregarCustomUI(); carregarCustomUI(); editMode = false; preencherMenuEditTarget(); strcpy(msgStatus, "ALTERACOES CANCELADAS!"); msgTimer = 90; }
-            else if (editType == 29 || editType == 44) { editMode = false; preencherMenuEditTarget(); }
+            else if (editType == 29 || editType == 44 || editType == 301) { editMode = false; preencherMenuEditTarget(); }
             else { carregarConfiguracao(); strcpy(msgStatus, "ALTERACOES CANCELADAS!"); msgTimer = 90; editMode = false; preencherMenuEditTarget(); }
             pCircleEdit = true;
         }

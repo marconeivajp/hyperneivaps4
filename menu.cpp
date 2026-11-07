@@ -1,3 +1,6 @@
+#include <strings.h>
+#include <stdlib.h>
+#include <orbis/libkernel.h>
 #include "menu.h"
 #include <string.h>
 #include <stdio.h>
@@ -48,7 +51,8 @@ void preencherExplorerHome() {
 }
 
 bool ehArquivoVideo(const char* nome) {
-    static const char* tipos[] = { ".mp4", ".m4v", ".mkv", ".avi", ".mov", ".webm", ".ts", ".flv", ".wmv", ".mpg", ".mpeg", ".3gp" };
+    static const char* tipos[] = { ".mp4", ".m4v", ".mkv", ".avi", ".mov", ".webm", ".ts", ".flv", ".wmv", ".mpg", ".mpeg", ".3gp",
+        ".m2ts", ".mts", ".vob", ".ogv", ".asf", ".f4v", ".3g2", ".divx", ".mpe", ".m2v" };
     const char* ext = strrchr(nome, '.');
     if (!ext) return false;
     for (unsigned int i = 0; i < sizeof(tipos) / sizeof(tipos[0]); i++) {
@@ -96,9 +100,14 @@ void preencherMenuGBA() {
     memset(nomes, 0, sizeof(nomes));
     totalItens = 0;
 
-    const char* romPath = "/data/retroarch/Games/gba";
-    strcpy(caminhoROMsAtual, romPath); // Registra que estamos no GBA
+    // Aceita a pasta com o nome certo ou como ela já existe no console.
+    const char* romPath = "/data/retroarch/0 Games/Game Boy Advance";
     DIR* d = opendir(romPath);
+    if (!d) {
+        romPath = "/data/retroarch/0 Games/Game Boy Advace";
+        d = opendir(romPath);
+    }
+    strcpy(caminhoROMsAtual, romPath); // Registra que estamos no GBA
     if (d) {
         struct dirent* dir;
         while ((dir = readdir(d)) != NULL && totalItens < 3000) {
@@ -106,12 +115,13 @@ void preencherMenuGBA() {
                 const char* ext = strrchr(dir->d_name, '.');
                 if (ext && (strcasecmp(ext, ".gba") == 0 || strcasecmp(ext, ".zip") == 0 || strcasecmp(ext, ".7z") == 0)) {
                     strncpy(nomes[totalItens], dir->d_name, 255);
-                    nomes[totalItens][63] = '\0';
+                    nomes[totalItens][255] = '\0';
                     totalItens++;
                 }
             }
         }
         closedir(d);
+        qsort(nomes, totalItens, sizeof(nomes[0]), (int (*)(const void*, const void*))strcasecmp);
     }
 
     if (totalItens == 0) {

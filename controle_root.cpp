@@ -301,6 +301,21 @@ void acaoCross_Root() {
             if (ext && (strcasecmp(ext, ".gba") == 0)) {
                 extern void iniciarEmulador(const char* romPath);
                 iniciarEmulador(romParaCarregar);
+            } else if (ext && strstr(caminhoROMsAtual, "Game Boy Adva") && (strcasecmp(ext, ".zip") == 0 || strcasecmp(ext, ".7z") == 0)) {
+                extern void iniciarEmulador(const char* romPath);
+                extern bool hnCarregarRomGba(const char* arquivo, void** dados, size_t* tamanho, char* nome, int tamanhoNome);
+                extern void bridge_rom_em_memoria(void* dados, size_t tamanho);
+                void* dados = NULL;
+                size_t tamanho = 0;
+                char nome[256];
+                if (hnCarregarRomGba(romParaCarregar, &dados, &tamanho, nome, sizeof(nome))) {
+                    // O núcleo recebe os dados; o nome .gba só indica o tipo do jogo.
+                    static char romVirtual[800];
+                    snprintf(romVirtual, sizeof(romVirtual), "%s/%s", caminhoROMsAtual, nome);
+                    bridge_rom_em_memoria(dados, tamanho);
+                    iniciarEmulador(romVirtual);
+                }
+                else { snprintf(msgStatus, sizeof(msgStatus), "NENHUM ARQUIVO .GBA DENTRO DESTE COMPACTADO"); msgTimer = 300; }
             } else {
                 // extern void listarCoresDisponiveis();
                 // listarCoresDisponiveis(); 
@@ -354,6 +369,7 @@ void acaoCross_Root() {
             if (strcasecmp(nomes[sel], "musicas") == 0 && strcmp(caminhoMidiaAtual, "/data/HyperNeiva/midia") == 0) {
                 menuAtual = MENU_MUSICAS; if (imgPreview) { stbi_image_free(imgPreview); imgPreview = NULL; }
                 strcpy(ultimoJogoCarregado, ""); strcpy(caminhoNavegacaoMusicas, "/data/HyperNeiva/Musicas");
+                { extern char caminhoBaseMusicas[512]; strcpy(caminhoBaseMusicas, caminhoNavegacaoMusicas); }
                 preencherMenuMusicas(); sel = 0; off = 0;
             }
             else { abrirPastaMidia(novoCaminho); }

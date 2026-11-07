@@ -6,5 +6,6 @@
 
 void enviarAmostraAudio(int16_t L, int16_t R);
 void misturarAudioEmulador(int16_t* pSamples, size_t numFrames);
+void definirTaxaAudioEmulador(double taxa);
 
 #endif

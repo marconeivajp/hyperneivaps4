@@ -188,13 +188,15 @@ void ligarInterfaceGrafica() {
     if (!backImg) {
         printf("[UI] Tentando carregar fundo...\n");
         const char* caminhos[] = {
+            "/data/HyperNeiva/configuracao/imagens/0_Defalt_Background.png",
+            "/data/HyperNeiva/configuracao/imagens/0_Defalt_Background.jpg",
             "/data/HyperNeiva/configuracao/0_Defalt_Background.png",
             "/data/HyperNeiva/background.png",
             "/app0/assets/images/background.png",
             "/app0/assets/images/0_Defalt_Background.png",
             "/app0/assets/images/bg.png"
         };
-        for (int i = 0; i < 5; i++) {
+        for (int i = 0; i < 7; i++) {
             backImg = stbi_load(caminhos[i], &wB, &hB, &cB, 4);
             if (backImg) { printf("[UI] Fundo carregado de: %s\n", caminhos[i]); break; }
         }
@@ -331,12 +333,12 @@ int main(void) {
                             preencherMenuGBA(); 
                             menuAtual = MENU_EMULADOR; // Retorna para a lista de jogos, nao para o explorador vazio
                             
+                            // O emulador liberou as imagens do menu para ter memória: carrega tudo de novo.
+                            extern bool isFirstFrameUI;
                             ligarInterfaceGrafica();
-                            if (backImg) { stbi_image_free(backImg); backImg = NULL; }
-                            backImg = stbi_load("/data/HyperNeiva/configuracao/0_Defalt_Background.png", &wB, &hB, &cB, 4);
-                            if (!backImg) backImg = stbi_load("/app0/assets/images/0_Defalt_Background.png", &wB, &hB, &cB, 4);
-                            
-                            snprintf(msgStatus, sizeof(msgStatus), "RETORNO GBA OK"); msgTimer = 240;
+                            isFirstFrameUI = true;
+
+                            snprintf(msgStatus, sizeof(msgStatus), "JOGO ENCERRADO"); msgTimer = 180;
                         }
                     }
                     if (btnM & ORBIS_PAD_BUTTON_CIRCLE) menuEmuladorAtivo = false; // Atalho para voltar
@@ -484,20 +486,14 @@ int main(void) {
                     atualizarMapeamentoControles(&pData, ultimos_botoes_globais);
                     pData.buttons = 0;
                 }
-                else if (menuAtual == 51 || menuEmuladorAtivo) { // MENU_PAUSA (menu_emulador.cpp)
+                else if (menuAtual == 51 || menuEmuladorAtivo) {
+                    // Os botões do menu são tratados só no bloco do gatilho, lá em cima:
+                    // dois leitores faziam cada toque andar dois itens.
                     menuEmuladorAtivo = true;
-                    atualizarMenuEmulador(pData.buttons, ultimos_botoes_globais);
+                    bridge_set_pausado(true);
                     pData.buttons = 0;
                 }
-                else { // MODO DE JOGO NORMAL
-                    bridge_set_pausado(false);
-                    if ((pData.buttons & ORBIS_PAD_BUTTON_OPTIONS) && !(ultimos_botoes_globais & ORBIS_PAD_BUTTON_OPTIONS)) {
-                        menuEmuladorAtivo = true;
-                        bridge_set_pausado(true);
-                        capturarUltimoFrame();
-                        menuEmuSelecao = 0;
-                    }
-                }
+                else bridge_set_pausado(false);   // o menu só abre com L1 + R1 + Options + Touchpad
             }
             else {
                 // OPTIONS nos menus do app não pode abrir o menu de pausa do emulador.
@@ -529,8 +525,13 @@ int main(void) {
 
         if (emuladorAtivo) {
             if (menuEmuladorAtivo) {
-                if (menuAtual == 50) desenharAjudaControles(obterBufferVideo());
-                else desenharMenuEmulador(obterBufferVideo());
+                // Monta em RAM e copia de uma vez: desenhar na tela aos poucos faz o menu piscar.
+                static uint32_t* telaMenuEmulador = (uint32_t*)malloc(1920 * 1080 * 4);
+                uint32_t* tela = obterBufferVideo();
+                uint32_t* alvo = telaMenuEmulador ? telaMenuEmulador : tela;
+                if (menuAtual == 50) desenharAjudaControles(alvo);
+                else desenharMenuEmulador(alvo);
+                if (telaMenuEmulador) memcpy(tela, telaMenuEmulador, 1920 * 1080 * 4);
             } else {
                 bridge_atualizar();
             }

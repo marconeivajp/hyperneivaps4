@@ -568,6 +568,7 @@ void desenharRodapeEdicao(uint32_t* p) {
     else if (editType == 14) { const char* lds[] = { "ESQ", "DIR", "CIMA", "BAIXO" }; sprintf(txtPos, "MODO EDICAO - LADO PONTEIRO: %s", lds[pont1Lado]); }
     else if (editType == 15) sprintf(txtPos, "MODO EDICAO - EFEITOS SONOROS: %s", sfxLigado ? "LIGADO" : "DESLIGADO");
     else if (editType == 16) sprintf(txtPos, "MODO EDICAO - VOLUME EFEITOS: %d%%", sfxVolume);
+    else if (editType == 301) { extern int volumeGeral; sprintf(txtPos, "MODO EDICAO - VOLUME DA MUSICA: %d%%", volumeGeral); }
     else if (editType == 17) sprintf(txtPos, "MODO EDICAO - MENU OPCOES POSICAO: X:%d Y:%d", upX, upY);
     else if (editType == 18) sprintf(txtPos, "MODO EDICAO - MENU OPCOES TAMANHO: W:%d H:%d", upW, upH);
     else if (editType == 19) sprintf(txtPos, "MODO EDICAO - MENU OPCOES ESTICAR: W:%d", upW);

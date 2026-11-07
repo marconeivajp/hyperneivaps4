@@ -58,6 +58,8 @@ volatile float audioTempoAtual = 0.0f;
 
 static AudioType currentAudioType = AUDIO_NONE;
 static bool radioPausadoPeloModoEspecial = false;
+// O vídeo e o emulador pausam a música sem mudar a escolha do usuário.
+static volatile bool musicaPausadaPeloVideo = false;
 
 void definirAudioModoEspecial(bool ativo) {
     if (ativo) {
@@ -98,38 +100,136 @@ void salvarConfiguracaoAudio() {
         fwrite(&modoSalvar, 1, sizeof(int), f);
         fwrite(ultimaMusicaTocada, 1, sizeof(ultimaMusicaTocada), f);
 
-        int pausado = comandoPausar ? 1 : 0;
+        int pausado = (comandoPausar && !musicaPausadaPeloVideo && !radioPausadoPeloModoEspecial) ? 1 : 0;
         fwrite(&pausado, 1, sizeof(int), f);
 
         fclose(f);
     }
 }
 
+#define MUSICA_PADRAO "/app0/assets/audio/bgm.mp3"
+#define VOLUME_PADRAO 20
+#define MARCA_MUSICA_PADRAO "/data/HyperNeiva/configuracao/bgm_padrao_v1.txt"
+#define MARCA_PAUSA_LIMPA "/data/HyperNeiva/configuracao/bgm_pausa_v2.txt"
+
+// Mesma ordem de salvarConfiguracaoAudio.
 void carregarConfiguracaoAudio() {
-    FILE* f = fopen("/data/HyperNeiva/configuracao/audio_settings.bin", "rb");
-    if (f) {
-        if (fread(ultimaMusicaTocada, 1, sizeof(ultimaMusicaTocada), f) <= 0) {
-            strcpy(ultimaMusicaTocada, "");
-            if (strcmp(musicaAtual, "PARADO") != 0) strcpy(ultimaMusicaTocada, musicaAtual);
-        }
+    strcpy(musicaAtual, MUSICA_PADRAO);
+    volumeGeral = VOLUME_PADRAO;
+    modoReproducao = (decltype(modoReproducao))0;
+    strcpy(ultimaMusicaTocada, "");
+    comandoPausar = false;
 
-        int pausado = 0;
-        if (fread(&pausado, 1, sizeof(int), f) > 0) {
-            comandoPausar = (pausado == 1);
-        }
-        else {
-            comandoPausar = false;
-        }
-
-        fclose(f);
+    FILE* marca = fopen(MARCA_MUSICA_PADRAO, "r");
+    if (!marca) {
+        // Primeira vez com a música nova: vale para quem já tinha configuração salva.
+        marca = fopen(MARCA_MUSICA_PADRAO, "w");
+        if (marca) fclose(marca);
+        salvarConfiguracaoAudio();
+        return;
     }
-    else {
-        volumeGeral = 100;
-        modoReproducao = 0;
-        strcpy(ultimaMusicaTocada, "");
-        comandoPausar = false;
+    fclose(marca);
+
+    FILE* f = fopen("/data/HyperNeiva/configuracao/audio_settings.bin", "rb");
+    if (!f) return;
+    char salva[sizeof(musicaAtual)] = "";
+    int volume = VOLUME_PADRAO, modo = 0, pausado = 0;
+    bool limparPausa = false;
+    bool leu = fread(salva, 1, sizeof(salva), f) == sizeof(salva) && fread(&volume, 1, sizeof(int), f) == sizeof(int) && fread(&modo, 1, sizeof(int), f) == sizeof(int);
+    if (leu) {
+        fread(ultimaMusicaTocada, 1, sizeof(ultimaMusicaTocada), f);
+        ultimaMusicaTocada[sizeof(ultimaMusicaTocada) - 1] = '\0';
+        if (fread(&pausado, 1, sizeof(int), f) != sizeof(int)) pausado = 0;
+        salva[sizeof(salva) - 1] = '\0';
+        // Rádio não reconecta sozinho ao abrir o app.
+        if (salva[0] && strncmp(salva, "http", 4) != 0) strcpy(musicaAtual, salva);
+        if (volume >= 0 && volume <= 100) volumeGeral = volume;
+        modoReproducao = (decltype(modoReproducao))modo;
+        // Até a 2.60 religar a música gravava "pausado": limpa uma vez para ela voltar a tocar.
+        FILE* limpa = fopen(MARCA_PAUSA_LIMPA, "r");
+        if (limpa) fclose(limpa);
+        else {
+            limparPausa = true;
+            pausado = 0;
+            limpa = fopen(MARCA_PAUSA_LIMPA, "w");
+            if (limpa) fclose(limpa);
+        }
+        comandoPausar = pausado == 1;
+    }
+    fclose(f);
+    if (limparPausa) salvarConfiguracaoAudio();
+}
+
+// Pausa do vídeo ou do emulador não conta como desligada: a música volta quando eles fecham.
+bool musicaFundoLigada() {
+    return strcmp(musicaAtual, "PARADO") != 0 && (!comandoPausar || musicaPausadaPeloVideo || radioPausadoPeloModoEspecial);
+}
+
+void tocarMusicaPadrao() { tocarMusicaNova(MUSICA_PADRAO); }
+
+// Ao religar, volta a música que estava tocando.
+void alternarMusicaFundo() {
+    if (musicaFundoLigada()) {
+        strcpy(ultimaMusicaTocada, musicaAtual);
+        tocarMusicaNova("PARADO");
+        return;
+    }
+    if (strcmp(musicaAtual, "PARADO") != 0) tocarMusicaNova(musicaAtual);
+    else tocarMusicaNova(ultimaMusicaTocada[0] ? ultimaMusicaTocada : MUSICA_PADRAO);
+}
+
+void pausarMusicaParaVideo() {
+    if (!comandoPausar && strcmp(musicaAtual, "PARADO") != 0) {
+        comandoPausar = true;
+        musicaPausadaPeloVideo = true;
     }
 }
+
+void retomarMusicaAposVideo() {
+    if (musicaPausadaPeloVideo) comandoPausar = false;
+    musicaPausadaPeloVideo = false;
+}
+
+// HN_MP3_INICIO
+// A saída de som é fixa em 48 kHz: MP3 em 44,1 kHz tocaria rápido e agudo sem esta conversão.
+static size_t lerMp3Em48k(drmp3* mp3, int16_t* saida, size_t frames, size_t* consumidos) {
+    static int16_t bruto[256 * 2], bloco[256 * 2];
+    static size_t total = 0, pos = 0;
+    static double fracao = 0.0;
+    static int16_t antesE = 0, antesD = 0;
+    double passo = (double)mp3->sampleRate / 48000.0;
+    size_t feitos = 0;
+    *consumidos = 0;
+    while (feitos < frames) {
+        bool acabou = false;
+        while (!acabou && (fracao >= 1.0 || pos >= total)) {
+            if (pos >= total) {
+                size_t n = (size_t)drmp3_read_pcm_frames_s16(mp3, 256, bruto);
+                if (n == 0) { acabou = true; break; }
+                for (size_t i = 0; i < n; i++) {
+                    bloco[i * 2] = bruto[mp3->channels == 1 ? i : i * 2];
+                    bloco[i * 2 + 1] = bruto[mp3->channels == 1 ? i : i * 2 + 1];
+                }
+                total = n;
+                pos = 0;
+            }
+            if (fracao >= 1.0) {
+                antesE = bloco[pos * 2];
+                antesD = bloco[pos * 2 + 1];
+                pos++;
+                fracao -= 1.0;
+                (*consumidos)++;
+            }
+        }
+        if (acabou) break;
+        saida[feitos * 2] = (int16_t)(antesE + (bloco[pos * 2] - antesE) * fracao);
+        saida[feitos * 2 + 1] = (int16_t)(antesD + (bloco[pos * 2 + 1] - antesD) * fracao);
+        feitos++;
+        fracao += passo;
+    }
+    return feitos;
+}
+// HN_MP3_FIM
 
 // Playlist and file selection logic moved to audio_playlist.cpp
 
@@ -252,6 +352,8 @@ static void* audioThreadFunc(void* argp) {
             }
             currentFrame = 0;
             audioTempoAtual = 0.0f;
+            FILE* registro = fopen("/data/HyperNeiva/zip_debug_log.txt", "a");
+            if (registro) { fprintf(registro, "MUSICA tipo=%d pausa=%d volume=%d %s\n", (int)currentAudioType, comandoPausar ? 1 : 0, volumeGeral, musicaAtual); fclose(registro); }
         }
 
         if (comandoPausar || currentAudioType == AUDIO_NONE) {
@@ -273,7 +375,7 @@ static void* audioThreadFunc(void* argp) {
             continue;
         }
 
-        size_t framesLidos = 0;
+        size_t framesLidos = 0, framesConsumidos = 0;
         uint32_t currentChannels = 2;
 
         if (currentAudioType == AUDIO_WAV) {
@@ -281,8 +383,8 @@ static void* audioThreadFunc(void* argp) {
             currentChannels = wav.channels;
         }
         else if (currentAudioType == AUDIO_MP3) {
-            framesLidos = drmp3_read_pcm_frames_s16(&mp3, 256, pSampleData);
-            currentChannels = mp3.channels;
+            framesLidos = lerMp3Em48k(&mp3, pSampleData, 256, &framesConsumidos);
+            currentChannels = 2;
         }
         else if (currentAudioType == AUDIO_STREAM) {
             framesLidos = lerFrameRadio(pSampleData, 256);
@@ -306,7 +408,7 @@ static void* audioThreadFunc(void* argp) {
             }
         }
 
-        currentFrame += framesLidos;
+        currentFrame += currentAudioType == AUDIO_MP3 ? framesConsumidos : framesLidos;
 
         if (currentAudioType == AUDIO_WAV) {
             audioTempoAtual = (float)currentFrame / wav.sampleRate;
@@ -316,7 +418,7 @@ static void* audioThreadFunc(void* argp) {
         }
 
         if (framesLidos == 0) {
-            if (modoReproducao == 1) {
+            if (modoReproducao == 1 || strcmp(musicaAtual, MUSICA_PADRAO) == 0) {
                 if (currentAudioType == AUDIO_WAV) drwav_seek_to_pcm_frame(&wav, 0);
                 else if (currentAudioType == AUDIO_MP3) drmp3_seek_to_pcm_frame(&mp3, 0);
                 currentFrame = 0;
@@ -385,6 +487,7 @@ static void* audioThreadFunc(void* argp) {
     if (currentAudioType == AUDIO_WAV) drwav_uninit(&wav);
     else if (currentAudioType == AUDIO_MP3) drmp3_uninit(&mp3);
     else if (currentAudioType == AUDIO_STREAM) pararRadioStreaming();
+    currentAudioType = AUDIO_NONE;
 #ifdef _WIN32
     if (winAudioDevice > 0) SDL_CloseAudioDevice(winAudioDevice);
 #else
@@ -417,10 +520,11 @@ void pararAudio() {
 void tocarMusicaNova(const char* path) {
     if (strcmp(path, "PARADO") == 0) {
         radioPausadoPeloModoEspecial = false;
+        musicaPausadaPeloVideo = false;
         strcpy(musicaAtual, "PARADO");
-        salvarConfiguracaoAudio();
         comandoPausar = true;
         comandoTrocar = false;
+        salvarConfiguracaoAudio();
         return;
     }
     if (strncmp(path, "http", 4) == 0) {
@@ -431,10 +535,15 @@ void tocarMusicaNova(const char* path) {
         msgTimer = 200;
         msgStatusColor = 0xFF00FF00;
     }
-    strcpy(musicaAtual, path);
-    strcpy(ultimaMusicaTocada, path);
-    salvarConfiguracaoAudio();
+    // path pode ser a própria musicaAtual ou ultimaMusicaTocada.
+    char destino[sizeof(musicaAtual)];
+    snprintf(destino, sizeof(destino), "%s", path);
+    strcpy(musicaAtual, destino);
+    strcpy(ultimaMusicaTocada, destino);
+    radioPausadoPeloModoEspecial = false;
+    musicaPausadaPeloVideo = false;
     comandoPausar = false;
+    salvarConfiguracaoAudio();
     comandoTrocar = true;
 }
 

@@ -75,6 +75,23 @@ extern int globalPadHandle;
 int gEmuPixelFormat = 2; // Default para RGB565 por segurança
 
 static bool bridge_pausado = false;
+static void* romPendente = NULL;
+static void* romEmUso = NULL;
+static size_t romPendenteTamanho = 0;
+
+// ROM lida de um compactado: fica na memória até o jogo fechar.
+void bridge_rom_em_memoria(void* dados, size_t tamanho) {
+    free(romPendente);
+    romPendente = dados;
+    romPendenteTamanho = tamanho;
+}
+
+static void registrarEmulador(const char* etapa, const char* caminho, size_t tamanho) {
+    FILE* f = fopen("/data/HyperNeiva/zip_debug_log.txt", "a");
+    if (f) { fprintf(f, "EMULADOR %s %zu %s\n", etapa, tamanho, caminho); fclose(f); }
+}
+static uint64_t bridge_periodo_us = 16667, bridge_proximo_quadro = 0;
+extern void definirTaxaAudioEmulador(double taxa);
 void bridge_set_pausado(bool p) { bridge_pausado = p; }
 bool bridge_esta_pausado() { return bridge_pausado; }
 
@@ -117,16 +134,17 @@ static void retro_input_poll_cb(void) {}
 uint32_t gEmuPadButtons = 0; 
 uint8_t gEmuAnaLX=128, gEmuAnaLY=128, gEmuAnaRX=128, gEmuAnaRY=128; // Marcadores V54
 int gba_to_ps4_map[16][2] = {
-    { ORBIS_PAD_BUTTON_CROSS, 0 },    // B
-    { ORBIS_PAD_BUTTON_CIRCLE, 0 },   // A
+    // A posição é o número do botão no libretro: 0 é B, 8 é A.
+    { ORBIS_PAD_BUTTON_SQUARE, ORBIS_PAD_BUTTON_TRIANGLE },  // B
+    { 0, 0 },                                                // Y (não existe no GBA)
     { ORBIS_PAD_BUTTON_OPTIONS, 0 },  // SELECT
     { ORBIS_PAD_BUTTON_TOUCH_PAD, 0 },// START
-    { ORBIS_PAD_BUTTON_UP, 0 },       // UP
-    { ORBIS_PAD_BUTTON_DOWN, 0 },     // DOWN
-    { ORBIS_PAD_BUTTON_LEFT, 0 },     // LEFT
-    { ORBIS_PAD_BUTTON_RIGHT, 0 },    // RIGHT
-    { ORBIS_PAD_BUTTON_SQUARE, 0 },   // Y (Turbo)
-    { ORBIS_PAD_BUTTON_TRIANGLE, 0 }, // X (Turbo)
+    { ORBIS_PAD_BUTTON_UP, PS4_ANALOG_L_UP },       // UP
+    { ORBIS_PAD_BUTTON_DOWN, PS4_ANALOG_L_DOWN },   // DOWN
+    { ORBIS_PAD_BUTTON_LEFT, PS4_ANALOG_L_LEFT },   // LEFT
+    { ORBIS_PAD_BUTTON_RIGHT, PS4_ANALOG_L_RIGHT }, // RIGHT
+    { ORBIS_PAD_BUTTON_CROSS, ORBIS_PAD_BUTTON_CIRCLE },     // A
+    { 0, 0 },                                                // X (não existe no GBA)
     { ORBIS_PAD_BUTTON_L1, 0 },       // L
     { ORBIS_PAD_BUTTON_R1, 0 },       // R
     { ORBIS_PAD_BUTTON_L2, 0 },       // L2
@@ -288,11 +306,24 @@ bool bridge_iniciar(const char* caminho_core, const char* caminho_rom) {
 
     retro_init_ptr();
     
-    struct retro_game_info game = { caminho_rom, NULL, 0, NULL };
+    romEmUso = romPendente;
+    size_t tamanhoRom = romPendenteTamanho;
+    romPendente = NULL;
+    romPendenteTamanho = 0;
+    registrarEmulador("carregando", caminho_rom, tamanhoRom);
+    struct retro_game_info game = { caminho_rom, romEmUso, tamanhoRom, NULL };
     if (!retro_load_game_ptr(&game)) {
         parar_bridge("ERRO: O MOTOR RECUSOU O JOGO!");
         return false;
     }
+    registrarEmulador("carregado", caminho_rom, tamanhoRom);
+
+    struct retro_system_av_info info;
+    memset(&info, 0, sizeof(info));
+    retro_get_system_av_info_ptr(&info);
+    bridge_periodo_us = (uint64_t)(1000000.0 / (info.fps > 1.0 ? info.fps : 60.0));
+    bridge_proximo_quadro = 0;
+    definirTaxaAudioEmulador(info.sample_rate);
 
     snprintf(msgStatus, sizeof(msgStatus), "Emulador Pronto!"); msgTimer = 120;
     return true;
@@ -301,6 +332,13 @@ bool bridge_iniciar(const char* caminho_core, const char* caminho_rom) {
 static uint32_t bridge_frame_count = 0;
 void bridge_atualizar() {
     if (!retro_run_ptr) return;
+    // O núcleo roda o mais rápido que puder: quem marca a velocidade do jogo é este relógio.
+    uint64_t agora = sceKernelGetProcessTime();
+    if (bridge_proximo_quadro > agora) {
+        sceKernelUsleep((unsigned int)(bridge_proximo_quadro - agora));
+        bridge_proximo_quadro += bridge_periodo_us;
+    }
+    else bridge_proximo_quadro = agora + bridge_periodo_us;
     bridge_frame_count++;
     if (bridge_frame_count % 60 == 0) {
         if (msgTimer < 2) {
@@ -320,6 +358,8 @@ void bridge_finalizar() {
     }
     static_core_active = false;
     retro_run_ptr = NULL;
+    free(romEmUso);
+    romEmUso = NULL;
 }
 
 // V33: PERSISTENCIA (SAVES)

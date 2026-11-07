@@ -44,7 +44,12 @@ extern bool menu_video_aberto, pip_selecionado;
 bool videoRodando = false, video_pausado = false, video_minimizado = false;
 static bool video_pausado_por_tela = false;
 bool bloqueio_audio_nativo = false;
+extern void retomarMusicaAposVideo();
 bool video_repetir = true, video_telegram = false, video_repetir_telegram = false;
+// Mensagem que veio com o vídeo, já desenhada pelo Telegram: aqui só é copiada para a tela.
+uint32_t* video_legenda_pixels = NULL;
+volatile int video_legenda_altura = 0;
+volatile bool video_legenda_visivel = false;
 static volatile bool video_terminou = false;
 char ultimo_video_tocado[512] = "";
 char path_pasta_video[512] = "";
@@ -980,6 +985,10 @@ static void desenharFaixaControles(uint32_t* tela, bool temImagem, int dw, int d
 
     desenharControlesPlayer(faixaControles - (size_t)PLAYER_FAIXA_Y * 1920);
     for (int y = 0; y < altura; y++) copiarPixels(tela + (size_t)(PLAYER_FAIXA_Y + y) * 1920, faixaControles + y * 1920, 1920);
+    int alturaLegenda = video_legenda_altura;
+    if (video_legenda_visivel && video_legenda_pixels && alturaLegenda > 0) {
+        for (int y = 0; y < alturaLegenda; y++) copiarPixels(tela + (size_t)(PLAYER_FAIXA_Y - alturaLegenda + y) * 1920, video_legenda_pixels + (size_t)y * 1920, 1920);
+    }
 }
 
 static void calcularGeometria(int srcW, int srcH, bool pip, int* dw, int* dh, int* dx, int* dy) {
@@ -1264,6 +1273,7 @@ void pararVideo() {
 
     videoRodando = false; video_minimizado = false;
     bloqueio_audio_nativo = false;
+    retomarMusicaAposVideo();
     logVideoInfo("--- FIM VIDEO | exibidos:%d decodificados:%d descartados:%d underruns:%d ---",
         estatExibidos, estatDecodificados, estatDescartados, estatUnderruns);
 }
@@ -1362,11 +1372,14 @@ static void reiniciarEstadoMotor() {
 void iniciarVideoMP4(const char* caminho) {
     video_repetir = true;
     video_telegram = false;
+    video_legenda_altura = 0;
+    video_legenda_visivel = false;
     video_terminou = false;
     bloqueio_fechar_video = false;
     bloqueio_audio_nativo = true;
 
-    tocarMusicaNova("PARADO");
+    extern void pausarMusicaParaVideo();
+    pausarMusicaParaVideo();
     sceKernelUsleep(150000);
 
     if (videoRodando) pararVideo();
@@ -1402,6 +1415,7 @@ void iniciarVideoMP4(const char* caminho) {
     if (avformat_open_input(&pFormatCtx, caminho, NULL, NULL) != 0) {
         logVideoInfo("ERRO: nao abriu %s", ultimo_video_tocado);
         bloqueio_audio_nativo = false;
+        retomarMusicaAposVideo();
         return;
     }
     avformat_find_stream_info(pFormatCtx, NULL);
@@ -1417,6 +1431,7 @@ void iniciarVideoMP4(const char* caminho) {
         logVideoInfo("ERRO: sem video decodificavel em %s", ultimo_video_tocado);
         liberarRecursosVideo();
         bloqueio_audio_nativo = false;
+        retomarMusicaAposVideo();
         return;
     }
 
@@ -1451,6 +1466,7 @@ void iniciarVideoMP4(const char* caminho) {
         logVideoInfo("ERRO: sem memoria para o player");
         liberarRecursosVideo();
         bloqueio_audio_nativo = false;
+        retomarMusicaAposVideo();
         return;
     }
 

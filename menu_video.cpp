@@ -179,6 +179,8 @@ static void liberarGatilhos() {
 
 void reiniciarControlesPlayer() {
     liberarGatilhos();
+    extern volatile bool video_legenda_visivel;
+    video_legenda_visivel = false;
     controlesAteUs = 0; focoNosIcones = false; iconeFoco = IC_PLAY; editandoVolume = false; cursorAtivo = false;
     ultimoL1 = 0; ultimoR1 = 0; direcaoXAnterior = 0; direcaoYAnterior = 0; avisoAteUs = 0;
 }
@@ -350,7 +352,19 @@ static void processarControlesTelaCheia(unsigned int btn, OrbisPadData* pData, b
         return;
     }
 
-    if (toqueY < 0) { focoNosIcones = false; return; }
+    extern volatile bool video_legenda_visivel;
+    extern volatile int video_legenda_altura;
+    if (toqueY > 0 && video_legenda_altura > 0) {
+        video_legenda_visivel = !video_legenda_visivel;
+        mostrarControles(CURSOR_ESPERA_US);
+    }
+    if (toqueY < 0) {
+        // Primeiro fecha a mensagem; só depois sobe para a barra de tempo.
+        if (video_legenda_visivel) video_legenda_visivel = false;
+        else focoNosIcones = false;
+        return;
+    }
+    if (video_legenda_visivel) mostrarControles(CURSOR_ESPERA_US);
     if (toqueX) {
         int proximo = iconeFoco + toqueX;
         iconeFoco = proximo < 0 ? 0 : (proximo >= TOTAL_IC ? TOTAL_IC - 1 : proximo);
