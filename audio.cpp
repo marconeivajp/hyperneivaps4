@@ -5,6 +5,9 @@
 #include <sys/stat.h>
 #include <pthread.h>
 #include <stdarg.h>
+#ifndef _WIN32
+#include <unistd.h>
+#endif
 #include <time.h> 
 
 #ifdef __INTELLISENSE__
@@ -91,8 +94,12 @@ void diminuirVolume() {
     salvarConfiguracaoAudio();
 }
 
+// Grava em outro arquivo e troca no fim: abrir o original com "wb" zerava a configuração
+// se o app fechasse antes de o sistema gravar, e a música voltava ligada.
 void salvarConfiguracaoAudio() {
-    FILE* f = fopen("/data/HyperNeiva/configuracao/audio_settings.bin", "wb");
+    const char* destino = "/data/HyperNeiva/configuracao/audio_settings.bin";
+    const char* temporario = "/data/HyperNeiva/configuracao/audio_settings.tmp";
+    FILE* f = fopen(temporario, "wb");
     if (f) {
         fwrite(musicaAtual, 1, sizeof(musicaAtual), f);
         fwrite(&volumeGeral, 1, sizeof(int), f);
@@ -103,7 +110,15 @@ void salvarConfiguracaoAudio() {
         int pausado = (comandoPausar && !musicaPausadaPeloVideo && !radioPausadoPeloModoEspecial) ? 1 : 0;
         fwrite(&pausado, 1, sizeof(int), f);
 
+        fflush(f);
+#ifndef _WIN32
+        fsync(fileno(f));
+#endif
         fclose(f);
+#ifdef _WIN32
+        remove(destino);
+#endif
+        rename(temporario, destino);
     }
 }
 

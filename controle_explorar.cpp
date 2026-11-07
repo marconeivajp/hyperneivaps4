@@ -248,6 +248,7 @@ void acaoCross_Explorar() {
             for (int i = 0; nomeBlindado[i]; i++) { nomeBlindado[i] = tolower(nomeBlindado[i]); }
 
             if (strstr(nomeBlindado, ".pkg")) { instalarPkgLocal(caminhoArquivo); }
+            else if (strstr(nomeBlindado, ".torrent")) { extern void adicionarTorrent(const char* origem); adicionarTorrent(caminhoArquivo); }
             else if (strstr(nomeBlindado, ".self") || strstr(nomeBlindado, ".elf") || strstr(nomeBlindado, ".prx")) {
                 preencherOpcoesContexto(nItems[sAtual]);
                 showOpcoes = true; selOpcao = totalOpcoes - 2; // Foca no "DEFINIR NUCLEO" ou "DETALHES"

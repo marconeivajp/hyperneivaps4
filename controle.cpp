@@ -179,6 +179,7 @@ void voltarNavegacao() {
         else if (menuAtual == MENU_BAIXAR_GAMES_XMLS) { extern void listarXMLsRepositorio(); listarXMLsRepositorio(); }
         else if (menuAtual == MENU_BAIXAR_GAMES_LIST) { extern void reabrirXMLRepositorio(); reabrirXMLRepositorio(); }
         else if (menuAtual == MENU_BAIXAR_GITHUB) { extern void preencherMenuGithub(); preencherMenuGithub(); }
+        else if (menuAtual == MENU_BAIXAR_TORRENT) { extern void preencherMenuTorrent(); preencherMenuTorrent(); }
         else if (menuAtual == MENU_BAIXAR_GITHUB_REPOS) { extern void mostrarGithubRepos(); mostrarGithubRepos(); }
         else if (menuAtual == MENU_BAIXAR_GITHUB_RELEASES) { extern void mostrarGithubReleases(); mostrarGithubReleases(); }
         else if (menuAtual == MENU_BAIXAR_DROPBOX_UPLOAD_RAIZES) preencherMenuUploadRaizes();
@@ -558,7 +559,7 @@ void processarControles(uint32_t botoes, int32_t uId, OrbisImeDialogSetting* ime
 
             else if (menuAtual == MENU_EXTRA) acaoCross_Extra();
 
-            else if (menuAtual == MENU_BAIXAR || menuAtual == MENU_BAIXAR_GITHUB || menuAtual == MENU_BAIXAR_GITHUB_REPOS || menuAtual == MENU_BAIXAR_GITHUB_RELEASES || menuAtual == MENU_BAIXAR_GITHUB_ARQUIVOS || menuAtual == MENU_LOJAS || menuAtual == MENU_BAIXAR_REPOS || menuAtual == MENU_BAIXAR_GAMES_XMLS || menuAtual == MENU_BAIXAR_GAMES_LIST || menuAtual == MENU_BAIXAR_LINKS || menuAtual == MENU_BAIXAR_LINK_DIRETO || menuAtual == MENU_BAIXAR_DROPBOX_LISTA || menuAtual == MENU_BAIXAR_DROPBOX_UPLOAD || menuAtual == MENU_BAIXAR_DROPBOX_UPLOAD_RAIZES || menuAtual == MENU_BAIXAR_DROPBOX_BACKUP || menuAtual == MENU_BAIXAR_FTP_SERVIDORES || menuAtual == MENU_BAIXAR_FTP_EDITAR_SERVIDOR || menuAtual == MENU_BAIXAR_FTP_LISTA || menuAtual == MENU_BAIXAR_FTP_UPLOAD_RAIZES || menuAtual == MENU_BAIXAR_FTP_UPLOAD || menuAtual == MENU_CAPAS || menuAtual == MENU_CONSOLES || menuAtual == SCRAPER_LIST) {
+            else if (menuAtual == MENU_BAIXAR || menuAtual == MENU_BAIXAR_TORRENT || menuAtual == MENU_BAIXAR_GITHUB || menuAtual == MENU_BAIXAR_GITHUB_REPOS || menuAtual == MENU_BAIXAR_GITHUB_RELEASES || menuAtual == MENU_BAIXAR_GITHUB_ARQUIVOS || menuAtual == MENU_LOJAS || menuAtual == MENU_BAIXAR_REPOS || menuAtual == MENU_BAIXAR_GAMES_XMLS || menuAtual == MENU_BAIXAR_GAMES_LIST || menuAtual == MENU_BAIXAR_LINKS || menuAtual == MENU_BAIXAR_LINK_DIRETO || menuAtual == MENU_BAIXAR_DROPBOX_LISTA || menuAtual == MENU_BAIXAR_DROPBOX_UPLOAD || menuAtual == MENU_BAIXAR_DROPBOX_UPLOAD_RAIZES || menuAtual == MENU_BAIXAR_DROPBOX_BACKUP || menuAtual == MENU_BAIXAR_FTP_SERVIDORES || menuAtual == MENU_BAIXAR_FTP_EDITAR_SERVIDOR || menuAtual == MENU_BAIXAR_FTP_LISTA || menuAtual == MENU_BAIXAR_FTP_UPLOAD_RAIZES || menuAtual == MENU_BAIXAR_FTP_UPLOAD || menuAtual == MENU_CAPAS || menuAtual == MENU_CONSOLES || menuAtual == SCRAPER_LIST) {
                 acaoCross_Baixar(uId, imeSetting, imeTitle);
             }
             else if (inExplorar) {
@@ -705,6 +706,7 @@ void processarControles(uint32_t botoes, int32_t uId, OrbisImeDialogSetting* ime
             else {
                 if (menuAtual == JOGAR_XML) { extern void alternarModoLauncher(); alternarModoLauncher(); }
                 else if (menuAtual == MENU_MUSICAS) acaoTriangle_Musicas();
+                else if (menuAtual == MENU_BAIXAR_TORRENT) { extern void acaoTriangle_Torrent(); acaoTriangle_Torrent(); }
                 else if (menuAtual == MENU_RADIO_CATEGORIA || menuAtual == MENU_RADIO_LISTA || menuAtual == MENU_RADIO_FAVORITOS) { extern void acaoTriangle_Radio(); acaoTriangle_Radio(); }
                 else if (menuAtual == MENU_BAIXAR_FTP_SERVIDORES || menuAtual == MENU_BAIXAR_FTP_LISTA || menuAtual == MENU_BAIXAR_FTP_UPLOAD) acaoTriangle_Baixar();
                 else if (menuAtual == MENU_BAIXAR_DROPBOX_UPLOAD || menuAtual == MENU_BAIXAR_DROPBOX_LISTA) { extern void acaoTriangle_Baixar(); acaoTriangle_Baixar(); }

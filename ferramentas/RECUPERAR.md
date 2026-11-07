@@ -19,13 +19,15 @@ Clone https://github.com/marconeivajp/hyperneivaps4.
 
 Baixe `tdlib_ps4_lib.rar` na release mais recente e extraia em uma pasta, por exemplo `C:\td_ps4\lib`. Para recompilar do zero, siga `tdlib_ps4/LEIA-ME.md`.
 
+Baixe também `hntorrent_ps4_lib.rar` e extraia em `C:\lt_ps4\lib`. Para recompilar do zero, siga `libtorrent_ps4/LEIA-ME.md`.
+
 ## 5. Gerar o PKG
 
 Não use o `build.bat`: ele não inclui o TDLib. Rode no PowerShell, de dentro da pasta do projeto:
 
 ```powershell
-$e = @('-LC:/td_ps4/lib','-ltdjsonapi','-ltdcore','-ltdapi','-ltde2e','-ltddb','-ltdsqlite','-ltdnet','-ltdactor','-ltdutils','-lssl','-lcrypto','C:/OpenOrbis/lib/libz.a')
-.\ferramentas\build_pkg.ps1 -Versao 2.52 -NomePkg HyperNeiva_v2.52.pkg -Projeto (Get-Location).Path -LinkExtra $e -SemEnvio
+$e = @('-LC:/lt_ps4/lib','-LC:/td_ps4/lib','-lhntorrent','-ltdjsonapi','-ltdcore','-ltdapi','-ltde2e','-ltddb','-ltdsqlite','-ltdnet','-ltdactor','-ltdutils','-lssl','-lcrypto','C:/OpenOrbis/lib/libz.a')
+.\ferramentas\build_pkg.ps1 -Versao 2.63 -NomePkg HyperNeiva_v2.63.pkg -Projeto (Get-Location).Path -LinkExtra $e -SemEnvio
 ```
 
 O PKG sai em `%TEMP%\opencode\pkg_<nome>\`. Sem `-SemEnvio`, o script envia ao PS4; use `-Ps4 IP:2121` se o IP mudou.

@@ -492,16 +492,20 @@ void pararVideo();
 
 // Roda na thread principal: fecha o vídeo que acabou e, no Telegram, passa para o seguinte.
 void atenderFimDeVideo() {
-    extern void telegramTrocarVideo(int direcao);
+    extern bool telegramTrocarVideo(int direcao, bool telaCheia);
+    extern void telegramPrepararProximo(), pausarMusicaParaVideo();
     if (!videoRodando) return;
+    if (video_telegram) telegramPrepararProximo();
     int comando = video_telegram ? comando_trocar_video : 0;
     if (!video_terminou && !comando) return;
     bool doTelegram = video_telegram;
+    bool telaCheia = !video_minimizado;
     if (doTelegram) comando_trocar_video = 0;
     video_terminou = false;
     bloqueio_fechar_video = false;
     pararVideo();
-    if (doTelegram) telegramTrocarVideo(comando < 0 ? -1 : 1);
+    // A música segue parada entre um vídeo e outro.
+    if (doTelegram && telegramTrocarVideo(comando < 0 ? -1 : 1, telaCheia)) pausarMusicaParaVideo();
 }
 
 static void* threadDemux(void*) {

@@ -13,6 +13,7 @@
 #include <orbis/libkernel.h>
 #include <orbis/Http.h>
 #include <orbis/Ssl.h>
+#include "ImeDialog.h"
 
 // --- BIBLIOTECAS DE REDE (PARA PEGAR O IP LOCAL) ---
 #include <sys/socket.h>
@@ -211,6 +212,167 @@ void pegarIPLocalPS4() {
     close(sock);
 }
 
+// ===== TORRENT =====
+// A libtorrent fica em libhntorrent.a; o app só conhece esta interface em C.
+extern "C" {
+    typedef struct HnTorrentInfo {
+        char nome[256];
+        char erro[128];
+        float progresso;
+        long long baixado;
+        long long total;
+        int taxa;
+        int fontes;
+        int pausado;
+        int concluido;
+        int estado;
+    } HnTorrentInfo;
+    int hn_torrent_iniciar(const char* dados, const char* destino);
+    int hn_torrent_adicionar(const char* origem, char* erroTexto, int tamanhoErro);
+    void hn_torrent_atualizar(void);
+    int hn_torrent_total(void);
+    int hn_torrent_info(int indice, HnTorrentInfo* saida);
+    void hn_torrent_alternar_pausa(int indice);
+    void hn_torrent_remover(int indice, int apagarArquivos);
+}
+
+#define TORRENT_DADOS "/data/HyperNeiva/torrent"
+#define TORRENT_DESTINO "/data/HyperNeiva/baixado/torrent"
+#define TORRENT_ITENS_FIXOS 1
+#define TORRENT_OP_PAUSAR 0
+#define TORRENT_OP_REMOVER 1
+#define TORRENT_OP_APAGAR 2
+#define TORRENT_OP_CANCELAR 3
+
+static bool torrentLigado = false;
+static bool torrentEsperandoTeclado = false;
+static wchar_t torrentTexto[2050];
+static int torrentOpcaoItem = -1;
+
+static bool torrentLigar() {
+    if (torrentLigado) return true;
+    if (hn_torrent_iniciar(TORRENT_DADOS, TORRENT_DESTINO) != 0) {
+        sprintf(msgStatus, "ERRO AO LIGAR O TORRENT");
+        msgTimer = 300;
+        return false;
+    }
+    torrentLigado = true;
+    return true;
+}
+
+static void torrentTextoItem(const HnTorrentInfo* t, char* saida, size_t tamanho) {
+    int pct = (int)(t->progresso * 100.0f);
+    if (t->erro[0]) snprintf(saida, tamanho, "ERRO  %.120s  %.100s", t->erro, t->nome);
+    else if (t->concluido) snprintf(saida, tamanho, "CONCLUIDO  %.200s", t->nome);
+    else if (t->pausado) snprintf(saida, tamanho, "PAUSADO %d%%  %.200s", pct, t->nome);
+    else if (t->estado == 2) snprintf(saida, tamanho, "BUSCANDO DADOS  %d fontes  %.180s", t->fontes, t->nome);
+    else if (t->estado == 1 || t->estado == 7) snprintf(saida, tamanho, "VERIFICANDO %d%%  %.190s", pct, t->nome);
+    else snprintf(saida, tamanho, "%d%%  %.2f MB/s  %d fontes  %.170s", pct, t->taxa / 1048576.0, t->fontes, t->nome);
+}
+
+void preencherMenuTorrent() {
+    memset(nomes, 0, sizeof(nomes));
+    strcpy(nomes[0], "ADICIONAR LINK MAGNET");
+    totalItens = TORRENT_ITENS_FIXOS;
+    int total = hn_torrent_total();
+    for (int i = 0; i < total && totalItens < 2900; i++) {
+        HnTorrentInfo t;
+        if (hn_torrent_info(i, &t) == 0) torrentTextoItem(&t, nomes[totalItens++], 256);
+    }
+    menuAtual = MENU_BAIXAR_TORRENT;
+    if (sel >= totalItens) sel = totalItens - 1;
+}
+
+void abrirMenuTorrent() {
+    if (!torrentLigar()) return;
+    sel = 0;
+    off = 0;
+    preencherMenuTorrent();
+}
+
+// Arquivo .torrent aberto no Explorar, ou link magnet digitado.
+void adicionarTorrent(const char* origem) {
+    if (!torrentLigar()) return;
+    char erro[120];
+    if (hn_torrent_adicionar(origem, erro, sizeof(erro)) >= 0) sprintf(msgStatus, "TORRENT ADICIONADO. VEJA EM BAIXAR > TORRENT");
+    else snprintf(msgStatus, sizeof(msgStatus), "TORRENT RECUSADO: %.90s", erro);
+    msgTimer = 300;
+}
+
+void acaoCross_Torrent(int32_t uId) {
+    if (sel != 0) { hn_torrent_alternar_pausa(sel - TORRENT_ITENS_FIXOS); return; }
+    if (torrentEsperandoTeclado) return;
+    OrbisImeDialogSetting param;
+    memset(&param, 0, sizeof(param));
+    memset(torrentTexto, 0, sizeof(torrentTexto));
+    param.userId = uId;
+    param.maxTextLength = 2000;
+    param.inputTextBuffer = torrentTexto;
+    param.title = L"Cole o link magnet";
+    param.type = (OrbisImeType)0;
+    if (sceImeDialogInit(&param, NULL) >= 0) torrentEsperandoTeclado = true;
+}
+
+void acaoTriangle_Torrent() {
+    extern const char* listaOpcoes[150];
+    extern int mapOpcoes[150], totalOpcoes, selOpcao;
+    extern bool showOpcoes;
+    if (showOpcoes) { showOpcoes = false; return; }
+    if (sel < TORRENT_ITENS_FIXOS) return;
+    torrentOpcaoItem = sel - TORRENT_ITENS_FIXOS;
+    int n = 0;
+    listaOpcoes[n] = "pausar / continuar"; mapOpcoes[n++] = TORRENT_OP_PAUSAR;
+    listaOpcoes[n] = "remover da lista"; mapOpcoes[n++] = TORRENT_OP_REMOVER;
+    listaOpcoes[n] = "remover e apagar arquivos"; mapOpcoes[n++] = TORRENT_OP_APAGAR;
+    listaOpcoes[n] = "cancelar"; mapOpcoes[n++] = TORRENT_OP_CANCELAR;
+    for (int i = n; i < 150; i++) { listaOpcoes[i] = ""; mapOpcoes[i] = -1; }
+    totalOpcoes = n;
+    selOpcao = 0;
+    showOpcoes = true;
+}
+
+void acaoOpcaoTorrent(int indice) {
+    extern int mapOpcoes[150];
+    extern bool showOpcoes;
+    int op = mapOpcoes[indice];
+    showOpcoes = false;
+    if (op == TORRENT_OP_PAUSAR) hn_torrent_alternar_pausa(torrentOpcaoItem);
+    else if (op == TORRENT_OP_REMOVER || op == TORRENT_OP_APAGAR) {
+        hn_torrent_remover(torrentOpcaoItem, op == TORRENT_OP_APAGAR);
+        preencherMenuTorrent();
+    }
+}
+
+// Chamada a cada quadro dos menus.
+void atualizarTorrent() {
+    if (torrentEsperandoTeclado) {
+        int status = (int)sceImeDialogGetStatus();
+        if (status != 0 && status != 1) {
+            OrbisDialogResult resultado;
+            memset(&resultado, 0, sizeof(resultado));
+            sceImeDialogGetResult(&resultado);
+            int32_t botao = *(int32_t*)&resultado;
+            static char texto[2050];
+            int n = 0;
+            uint16_t* lido = (uint16_t*)torrentTexto;
+            for (; n < 2049 && lido[n]; n++) texto[n] = (char)lido[n];
+            texto[n] = '\0';
+            sceImeDialogTerm();
+            torrentEsperandoTeclado = false;
+            if (botao == 0 && n > 0) {
+                adicionarTorrent(texto);
+                if (menuAtual == MENU_BAIXAR_TORRENT) preencherMenuTorrent();
+            }
+        }
+    }
+    if (!torrentLigado) return;
+    static int quadros = 0;
+    if (++quadros < 60) return;
+    quadros = 0;
+    hn_torrent_atualizar();
+    if (menuAtual == MENU_BAIXAR_TORRENT) preencherMenuTorrent();
+}
+
 void preencherMenuBaixar() {
     pegarIPLocalPS4(); // <-- AQUI! ELE PEGA O IP EXATAMENTE QUANDO VOC CLICA NO MENU "BAIXAR"
 
@@ -225,7 +387,8 @@ void preencherMenuBaixar() {
     strcpy(nomes[3], "Lojas");
     strcpy(nomes[4], "FTP (PC / Android)");
     strcpy(nomes[5], "GitHub");
-    totalItens = 6;
+    strcpy(nomes[6], "Torrent");
+    totalItens = 7;
     menuAtual = MENU_BAIXAR;
     sel = 0;
     off = 0;

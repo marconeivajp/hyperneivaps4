@@ -564,6 +564,7 @@ static bool tgPedindoHistorico = false, tgFimDoHistorico = false;
 static volatile bool tgImeAberto = false;
 static TgModoIme tgModoIme = TG_IME_MENSAGEM;
 static wchar_t tgTextoIme[520];
+static wchar_t tgUltimaBusca[128];
 static uint32_t* tgQuadro = NULL;
 
 static void tgEnviar(const char* formato, ...) {
@@ -1466,7 +1467,17 @@ static void tgDesenharEntrada(uint32_t* p) {
     tgEscrever(p, rodape, 0, 1 << 30, 24, (1920 - tgLargura(rodape, 24)) / 2, 1020, TG_COR(125, 139, 153));
 }
 
+// Entre um vídeo e outro a conversa não aparece: fica como o player esperando o próximo.
+static bool tgTrocandoVideo = false;
+static int tgTrocaEspera = 0;
+
 static void tgDesenhar(uint32_t* p) {
+    if (tgTrocandoVideo) {
+        const char* texto = "Carregando próximo vídeo...   O  Cancelar";
+        tgRetangulo(p, 0, 0, 1920, 1080, TG_COR(0, 0, 0));
+        tgEscrever(p, texto, 0, 1 << 30, 30, (1920 - tgLargura(texto, 30)) / 2, 520, TG_COR(255, 255, 255));
+        return;
+    }
     if (tgTela != TG_CONVERSAS && tgTela != TG_MENSAGENS) { tgDesenharEntrada(p); return; }
     if (tgVisor) { tgDesenharVisor(p); return; }
     tgDesenharConversa(p);
@@ -2357,6 +2368,7 @@ static void tgAbrirPendente() {
         extern bool video_repetir, video_telegram, video_repetir_telegram;
         tgPararAudio();
         iniciarVideoMP4(tgPendenteCaminho);
+        tgTrocandoVideo = false;
         pthread_mutex_lock(&tgTrava);
         tgVideoMensagem = mensagem;
         video_telegram = true;
@@ -2420,18 +2432,77 @@ static void tgAbrirMidia(const TgMensagem* m) {
     tgEnviar("{\"@type\":\"downloadFile\",\"file_id\":%d,\"priority\":32,\"offset\":0,\"limit\":0,\"synchronous\":false}", a->id);
 }
 
-// O vídeo acabou ou o usuário pediu outro: abre o próximo vídeo da conversa, sem GIFs.
-void telegramTrocarVideo(int direcao) {
-    pthread_mutex_lock(&tgTrava);
+static const TgMensagem* tgAcharVideo(int direcao) {
     int atual = -1;
     for (int i = 0; i < tgTotalMensagens; i++) if (tgMensagens[i].id == tgVideoMensagem) atual = i;
-    const TgMensagem* m = NULL;
-    for (int i = atual + direcao; atual >= 0 && i >= 0 && i < tgTotalMensagens && !m; i += direcao) {
-        if (tgMensagens[i].midia == TG_M_VIDEO && strcmp(tgMensagens[i].rotulo, "GIF") != 0) m = &tgMensagens[i];
+    for (int i = atual + direcao; atual >= 0 && i >= 0 && i < tgTotalMensagens; i += direcao) {
+        if (tgMensagens[i].midia == TG_M_VIDEO && strcmp(tgMensagens[i].rotulo, "GIF") != 0) return &tgMensagens[i];
     }
-    if (m) { tgSelId = m->id; tgAbrirMidia(m); }
-    else strcpy(tgAviso, direcao > 0 ? "Não há próximo vídeo nesta conversa." : "Não há vídeo anterior nesta conversa.");
+    return NULL;
+}
+
+static long long tgPreparadoMensagem = 0;
+static int tgPreparadoArquivo = 0;
+
+static void tgCancelarPreparado() {
+    if (!tgPreparadoArquivo) return;
+    if (!tgDownload(tgPreparadoArquivo)) {
+        tgEnviar("{\"@type\":\"cancelDownloadFile\",\"file_id\":%d,\"only_if_pending\":false}", tgPreparadoArquivo);
+        tgEnviar("{\"@type\":\"deleteFile\",\"file_id\":%d}", tgPreparadoArquivo);
+    }
+    tgPreparadoArquivo = 0;
+}
+
+// No último minuto baixa o começo do próximo vídeo, para ele abrir na hora da troca.
+void telegramPrepararProximo() {
+    extern bool video_repetir;
+    extern double video_time_current, video_time_total;
+    if (video_repetir || video_time_total <= 0 || video_time_total - video_time_current > 60.0) return;
+    pthread_mutex_lock(&tgTrava);
+    if (tgVideoMensagem && tgPreparadoMensagem != tgVideoMensagem) {
+        tgPreparadoMensagem = tgVideoMensagem;
+        const TgMensagem* m = tgAcharVideo(1);
+        TgArquivo* a = m ? tgArquivo(m->grande) : NULL;
+        if (a && !a->baixado && a->id != tgFluxo.arquivo) {
+            tgPreparadoArquivo = a->id;
+            tgEnviar("{\"@type\":\"downloadFile\",\"file_id\":%d,\"priority\":8,\"offset\":0,\"limit\":4194304,\"synchronous\":false}", a->id);
+        }
+    }
     pthread_mutex_unlock(&tgTrava);
+}
+
+// O vídeo acabou ou o usuário pediu outro: abre o próximo vídeo da conversa, sem GIFs.
+// Devolve true quando há outro vídeo a caminho.
+bool telegramTrocarVideo(int direcao, bool telaCheia) {
+    pthread_mutex_lock(&tgTrava);
+    const TgMensagem* m = tgAcharVideo(direcao);
+    bool abrindo = false;
+    if (m) {
+        if (tgPreparadoArquivo == m->grande) tgPreparadoArquivo = 0;
+        tgCancelarPreparado();
+        tgSelId = m->id;
+        tgAbrirMidia(m);
+        abrindo = tgPendente != 0 || tgAbrirAgora;
+    }
+    else strcpy(tgAviso, direcao > 0 ? "Não há próximo vídeo nesta conversa." : "Não há vídeo anterior nesta conversa.");
+    tgTrocandoVideo = abrindo && telaCheia;
+    tgTrocaEspera = 0;
+    pthread_mutex_unlock(&tgTrava);
+    tgSujo = true;
+    return abrindo;
+}
+
+static void telegramFecharFluxoTravado();
+
+static void tgCancelarTroca() {
+    extern void retomarMusicaAposVideo();
+    pthread_mutex_lock(&tgTrava);
+    if (tgPendente && tgPendente == tgFluxo.arquivo && !tgFluxo.ativo) telegramFecharFluxoTravado();
+    tgPendente = 0;
+    tgAbrirAgora = false;
+    pthread_mutex_unlock(&tgTrava);
+    tgTrocandoVideo = false;
+    retomarMusicaAposVideo();
     tgSujo = true;
 }
 
@@ -2478,6 +2549,7 @@ static void tgAbrirTeclado(int32_t usuario, TgModoIme modo, const wchar_t* titul
     OrbisImeDialogSetting param;
     memset(&param, 0, sizeof(param));
     memset(tgTextoIme, 0, sizeof(tgTextoIme));
+    if (modo == TG_IME_BUSCA) memcpy(tgTextoIme, tgUltimaBusca, sizeof(tgUltimaBusca));
     param.userId = usuario;
     param.maxTextLength = limite;
     param.inputTextBuffer = tgTextoIme;
@@ -2506,7 +2578,10 @@ static void tgAtualizarTeclado() {
             else tgEnviar("{\"@type\":\"sendMessage\",\"chat_id\":%lld,\"input_message_content\":{\"@type\":\"inputMessageText\",\"text\":{\"@type\":\"formattedText\",\"text\":\"%s\"}}}", tgAberta, texto);
             tgSelId = 0;
         }
-        else if (tgModoIme == TG_IME_BUSCA) tgIniciarBusca(texto);
+        else if (tgModoIme == TG_IME_BUSCA) {
+            memcpy(tgUltimaBusca, tgTextoIme, sizeof(tgUltimaBusca));
+            tgIniciarBusca(texto);
+        }
         else {
             if (tgModoIme == TG_IME_TELEFONE) tgEnviar("{\"@type\":\"setAuthenticationPhoneNumber\",\"phone_number\":\"%s\"}", texto);
             else if (tgModoIme == TG_IME_CODIGO) tgEnviar("{\"@type\":\"checkAuthenticationCode\",\"code\":\"%s\"}", texto);
@@ -2635,6 +2710,19 @@ bool telegramControles(uint32_t botoes, uint32_t antigos, int32_t usuario) {
     tgAbrirPendente();
     if (tgImeAberto) return false;
     uint32_t novos = botoes & ~antigos;
+    if (tgTrocandoVideo) {
+        if ((novos & ORBIS_PAD_BUTTON_CIRCLE) || ++tgTrocaEspera > 60 * 40) tgCancelarTroca();
+        return false;
+    }
+    {
+        // O vídeo foi fechado: o começo do próximo não vai ser usado.
+        extern bool videoRodando;
+        if (tgPreparadoArquivo && !videoRodando && !tgPendente) {
+            pthread_mutex_lock(&tgTrava);
+            tgCancelarPreparado();
+            pthread_mutex_unlock(&tgTrava);
+        }
+    }
     uint32_t direcoes = ORBIS_PAD_BUTTON_UP | ORBIS_PAD_BUTTON_DOWN;
     int passo = 0;
     if (botoes & direcoes) {
