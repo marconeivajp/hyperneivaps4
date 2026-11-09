@@ -219,6 +219,8 @@ void processarNavegacaoDPad(uint32_t botoes) {
     bool isHoriz = false;
     if (listOri == 1 && !showOpcoes && !showUploadOpcoes && menuAtual != MENU_NOTEPAD && menuAtual != MENU_AUDIO_OPCOES) isHoriz = true;
 
+    extern bool temaHorizontal(), temaCobreMenu();
+    if (temaCobreMenu() && !showOpcoes && !showUploadOpcoes) isHoriz = temaHorizontal();
     int btnNext = isHoriz ? ORBIS_PAD_BUTTON_RIGHT : ORBIS_PAD_BUTTON_DOWN;
     int btnPrev = isHoriz ? ORBIS_PAD_BUTTON_LEFT : ORBIS_PAD_BUTTON_UP;
     int btnPanNext = isHoriz ? ORBIS_PAD_BUTTON_DOWN : ORBIS_PAD_BUTTON_RIGHT;
@@ -280,7 +282,7 @@ void processarNavegacaoDPad(uint32_t botoes) {
                 int* sAtual = ehEsq ? &selEsq : &sel; int* oAtual = ehEsq ? &offEsq : &off; int tItens = ehEsq ? totalItensEsq : totalItens;
 
                 bool isGameMenu = (menuAtual == MENU_JOGAR_PS4 || menuAtual == JOGAR_XML || menuAtual == SCRAPER_LIST);
-                bool isGrid = ((listStyle == 4 || listStyle == 5) && isGameMenu && !showOpcoes && !showUploadOpcoes && menuAtual != MENU_NOTEPAD && menuAtual != MENU_AUDIO_OPCOES);
+                bool isGrid = (!temaCobreMenu() && (listStyle == 4 || listStyle == 5) && isGameMenu && !showOpcoes && !showUploadOpcoes && menuAtual != MENU_NOTEPAD && menuAtual != MENU_AUDIO_OPCOES);
 
                 if (isGrid) {
                     int cols = gridCols; if (cols < 1) cols = 1;
@@ -447,6 +449,16 @@ void processarControles(uint32_t botoes, int32_t uId, OrbisImeDialogSetting* ime
         return;
     }
 
+    if (menuAtual == MENU_VENTOINHA) {
+        extern bool ventoinhaControles(uint32_t novos);
+        if (ventoinhaControles(botoes & ~botoesAntigos)) {
+            voltarNavegacao();
+            pCircle = true;
+        }
+        botoesAntigos = botoes;
+        return;
+    }
+
     if (menuAtual == MENU_CONTROLE_TESTE || menuAtual == MENU_INSTRUMENTOS) {
         bool optionsPressed = (botoes & ORBIS_PAD_BUTTON_OPTIONS) &&
             !(botoesAntigos & ORBIS_PAD_BUTTON_OPTIONS);
@@ -555,6 +567,7 @@ void processarControles(uint32_t botoes, int32_t uId, OrbisImeDialogSetting* ime
             else if (menuAtual == MENU_AUDIO_OPCOES && veioDeOutroMenuParaAudio && selAudioOpcao == 10) { menuAtual = menuAntesDoAudio; showOpcoes = false; veioDeOutroMenuParaAudio = false; }
             else if (menuAtual == ROOT || menuAtual == MENU_TIPO_JOGO || menuAtual == MENU_JOGAR_PS4 || menuAtual == JOGAR_XML || menuAtual == MENU_MIDIA || menuAtual == MENU_EMULADOR) acaoCross_Root();
             else if (menuAtual == MENU_MUSICAS || menuAtual == MENU_AUDIO_OPCOES) acaoCross_Musicas();
+            else if (menuAtual == MENU_CONQUISTAS) { extern void acaoCross_Conquistas(); acaoCross_Conquistas(); }
             else if (menuAtual == MENU_NOTEPAD) { if (!notepadSomenteLeitura) { if (estadoNotepad == 0) acaoCross_Notepad(uId, imeSetting, imeTitle, linhasNotepad[linhaSelecionada]); else if (estadoNotepad == 1) acaoCross_Notepad(uId, imeSetting, imeTitle, nomeArquivo); } }
 
             else if (menuAtual == MENU_EXTRA) acaoCross_Extra();
@@ -671,6 +684,14 @@ void processarControles(uint32_t botoes, int32_t uId, OrbisImeDialogSetting* ime
                 else if (menuAtual == MENU_MIDIA) {
                     handled = voltarPastaMidia();
                 }
+                else if (menuAtual == MENU_EMULADOR) {
+                    extern bool bibliotecaCirculo();
+                    handled = bibliotecaCirculo();
+                }
+                else if (menuAtual == MENU_CONQUISTAS) {
+                    extern bool acaoCircle_Conquistas();
+                    handled = acaoCircle_Conquistas();
+                }
                 else if (menuAtual == MENU_BAIXAR_GITHUB) {
                     extern bool githubVoltarPasta();
                     handled = githubVoltarPasta();
@@ -704,7 +725,7 @@ void processarControles(uint32_t botoes, int32_t uId, OrbisImeDialogSetting* ime
         if (!pTri) {
             if (botoes & ORBIS_PAD_BUTTON_L2) { if (menuAtual != MENU_AUDIO_OPCOES) { menuAntesDoAudio = menuAtual; veioDeOutroMenuParaAudio = true; abrirMenuAudioOpcoes(); } else if (veioDeOutroMenuParaAudio) { menuAtual = menuAntesDoAudio; showOpcoes = false; veioDeOutroMenuParaAudio = false; } }
             else {
-                if (menuAtual == JOGAR_XML) { extern void alternarModoLauncher(); alternarModoLauncher(); }
+                if (menuAtual == MENU_EMULADOR) { extern void bibliotecaTriangulo(); bibliotecaTriangulo(); }
                 else if (menuAtual == MENU_MUSICAS) acaoTriangle_Musicas();
                 else if (menuAtual == MENU_BAIXAR_TORRENT) { extern void acaoTriangle_Torrent(); acaoTriangle_Torrent(); }
                 else if (menuAtual == MENU_RADIO_CATEGORIA || menuAtual == MENU_RADIO_LISTA || menuAtual == MENU_RADIO_FAVORITOS) { extern void acaoTriangle_Radio(); acaoTriangle_Radio(); }
@@ -738,6 +759,11 @@ void processarControles(uint32_t botoes, int32_t uId, OrbisImeDialogSetting* ime
     } else pL2 = false;
 
     if (menuAtual == ROOT && navTopo > 0) navTopo = 0;
+
+    uint32_t novosBotoes = botoes & ~botoesAntigos;
+    if (menuAtual == MENU_EMULADOR) { extern void bibliotecaBotoes(uint32_t novos); bibliotecaBotoes(novosBotoes); }
+    // Triângulo agora abre opções: a troca entre XML e Game Boy passou para o Quadrado.
+    if (menuAtual == JOGAR_XML && (novosBotoes & ORBIS_PAD_BUTTON_SQUARE)) { extern void alternarModoLauncher(); alternarModoLauncher(); }
 
     botoesAntigos = botoes;
 }

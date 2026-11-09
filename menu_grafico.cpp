@@ -146,6 +146,16 @@ void desenharInterface(uint32_t* p) {
         renderizarInformacao(p);
         return;
     }
+    if (menuAtual == MENU_VENTOINHA) {
+        extern void renderizarVentoinha(uint32_t* p);
+        renderizarVentoinha(p);
+        return;
+    }
+    if (menuAtual == MENU_CONQUISTAS) {
+        extern void renderizarConquistas(uint32_t* p);
+        renderizarConquistas(p);
+        return;
+    }
 
     if (renderizarLeitorMidia(p)) return;
 
@@ -236,13 +246,19 @@ void desenharInterface(uint32_t* p) {
         }
     }
 
+    // Com tema, ele desenha fundo e lista: só as janelas por cima seguem iguais.
+    extern bool temaCobreMenu();
+    extern void temaDesenharAtual(uint32_t* p);
+    bool tema = temaCobreMenu();
+    if (tema) temaDesenharAtual(p);
+
     // Render Background
-    if (menuAtual != MENU_NOTEPAD && menuAtualEsq != MENU_NOTEPAD && imgBgDinamico) {
+    if (!tema && menuAtual != MENU_NOTEPAD && menuAtualEsq != MENU_NOTEPAD && imgBgDinamico) {
         desenharRedimensionado(p, imgBgDinamico, dynBgW, dynBgH, 1920, 1080, 0, 0);
     }
 
     // Sprite Animation (Restored)
-    if (menuAtual != MENU_NOTEPAD && menuAtualEsq != MENU_NOTEPAD && !visualizandoMidiaImagem && !visualizandoMidiaTexto) {
+    if (!tema && menuAtual != MENU_NOTEPAD && menuAtualEsq != MENU_NOTEPAD && !visualizandoMidiaImagem && !visualizandoMidiaTexto) {
         desenharElementoAnimado(p);
     }
 
@@ -256,7 +272,7 @@ void desenharInterface(uint32_t* p) {
     else if (menuAtual == MENU_EXPLORAR || menuAtual == MENU_EXPLORAR_HOME) telaId = 5;
 
     if (menuAtual == MENU_EDIT_TARGET && (editTarget >= 16 && editTarget <= 18)) { telaId = interfaceTelaAlvo; }
-    renderizarCustomUI(p, telaId);
+    if (!tema) renderizarCustomUI(p, telaId);
 
     // Visibility Check
     bool esconderElementos = (visualizandoMidiaImagem || visualizandoMidiaTexto || menuAtual == MENU_NOTEPAD || menuAtualEsq == MENU_NOTEPAD || menuAtual == MENU_CONTROLE_TESTE || menuAtual == MENU_INFORMACAO || menuAtual == MENU_INSTRUMENTOS);
@@ -264,7 +280,7 @@ void desenharInterface(uint32_t* p) {
     // NO MODO EDIÇÃO, NÃO ESCONDER LISTAS E PONTEIROS SE ESTIVERMOS EDITANDO ELES OU O EXPLORAR
     if (editMode && (editTarget == 0 || editTarget == 10 || editTarget == 13)) esconderElementos = false;
 
-    if (!esconderElementos) {
+    if (!esconderElementos && !tema) {
         // Draw Lists
         if (!painelDuplo) {
             desenharListas(p, 1);
@@ -282,7 +298,7 @@ void desenharInterface(uint32_t* p) {
     bool isMenuPS4 = (menuAtual == MENU_JOGAR_PS4);
     bool isMenuXML = (menuAtual == JOGAR_XML || menuAtual == SCRAPER_LIST);
 
-    if (!esconderElementos || editMode) {
+    if ((!esconderElementos || editMode) && !tema) {
         // --- VIDEO PREVIEW (PIC / CAPA DE VIDEO) ---
         if (editMode && editTarget == 3) {
             if (imgVidEdicao) desenharRedimensionado(p, imgVidEdicao, wVidE, hVidE, picW, picH, picX, picY);
@@ -346,7 +362,7 @@ void desenharInterface(uint32_t* p) {
         }
 
         // --- OPTION MENUS (TRIANGLE) ---
-        if (showOpcoes && menuAtual != MENU_AUDIO_OPCOES) {
+        if (showOpcoes && menuAtual != MENU_AUDIO_OPCOES && menuAtual != MENU_EMULADOR) {
             if (selOpcao >= totalOpcoes) selOpcao = 0; if (selOpcao < 0) selOpcao = totalOpcoes - 1;
             for (int my = 0; my < upH; my++) for (int mx = 0; mx < upW; mx++) { int pxX = upX + mx; int pyY = upY + my; if (pxX >= 0 && pxX < 1920 && pyY >= 0 && pyY < 1080) p[pyY * 1920 + pxX] = getSysColor(upBg); }
             int maxV = (upH - 50) / 45; if (maxV < 1) maxV = 1;
@@ -479,6 +495,8 @@ void atualizarImePasta() {
     atualizarImeGithub();
     extern void atualizarTorrent();
     atualizarTorrent();
+    extern void bibliotecaAtualizar();
+    bibliotecaAtualizar();
 
     extern bool tecladoAtivo;
     extern int tecladoTipo;

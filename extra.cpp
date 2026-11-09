@@ -67,7 +67,8 @@ void preencherMenuExtra() {
     strcpy(nomes[0], "Teste de Controle (Analise de Drift e Botoes)");
     strcpy(nomes[1], "Piano Virtual (Instrumento)");
     strcpy(nomes[2], "Telegram");
-    totalItens = 3;
+    strcpy(nomes[3], "Ventoinha e temperatura");
+    totalItens = 4;
     menuAtual = MENU_EXTRA;
     sel = 0;
 }
@@ -100,6 +101,7 @@ const char* td_execute(const char* request);
 }
 
 #include <fcntl.h>
+#include <errno.h>
 #include <unistd.h>
 #include <signal.h>
 #include <stdarg.h>
@@ -1637,7 +1639,7 @@ static void tgProcessarEstado(const char* r) {
     else if (strstr(r, "authorizationStateWaitPhoneNumber")) tgTela = TG_TELEFONE;
     else if (strstr(r, "authorizationStateWaitCode")) tgTela = TG_CODIGO;
     else if (strstr(r, "authorizationStateWaitPassword")) tgTela = TG_SENHA;
-    else if (strstr(r, "authorizationStateReady")) { tgTela = TG_CONVERSAS; tgCarregarConversas(); }
+    else if (strstr(r, "authorizationStateReady")) { extern void conquistaGanhar(const char* chave); conquistaGanhar("tg_login"); tgTela = TG_CONVERSAS; tgCarregarConversas(); }
     else if (strstr(r, "authorizationStateLoggingOut") || strstr(r, "authorizationStateClosing") || strstr(r, "authorizationStateClosed")) {
         tgTela = TG_INICIANDO;
         strcpy(tgAviso, "Sessão encerrada. Reabra o app.");
@@ -2953,6 +2955,101 @@ void acaoCross_Extra() {
         menuAtual = MENU_INSTRUMENTOS;
     }
     else if (sel == 2) iniciarTelegram();
+    else if (sel == 3) menuAtual = MENU_VENTOINHA;
+}
+
+// =======================================================
+// VENTOINHA
+// =======================================================
+// O limite é a temperatura em que a ventoinha acelera. O sistema guarda até tirar o PS4 da tomada.
+// Abaixo de 60 °C ela ficaria acelerada o tempo todo, porque o console parado já passa de 50 °C.
+#include <fcntl.h>
+#include <sys/ioctl.h>
+#define VENTOINHA_PADRAO 79
+#define VENTOINHA_MINIMO 60
+#define VENTOINHA_ARQUIVO "/data/HyperNeiva/configuracao/ventoinha.txt"
+extern "C" int sceKernelGetCpuTemperature(uint32_t* temperatura);
+extern "C" int sceKernelGetSocSensorTemperature(int sensor, uint32_t* temperatura);
+
+static int ventoinhaEscolha = -1, ventoinhaAtiva = VENTOINHA_PADRAO;
+
+static void ventoinhaCarregar() {
+    if (ventoinhaEscolha >= 0) return;
+    FILE* f = fopen(VENTOINHA_ARQUIVO, "r");
+    if (f) {
+        int lido = 0;
+        if (fscanf(f, "%d", &lido) == 1 && lido >= VENTOINHA_MINIMO && lido <= VENTOINHA_PADRAO) ventoinhaAtiva = lido;
+        fclose(f);
+    }
+    ventoinhaEscolha = ventoinhaAtiva;
+}
+
+static bool ventoinhaAplicar(int temperatura) {
+    if (temperatura < VENTOINHA_MINIMO || temperatura > VENTOINHA_PADRAO) return false;
+    int fd = open("/dev/icc_fan", O_RDONLY, 0);
+    if (fd < 0) {
+        snprintf(msgStatus, sizeof(msgStatus), "ERRO AO ABRIR A VENTOINHA (%d)", errno);
+        msgTimer = 300;
+        return false;
+    }
+    // O pedido lê mais que os 10 bytes do exemplo conhecido: o resto fica zerado.
+    unsigned char dados[64];
+    memset(dados, 0, sizeof(dados));
+    dados[5] = (unsigned char)temperatura;
+    int resposta = ioctl(fd, 0xC01C8F07, dados);
+    close(fd);
+    FILE* registro = fopen("/data/HyperNeiva/zip_debug_log.txt", "a");
+    if (registro) { fprintf(registro, "VENTOINHA limite=%d resposta=%d errno=%d\n", temperatura, resposta, errno); fclose(registro); }
+    if (resposta < 0) {
+        snprintf(msgStatus, sizeof(msgStatus), "O PS4 RECUSOU O AJUSTE (%d)", errno);
+        msgTimer = 300;
+        return false;
+    }
+    ventoinhaAtiva = temperatura;
+    FILE* f = fopen(VENTOINHA_ARQUIVO, "w");
+    if (f) { fprintf(f, "%d\n", temperatura); fclose(f); }
+    snprintf(msgStatus, sizeof(msgStatus), "VENTOINHA AJUSTADA PARA %d C", temperatura);
+    msgTimer = 240;
+    return true;
+}
+
+// Devolve true quando o usuário sai da tela.
+bool ventoinhaControles(uint32_t novos) {
+    ventoinhaCarregar();
+    if (novos & ORBIS_PAD_BUTTON_LEFT) { if (ventoinhaEscolha > VENTOINHA_MINIMO) ventoinhaEscolha--; }
+    else if (novos & ORBIS_PAD_BUTTON_RIGHT) { if (ventoinhaEscolha < VENTOINHA_PADRAO) ventoinhaEscolha++; }
+    else if (novos & ORBIS_PAD_BUTTON_CROSS) ventoinhaAplicar(ventoinhaEscolha);
+    else if (novos & ORBIS_PAD_BUTTON_TRIANGLE) { ventoinhaEscolha = VENTOINHA_PADRAO; ventoinhaAplicar(VENTOINHA_PADRAO); }
+    return (novos & ORBIS_PAD_BUTTON_CIRCLE) != 0;
+}
+
+void renderizarVentoinha(uint32_t* p) {
+    static int leitura = 0;
+    static uint32_t cpu = 0, soc = 0;
+    ventoinhaCarregar();
+    if (leitura-- <= 0) {
+        leitura = 60;
+        sceKernelGetCpuTemperature(&cpu);
+        sceKernelGetSocSensorTemperature(0, &soc);
+    }
+    for (int i = 0; i < 1920 * 1080; i++) p[i] = 0xFF101318;
+    char texto[160];
+    uint32_t branco = 0xFFFFFFFF, cinza = 0xFFB4BCCB, quente = cpu >= 75 ? 0xFFFF5040 : cpu >= 65 ? 0xFFFFC83C : 0xFF50E070;
+    desenharTexto(p, "VENTOINHA E TEMPERATURA", 50, 110, 80, branco);
+    desenharTexto(p, "Processador", 34, 110, 210, cinza);
+    snprintf(texto, sizeof(texto), "%u °C", cpu);
+    desenharTexto(p, texto, 120, 110, 260, quente);
+    desenharTexto(p, "Sensor do chip", 34, 620, 210, cinza);
+    snprintf(texto, sizeof(texto), "%u °C", soc);
+    desenharTexto(p, texto, 120, 620, 260, branco);
+    desenharTexto(p, "Acelerar a ventoinha a partir de", 34, 110, 470, cinza);
+    snprintf(texto, sizeof(texto), "<   %d °C   >", ventoinhaEscolha);
+    desenharTexto(p, texto, 76, 110, 530, branco);
+    snprintf(texto, sizeof(texto), "Em uso: %d °C.  Padrão do PS4: %d °C.  Mínimo aqui: %d °C.", ventoinhaAtiva, VENTOINHA_PADRAO, VENTOINHA_MINIMO);
+    desenharTexto(p, texto, 30, 110, 660, cinza);
+    desenharTexto(p, "Valor baixo: PS4 mais frio, mais barulho e mais desgaste da ventoinha.", 30, 110, 720, cinza);
+    desenharTexto(p, "O ajuste continua depois de reiniciar e volta ao padrão ao tirar da tomada.", 30, 110, 766, cinza);
+    desenharTexto(p, "Esquerda / Direita  Escolher      X  Aplicar      Triângulo  Voltar ao padrão      O  Sair", 28, 110, 1000, cinza);
 }
 
 // =======================================================

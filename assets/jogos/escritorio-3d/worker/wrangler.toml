@@ -1,0 +1,11 @@
+name = "escritorio-rede"
+main = "src/index.js"
+compatibility_date = "2025-01-01"
+
+# O "porteiro" na internet. Guarda quem está online e repassa as posições.
+[durable_objects]
+bindings = [{ name = "SALA", class_name = "Sala" }]
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["Sala"]

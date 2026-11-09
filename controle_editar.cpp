@@ -87,11 +87,16 @@ void verificarTecladoVirtual() {
 
 void acaoCross_Editar() {
     if (menuAtual == MENU_EDITAR) {
-        if (sel == 18) {
+        int item = sel == 0 ? 19 : sel - 1;
+        if (item == 19) {
+            editTarget = 31; preencherMenuEditTarget();
+            sel = 0; if (listFocus) off = sel - (numSlotsPadrao / 2); else off = 0;
+        }
+        else if (item == 18) {
             editTarget = 30; preencherMenuEditTarget();
             sel = 0; if (listFocus) off = sel - (numSlotsPadrao / 2); else off = 0;
         }
-        else if (sel == 17) {
+        else if (item == 17) {
             listXV = 1054; listYV = 204; listW = 676; listH = 65; listSpcV = 100;
             capaX = 330; capaY = 280; capaW = 480; capaH = 680;
             discoX = 640; discoY = 600; discoW = 280; discoH = 280;
@@ -107,13 +112,20 @@ void acaoCross_Editar() {
             salvarConfiguracao();
         }
         else { 
-            editTarget = sel; preencherMenuEditTarget(); 
+            editTarget = item; preencherMenuEditTarget(); 
             sel = 0; if (listFocus) off = sel - (numSlotsPadrao / 2); else off = 0; 
         }
     }
     else if (menuAtual == MENU_EDIT_TARGET) {
         int acaoReal = mapAcoes[sel];
-        if (acaoReal >= 300 && acaoReal <= 306) {
+        if (acaoReal >= 310 && acaoReal <= 316) {
+            extern void definirTema(int tema);
+            definirTema(acaoReal - 310);
+            int selAntes = sel;
+            preencherMenuEditTarget();
+            sel = selAntes;
+        }
+        else if (acaoReal >= 300 && acaoReal <= 306) {
             extern void alternarMusicaFundo(), tocarMusicaPadrao(), preencherMenuMusicas();
             extern char caminhoNavegacaoMusicas[512], caminhoBaseMusicas[512];
             if (acaoReal == 303 || acaoReal == 306) {

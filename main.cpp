@@ -505,8 +505,9 @@ int main(void) {
             ultimos_botoes = botoesFisicos;
         }
 
-        extern void atenderFimDeVideo();
+        extern void atenderFimDeVideo(), conquistasAtualizar();
         atenderFimDeVideo();
+        conquistasAtualizar();
 
         bool telaSemVideo = (menuAtual == MENU_INSTRUMENTOS || menuAtual == MENU_CONTROLE_TESTE || (menuAtual == MENU_TELEGRAM && !videoRodando) ||
             menuAtual == MENU_NOTEPAD || menuAtualEsq == MENU_NOTEPAD ||
@@ -554,11 +555,15 @@ int main(void) {
         // Com o vídeo em PiP este buffer é a camada da interface: o vídeo entra por cima na
         // thread do vídeo, sem depender do tempo que o menu leva para ser desenhado.
         uint32_t* p = obterBufferVideo();
-        desenharFundoMenu(p);
+        // Com tema, o fundo vem dele: copiar a tela duas vezes custa um quadro inteiro.
+        extern bool temaCobreMenu();
+        if (!temaCobreMenu()) desenharFundoMenu(p);
 
         atualizarImePasta(); atualizarImePasta_explorar();
 
         desenharInterface(p);
+        extern void desenharRelogio(uint32_t* p);
+        desenharRelogio(p);
         extern void hnAtualizarExtracao();
         hnAtualizarExtracao();
 

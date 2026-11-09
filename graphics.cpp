@@ -277,19 +277,33 @@ void desenharDiscoRedondo(uint32_t* pixels, unsigned char* img, int imgW, int im
     }
 }
 
+// Lê um caractere UTF-8. Byte que não forma sequência válida vale por si só.
+int hnProximoCaractere(const char* texto, int* i) {
+    const unsigned char* t = (const unsigned char*)texto + *i;
+    int extras = t[0] >= 0xF0 ? 3 : t[0] >= 0xE0 ? 2 : t[0] >= 0xC0 ? 1 : 0;
+    int valor = extras == 3 ? t[0] & 7 : extras == 2 ? t[0] & 15 : extras == 1 ? t[0] & 31 : t[0];
+    for (int k = 1; k <= extras; k++) {
+        if ((t[k] & 0xC0) != 0x80) { (*i)++; return t[0]; }
+        valor = (valor << 6) | (t[k] & 63);
+    }
+    *i += extras + 1;
+    return valor;
+}
+
 void desenharTexto(uint32_t* pixels, const char* texto, int tam, int x, int y, uint32_t cor) {
     if (!temF || !texto || !pixels) return;
     float s = stbtt_ScaleForPixelHeight(&font, (float)tam);
     int asc; stbtt_GetFontVMetrics(&font, &asc, 0, 0); asc = (int)(asc * s);
     int curX = x;
-    for (int i = 0; texto[i]; ++i) {
+    for (int i = 0; texto[i];) {
+        int caractere = hnProximoCaractere(texto, &i);
         int adv, lsb, x0, y0, x1, y1;
-        stbtt_GetCodepointHMetrics(&font, texto[i], &adv, &lsb);
-        stbtt_GetCodepointBitmapBox(&font, texto[i], s, s, &x0, &y0, &x1, &y1);
+        stbtt_GetCodepointHMetrics(&font, caractere, &adv, &lsb);
+        stbtt_GetCodepointBitmapBox(&font, caractere, s, s, &x0, &y0, &x1, &y1);
         int w = x1 - x0, h = y1 - y0;
         if (w > 0 && h > 0) {
             unsigned char* b = (unsigned char*)malloc(w * h);
-            stbtt_MakeCodepointBitmap(&font, b, w, h, w, s, s, texto[i]);
+            stbtt_MakeCodepointBitmap(&font, b, w, h, w, s, s, caractere);
             for (int cy = 0; cy < h; ++cy) for (int cx = 0; cx < w; ++cx) {
                 int pX = curX + x0 + cx; int pY = y + asc + y0 + cy;
                 if (pX >= 0 && pX < 1920 && pY >= 0 && pY < 1080) {

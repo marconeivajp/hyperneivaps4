@@ -29,15 +29,18 @@ static int advance_utf8(const char* str, int num_chars) {
 
 int medirLarguraTexto(const char* texto, int tam) {
     if (!temF || !texto) return 0; float s = stbtt_ScaleForPixelHeight(&font, (float)tam); int totalW = 0;
-    for (int i = 0; texto[i]; ++i) { int adv, lsb; stbtt_GetCodepointHMetrics(&font, texto[i], &adv, &lsb); totalW += (int)(adv * s); } return totalW;
+    extern int hnProximoCaractere(const char* texto, int* i);
+    for (int i = 0; texto[i];) { int adv, lsb, caractere = hnProximoCaractere(texto, &i); stbtt_GetCodepointHMetrics(&font, caractere, &adv, &lsb); totalW += (int)(adv * s); } return totalW;
 }
 
 void desenharTextoClip(uint32_t* pixels, const char* texto, int tam, int x, int y, uint32_t cor, int clipX, int clipW) {
     if (!temF || !texto || !pixels) return; float s = stbtt_ScaleForPixelHeight(&font, (float)tam); int asc; stbtt_GetFontVMetrics(&font, &asc, 0, 0); asc = (int)(asc * s); int curX = x; uint8_t baseAlpha = (cor >> 24) & 0xFF; if (baseAlpha < 10) return;
-    for (int i = 0; texto[i]; ++i) {
-        int adv, lsb, x0, y0, x1, y1; stbtt_GetCodepointHMetrics(&font, texto[i], &adv, &lsb); stbtt_GetCodepointBitmapBox(&font, texto[i], s, s, &x0, &y0, &x1, &y1); int w = x1 - x0, h = y1 - y0;
+    extern int hnProximoCaractere(const char* texto, int* i);
+    for (int i = 0; texto[i];) {
+        int caractere = hnProximoCaractere(texto, &i);
+        int adv, lsb, x0, y0, x1, y1; stbtt_GetCodepointHMetrics(&font, caractere, &adv, &lsb); stbtt_GetCodepointBitmapBox(&font, caractere, s, s, &x0, &y0, &x1, &y1); int w = x1 - x0, h = y1 - y0;
         if (w > 0 && h > 0) {
-            unsigned char* b = (unsigned char*)malloc(w * h); stbtt_MakeCodepointBitmap(&font, b, w, h, w, s, s, texto[i]);
+            unsigned char* b = (unsigned char*)malloc(w * h); stbtt_MakeCodepointBitmap(&font, b, w, h, w, s, s, caractere);
             for (int cy = 0; cy < h; ++cy) for (int cx = 0; cx < w; ++cx) {
                 int pX = curX + x0 + cx; int pY = y + asc + y0 + cy;
                 if (pX >= clipX && pX < (clipX + clipW) && pY >= 0 && pY < 1080 && pX >= 0 && pX < 1920) {

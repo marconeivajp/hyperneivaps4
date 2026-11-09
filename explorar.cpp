@@ -198,6 +198,10 @@ void abrirOpcoesImagem(const char* caminho, bool permitirExtrair) {
 void acaoArquivo(int idxOpcao) {
     if (idxOpcao < 0 || idxOpcao >= 150) return;
     int op = mapOpcoes[idxOpcao]; if (op == -1) return;
+    extern void conquistaGanhar(const char* chave);
+    if (op == 10) conquistaGanhar("fundo_hn");
+    else if (op == 11) conquistaGanhar("fundo_ps4");
+    else if (op == 12) conquistaGanhar(strstr(caminhoImagemAberta, ".xavatar") || strstr(caminhoImagemAberta, ".XAVATAR") ? "xavatar" : "avatar");
 
     bool ehEsq = (painelDuplo && painelAtivo == 0);
     int tItens = ehEsq ? totalItensEsq : totalItens; bool* mItems = ehEsq ? marcadosEsq : marcados;

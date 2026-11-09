@@ -22,6 +22,7 @@ extern void preencherMenuExtra();
 extern void preencherMenuInformacao();
 extern void preencherMenuEmulador();
 extern void preencherMenuGBA(); // Novo V26
+extern void abrirEscritorio3D();
 
 bool visualizandoMidiaImagem = false;
 unsigned char* imgMidia = NULL;
@@ -238,6 +239,8 @@ void acaoCross_Root() {
         else if (sel == 4) { preencherExplorerHome(); sel = 0; off = 0; }
         else if (sel == 5) { preencherMenuExtra(); sel = 0; off = 0; }
         else if (sel == 6) { preencherMenuInformacao(); sel = 0; off = 0; }
+        else if (sel == 7) { extern void abrirConquistas(); abrirConquistas(); }
+        else if (sel == 8) { abrirEscritorio3D(); }
     }
 
     else if (menuAtual == MENU_TIPO_JOGO) {
@@ -291,6 +294,8 @@ void acaoCross_Root() {
     }
 
     else if (menuAtual == MENU_EMULADOR) {
+        extern bool bibliotecaCruz();
+        if (bibliotecaCruz()) return;
         if (totalItens > 0 && strcmp(nomes[sel], "Nenhuma ROM encontrada") != 0 && strcmp(nomes[sel], "Nenhuma ROM GBA encontrada") != 0) {
             extern char romParaCarregar[512];
             extern char caminhoROMsAtual[512];

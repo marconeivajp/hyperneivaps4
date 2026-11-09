@@ -294,7 +294,8 @@ void abrirMenuTorrent() {
 void adicionarTorrent(const char* origem) {
     if (!torrentLigar()) return;
     char erro[120];
-    if (hn_torrent_adicionar(origem, erro, sizeof(erro)) >= 0) sprintf(msgStatus, "TORRENT ADICIONADO. VEJA EM BAIXAR > TORRENT");
+    extern void conquistaGanhar(const char* chave);
+    if (hn_torrent_adicionar(origem, erro, sizeof(erro)) >= 0) { sprintf(msgStatus, "TORRENT ADICIONADO. VEJA EM BAIXAR > TORRENT"); conquistaGanhar("torrent_novo"); }
     else snprintf(msgStatus, sizeof(msgStatus), "TORRENT RECUSADO: %.90s", erro);
     msgTimer = 300;
 }

@@ -485,8 +485,9 @@ static void hnEnfileirar(int colar, bool recortar, const char* arquivo, const ch
     }
 }
 
-void hnEnfileirarExtracao(const char* arquivo, const char* destino) { hnEnfileirar(0, false, arquivo, destino); }
-void hnEnfileirarColar(const char* origem, const char* destino, bool recortar) { hnEnfileirar(1, recortar, origem, destino); }
+extern void conquistaGanhar(const char* chave);
+void hnEnfileirarExtracao(const char* arquivo, const char* destino) { conquistaGanhar("extrair"); hnEnfileirar(0, false, arquivo, destino); }
+void hnEnfileirarColar(const char* origem, const char* destino, bool recortar) { conquistaGanhar("colar"); hnEnfileirar(1, recortar, origem, destino); }
 void hnEnfileirarApagar(const char* caminho) { hnEnfileirar(2, false, caminho, ""); }
 
 volatile int hnTarefaPkg = -1;

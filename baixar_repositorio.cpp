@@ -428,6 +428,8 @@ static const FavPadrao favPadroes[] = {
     { "Ports", "alechurri/2ship2harkinian-ps4", "Zelda: Majora's Mask" },
     { "Ports", "iHaiDeeZ/G-Diffuser-PS4", "F-Zero X" },
     { "Ports", "diasurgical/DevilutionX", "Diablo" },
+    { "Homebrew", "ChiricoG/OneFamily", "OneFamily - Suporte a Controles" },
+    { "Lojas", "ehpit/ehpit-Projeto-1", "ehpit - Loja Homebrew" },
 };
 
 static bool favDentroDe(const char* caminho, const char* base) {

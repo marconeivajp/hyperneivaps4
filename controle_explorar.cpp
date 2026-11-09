@@ -165,6 +165,8 @@ static void ligarServidorSeNecessario() {
 }
 
 void instalarPkgLocal(const char* caminhoAbsoluto) {
+    extern void conquistaGanhar(const char* chave);
+    conquistaGanhar("pkg");
     // PKG cortado sempre falha no console: melhor dizer o motivo antes de tentar.
     long long faltam = hnBytesFaltandoPkg(caminhoAbsoluto);
     if (faltam > 0) {

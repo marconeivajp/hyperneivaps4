@@ -147,11 +147,25 @@ void preencherMenuEditar() {
     strcpy(nomes[16], "INTERFACE ELEMENTOS (CUSTOM UI)");
     strcpy(nomes[17], "RESETAR TUDO");
     strcpy(nomes[18], "MUSICA DE FUNDO");
-    totalItens = 19; menuAtual = MENU_EDITAR;
+    // Tema fica no topo; acaoCross_Editar desconta esta linha para achar o item.
+    memmove(nomes[1], nomes[0], sizeof(nomes[0]) * 19);
+    strcpy(nomes[0], "TEMA DA INTERFACE");
+    totalItens = 20; menuAtual = MENU_EDITAR;
 }
 
 void preencherMenuEditTarget() {
     memset(nomes, 0, sizeof(nomes)); totalItens = 0;
+
+    if (editTarget == 31) {
+        extern int temaAtual();
+        const char* temas[] = { "PADRAO", "XMB (ESTILO PS3)", "ESTILO PS4", "ESTILO PS5", "ESTILO OPL", "ESTILO XBOX 360", "ESTILO NETFLIX" };
+        for (int i = 0; i < 7; i++) {
+            sprintf(nomes[totalItens], "%s%s", temas[i], temaAtual() == i ? " [ATUAL]" : "");
+            mapAcoes[totalItens++] = 310 + i;
+        }
+        menuAtual = MENU_EDIT_TARGET;
+        return;
+    }
 
     if (editTarget == 30) {
         extern char musicaAtual[256];

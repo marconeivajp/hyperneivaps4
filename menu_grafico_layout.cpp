@@ -10,6 +10,7 @@
 #include <string.h>
 #include <math.h>
 #include <ctype.h>
+#include "temas.h"
 
 int cursX = 0, cursY = 0, cursW = 0, cursH = 0;
 
@@ -197,7 +198,7 @@ static int iconeDoItem(const char* nome, MenuLevel menu) {
         { "jog", "m_jogar" }, { "ps4", "m_jogar" }, { "retroarch", "m_jogar" }, { "nintendo", "m_jogar" }, { "sega", "m_jogar" }, { "sony", "m_jogar" }, { "controle", "m_jogar" },
         { "midia", "m_midia" }, { "video", "m_video" }, { "filme", "m_video" }, { "serie", "m_video" }, { "anime", "m_video" },
         { "audio", "m_nota" }, { "musica", "m_nota" }, { "piano", "m_nota" }, { "imag", "m_imagem" }, { "leitura", "m_livro" }, { "livro", "m_livro" }, { "manga", "m_livro" },
-        { "arquivo", "m_arquivos" }, { "editar", "m_editar" }, { "explorar", "m_explorar" }, { "extra", "m_extra" }, { "favorit", "m_extra" }, { "informac", "m_info" },
+        { "arquivo", "m_arquivos" }, { "editar", "m_editar" }, { "explorar", "m_explorar" }, { "extra", "m_extra" }, { "conquista", "m_extra" }, { "favorit", "m_extra" }, { "informac", "m_info" },
         { "hyper neiva", "m_casa" }, { "raiz", "m_disco" }, { "usb", "m_usb" }, { "pesquisar", "m_lupa" },
         { "erro", "m_aviso" }, { "nenhum", "m_aviso" }, { "vazia", "m_aviso" }, { "offline", "m_aviso" }, { "verifique", "m_aviso" }
     };
@@ -261,7 +262,7 @@ void desenharListas(uint32_t* p, int refPainel) {
     int stepY = (listOri == 0) ? curListSpc : 0;
 
     static float smoothSelDir = 0.0f; static float smoothSelEsq = 0.0f; static MenuLevel lastMenu2 = ROOT;
-    if (lastMenu2 != menuAtual) { smoothSelDir = (float)sel; smoothSelEsq = (float)selEsq; lastMenu2 = menuAtual; }
+    if (lastMenu2 != menuAtual) { smoothSelDir = (float)sel; smoothSelEsq = (float)selEsq; lastMenu2 = menuAtual; initCoverCache(); clearCoverCache(); }
     float& smoothSel = (refPainel == 0) ? smoothSelEsq : smoothSelDir;
 
     if (fabs(smoothSel - sAtual) > 20.0f) smoothSel = (float)sAtual;
@@ -596,3 +597,156 @@ void desenharRodapeEdicao(uint32_t* p) {
     desenharTexto(p, txtPos, 25, 50, 1045, 0xFF00FF00);
 }
 
+// ===== TEMAS =====
+#define ARQUIVO_TEMA "/data/HyperNeiva/configuracao/tema.txt"
+static int temaInterface = -1;
+
+int temaAtual() {
+    if (temaInterface >= 0) return temaInterface;
+    temaInterface = TEMA_PADRAO;
+    FILE* f = fopen(ARQUIVO_TEMA, "r");
+    if (f) {
+        int lido = 0;
+        if (fscanf(f, "%d", &lido) == 1 && lido >= 0 && lido < TEMA_TOTAL) temaInterface = lido;
+        fclose(f);
+    }
+    return temaInterface;
+}
+
+void definirTema(int tema) {
+    extern void conquistaGanhar(const char* chave);
+    if (tema < 0 || tema >= TEMA_TOTAL) return;
+    temaInterface = tema;
+    conquistaGanhar("tema");
+    FILE* f = fopen(ARQUIVO_TEMA, "w");
+    if (f) { fprintf(f, "%d\n", tema); fclose(f); }
+}
+
+static bool temaMenuInicio(MenuLevel m) { return m == ROOT || m == MENU_TIPO_JOGO; }
+static bool temaMenuJogos(MenuLevel m) { return m == MENU_JOGAR_PS4 || m == JOGAR_XML || m == SCRAPER_LIST; }
+
+// Só telas que são uma lista simples: o resto segue com o desenho próprio.
+bool temaCobreMenu() {
+    extern bool visualizandoMidiaImagem, visualizandoMidiaTexto, visualizandoPDF, editMode;
+    if (editMode || painelDuplo || visualizandoMidiaImagem || visualizandoMidiaTexto || visualizandoPDF) return false;
+    if (menuAtual == MENU_EMULADOR) return true;   // a biblioteca tem tela própria em qualquer tema
+    if (temaAtual() == TEMA_PADRAO) return false;
+    switch (menuAtual) {
+    case ROOT: case MENU_TIPO_JOGO: case MENU_JOGAR_PS4: case JOGAR_XML: case SCRAPER_LIST:
+    case MENU_MIDIA: case MENU_BAIXAR: case MENU_EDITAR: case MENU_EDIT_TARGET: case MENU_EXPLORAR: case MENU_EXPLORAR_HOME:
+    case MENU_EXTRA: case MENU_BAIXAR_TORRENT: case MENU_MUSICAS: case MENU_BAIXAR_GITHUB: case MENU_BAIXAR_GITHUB_REPOS:
+    case MENU_BAIXAR_GITHUB_RELEASES: case MENU_BAIXAR_GITHUB_ARQUIVOS: case MENU_BAIXAR_DROPBOX_LISTA: case MENU_BAIXAR_FTP_LISTA:
+    case MENU_RADIO_CATEGORIA: case MENU_RADIO_LISTA: case MENU_RADIO_FAVORITOS: case MENU_CONSOLES:
+        return true;
+    default:
+        return false;
+    }
+}
+
+// Nestes menus as setas esquerda e direita andam na fila, como nos cartões do tema.
+bool temaHorizontal() {
+    if (!temaCobreMenu()) return false;
+    if (menuAtual == MENU_EMULADOR) return true;
+    int tema = temaAtual();
+    if (temaMenuInicio(menuAtual)) return tema != TEMA_OPL;
+    return temaMenuJogos(menuAtual) && (tema == TEMA_PS4 || tema == TEMA_PS5 || tema == TEMA_NETFLIX);
+}
+
+void temaIcone(uint32_t* p, const char* nome, int tipo, int tam, int x, int y) {
+    desenharIcone(p, iconeDoItem(nome, tipo == CENA_LISTA ? menuAtual : ROOT), tam, x, y);
+}
+
+static bool temaCapaCarregada = false;
+
+bool temaFavorito(const char* nome) {
+    extern bool bibliotecaFavorito(const char* nome);
+    return menuAtual == MENU_EMULADOR && bibliotecaFavorito(nome);
+}
+
+bool temaCapa(int indice, const char* nome, unsigned char** img, int* w, int* h) {
+    int cache = getCachedImage(indice);
+    if (cache == -1) {
+        // Abrir PNG é demorado: um por quadro, para o carrossel não engasgar.
+        if (temaCapaCarregada) { tmRedesenhar = true; tmCapaPendente = true; return false; }
+        int livre = getFreeCacheSlot();
+        if (livre == -1) return false;
+        temaCapaCarregada = true;
+        tmRedesenhar = true;
+        char caminho[512] = "";
+        if (menuAtual == MENU_EMULADOR) {
+            extern bool bibliotecaCaminhoCapa(const char* jogo, char* saida, size_t tamanho);
+            bibliotecaCaminhoCapa(nome, caminho, sizeof(caminho));
+        }
+        else if (menuAtual == MENU_JOGAR_PS4) snprintf(caminho, sizeof(caminho), "/user/appmeta/%s/icon0.png", linksAtuais[indice]);
+        else {
+            const char* console = (consoleAtual >= 0 && consoleAtual < 5) ? listaConsoles[consoleAtual].nome : "Unknown";
+            snprintf(caminho, sizeof(caminho), "/data/HyperNeiva/baixado/capas/%s/Named_Boxarts/%s.png", console, nome);
+        }
+        coverCache[livre].index = indice;
+        coverCache[livre].img = stbi_load(caminho, &coverCache[livre].w, &coverCache[livre].h, &coverCache[livre].c, 4);
+        cache = livre;
+    }
+    if (!coverCache[cache].img) return false;
+    *img = coverCache[cache].img;
+    *w = coverCache[cache].w;
+    *h = coverCache[cache].h;
+    return true;
+}
+
+void temaDesenharAtual(uint32_t* p) {
+    static char titulo[256] = "HYPER NEIVA";
+    static unsigned int quadro = 0;
+    if (temaMenuInicio(menuAtual) && totalItens > 0) snprintf(titulo, sizeof(titulo), "%s", nomes[sel]);
+    TemaCena cena;
+    cena.nomes = nomes;
+    cena.marcados = marcados;
+    cena.total = totalItens;
+    cena.sel = sel;
+    cena.tipo = temaMenuInicio(menuAtual) ? CENA_INICIO : temaMenuJogos(menuAtual) ? CENA_JOGOS : CENA_LISTA;
+    cena.titulo = titulo;
+    cena.quadro = quadro++;
+    cena.subtitulo = "";
+    cena.opcoes = NULL;
+    cena.totalOpcoes = 0;
+    cena.selOpcao = 0;
+    cena.aba = 0;
+    cena.tituloPainel = "";
+    cena.previa = NULL;
+    cena.previaW = 0;
+    cena.previaH = 0;
+    temaCapaCarregada = false;
+    // A capa fica guardada pela posição na lista: sem limpar, o ícone de um app da lista
+    // do PS4 aparecia na mesma posição do XML.
+    static MenuLevel menuDasCapas = ROOT;
+    if (menuDasCapas != menuAtual) {
+        menuDasCapas = menuAtual;
+        initCoverCache();
+        clearCoverCache();
+    }
+    int tema = temaAtual();
+    if (menuAtual == MENU_EMULADOR) {
+        extern const char* bibliotecaSubtitulo();
+        extern const char* bibliotecaTituloPainel();
+        extern int bibliotecaAba();
+        extern bool showOpcoes;
+        extern const char* listaOpcoes[150];
+        extern int totalOpcoes, selOpcao;
+        tema = TEMA_BIBLIOTECA;
+        cena.tipo = CENA_BIBLIOTECA;
+        cena.subtitulo = bibliotecaSubtitulo();
+        cena.aba = bibliotecaAba();
+        extern unsigned char* bibliotecaPrevia(int* w, int* h);
+        cena.previa = bibliotecaPrevia(&cena.previaW, &cena.previaH);
+        if (showOpcoes) {
+            cena.opcoes = listaOpcoes;
+            cena.totalOpcoes = totalOpcoes;
+            cena.selOpcao = selOpcao;
+            cena.tituloPainel = bibliotecaTituloPainel();
+        }
+    }
+    if (cena.tipo == CENA_JOGOS || cena.tipo == CENA_BIBLIOTECA) {
+        initCoverCache();
+        cleanOldCache(sel > 6 ? sel - 6 : 0, sel + 10);
+    }
+    temaDesenhar(p, tema, &cena);
+}
