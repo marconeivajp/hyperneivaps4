@@ -38,6 +38,8 @@
 #include "menu_grafico_cache_grafico.h"
 #include <orbis/libkernel.h> 
 
+#define HN_VERSAO "3.00"
+
 extern char msgStatus[128];
 extern int msgTimer;
 
@@ -1608,6 +1610,350 @@ static void planta(float x, float z, float escala, const Camera& cam) {
     adicionarCaixa(x - 0.34f * escala, 1.00f * escala, z - 0.34f * escala, x + 0.34f * escala, 1.32f * escala, z + 0.34f * escala, 0xFF3D8A4C, cam);
 }
 
+// ---------------------------------------------------------------------------
+// Decoracao do escritorio: plantas, mesas, bebedouro, sofas e tapetes
+// ---------------------------------------------------------------------------
+enum { DECOR_PLANTA = 0, DECOR_MESA, DECOR_BEBEDOURO, DECOR_SOFA, DECOR_TAPETE, DECOR_TIPOS,
+       EDIT_CADEIRA = DECOR_TIPOS, EDIT_TV, EDIT_COMPUTADOR, EDIT_TECLADO, EDIT_PIANO,
+       EDIT_VIOLAO, EDIT_VIOLINO, EDIT_BATERIA, EDIT_PAREDE, EDIT_CHAO, EDIT_TETO, EDIT_JANELA,
+       OBJ_TIPOS };
+static const char* OBJ_NOMES[OBJ_TIPOS] = {
+    "PLANTA", "MESA", "BEBEDOURO", "SOFA", "TAPETE",
+    "CADEIRA", "TV", "COMPUTADOR", "TECLADO", "PIANO",
+    "VIOLAO", "VIOLINO", "BATERIA", "PAREDE", "CHAO", "TETO", "JANELA"
+};
+static const uint32_t DECOR_PALETA[8] = {
+    0xFF8A5A32, 0xFFB23A48, 0xFF3B6EA5, 0xFF2F7D4F,
+    0xFFE8DCC0, 0xFF3A3F47, 0xFF7A4FA0, 0xFFE07A2E
+};
+static const int DECOR_MAX = 80;
+
+// --- pintura do escritorio (0 = cor padrao do projeto) ---
+static uint32_t corParedeEdit = 0;
+static uint32_t corChaoEdit = 0;
+static uint32_t corTetoEdit = 0;
+static const uint32_t CORES_PAREDE[8] = {
+    0u, 0xFFA9D8EE, 0xFFF4F1EC, 0xFFE8D6B0, 0xFFC8E6C9, 0xFFF8C8DC, 0xFF3A3F47, 0xFFD4AF37
+};
+static const uint32_t CORES_CHAO[8] = {
+    0u, 0xFF8A5A32, 0xFFBFC4CC, 0xFFE8D6A8, 0xFF2E6DB4, 0xFF2F7D4F, 0xFFB23A48, 0xFF3A3F47
+};
+static const uint32_t CORES_TETO[6] = {
+    0u, 0xFFFFFFFF, 0xFFDCE6F3, 0xFFE8D6B0, 0xFFC8E6C9, 0xFF3A3F47
+};
+
+static int paletaAchar(const uint32_t* pal, int n, uint32_t cor) {
+    for (int i = 0; i < n; i++) if (pal[i] == cor) return i;
+    return -1;
+}
+
+static uint32_t paletaCiclar(const uint32_t* pal, int n, uint32_t cor, int dir) {
+    int i = paletaAchar(pal, n, cor);
+    i = (i < 0) ? 0 : (i + dir + n) % n;
+    return pal[i];
+}
+
+// Cicla apenas cores reais (ignora o indice 0 = "padrao" das paletas estruturais).
+static uint32_t paletaCiclarCor(const uint32_t* pal, int n, int inicio, uint32_t cor, int dir) {
+    int i = paletaAchar(pal, n, cor);
+    if (i < inicio) i = inicio;
+    for (int k = 0; k < n; k++) {
+        i += dir;
+        if (i >= n) i = inicio;
+        if (i < inicio) i = n - 1;
+        if (pal[i] != 0 || inicio == 0) break;
+    }
+    return pal[i];
+}
+static const char DECOR_ARQUIVO[] = "/data/HyperNeiva/configuracao/decoracao.txt";
+struct DecorItem { int tipo; float x, z, rot; uint32_t cor; };
+static DecorItem decorItens[DECOR_MAX];
+static int decorTotal = 0;
+static int decorEditando = -1;
+static bool decorEditNovo = false;
+static DecorItem decorAntes;
+
+static uint32_t decorCorPadrao(int tipo) {
+    if (tipo == DECOR_PLANTA) return 0xFFB9844F;
+    if (tipo == DECOR_MESA) return DECOR_PALETA[0];
+    if (tipo == DECOR_BEBEDOURO) return 0xFFE8E8E8;
+    if (tipo == DECOR_SOFA) return DECOR_PALETA[2];
+    if (tipo == DECOR_TAPETE) return DECOR_PALETA[1];
+    if (tipo == EDIT_CADEIRA) return 0xFF2C3A4E;
+    if (tipo == EDIT_TV) return 0xFF14191F;
+    if (tipo == EDIT_COMPUTADOR) return 0xFF5A3E2B;
+    if (tipo == EDIT_TECLADO) return 0xFF1B2430;
+    if (tipo == EDIT_PIANO) return 0xFF2A1D12;
+    if (tipo == EDIT_VIOLAO) return 0xFF8A5A32;
+    if (tipo == EDIT_VIOLINO) return 0xFF7A3B1E;
+    if (tipo == EDIT_BATERIA) return 0xFFB23A48;
+    if (tipo == EDIT_PAREDE) return 0xFFF4F1EC;
+    if (tipo == EDIT_CHAO) return 0xFF8A5A32;
+    if (tipo == EDIT_TETO) return 0xFFDCE6F3;
+    if (tipo == EDIT_JANELA) return 0xFF38424F;
+    return 0xFFFFFFFF;
+}
+
+static Ponto pontoRot(float cx, float cz, float rot, float lx, float ly, float lz) {
+    float co = cosf(rot), si = sinf(rot);
+    return ponto(cx + lx * co - lz * si, ly, cz + lx * si + lz * co);
+}
+
+static void adicionarCaixaRot(float cx, float cz, float rot, float x0, float y0, float z0, float x1, float y1, float z1, uint32_t cor, const Camera& cam) {
+    Ponto a = pontoRot(cx, cz, rot, x0, y0, z0), b = pontoRot(cx, cz, rot, x1, y0, z0);
+    Ponto c = pontoRot(cx, cz, rot, x1, y0, z1), d = pontoRot(cx, cz, rot, x0, y0, z1);
+    Ponto e = pontoRot(cx, cz, rot, x0, y1, z0), f = pontoRot(cx, cz, rot, x1, y1, z0);
+    Ponto g = pontoRot(cx, cz, rot, x1, y1, z1), h = pontoRot(cx, cz, rot, x0, y1, z1);
+    adicionarQuad(a, b, f, e, cor, cam);
+    adicionarQuad(b, c, g, f, cor, cam);
+    adicionarQuad(c, d, h, g, cor, cam);
+    adicionarQuad(d, a, e, h, cor, cam);
+    adicionarQuad(e, f, g, h, cor, cam);
+    adicionarQuad(a, d, c, b, cor, cam);
+}
+
+static void decorDesenharItem(const DecorItem& it, const Camera& cam) {
+    float x = it.x, z = it.z, r = it.rot;
+    if (it.tipo == DECOR_PLANTA) {
+        adicionarCaixaRot(x, z, r, -0.22f, 0.0f, -0.22f, 0.22f, 0.42f, 0.22f, it.cor, cam);
+        adicionarCaixaRot(x, z, r, -0.09f, 0.42f, -0.09f, 0.09f, 1.05f, 0.09f, 0xFF2F6B3C, cam);
+        adicionarCaixaRot(x, z, r, -0.34f, 1.00f, -0.34f, 0.34f, 1.32f, 0.34f, 0xFF3D8A4C, cam);
+    } else if (it.tipo == DECOR_MESA) {
+        uint32_t pe = escurecer(it.cor, 0.62f);
+        adicionarCaixaRot(x, z, r, -0.80f, 0.40f, -0.45f, 0.80f, 0.50f, 0.45f, it.cor, cam);
+        adicionarCaixaRot(x, z, r, -0.72f, 0.0f, -0.37f, -0.64f, 0.40f, -0.29f, pe, cam);
+        adicionarCaixaRot(x, z, r, 0.64f, 0.0f, -0.37f, 0.72f, 0.40f, -0.29f, pe, cam);
+        adicionarCaixaRot(x, z, r, -0.72f, 0.0f, 0.29f, -0.64f, 0.40f, 0.37f, pe, cam);
+        adicionarCaixaRot(x, z, r, 0.64f, 0.0f, 0.29f, 0.72f, 0.40f, 0.37f, pe, cam);
+    } else if (it.tipo == DECOR_BEBEDOURO) {
+        adicionarCaixaRot(x, z, r, -0.24f, 0.0f, -0.24f, 0.24f, 1.02f, 0.24f, it.cor, cam);
+        adicionarCaixaRot(x, z, r, -0.18f, 0.30f, -0.27f, 0.18f, 0.46f, 0.27f, 0xFF2E6DB4, cam);
+        adicionarCaixaRot(x, z, r, -0.15f, 1.02f, -0.15f, 0.15f, 1.48f, 0.15f, 0xFF8ED4FF, cam);
+        adicionarCaixaRot(x, z, r, -0.06f, 1.48f, -0.06f, 0.06f, 1.58f, 0.06f, 0xFFE6F6FF, cam);
+    } else if (it.tipo == DECOR_SOFA) {
+        uint32_t claro = escurecer(it.cor, 1.16f);
+        uint32_t escuro = escurecer(it.cor, 0.72f);
+        adicionarCaixaRot(x, z, r, -0.95f, 0.14f, -0.42f, 0.95f, 0.45f, 0.42f, it.cor, cam);
+        adicionarCaixaRot(x, z, r, -0.95f, 0.45f, 0.26f, 0.95f, 0.92f, 0.44f, escuro, cam);
+        adicionarCaixaRot(x, z, r, -0.95f, 0.45f, -0.42f, -0.74f, 0.70f, 0.44f, claro, cam);
+        adicionarCaixaRot(x, z, r, 0.74f, 0.45f, -0.42f, 0.95f, 0.70f, 0.44f, claro, cam);
+        adicionarCaixaRot(x, z, r, -0.88f, 0.0f, -0.36f, -0.80f, 0.14f, -0.28f, 0xFF2A1D12, cam);
+        adicionarCaixaRot(x, z, r, 0.80f, 0.0f, -0.36f, 0.88f, 0.14f, -0.28f, 0xFF2A1D12, cam);
+        adicionarCaixaRot(x, z, r, -0.88f, 0.0f, 0.28f, -0.80f, 0.14f, 0.36f, 0xFF2A1D12, cam);
+        adicionarCaixaRot(x, z, r, 0.80f, 0.0f, 0.28f, 0.88f, 0.14f, 0.36f, 0xFF2A1D12, cam);
+    } else if (it.tipo == DECOR_TAPETE) {
+        adicionarCaixaRot(x, z, r, -1.20f, 0.015f, -0.80f, 1.20f, 0.030f, 0.80f, it.cor, cam);
+        adicionarCaixaRot(x, z, r, -1.00f, 0.030f, -0.62f, 1.00f, 0.040f, 0.62f, escurecer(it.cor, 1.30f), cam);
+    } else if (it.tipo == EDIT_CADEIRA) {
+        uint32_t pe = escurecer(it.cor, 0.55f);
+        adicionarCaixaRot(x, z, r, -0.24f, 0.42f, -0.24f, 0.24f, 0.50f, 0.24f, it.cor, cam);
+        adicionarCaixaRot(x, z, r, -0.24f, 0.50f, -0.27f, 0.24f, 1.05f, -0.19f, it.cor, cam);
+        adicionarCaixaRot(x, z, r, -0.05f, 0.10f, -0.05f, 0.05f, 0.42f, 0.05f, pe, cam);
+        adicionarCaixaRot(x, z, r, -0.20f, 0.03f, -0.20f, 0.20f, 0.10f, -0.14f, pe, cam);
+        adicionarCaixaRot(x, z, r, -0.20f, 0.03f, 0.14f, 0.20f, 0.10f, 0.20f, pe, cam);
+    } else if (it.tipo == EDIT_TV) {
+        uint32_t escuro = escurecer(it.cor, 0.75f);
+        adicionarCaixaRot(x, z, r, -0.55f, 0.0f, -0.18f, 0.55f, 0.35f, 0.18f, escuro, cam);
+        adicionarCaixaRot(x, z, r, -0.06f, 0.35f, -0.04f, 0.06f, 0.57f, 0.04f, escuro, cam);
+        adicionarCaixaRot(x, z, r, -0.70f, 0.55f, -0.05f, 0.70f, 1.35f, 0.05f, it.cor, cam);
+        adicionarCaixaRot(x, z, r, -0.64f, 0.60f, 0.04f, 0.64f, 1.30f, 0.06f, 0xFF2E6DB4, cam);
+    } else if (it.tipo == EDIT_COMPUTADOR) {
+        uint32_t pe = escurecer(it.cor, 0.6f);
+        adicionarCaixaRot(x, z, r, -0.60f, 0.72f, -0.30f, 0.60f, 0.78f, 0.30f, it.cor, cam);
+        adicionarCaixaRot(x, z, r, -0.56f, 0.0f, -0.26f, -0.50f, 0.72f, -0.20f, pe, cam);
+        adicionarCaixaRot(x, z, r, 0.50f, 0.0f, -0.26f, 0.56f, 0.72f, -0.20f, pe, cam);
+        adicionarCaixaRot(x, z, r, -0.56f, 0.0f, 0.20f, -0.50f, 0.72f, 0.26f, pe, cam);
+        adicionarCaixaRot(x, z, r, 0.50f, 0.0f, 0.20f, 0.56f, 0.72f, 0.26f, pe, cam);
+        adicionarCaixaRot(x, z, r, -0.12f, 0.78f, -0.06f, 0.12f, 0.82f, 0.06f, 0xFF20242A, cam);
+        adicionarCaixaRot(x, z, r, -0.04f, 0.82f, -0.04f, 0.04f, 0.95f, 0.04f, 0xFF20242A, cam);
+        adicionarCaixaRot(x, z, r, -0.28f, 0.95f, -0.04f, 0.28f, 1.35f, 0.04f, 0xFF20242A, cam);
+        adicionarCaixaRot(x, z, r, -0.25f, 0.98f, 0.03f, 0.25f, 1.32f, 0.05f, 0xFF2E6DB4, cam);
+        adicionarCaixaRot(x, z, r, -0.22f, 0.78f, 0.10f, 0.22f, 0.80f, 0.22f, 0xFF2A3340, cam);
+    } else if (it.tipo == EDIT_TECLADO) {
+        uint32_t escuro = escurecer(it.cor, 0.6f);
+        adicionarCaixaRot(x, z, r, -0.36f, 0.0f, -0.05f, -0.30f, 0.70f, 0.05f, escuro, cam);
+        adicionarCaixaRot(x, z, r, 0.30f, 0.0f, -0.05f, 0.36f, 0.70f, 0.05f, escuro, cam);
+        adicionarCaixaRot(x, z, r, -0.36f, 0.30f, -0.03f, 0.36f, 0.36f, 0.03f, escuro, cam);
+        adicionarCaixaRot(x, z, r, -0.65f, 0.70f, -0.16f, 0.65f, 0.78f, 0.16f, it.cor, cam);
+        adicionarCaixaRot(x, z, r, -0.60f, 0.78f, -0.12f, 0.60f, 0.80f, 0.10f, 0xFFF4F1EC, cam);
+        for (int k = 0; k < 8; k++) {
+            float kx = -0.52f + k * 0.14f;
+            adicionarCaixaRot(x, z, r, kx, 0.80f, -0.08f, kx + 0.06f, 0.81f, 0.02f, 0xFF171A1F, cam);
+        }
+    } else if (it.tipo == EDIT_PIANO) {
+        uint32_t claro = escurecer(it.cor, 1.5f);
+        adicionarCaixaRot(x, z, r, -0.75f, 0.0f, -0.32f, 0.75f, 1.18f, 0.30f, it.cor, cam);
+        adicionarCaixaRot(x, z, r, -0.78f, 1.18f, -0.35f, 0.78f, 1.24f, 0.33f, claro, cam);
+        adicionarCaixaRot(x, z, r, -0.70f, 0.70f, 0.30f, 0.70f, 0.76f, 0.50f, claro, cam);
+        adicionarCaixaRot(x, z, r, -0.66f, 0.76f, 0.33f, 0.66f, 0.78f, 0.47f, 0xFFF4F1EC, cam);
+        for (int k = 0; k < 9; k++) {
+            float kx = -0.58f + k * 0.145f;
+            adicionarCaixaRot(x, z, r, kx, 0.78f, 0.35f, kx + 0.06f, 0.79f, 0.44f, 0xFF171A1F, cam);
+        }
+        adicionarCaixaRot(x, z, r, -0.66f, 0.0f, 0.42f, -0.58f, 0.70f, 0.50f, it.cor, cam);
+        adicionarCaixaRot(x, z, r, 0.58f, 0.0f, 0.42f, 0.66f, 0.70f, 0.50f, it.cor, cam);
+    } else if (it.tipo == EDIT_VIOLAO) {
+        uint32_t escuro = escurecer(it.cor, 0.6f);
+        adicionarCaixaRot(x, z, r, -0.16f, 0.0f, -0.16f, 0.16f, 0.06f, 0.16f, 0xFF3A3F47, cam);
+        adicionarCaixaRot(x, z, r, -0.04f, 0.06f, -0.04f, 0.04f, 0.45f, 0.04f, 0xFF3A3F47, cam);
+        adicionarCaixaRot(x, z, r, -0.20f, 0.45f, -0.07f, 0.20f, 1.00f, 0.07f, it.cor, cam);
+        adicionarCaixaRot(x, z, r, -0.09f, 0.62f, 0.07f, 0.09f, 0.80f, 0.08f, escuro, cam);
+        adicionarCaixaRot(x, z, r, -0.05f, 1.00f, -0.03f, 0.05f, 1.72f, 0.03f, 0xFF3A2A1C, cam);
+        adicionarCaixaRot(x, z, r, -0.08f, 1.72f, -0.04f, 0.08f, 1.90f, 0.04f, escuro, cam);
+    } else if (it.tipo == EDIT_VIOLINO) {
+        uint32_t escuro = escurecer(it.cor, 0.6f);
+        adicionarCaixaRot(x, z, r, -0.14f, 0.0f, -0.14f, 0.14f, 0.06f, 0.14f, 0xFF3A3F47, cam);
+        adicionarCaixaRot(x, z, r, -0.03f, 0.06f, -0.03f, 0.03f, 0.90f, 0.03f, 0xFF3A3F47, cam);
+        adicionarCaixaRot(x, z, r, -0.14f, 0.90f, -0.05f, 0.14f, 1.24f, 0.05f, it.cor, cam);
+        adicionarCaixaRot(x, z, r, -0.06f, 1.00f, 0.05f, 0.06f, 1.14f, 0.06f, escuro, cam);
+        adicionarCaixaRot(x, z, r, -0.03f, 1.24f, -0.02f, 0.03f, 1.58f, 0.02f, 0xFF3A2A1C, cam);
+        adicionarCaixaRot(x, z, r, -0.05f, 1.58f, -0.03f, 0.05f, 1.70f, 0.03f, escuro, cam);
+    } else if (it.tipo == EDIT_BATERIA) {
+        uint32_t pele = 0xFFE8DCC0;
+        adicionarCaixaRot(x, z, r, -0.40f, 0.10f, -0.22f, 0.40f, 0.70f, 0.22f, it.cor, cam);
+        adicionarCaixaRot(x, z, r, -0.30f, 0.20f, 0.22f, 0.30f, 0.60f, 0.25f, pele, cam);
+        adicionarCaixaRot(x, z, r, -0.34f, 0.75f, -0.14f, -0.10f, 0.95f, 0.12f, it.cor, cam);
+        adicionarCaixaRot(x, z, r, -0.30f, 0.95f, -0.11f, -0.14f, 0.97f, 0.09f, pele, cam);
+        adicionarCaixaRot(x, z, r, 0.10f, 0.70f, -0.14f, 0.34f, 0.88f, 0.12f, it.cor, cam);
+        adicionarCaixaRot(x, z, r, 0.14f, 0.88f, -0.11f, 0.30f, 0.90f, 0.09f, pele, cam);
+        adicionarCaixaRot(x, z, r, -0.02f, 0.50f, 0.30f, 0.16f, 0.62f, 0.42f, 0xFFF4F1EC, cam);
+        adicionarCaixaRot(x, z, r, -0.68f, 0.0f, -0.03f, -0.62f, 1.10f, 0.03f, 0xFF3A3F47, cam);
+        adicionarCaixaRot(x, z, r, -0.82f, 1.08f, -0.16f, -0.48f, 1.11f, 0.16f, 0xFFD4AF37, cam);
+        adicionarCaixaRot(x, z, r, 0.62f, 0.0f, -0.03f, 0.68f, 1.02f, 0.03f, 0xFF3A3F47, cam);
+        adicionarCaixaRot(x, z, r, 0.48f, 1.00f, -0.16f, 0.82f, 1.03f, 0.16f, 0xFFD4AF37, cam);
+    } else if (it.tipo == EDIT_PAREDE) {
+        uint32_t borda = escurecer(it.cor, 0.7f);
+        adicionarCaixaRot(x, z, r, -1.25f, 0.0f, -0.06f, 1.25f, 3.0f, 0.06f, it.cor, cam);
+        adicionarCaixaRot(x, z, r, -1.25f, 0.0f, -0.09f, 1.25f, 0.12f, 0.09f, borda, cam);
+    } else if (it.tipo == EDIT_CHAO) {
+        uint32_t borda = escurecer(it.cor, 0.55f);
+        adicionarCaixaRot(x, z, r, -1.25f, 0.02f, -1.25f, 1.25f, 0.12f, 1.25f, it.cor, cam);
+        adicionarCaixaRot(x, z, r, -1.25f, 0.12f, -1.25f, 1.25f, 0.15f, -1.15f, borda, cam);
+        adicionarCaixaRot(x, z, r, -1.25f, 0.12f, 1.15f, 1.25f, 0.15f, 1.25f, borda, cam);
+        adicionarCaixaRot(x, z, r, -1.25f, 0.12f, -1.15f, -1.15f, 0.15f, 1.15f, borda, cam);
+        adicionarCaixaRot(x, z, r, 1.15f, 0.12f, -1.15f, 1.25f, 0.15f, 1.15f, borda, cam);
+    } else if (it.tipo == EDIT_TETO) {
+        uint32_t borda = escurecer(it.cor, 0.55f);
+        adicionarCaixaRot(x, z, r, -1.25f, 2.82f, -1.25f, 1.25f, 2.94f, 1.25f, it.cor, cam);
+        adicionarCaixaRot(x, z, r, -1.25f, 2.78f, -1.25f, 1.25f, 2.82f, -1.15f, borda, cam);
+        adicionarCaixaRot(x, z, r, -1.25f, 2.78f, 1.15f, 1.25f, 2.82f, 1.25f, borda, cam);
+        adicionarCaixaRot(x, z, r, -1.25f, 2.78f, -1.15f, -1.15f, 2.82f, 1.15f, borda, cam);
+        adicionarCaixaRot(x, z, r, 1.15f, 2.78f, -1.15f, 1.25f, 2.82f, 1.15f, borda, cam);
+    } else if (it.tipo == EDIT_JANELA) {
+        uint32_t vidroJan = 0xFFBFE8FF;
+        adicionarCaixaRot(x, z, r, -0.90f, 1.00f, -0.02f, 0.90f, 2.00f, 0.02f, vidroJan, cam);
+        adicionarCaixaRot(x, z, r, -1.00f, 0.90f, -0.06f, -0.90f, 2.10f, 0.06f, it.cor, cam);
+        adicionarCaixaRot(x, z, r, 0.90f, 0.90f, -0.06f, 1.00f, 2.10f, 0.06f, it.cor, cam);
+        adicionarCaixaRot(x, z, r, -0.90f, 2.00f, -0.06f, 0.90f, 2.10f, 0.06f, it.cor, cam);
+        adicionarCaixaRot(x, z, r, -0.90f, 0.90f, -0.06f, 0.90f, 1.00f, 0.06f, it.cor, cam);
+        adicionarCaixaRot(x, z, r, -0.05f, 1.00f, -0.05f, 0.05f, 2.00f, 0.05f, it.cor, cam);
+        adicionarCaixaRot(x, z, r, -0.90f, 1.48f, -0.05f, 0.90f, 1.52f, 0.05f, it.cor, cam);
+    }
+}
+
+static void decorExtensao(const DecorItem& it, float* foraHx, float* foraHz, bool* foraGirado) {
+    float hx = 0.0f, hz = 0.0f;
+    bool girado = false;
+    if (it.tipo == DECOR_PLANTA) { hx = 0.30f; hz = 0.30f; }
+    else if (it.tipo == DECOR_MESA) { hx = 0.85f; hz = 0.50f; }
+    else if (it.tipo == DECOR_BEBEDOURO) { hx = 0.28f; hz = 0.28f; }
+    else if (it.tipo == DECOR_SOFA) { hx = 1.00f; hz = 0.50f; }
+    else if (it.tipo == EDIT_CADEIRA) { hx = 0.28f; hz = 0.28f; }
+    else if (it.tipo == EDIT_TV) { hx = 0.72f; hz = 0.20f; girado = true; }
+    else if (it.tipo == EDIT_COMPUTADOR) { hx = 0.62f; hz = 0.32f; girado = true; }
+    else if (it.tipo == EDIT_TECLADO) { hx = 0.70f; hz = 0.20f; girado = true; }
+    else if (it.tipo == EDIT_PIANO) { hx = 0.80f; hz = 0.52f; girado = true; }
+    else if (it.tipo == EDIT_VIOLAO || it.tipo == EDIT_VIOLINO) { hx = 0.22f; hz = 0.22f; }
+    else if (it.tipo == EDIT_BATERIA) { hx = 0.85f; hz = 0.45f; girado = true; }
+    else if (it.tipo == EDIT_PAREDE) { hx = 1.30f; hz = 0.12f; girado = true; }
+    else if (it.tipo == EDIT_JANELA) { hx = 1.05f; hz = 0.12f; girado = true; }
+    *foraHx = hx; *foraHz = hz; *foraGirado = girado;
+}
+
+static void desenharDecoracoes(const Camera& cam, float tempo) {
+    for (int i = 0; i < decorTotal; i++) {
+        const DecorItem& it = decorItens[i];
+        float hx = 0.0f, hz = 0.0f;
+        bool girado = false;
+        decorExtensao(it, &hx, &hz, &girado);
+        if (i == decorEditando) {
+            float pulso = 1.0f + 0.05f * sinf(tempo * 6.0f);
+            float hy = 0.02f;
+            if (it.tipo == EDIT_TETO) hy = 2.75f;
+            else if (it.tipo == EDIT_JANELA) hy = 0.85f;
+            else if (it.tipo == EDIT_CHAO) hy = 0.17f;
+            float ex = (hx > 0.0f ? hx : 0.9f) + 0.06f;
+            float ez = (hz > 0.0f ? hz : 0.6f) + 0.06f;
+            adicionarCaixaRot(it.x, it.z, it.rot, -ex * pulso, hy, -ez * pulso,
+                              ex * pulso, hy + 0.012f, ez * pulso, 0xFFFFD166, cam);
+        }
+        decorDesenharItem(it, cam);
+        if (hx > 0.0f) {
+            if (girado) {
+                float c = fabsf(cosf(it.rot)), s = fabsf(sinf(it.rot));
+                float ax = hx * c + hz * s, az = hx * s + hz * c;
+                adicionarObstaculo(it.x - ax, it.x + ax, it.z - az, it.z + az);
+            } else {
+                adicionarObstaculo(it.x - hx, it.x + hx, it.z - hz, it.z + hz);
+            }
+        }
+    }
+}
+
+static void decorLog(const char* evento, bool limpar) {
+    FILE* f = fopen("/data/HyperNeiva/decor_debug_log.txt", limpar ? "w" : "a");
+    if (!f) return;
+    fprintf(f, "%s itens=%d parede=%u chao=%u teto=%u\n", evento, decorTotal,
+            (unsigned)corParedeEdit, (unsigned)corChaoEdit, (unsigned)corTetoEdit);
+    fclose(f);
+}
+
+static void salvarDecoracoes() {
+    FILE* f = fopen(DECOR_ARQUIVO, "w");
+    if (!f) return;
+    fprintf(f, "P %u %u %u\n", (unsigned)corParedeEdit, (unsigned)corChaoEdit, (unsigned)corTetoEdit);
+    for (int i = 0; i < decorTotal; i++) {
+        fprintf(f, "O %d %.3f %.3f %.4f %u\n", decorItens[i].tipo, decorItens[i].x,
+                decorItens[i].z, decorItens[i].rot, (unsigned)decorItens[i].cor);
+    }
+    fclose(f);
+    decorLog("SALVO", false);
+}
+
+static void carregarDecoracoes() {
+    decorTotal = 0;
+    corParedeEdit = 0;
+    corChaoEdit = 0;
+    corTetoEdit = 0;
+    FILE* f = fopen(DECOR_ARQUIVO, "r");
+    if (!f) { decorLog("CARREGADO SEM ARQUIVO", true); return; }
+    char linha[192];
+    while (decorTotal < DECOR_MAX && fgets(linha, sizeof(linha), f)) {
+        char* p = linha;
+        while (*p == ' ' || *p == '\t') p++;
+        if (*p == 'P' || *p == 'p') {
+            unsigned pr = 0, ch = 0, te = 0;
+            if (sscanf(p + 1, "%u %u %u", &pr, &ch, &te) == 3) {
+                corParedeEdit = pr; corChaoEdit = ch; corTetoEdit = te;
+            }
+            continue;
+        }
+        int tipo = 0;
+        float x = 0.0f, z = 0.0f, rot = 0.0f;
+        unsigned cor = 0;
+        int lidos = 0;
+        if (*p == 'O' || *p == 'o') lidos = sscanf(p + 1, "%d %f %f %f %u", &tipo, &x, &z, &rot, &cor);
+        else lidos = sscanf(p, "%d %f %f %f %u", &tipo, &x, &z, &rot, &cor);
+        if (lidos != 5) continue;
+        if (tipo < 0 || tipo >= OBJ_TIPOS) continue;
+        DecorItem& it = decorItens[decorTotal++];
+        it.tipo = tipo; it.x = x; it.z = z; it.rot = rot;
+        it.cor = cor ? cor : decorCorPadrao(tipo);
+    }
+    fclose(f);
+    decorLog("CARREGADO", true);
+}
+
 static void desenharAgente(const DadosAgente& a, float fase, const Camera& cam) {
     float dx = a.x - cam.x;
     float dz = a.z - cam.z;
@@ -1803,6 +2149,7 @@ static void construirEspelho(const AvatarCfg& cfg, const Camera& cam, float temp
 }
 
 static const char* nomeSala(float x, float z) {
+    if (z > 20.0f) return "AREA EXTERNA";
     if (x < -10.0f && z < -4.0f) return "CRIACAO";
     if (x > 10.0f && z < -4.0f) return "TRAFEGO E SOCIAL";
     if (x < -10.0f && z > 4.0f) return "COMERCIAL";
@@ -1815,22 +2162,28 @@ static const char* nomeSala(float x, float z) {
 static void construirCena(const Camera& cam, float tempo) {
     totalObstaculos = 0;
 
-    adicionarPiso(-30.0f, 30.0f, -20.0f, 20.0f, 0xFFD9D2C6, 0xFFD9D2C6, 0.0f, cam);
-    adicionarPiso(-30.0f, -10.0f, -20.0f, -4.0f, 0xFFF7E6CC, 0xFFEFDCC0, 0.02f, cam);
-    adicionarPiso(10.0f, 30.0f, -20.0f, -4.0f, 0xFFDCEBF8, 0xFFCFE0F0, 0.02f, cam);
-    adicionarPiso(-30.0f, -10.0f, 4.0f, 20.0f, 0xFFE9E1F6, 0xFFDED3F0, 0.02f, cam);
-    adicionarPiso(10.0f, 30.0f, 4.0f, 20.0f, 0xFFE2F1E0, 0xFFD2E8D0, 0.02f, cam);
-    adicionarPiso(-10.0f, 10.0f, -8.0f, 8.0f, 0xFFEEE8DE, 0xFFD3CBBE, 0.02f, cam);
-    adicionarPiso(-8.0f, 8.0f, -20.0f, -8.0f, 0xFFC9CDD4, 0xFFBFC4CC, 0.02f, cam);
-    adicionarPiso(-8.0f, 8.0f, 8.0f, 20.0f, 0xFFD9935A, 0xFFB97A48, 0.02f, cam);
+    uint32_t chaoA = corChaoEdit ? corChaoEdit : 0xFFD9D2C6;
+    uint32_t chaoB = corChaoEdit ? escurecer(corChaoEdit, 0.82f) : 0xFFD9D2C6;
+    adicionarPiso(-30.0f, 30.0f, -20.0f, 20.0f, chaoA, chaoB, 0.0f, cam);
+    if (corChaoEdit == 0) {
+        adicionarPiso(-30.0f, -10.0f, -20.0f, -4.0f, 0xFFF7E6CC, 0xFFEFDCC0, 0.02f, cam);
+        adicionarPiso(10.0f, 30.0f, -20.0f, -4.0f, 0xFFDCEBF8, 0xFFCFE0F0, 0.02f, cam);
+        adicionarPiso(-30.0f, -10.0f, 4.0f, 20.0f, 0xFFE9E1F6, 0xFFDED3F0, 0.02f, cam);
+        adicionarPiso(10.0f, 30.0f, 4.0f, 20.0f, 0xFFE2F1E0, 0xFFD2E8D0, 0.02f, cam);
+        adicionarPiso(-10.0f, 10.0f, -8.0f, 8.0f, 0xFFEEE8DE, 0xFFD3CBBE, 0.02f, cam);
+        adicionarPiso(-8.0f, 8.0f, -20.0f, -8.0f, 0xFFC9CDD4, 0xFFBFC4CC, 0.02f, cam);
+        adicionarPiso(-8.0f, 8.0f, 8.0f, 20.0f, 0xFFD9935A, 0xFFB97A48, 0.02f, cam);
 
-    adicionarPiso(-4.0f, 4.0f, -3.0f, 4.0f, 0xFF2E6DB4, 0xFF2E6DB4, 0.03f, cam);
-    adicionarPiso(-4.0f, -3.70f, -3.0f, 4.0f, 0xFFF1521B, 0xFFF1521B, 0.035f, cam);
-    adicionarPiso(3.70f, 4.0f, -3.0f, 4.0f, 0xFFF1521B, 0xFFF1521B, 0.035f, cam);
-    adicionarPiso(-4.0f, 4.0f, -3.0f, -2.70f, 0xFFF1521B, 0xFFF1521B, 0.035f, cam);
-    adicionarPiso(-4.0f, 4.0f, 3.70f, 4.0f, 0xFFF1521B, 0xFFF1521B, 0.035f, cam);
+        adicionarPiso(-4.0f, 4.0f, -3.0f, 4.0f, 0xFF2E6DB4, 0xFF2E6DB4, 0.03f, cam);
+        adicionarPiso(-4.0f, -3.70f, -3.0f, 4.0f, 0xFFF1521B, 0xFFF1521B, 0.035f, cam);
+        adicionarPiso(3.70f, 4.0f, -3.0f, 4.0f, 0xFFF1521B, 0xFFF1521B, 0.035f, cam);
+        adicionarPiso(-4.0f, 4.0f, -3.0f, -2.70f, 0xFFF1521B, 0xFFF1521B, 0.035f, cam);
+        adicionarPiso(-4.0f, 4.0f, 3.70f, 4.0f, 0xFFF1521B, 0xFFF1521B, 0.035f, cam);
+    }
 
-    adicionarPiso(-30.0f, 30.0f, -20.0f, 20.0f, 0xFFF6F4EF, 0xFFDEDAD1, 3.0f, cam, true);
+    uint32_t tetoA = corTetoEdit ? corTetoEdit : 0xFFF6F4EF;
+    uint32_t tetoB = corTetoEdit ? escurecer(corTetoEdit, 0.88f) : 0xFFDEDAD1;
+    adicionarPiso(-30.0f, 30.0f, -20.0f, 20.0f, tetoA, tetoB, 3.0f, cam, true);
 
     uint32_t luzTeto = 0xFFFBF7EA;
     for (int i = 0; i < 5; i++) {
@@ -1841,9 +2194,13 @@ static void construirCena(const Camera& cam, float tempo) {
         }
     }
 
-    uint32_t vidro = 0xFFA9D8EE;
+    uint32_t vidro = corParedeEdit ? corParedeEdit : 0xFFA9D8EE;
     adicionarCaixa(-30.25f, 0.0f, -20.25f, 30.25f, 3.0f, -19.85f, vidro, cam);
-    adicionarCaixa(-30.25f, 0.0f, 19.85f, 30.25f, 3.0f, 20.25f, vidro, cam);
+    adicionarCaixa(-30.25f, 0.0f, 19.85f, -3.0f, 3.0f, 20.25f, vidro, cam);
+    adicionarCaixa(3.0f, 0.0f, 19.85f, 30.25f, 3.0f, 20.25f, vidro, cam);
+    adicionarCaixa(-3.2f, 0.0f, 19.80f, -2.9f, 3.0f, 20.30f, 0xFF38424F, cam);
+    adicionarCaixa(2.9f, 0.0f, 19.80f, 3.2f, 3.0f, 20.30f, 0xFF38424F, cam);
+    adicionarCaixa(-3.2f, 2.80f, 19.80f, 3.2f, 3.0f, 20.30f, 0xFF38424F, cam);
     adicionarCaixa(-30.25f, 0.0f, -20.25f, -29.85f, 3.0f, 20.25f, vidro, cam);
     adicionarCaixa(29.85f, 0.0f, -20.25f, 30.25f, 3.0f, 20.25f, vidro, cam);
 
@@ -1868,6 +2225,7 @@ static void construirCena(const Camera& cam, float tempo) {
     uint32_t esquadria = 0xFF38424F;
     for (float mx = -20.0f; mx <= 20.0f; mx += 10.0f) {
         adicionarCaixa(mx - 0.07f, 0.0f, -19.87f, mx + 0.07f, 3.0f, -19.81f, esquadria, cam);
+        if (mx > -1.0f && mx < 1.0f) continue;
         adicionarCaixa(mx - 0.07f, 0.0f, 19.81f, mx + 0.07f, 3.0f, 19.87f, esquadria, cam);
     }
     for (float mz = -10.0f; mz <= 10.0f; mz += 10.0f) {
@@ -2042,11 +2400,78 @@ static void construirCena(const Camera& cam, float tempo) {
     planta(29.0f, -19.0f, 1.1f, cam);
     planta(-29.0f, 19.0f, 1.1f, cam);
     planta(29.0f, 19.0f, 1.1f, cam);
+
+    uint32_t gramaA = 0xFF3E8E4A, gramaB = 0xFF357B40;
+    uint32_t pedraA = 0xFFCFC4AE, pedraB = 0xFFBDB09A;
+    uint32_t branco = 0xFFFFFFFF;
+    adicionarPiso(-30.0f, 30.0f, 20.0f, 60.0f, gramaA, gramaB, 0.0f, cam);
+    adicionarPiso(-4.0f, 4.0f, 20.0f, 27.0f, pedraA, pedraB, 0.02f, cam);
+    adicionarPiso(-2.0f, 2.0f, 27.0f, 44.0f, pedraA, pedraB, 0.025f, cam);
+
+    uint32_t cerca = 0xFF8A8F99, mourão = 0xFF5A6472;
+    adicionarCaixa(-30.20f, 0.0f, 20.0f, -29.90f, 1.60f, 60.0f, cerca, cam);
+    adicionarCaixa(29.90f, 0.0f, 20.0f, 30.20f, 1.60f, 60.0f, cerca, cam);
+    adicionarCaixa(-30.20f, 0.0f, 59.70f, 30.20f, 1.60f, 60.0f, cerca, cam);
+    adicionarCaixa(-30.20f, 1.60f, 20.0f, -29.90f, 1.75f, 60.0f, mourão, cam);
+    adicionarCaixa(29.90f, 1.60f, 20.0f, 30.20f, 1.75f, 60.0f, mourão, cam);
+    adicionarCaixa(-30.20f, 1.60f, 59.70f, 30.20f, 1.75f, 60.0f, mourão, cam);
+    for (float fz = 20.0f; fz <= 60.0f; fz += 5.0f) {
+        adicionarCaixa(-30.25f, 0.0f, fz - 0.10f, -29.85f, 1.90f, fz + 0.10f, mourão, cam);
+        adicionarCaixa(29.85f, 0.0f, fz - 0.10f, 30.25f, 1.90f, fz + 0.10f, mourão, cam);
+    }
+    for (float fx = -30.0f; fx <= 30.0f; fx += 10.0f)
+        adicionarCaixa(fx - 0.10f, 0.0f, 59.65f, fx + 0.10f, 1.90f, 60.05f, mourão, cam);
+
+    uint32_t areiaA = 0xFFE8D6A8, areiaB = 0xFFDCC894;
+    adicionarPiso(-24.0f, -6.0f, 27.0f, 41.0f, areiaA, areiaB, 0.03f, cam);
+    adicionarPiso(-23.5f, -6.5f, 27.5f, 27.8f, branco, branco, 0.045f, cam);
+    adicionarPiso(-23.5f, -6.5f, 40.2f, 40.5f, branco, branco, 0.045f, cam);
+    adicionarPiso(-23.5f, -23.2f, 27.5f, 40.5f, branco, branco, 0.045f, cam);
+    adicionarPiso(-6.8f, -6.5f, 27.5f, 40.5f, branco, branco, 0.045f, cam);
+    adicionarPiso(-15.15f, -14.85f, 27.5f, 40.5f, branco, branco, 0.045f, cam);
+    adicionarCaixa(-15.15f, 0.0f, 27.0f, -14.85f, 2.45f, 27.25f, mourão, cam);
+    adicionarCaixa(-15.15f, 0.0f, 40.75f, -14.85f, 2.45f, 41.0f, mourão, cam);
+    adicionarCaixa(-15.06f, 2.20f, 27.2f, -14.94f, 2.35f, 40.8f, branco, cam);
+    adicionarObstaculo(-15.25f, -14.75f, 27.0f, 41.0f);
+
+    uint32_t tenisA = 0xFF2E7D5B, tenisB = 0xFF266B4D;
+    adicionarPiso(-4.0f, 12.0f, 27.0f, 41.0f, tenisA, tenisB, 0.03f, cam);
+    adicionarPiso(-3.5f, 11.5f, 27.5f, 27.8f, branco, branco, 0.045f, cam);
+    adicionarPiso(-3.5f, 11.5f, 40.2f, 40.5f, branco, branco, 0.045f, cam);
+    adicionarPiso(-3.5f, -3.2f, 27.5f, 40.5f, branco, branco, 0.045f, cam);
+    adicionarPiso(11.2f, 11.5f, 27.5f, 40.5f, branco, branco, 0.045f, cam);
+    adicionarPiso(3.85f, 4.15f, 27.5f, 40.5f, branco, branco, 0.045f, cam);
+    adicionarCaixa(3.85f, 0.0f, 27.0f, 4.15f, 1.35f, 27.25f, mourão, cam);
+    adicionarCaixa(3.85f, 0.0f, 40.75f, 4.15f, 1.35f, 41.0f, mourão, cam);
+    adicionarCaixa(3.94f, 1.10f, 27.2f, 4.06f, 1.25f, 40.8f, branco, cam);
+    adicionarObstaculo(3.75f, 4.25f, 27.0f, 41.0f);
+
+    uint32_t campoA = 0xFF2F8E4A, campoB = 0xFF277A3F;
+    adicionarPiso(-24.0f, 24.0f, 44.0f, 58.0f, campoA, campoB, 0.03f, cam);
+    adicionarPiso(-23.5f, 23.5f, 44.5f, 44.8f, branco, branco, 0.045f, cam);
+    adicionarPiso(-23.5f, 23.5f, 57.2f, 57.5f, branco, branco, 0.045f, cam);
+    adicionarPiso(-23.5f, -23.2f, 44.5f, 57.5f, branco, branco, 0.045f, cam);
+    adicionarPiso(23.2f, 23.5f, 44.5f, 57.5f, branco, branco, 0.045f, cam);
+    adicionarPiso(-23.5f, 23.5f, 50.85f, 51.15f, branco, branco, 0.045f, cam);
+    adicionarPiso(-0.3f, 0.3f, 50.7f, 51.3f, branco, branco, 0.05f, cam);
+    adicionarCaixa(-24.30f, 0.0f, 48.0f, -24.0f, 1.00f, 48.3f, branco, cam);
+    adicionarCaixa(-24.30f, 0.0f, 53.7f, -24.0f, 1.00f, 54.0f, branco, cam);
+    adicionarCaixa(-24.30f, 0.90f, 48.0f, -24.0f, 1.00f, 54.0f, branco, cam);
+    adicionarCaixa(24.0f, 0.0f, 48.0f, 24.30f, 1.00f, 48.3f, branco, cam);
+    adicionarCaixa(24.0f, 0.0f, 53.7f, 24.30f, 1.00f, 54.0f, branco, cam);
+    adicionarCaixa(24.0f, 0.90f, 48.0f, 24.30f, 1.00f, 54.0f, branco, cam);
+
+    adicionarCaixa(-28.0f, 0.0f, 24.0f, -27.70f, 3.20f, 24.30f, mourão, cam);
+    adicionarCaixa(27.70f, 0.0f, 24.0f, 28.0f, 3.20f, 24.30f, mourão, cam);
+    esfera(-27.85f, 3.35f, 24.15f, 0.45f, 0xFFFFF2B0, cam, 8, 4);
+    esfera(27.85f, 3.35f, 24.15f, 0.45f, 0xFFFFF2B0, cam, 8, 4);
+    esfera(0.0f, 32.0f, 120.0f, 7.0f, 0xFFFFF2B0, cam, 10, 5);
 }
 
 static bool posicaoLivre(float x, float z) {
     const float raio = 0.34f;
-    if (x < -29.35f || x > 29.35f || z < -19.35f || z > 19.35f) return false;
+    if (x < -29.35f || x > 29.35f || z < -19.35f || z > 59.35f) return false;
+    if (z > 19.35f && z < 20.75f && (x < -2.60f || x > 2.60f)) return false;
     for (int i = 0; i < totalObstaculos; i++) {
         const Obstaculo& o = obstaculos[i];
         if (x + raio > o.x0 && x - raio < o.x1 && z + raio > o.z0 && z - raio < o.z1) return false;
@@ -2105,6 +2530,10 @@ static void desenharMinimapa(uint32_t* tela, float px, float pz) {
     }
     int x = mx + (int)((px + 30.0f) / 60.0f * mw);
     int y = my + (int)((pz + 20.0f) / 40.0f * mh);
+    if (x < mx) x = mx;
+    if (x > mx + mw - 1) x = mx + mw - 1;
+    if (y < my) y = my;
+    if (y > my + mh - 1) y = my + mh - 1;
     preencherRet(tela, x - 4, y - 4, 9, 9, 0xFFF1521B);
     desenharTexto(tela, "MAPA", 18, mx + 10, my + 8, 0xFFFFFFFF);
 }
@@ -2143,7 +2572,7 @@ static void desenharHUD(uint32_t* tela, const Camera& cam, float px, float pz, i
     }
 
     preencherRet(tela, 330, 1012, 1260, 44, 0xDD062348);
-    desenharTexto(tela, "ANALOGICO ESQ MOVER   DIR OLHAR   L2 CORRER   R1 PULAR   X USAR   BOLINHA SAIR", 18, 348, 1024, 0xFFDCE6F3);
+    desenharTexto(tela, "ANALOGICO ESQ MOVER   DIR OLHAR   L2 CORRER   R1 PULAR   X USAR   OPTIONS MENU   BOLINHA SAIR", 18, 348, 1024, 0xFFDCE6F3);
 
     if (dialogoTimer > 0.0f && dialogoAgente >= 0 && dialogoAgente < TOTAL_AGENTES) {
         const DadosAgente& a = agentes[dialogoAgente];
@@ -2179,6 +2608,18 @@ static void desenharHUD(uint32_t* tela, const Camera& cam, float px, float pz, i
     else if (interacao == 7) {
         preencherRet(tela, 640, 842, 640, 58, 0xE6062348);
         desenharTexto(tela, "X  JOGAR PEBOLIM", 24, 668, 858, 0xFFFFFFFF);
+    }
+    else if (interacao == 8) {
+        preencherRet(tela, 640, 842, 640, 58, 0xE6062348);
+        desenharTexto(tela, "X  JOGAR VOLEI", 24, 668, 858, 0xFFFFFFFF);
+    }
+    else if (interacao == 9) {
+        preencherRet(tela, 640, 842, 640, 58, 0xE6062348);
+        desenharTexto(tela, "X  JOGAR TENIS", 24, 668, 858, 0xFFFFFFFF);
+    }
+    else if (interacao == 10) {
+        preencherRet(tela, 640, 842, 640, 58, 0xE6062348);
+        desenharTexto(tela, "X  JOGAR FUTEBOL", 24, 668, 858, 0xFFFFFFFF);
     }
     else if (agentePerto >= 0 && agentePerto < TOTAL_AGENTES) {
         char aviso[160];
@@ -2262,6 +2703,130 @@ static void desenharUITV(uint32_t* tela, int sel, const char* ultimo) {
 }
 
 // ---------------------------------------------------------------------------
+static void desenharUIOpcoes(uint32_t* tela, int sel) {
+    preencherRet(tela, 560, 290, 800, 500, 0xEE0A1220);
+    desenharTexto(tela, "OPCOES", 34, 620, 325, 0xFFFFFFFF);
+    const char* op[3] = { "DECORACAO", "MODO EDITAR", "FECHAR" };
+    for (int i = 0; i < 3; i++) {
+        int y = 430 + i * 86;
+        if (i == sel) preencherRet(tela, 590, y - 10, 740, 66, 0xFF1E3A5F);
+        desenharTexto(tela, op[i], 24, 620, y, i == sel ? 0xFFFFD166 : 0xFFFFFFFF);
+    }
+    desenharTexto(tela, "CIMA/BAIXO: ESCOLHER   X: ENTRAR   OPTIONS/BOLINHA: FECHAR", 18, 620, 735, 0xFFDCE6F3);
+}
+
+static void desenharUIDecorLista(uint32_t* tela, int sel, int total) {
+    preencherRet(tela, 470, 210, 980, 660, 0xEE0A1220);
+    desenharTexto(tela, "DECORACAO", 32, 520, 240, 0xFFFFFFFF);
+    const char* op[DECOR_TIPOS + 3] = {
+        "ADICIONAR PLANTA", "ADICIONAR MESA", "ADICIONAR BEBEDOURO",
+        "ADICIONAR SOFA", "ADICIONAR TAPETE",
+        "AJUSTAR / APAGAR ITEM", "CONSTRUIR PAREDE / PISO / TETO", "VOLTAR"
+    };
+    for (int i = 0; i < DECOR_TIPOS + 3; i++) {
+        int y = 300 + i * 58;
+        if (i == sel) preencherRet(tela, 500, y - 8, 920, 48, 0xFF1E3A5F);
+        desenharTexto(tela, op[i], 22, 520, y, i == sel ? 0xFFFFD166 : 0xFFFFFFFF);
+    }
+    char info[128];
+    snprintf(info, sizeof(info), "ITENS COLOCADOS: %d de %d", total, DECOR_MAX);
+    desenharTexto(tela, info, 18, 520, 770, 0xFFA9BCD6);
+    desenharTexto(tela, "CIMA/BAIXO: ESCOLHER   X: ESCOLHER   BOLINHA: VOLTAR", 18, 520, 812, 0xFFDCE6F3);
+}
+
+static void desenharUIDecorAjuste(uint32_t* tela, int sel, int total) {
+    preencherRet(tela, 520, 300, 880, 470, 0xEE0A1220);
+    desenharTexto(tela, "AJUSTAR / APAGAR", 30, 580, 335, 0xFFFFFFFF);
+    if (total <= 0) {
+        desenharTexto(tela, "NENHUM ITEM COLOCADO AINDA", 24, 620, 430, 0xFFFFB07A);
+    } else {
+        int idx = sel;
+        if (idx < 0) idx = 0;
+        if (idx >= total) idx = total - 1;
+        char linha[160];
+        const char* nomeItem = (decorItens[idx].tipo >= 0 && decorItens[idx].tipo < OBJ_TIPOS) ? OBJ_NOMES[decorItens[idx].tipo] : "ITEM";
+        snprintf(linha, sizeof(linha), "ITEM %d DE %d: %s", idx + 1, total, nomeItem);
+        desenharTexto(tela, linha, 26, 620, 430, 0xFFFFD166);
+        snprintf(linha, sizeof(linha), "X %.1f   Z %.1f   GIRO %.2f", decorItens[idx].x, decorItens[idx].z, decorItens[idx].rot);
+        desenharTexto(tela, linha, 20, 620, 480, 0xFFDCE6F3);
+        desenharTexto(tela, "X: PEGAR E MOVER   QUADRADO: APAGAR", 20, 620, 540, 0xFFFFFFFF);
+    }
+    desenharTexto(tela, "CIMA/BAIXO: TROCAR ITEM   BOLINHA: VOLTAR", 18, 600, 700, 0xFFDCE6F3);
+}
+
+static void desenharUIDecorPlace(uint32_t* tela, const DecorItem& it) {
+    preencherRet(tela, 0, 0, TELA_L, 62, 0xDD062348);
+    char linha[200];
+    const char* nomeItem = (it.tipo >= 0 && it.tipo < OBJ_TIPOS) ? OBJ_NOMES[it.tipo] : "ITEM";
+    snprintf(linha, sizeof(linha), "COLOCANDO %s   X %.1f   Z %.1f   GIRO %.2f",
+             nomeItem, it.x, it.z, it.rot);
+    desenharTexto(tela, linha, 24, 30, 18, 0xFFFFD166);
+    preencherRet(tela, 0, 1018, TELA_L, 62, 0xDD062348);
+    desenharTexto(tela, "ANALOGICO/DIRECIONAL: MOVER   L1/R1: GIRAR   TRIANGULO: COR   X: CONFIRMAR   BOLINHA: CANCELAR", 20, 30, 1032, 0xFFDCE6F3);
+}
+
+static void desenharUIEditLista(uint32_t* tela, int sel, int total) {
+    preencherRet(tela, 500, 250, 950, 620, 0xEE0A1220);
+    desenharTexto(tela, "MODO EDITAR", 32, 550, 285, 0xFFFFFFFF);
+    const char* op[5] = { "PINTAR", "CONSTRUIR", "OBJETOS", "AJUSTAR / APAGAR ITEM", "VOLTAR" };
+    for (int i = 0; i < 5; i++) {
+        int y = 360 + i * 76;
+        if (i == sel) preencherRet(tela, 530, y - 10, 890, 62, 0xFF1E3A5F);
+        desenharTexto(tela, op[i], 24, 550, y, i == sel ? 0xFFFFD166 : 0xFFFFFFFF);
+    }
+    char info[128];
+    snprintf(info, sizeof(info), "ITENS COLOCADOS: %d de %d", total, DECOR_MAX);
+    desenharTexto(tela, info, 18, 550, 770, 0xFFA9BCD6);
+    desenharTexto(tela, "CIMA/BAIXO: ESCOLHER   X: ENTRAR   BOLINHA: VOLTAR", 18, 550, 812, 0xFFDCE6F3);
+}
+
+static void desenharUIEditPintar(uint32_t* tela, int sel) {
+    preencherRet(tela, 520, 300, 900, 520, 0xEE0A1220);
+    desenharTexto(tela, "PINTAR", 32, 580, 335, 0xFFFFFFFF);
+    const char* op[4] = { "PAREDES", "CHAO", "TETO", "VOLTAR" };
+    for (int i = 0; i < 4; i++) {
+        int y = 410 + i * 78;
+        if (i == sel) preencherRet(tela, 550, y - 10, 840, 62, 0xFF1E3A5F);
+        char linha[160];
+        uint32_t cor = (i == 0) ? corParedeEdit : (i == 1) ? corChaoEdit : corTetoEdit;
+        if (i < 3) {
+            if (cor == 0) snprintf(linha, sizeof(linha), "%s: PADRAO", op[i]);
+            else snprintf(linha, sizeof(linha), "%s: COR %06X", op[i], (unsigned)(cor & 0xFFFFFF));
+        } else {
+            snprintf(linha, sizeof(linha), "%s", op[i]);
+        }
+        desenharTexto(tela, linha, 24, 580, y, i == sel ? 0xFFFFD166 : 0xFFFFFFFF);
+    }
+    desenharTexto(tela, "ESQUERDA/DIREITA: TROCAR COR   X: SALVAR   BOLINHA: VOLTAR", 18, 560, 720, 0xFFDCE6F3);
+}
+
+static void desenharUIEditConstruir(uint32_t* tela, int sel) {
+    preencherRet(tela, 520, 280, 900, 560, 0xEE0A1220);
+    desenharTexto(tela, "CONSTRUIR", 32, 580, 315, 0xFFFFFFFF);
+    const char* op[5] = { "PAREDE", "PISO", "TETO", "JANELA", "VOLTAR" };
+    for (int i = 0; i < 5; i++) {
+        int y = 390 + i * 74;
+        if (i == sel) preencherRet(tela, 550, y - 10, 840, 60, 0xFF1E3A5F);
+        desenharTexto(tela, op[i], 24, 580, y, i == sel ? 0xFFFFD166 : 0xFFFFFFFF);
+    }
+    desenharTexto(tela, "CIMA/BAIXO: ESCOLHER   X: COLOCAR   BOLINHA: VOLTAR", 18, 560, 790, 0xFFDCE6F3);
+}
+
+static void desenharUIEditObjetos(uint32_t* tela, int sel) {
+    preencherRet(tela, 460, 190, 980, 700, 0xEE0A1220);
+    desenharTexto(tela, "OBJETOS", 32, 520, 225, 0xFFFFFFFF);
+    const char* op[9] = {
+        "CADEIRA", "TV", "COMPUTADOR", "TECLADO", "PIANO",
+        "VIOLAO", "VIOLINO", "BATERIA", "VOLTAR"
+    };
+    for (int i = 0; i < 9; i++) {
+        int y = 285 + i * 58;
+        if (i == sel) preencherRet(tela, 490, y - 8, 900, 48, 0xFF1E3A5F);
+        desenharTexto(tela, op[i], 22, 520, y, i == sel ? 0xFFFFD166 : 0xFFFFFFFF);
+    }
+    desenharTexto(tela, "CIMA/BAIXO: ESCOLHER   X: COLOCAR   BOLINHA: VOLTAR", 18, 520, 848, 0xFFDCE6F3);
+}
+
 // Explorador de midia da TV: pastas, videos, imagens e musicas
 // ---------------------------------------------------------------------------
 enum { ITEM_PASTA = 0, ITEM_VIDEO, ITEM_IMAGEM, ITEM_MUSICA, ITEM_RADIO, ITEM_VOLTAR };
@@ -2715,7 +3280,8 @@ enum {
     JOGO_BURACO, JOGO_CACHETA, JOGO_BIRIBA, JOGO_PIFPAF,
     JOGO_CORACOES, JOGO_ESPADAS,
     JOGO_PACIENCIA, JOGO_FREECELL,
-    JOGO_PINGPONG, JOGO_SINUCA, JOGO_AIRHOCKEY, JOGO_PEBOLIM
+    JOGO_PINGPONG, JOGO_SINUCA, JOGO_AIRHOCKEY, JOGO_PEBOLIM,
+    JOGO_VOLEI, JOGO_TENIS, JOGO_FUTEBOL
 };
 static int jogoAtual = JOGO_MENU;
 static int jogoMenuSel = 0;
@@ -5729,7 +6295,9 @@ static void fisCirculo(uint32_t* tela, float cx, float cy, float r, uint32_t cor
 
 static const float PP_FX = 300.0f, PP_FY = 240.0f, PP_FW = 1320.0f, PP_FH = 600.0f;
 static const float PP_BR = 12.0f;
+static const float PP_PH = 170.0f;
 static float ppBallX, ppBallY, ppVX, ppVY;
+static float ppPadY, ppIaY;
 static int ppPtsJ, ppPtsIA, ppFim;
 static float ppEspera, ppFlash;
 static char ppMsg[96];
@@ -5754,24 +6322,26 @@ static void ppPonto(int quemJ) {
 }
 static void ppIniciar() {
     ppPtsJ = ppPtsIA = 0; ppFim = 0; ppFlash = 0.0f;
+    ppPadY = PP_FY + PP_FH * 0.5f;
+    ppIaY = PP_FY + PP_FH * 0.5f;
     ppServir();
 }
-static void ppRebater(float d, uint32_t seg) {
-    float q = fabsf(d - 16.0f) / 110.0f;
+static void ppRebater() {
+    float meia = PP_PH * 0.5f;
+    float off = ppBallY - ppPadY;
+    float q = fabsf(off) / meia;
     if (q > 1.0f) q = 1.0f;
-    float vel = 1040.0f - q * 440.0f;
-    float vy;
-    if (seg & ORBIS_PAD_BUTTON_UP) vy = -340.0f;
-    else if (seg & ORBIS_PAD_BUTTON_DOWN) vy = 340.0f;
-    else vy = (d - 16.0f) * 3.5f;
-    if (vy > 360.0f) vy = 360.0f;
-    if (vy < -360.0f) vy = -360.0f;
+    float vel = 1100.0f - q * 300.0f;
+    float vy = off * 3.6f;
+    if (vy > 420.0f) vy = 420.0f;
+    if (vy < -420.0f) vy = -420.0f;
     ppVX = vel;
     ppVY = vy;
-    ppBallX = PP_FX + 84.0f + 22.0f;
+    float hitX = PP_FX + 64.0f;
+    ppBallX = hitX + PP_BR + 4.0f;
     if (q < 0.30f) snprintf(ppMsg, sizeof(ppMsg), "PERFEITO!");
-    else if (q < 0.65f) snprintf(ppMsg, sizeof(ppMsg), "BOM!");
-    else snprintf(ppMsg, sizeof(ppMsg), "FRACO");
+    else if (q < 0.70f) snprintf(ppMsg, sizeof(ppMsg), "BOM!");
+    else snprintf(ppMsg, sizeof(ppMsg), "NA PONTA");
     ppFlash = 0.7f;
 }
 static void ppEntrada(uint32_t novos, uint32_t seg, float dt) {
@@ -5781,29 +6351,41 @@ static void ppEntrada(uint32_t novos, uint32_t seg, float dt) {
     if (ppEspera > 0.0f) { ppEspera -= dt; return; }
     if (dt > 0.033f) dt = 0.033f;
 
+    float mvy = 0.0f;
+    if (seg & ORBIS_PAD_BUTTON_UP) mvy -= 1.0f;
+    if (seg & ORBIS_PAD_BUTTON_DOWN) mvy += 1.0f;
+    ppPadY += mvy * 760.0f * dt;
+    if (ppPadY < PP_FY + PP_PH * 0.5f) ppPadY = PP_FY + PP_PH * 0.5f;
+    if (ppPadY > PP_FY + PP_FH - PP_PH * 0.5f) ppPadY = PP_FY + PP_FH - PP_PH * 0.5f;
+
+    float iaPasso = 430.0f * dt;
+    if (ppIaY < ppBallY - 4.0f) ppIaY += iaPasso;
+    else if (ppIaY > ppBallY + 4.0f) ppIaY -= iaPasso;
+    if (ppIaY < PP_FY + PP_PH * 0.5f) ppIaY = PP_FY + PP_PH * 0.5f;
+    if (ppIaY > PP_FY + PP_FH - PP_PH * 0.5f) ppIaY = PP_FY + PP_FH - PP_PH * 0.5f;
+
     ppBallX += ppVX * dt;
     ppBallY += ppVY * dt;
     if (ppBallY - PP_BR < PP_FY) { ppBallY = PP_FY + PP_BR; ppVY = fabsf(ppVY); }
     if (ppBallY + PP_BR > PP_FY + PP_FH) { ppBallY = PP_FY + PP_FH - PP_BR; ppVY = -fabsf(ppVY); }
 
-    float hitX = PP_FX + 84.0f;
-    if (ppVX < 0.0f && (novos & ORBIS_PAD_BUTTON_CROSS) && ppBallX > PP_FX + 4.0f) {
-        float d = ppBallX - hitX;
-        if (d > 130.0f) {
-            snprintf(ppMsg, sizeof(ppMsg), "CEDO! ESPERA A BOLA");
-            ppFlash = 0.6f;
-        } else if (d >= -24.0f) {
-            ppRebater(d, seg);
-        }
+    float hitX = PP_FX + 64.0f;
+    float meia = PP_PH * 0.5f + PP_BR;
+    bool incoming = ppVX < 0.0f;
+    bool naFrente = incoming && ppBallX >= hitX - 34.0f && ppBallX <= hitX + 96.0f && fabsf(ppBallY - ppPadY) <= meia;
+    if (incoming && (novos & ORBIS_PAD_BUTTON_CROSS)) {
+        if (naFrente) ppRebater();
+        else if (ppBallX > hitX + 96.0f) { snprintf(ppMsg, sizeof(ppMsg), "CEDO! ESPERA A BOLA"); ppFlash = 0.6f; }
+        else { snprintf(ppMsg, sizeof(ppMsg), "FORA DA RAQUETE"); ppFlash = 0.6f; }
     }
 
     float iax = PP_FX + PP_FW - 64.0f;
-    if (ppVX > 0.0f && ppBallX + PP_BR >= iax) {
-        if ((jogoRand() % 100) >= 12) {
-            ppBallX = iax - PP_BR;
-            ppVX = -fabsf(ppVX) * 1.03f;
-            ppVY = (float)((jogoRand() % 240) - 120) * 1.6f;
-        }
+    if (ppVX > 0.0f && ppBallX + PP_BR >= iax && fabsf(ppBallY - ppIaY) <= meia) {
+        ppBallX = iax - PP_BR;
+        ppVX = -fabsf(ppVX) * 1.03f;
+        ppVY = (ppBallY - ppIaY) * 3.0f + ppVY * 0.25f;
+        if (ppVY > 420.0f) ppVY = 420.0f;
+        if (ppVY < -420.0f) ppVY = -420.0f;
     }
 
     if (ppVX < 0.0f && ppBallX < PP_FX + 24.0f) ppPonto(0);
@@ -5816,16 +6398,15 @@ static void ppDesenhar(uint32_t* tela) {
     jogoBorda(tela, (int)PP_FX, (int)PP_FY, (int)PP_FW, (int)PP_FH, 0xFFFFFFFF, 4);
 
     bool incoming = ppVX < 0.0f;
-    float hitX = PP_FX + 84.0f;
-    bool naZona = incoming && ppBallX >= hitX && ppBallX <= hitX + 130.0f;
-    uint32_t zonaCor = naZona ? 0xFFFFD166 : 0xFF165F42;
-    preencherRet(tela, (int)(hitX - 8.0f), (int)PP_FY, 54, (int)PP_FH, zonaCor);
+    float hitX = PP_FX + 64.0f;
+    float meia = PP_PH * 0.5f + PP_BR;
+    bool naZona = incoming && ppBallX >= hitX - 34.0f && ppBallX <= hitX + 96.0f && fabsf(ppBallY - ppPadY) <= meia;
 
     for (int y = (int)PP_FY; y < (int)(PP_FY + PP_FH); y += 26)
         preencherRet(tela, 956, y, 5, 13, 0xFFFFFFFF);
 
-    preencherRet(tela, (int)(PP_FX + 50.0f), (int)(PP_FY + PP_FH * 0.5f - 80.0f), 14, 160, 0xFFF1521B);
-    preencherRet(tela, (int)(PP_FX + PP_FW - 64.0f), (int)(PP_FY + PP_FH * 0.5f - 80.0f), 14, 160, 0xFF2E6DB4);
+    preencherRet(tela, (int)(PP_FX + 50.0f), (int)(ppPadY - PP_PH * 0.5f), 14, (int)PP_PH, naZona ? 0xFFFFD166 : 0xFFF1521B);
+    preencherRet(tela, (int)(PP_FX + PP_FW - 64.0f), (int)(ppIaY - PP_PH * 0.5f), 14, (int)PP_PH, 0xFF2E6DB4);
 
     fisCirculo(tela, ppBallX, ppBallY, PP_BR, 0xFFFFFFFF);
     if (naZona) jogoCentro(tela, "AGORA!", 26, (int)(hitX + 20.0f), (int)(ppBallY - 40.0f), 0xFFFFD166);
@@ -5835,15 +6416,17 @@ static void ppDesenhar(uint32_t* tela) {
     snprintf(placar, sizeof(placar), "VOCE %d   x   %d IA", ppPtsJ, ppPtsIA);
     jogoCentro(tela, placar, 30, 960, 916, 0xFFFFFFFF);
     if (ppFim) jogoCentro(tela, "X NOVO JOGO   BOLINHA SAIR", 22, 960, 972, 0xFFA9BCD6);
-    else jogoBarra(tela, "X BATER NA HORA CERTA   CIMA/BAIXO DIRECIONAR   BOLINHA SAIR");
+    else jogoBarra(tela, "CIMA/BAIXO MOVER RAQUETE   X BATER NA FRENTE   BOLINHA SAIR");
 }
 
-static const float AH_FX = 340.0f, AH_FY = 180.0f, AH_FW = 1240.0f, AH_FH = 720.0f;
+static const float AH_FX = 620.0f, AH_FY = 150.0f, AH_FW = 680.0f, AH_FH = 740.0f;
 static const float AH_BR = 14.0f, AH_PR = 36.0f;
+static const float AH_GOL = 240.0f;
 static float ahBallX, ahBallY, ahVX, ahVY;
 static float ahPadX, ahPadY, ahIax, ahIay;
+static float ahUltX, ahUltY;
 static int ahPtsJ, ahPtsIA, ahFim;
-static float ahEspera, ahFlash;
+static float ahEspera, ahFlash, ahStuck;
 static char ahMsg[96];
 
 static void ahServir() {
@@ -5853,6 +6436,8 @@ static void ahServir() {
     ahVX = 520.0f * sinf(ang);
     ahVY = 560.0f;
     ahEspera = 0.9f;
+    ahStuck = 0.0f;
+    ahUltX = ahBallX; ahUltY = ahBallY;
     snprintf(ahMsg, sizeof(ahMsg), "PREPARAR...");
 }
 static void ahPonto(int quemJ) {
@@ -5864,12 +6449,14 @@ static void ahPonto(int quemJ) {
     } else ahServir();
 }
 static void ahIniciar() {
-    ahPtsJ = ahPtsIA = 0; ahFim = 0; ahFlash = 0.0f;
+    ahPtsJ = ahPtsIA = 0; ahFim = 0; ahFlash = 0.0f; ahStuck = 0.0f;
     ahPadX = AH_FX + AH_FW * 0.5f;
     ahPadY = AH_FY + AH_FH - 105.0f;
     ahIax = AH_FX + AH_FW * 0.5f;
     ahIay = AH_FY + 105.0f;
+    ahUltX = AH_FX + AH_FW * 0.5f; ahUltY = AH_FY + AH_FH * 0.5f;
     ahServir();
+    ahUltX = ahBallX; ahUltY = ahBallY;
 }
 static void ahColide(float padX, float padY) {
     float rr = AH_PR + AH_BR;
@@ -5884,6 +6471,8 @@ static void ahColide(float padX, float padY) {
         if (vn < 0.0f) {
             ahVX -= 2.0f * vn * nx * 1.02f;
             ahVY -= 2.0f * vn * ny * 1.02f;
+            float sp = sqrtf(ahVX * ahVX + ahVY * ahVY);
+            if (sp < 210.0f) { ahVX += nx * 210.0f; ahVY += ny * 210.0f; }
         }
     }
 }
@@ -5903,18 +6492,23 @@ static void ahEntrada(uint32_t novos, uint32_t seg, float dt) {
     ahPadY += mvy * 840.0f * dt;
     if (ahPadX < AH_FX + AH_PR) ahPadX = AH_FX + AH_PR;
     if (ahPadX > AH_FX + AH_FW - AH_PR) ahPadX = AH_FX + AH_FW - AH_PR;
-    if (ahPadY < AH_FY + AH_FH * 0.40f) ahPadY = AH_FY + AH_FH * 0.40f;
+    if (ahPadY < AH_FY + AH_FH * 0.52f) ahPadY = AH_FY + AH_FH * 0.52f;
     if (ahPadY > AH_FY + AH_FH - AH_PR - 4.0f) ahPadY = AH_FY + AH_FH - AH_PR - 4.0f;
 
-    float passo = 470.0f * dt;
-    if (ahIax < ahBallX - 5.0f) ahIax += passo;
-    else if (ahIax > ahBallX + 5.0f) ahIax -= passo;
-    if (ahIay < ahBallY - 5.0f) ahIay += passo * 0.85f;
-    else if (ahIay > ahBallY + 5.0f) ahIay -= passo * 0.85f;
+    float alvoX = ahBallX;
+    float alvoY = ahBallY;
+    if (ahBallX < AH_FX + 110.0f) alvoX = ahBallX + 160.0f;
+    else if (ahBallX > AH_FX + AH_FW - 110.0f) alvoX = ahBallX - 160.0f;
+    if (ahBallY < AH_FY + 90.0f) alvoY = ahBallY + 150.0f;
+    float passo = 440.0f * dt;
+    if (ahIax < alvoX - 5.0f) ahIax += passo;
+    else if (ahIax > alvoX + 5.0f) ahIax -= passo;
+    if (ahIay < alvoY - 5.0f) ahIay += passo * 0.85f;
+    else if (ahIay > alvoY + 5.0f) ahIay -= passo * 0.85f;
     if (ahIax < AH_FX + AH_PR) ahIax = AH_FX + AH_PR;
     if (ahIax > AH_FX + AH_FW - AH_PR) ahIax = AH_FX + AH_FW - AH_PR;
     if (ahIay < AH_FY + AH_PR + 4.0f) ahIay = AH_FY + AH_PR + 4.0f;
-    if (ahIay > AH_FY + AH_FH * 0.60f) ahIay = AH_FY + AH_FH * 0.60f;
+    if (ahIay > AH_FY + AH_FH * 0.48f) ahIay = AH_FY + AH_FH * 0.48f;
 
     if (novos & ORBIS_PAD_BUTTON_CROSS) {
         float dx = ahBallX - ahPadX, dy = ahBallY - ahPadY;
@@ -5935,7 +6529,7 @@ static void ahEntrada(uint32_t novos, uint32_t seg, float dt) {
     if (ahBallX + AH_BR > AH_FX + AH_FW) { ahBallX = AH_FX + AH_FW - AH_BR; ahVX = -fabsf(ahVX); }
 
     float centro = AH_FX + AH_FW * 0.5f;
-    float gol = 380.0f;
+    float gol = AH_GOL;
     if (ahBallY - AH_BR < AH_FY) {
         if (fabsf(ahBallX - centro) < gol * 0.5f) {
             if (ahBallY < AH_FY - 30.0f) { ahPonto(1); return; }
@@ -5949,18 +6543,41 @@ static void ahEntrada(uint32_t novos, uint32_t seg, float dt) {
 
     ahColide(ahPadX, ahPadY);
     ahColide(ahIax, ahIay);
+
+    float dpx = ahBallX - ahUltX, dpy = ahBallY - ahUltY;
+    if (dpx * dpx + dpy * dpy < 4.0f) ahStuck += dt; else ahStuck = 0.0f;
+    ahUltX = ahBallX; ahUltY = ahBallY;
+    if (ahStuck > 0.6f) {
+        float cx = AH_FX + AH_FW * 0.5f, cy = AH_FY + AH_FH * 0.5f;
+        float ddx = cx - ahBallX, ddy = cy - ahBallY;
+        float dd = sqrtf(ddx * ddx + ddy * ddy);
+        if (dd < 1.0f) { ddx = 0.0f; ddy = 1.0f; dd = 1.0f; }
+        if (ahBallY < cy) {
+            ahIay += 90.0f;
+            if (ahIay > AH_FY + AH_FH * 0.48f) ahIay = AH_FY + AH_FH * 0.48f;
+        } else {
+            ahPadY -= 90.0f;
+            if (ahPadY < AH_FY + AH_FH * 0.52f) ahPadY = AH_FY + AH_FH * 0.52f;
+        }
+        ahBallX += ddx / dd * 60.0f;
+        ahBallY += ddy / dd * 60.0f;
+        ahVX = ddx / dd * 540.0f;
+        ahVY = ddy / dd * 540.0f;
+        ahStuck = 0.0f;
+        snprintf(ahMsg, sizeof(ahMsg), "BOLA LIBERADA");
+    }
 }
 static void ahDesenhar(uint32_t* tela) {
     preencherRet(tela, 0, 0, TELA_L, TELA_A, 0xFF081420);
     jogoCentro(tela, "AIR HOCKEY", 44, 960, 26, 0xFFFFFFFF);
     preencherRet(tela, (int)AH_FX, (int)AH_FY, (int)AH_FW, (int)AH_FH, 0xFFDCEBF8);
     jogoBorda(tela, (int)AH_FX, (int)AH_FY, (int)AH_FW, (int)AH_FH, 0xFFFFFFFF, 4);
-    preencherRet(tela, (int)(AH_FX + AH_FW * 0.5f) - 2, (int)AH_FY, 4, (int)AH_FH, 0xFF9DB4CC);
+    preencherRet(tela, (int)AH_FX, (int)(AH_FY + AH_FH * 0.5f) - 2, (int)AH_FW, 4, 0xFF9DB4CC);
     fisCirculo(tela, AH_FX + AH_FW * 0.5f, AH_FY + AH_FH * 0.5f, 90.0f, 0xFF9DB4CC);
     fisCirculo(tela, AH_FX + AH_FW * 0.5f, AH_FY + AH_FH * 0.5f, 80.0f, 0xFFDCEBF8);
     float centro = AH_FX + AH_FW * 0.5f;
-    preencherRet(tela, (int)(centro - 190.0f), (int)AH_FY - 6, 380, 10, 0xFF101010);
-    preencherRet(tela, (int)(centro - 190.0f), (int)(AH_FY + AH_FH) - 4, 380, 10, 0xFF101010);
+    preencherRet(tela, (int)(centro - AH_GOL * 0.5f), (int)AH_FY - 10, (int)AH_GOL, 14, 0xFF101010);
+    preencherRet(tela, (int)(centro - AH_GOL * 0.5f), (int)(AH_FY + AH_FH) - 4, (int)AH_GOL, 14, 0xFF101010);
 
     fisCirculo(tela, ahPadX, ahPadY, AH_PR + 4.0f, 0xFF7A2E14);
     fisCirculo(tela, ahPadX, ahPadY, AH_PR, 0xFFF1521B);
@@ -5985,14 +6602,27 @@ static void ahDesenhar(uint32_t* tela) {
     else jogoBarra(tela, "SETAS MOVER RACLETA   X TACAR PERTO DA BOLA   BOLINHA SAIR");
 }
 
-static const float PB_FX = 320.0f, PB_FY = 170.0f, PB_FW = 1280.0f, PB_FH = 700.0f;
+static const float PB_FX = 320.0f, PB_FY = 160.0f, PB_FW = 1280.0f, PB_FH = 710.0f;
 static const float PB_BR = 12.0f;
+static const int PB_NRODS = 4;
+static const int PB_NFIGS[4] = { 1, 2, 5, 3 };
+static const float PB_RODY[4] = { 0.90f, 0.74f, 0.56f, 0.36f };
+static const float PB_FIG_SP = 76.0f;
 static float pbBallX, pbBallY, pbVX, pbVY;
 static float pbRodX, pbIaX;
 static float pbKickT, pbIaKickT, pbIaCd;
 static int pbPtsJ, pbPtsIA, pbFim;
-static float pbEspera;
+static float pbEspera, pbStuck;
 static char pbMsg[96];
+
+static float pbRodY(int r, int ia) {
+    float f = PB_RODY[r];
+    if (ia) f = 1.0f - f;
+    return PB_FY + PB_FH * f;
+}
+static float pbFigX(float rodX, int figs, int i) {
+    return rodX + (i - (figs - 1) * 0.5f) * PB_FIG_SP;
+}
 
 static void pbServir() {
     pbBallX = PB_FX + PB_FW * 0.5f;
@@ -6000,6 +6630,7 @@ static void pbServir() {
     pbVX = (float)((jogoRand() % 200) - 100) * 1.2f;
     pbVY = 300.0f;
     pbEspera = 0.9f;
+    pbStuck = 0.0f;
     snprintf(pbMsg, sizeof(pbMsg), "PREPARAR...");
 }
 static void pbPonto(int quemJ) {
@@ -6011,7 +6642,7 @@ static void pbPonto(int quemJ) {
     } else pbServir();
 }
 static void pbIniciar() {
-    pbPtsJ = pbPtsIA = 0; pbFim = 0;
+    pbPtsJ = pbPtsIA = 0; pbFim = 0; pbStuck = 0.0f;
     pbKickT = pbIaKickT = pbIaCd = 0.0f;
     pbRodX = PB_FX + PB_FW * 0.5f;
     pbIaX = PB_FX + PB_FW * 0.5f;
@@ -6033,22 +6664,23 @@ static void pbFigura(float fx, float fy) {
         }
     }
 }
-static void pbChutar(float rodX, float rodY, int paraCima, uint32_t seg) {
-    for (int i = 0; i < 3; i++) {
-        float fx = rodX + (i - 1) * 95.0f;
+static int pbChutar(float rodX, float rodY, int figs, int paraCima, uint32_t seg) {
+    for (int i = 0; i < figs; i++) {
+        float fx = pbFigX(rodX, figs, i);
         float dx = pbBallX - fx;
         float dy = pbBallY - rodY;
-        if (fabsf(dx) < 46.0f && fabsf(dy) < 70.0f) {
+        if (fabsf(dx) < 48.0f && fabsf(dy) < 62.0f) {
             float vx = dx * 4.0f;
             if (seg & ORBIS_PAD_BUTTON_LEFT) vx -= 220.0f;
             if (seg & ORBIS_PAD_BUTTON_RIGHT) vx += 220.0f;
             if (vx > 620.0f) vx = 620.0f;
             if (vx < -620.0f) vx = -620.0f;
             pbVX = vx;
-            pbVY = paraCima ? -1080.0f : 1080.0f;
-            return;
+            pbVY = paraCima ? -1040.0f : 1040.0f;
+            return 1;
         }
     }
+    return 0;
 }
 static void pbEntrada(uint32_t novos, uint32_t seg, float dt) {
     if (novos & ORBIS_PAD_BUTTON_CIRCLE) { jogoSairCaminhar = 1; return; }
@@ -6063,28 +6695,25 @@ static void pbEntrada(uint32_t novos, uint32_t seg, float dt) {
     if (seg & ORBIS_PAD_BUTTON_LEFT) mvx -= 1.0f;
     if (seg & ORBIS_PAD_BUTTON_RIGHT) mvx += 1.0f;
     pbRodX += mvx * 820.0f * dt;
-    if (pbRodX < PB_FX + 120.0f) pbRodX = PB_FX + 120.0f;
-    if (pbRodX > PB_FX + PB_FW - 120.0f) pbRodX = PB_FX + PB_FW - 120.0f;
+    if (pbRodX < PB_FX + 170.0f) pbRodX = PB_FX + 170.0f;
+    if (pbRodX > PB_FX + PB_FW - 170.0f) pbRodX = PB_FX + PB_FW - 170.0f;
 
     if (novos & ORBIS_PAD_BUTTON_CROSS) {
         pbKickT = 0.18f;
-        pbChutar(pbRodX, PB_FY + PB_FH - 150.0f, 1, seg);
+        for (int r = 0; r < PB_NRODS; r++)
+            pbChutar(pbRodX, pbRodY(r, 0), PB_NFIGS[r], 1, seg);
     }
 
     float passo = 390.0f * dt;
     if (pbIaX < pbBallX - 6.0f) pbIaX += passo;
     else if (pbIaX > pbBallX + 6.0f) pbIaX -= passo;
-    if (pbIaX < PB_FX + 120.0f) pbIaX = PB_FX + 120.0f;
-    if (pbIaX > PB_FX + PB_FW - 120.0f) pbIaX = PB_FX + PB_FW - 120.0f;
-    pbIaCd -= 0.0f;
+    if (pbIaX < PB_FX + 170.0f) pbIaX = PB_FX + 170.0f;
+    if (pbIaX > PB_FX + PB_FW - 170.0f) pbIaX = PB_FX + PB_FW - 170.0f;
     if (pbIaCd <= 0.0f) {
-        float iaY = PB_FY + 150.0f;
-        for (int i = 0; i < 3; i++) {
-            float fx = pbIaX + (i - 1) * 95.0f;
-            if (fabsf(pbBallX - fx) < 46.0f && fabsf(pbBallY - iaY) < 70.0f) {
-                pbChutar(pbIaX, iaY, 0, 0);
+        for (int r = 0; r < PB_NRODS; r++) {
+            if (pbChutar(pbIaX, pbRodY(r, 1), PB_NFIGS[r], 0, 0)) {
                 pbIaKickT = 0.18f;
-                pbIaCd = 0.9f;
+                pbIaCd = 0.85f;
                 break;
             }
         }
@@ -6109,11 +6738,23 @@ static void pbEntrada(uint32_t novos, uint32_t seg, float dt) {
         } else { pbBallY = PB_FY + PB_FH - PB_BR; pbVY = -fabsf(pbVY); }
     }
 
-    float jy = PB_FY + PB_FH - 150.0f;
-    float iy = PB_FY + 150.0f;
-    for (int i = 0; i < 3; i++) {
-        pbFigura(pbRodX + (i - 1) * 95.0f, jy);
-        pbFigura(pbIaX + (i - 1) * 95.0f, iy);
+    for (int r = 0; r < PB_NRODS; r++) {
+        float jy = pbRodY(r, 0);
+        float iy = pbRodY(r, 1);
+        for (int i = 0; i < PB_NFIGS[r]; i++) {
+            pbFigura(pbFigX(pbRodX, PB_NFIGS[r], i), jy);
+            pbFigura(pbFigX(pbIaX, PB_NFIGS[r], i), iy);
+        }
+    }
+
+    float sp = sqrtf(pbVX * pbVX + pbVY * pbVY);
+    if (sp < 70.0f) pbStuck += dt; else pbStuck = 0.0f;
+    if (pbStuck > 1.2f) {
+        pbVY = (pbBallY < PB_FY + PB_FH * 0.5f) ? 640.0f : -640.0f;
+        pbVX = (float)((jogoRand() % 200) - 100) * 1.6f;
+        pbBallY += pbVY * dt * 2.0f;
+        pbStuck = 0.0f;
+        snprintf(pbMsg, sizeof(pbMsg), "BOLA LIBERADA");
     }
 }
 static void pbDesenhar(uint32_t* tela) {
@@ -6129,18 +6770,25 @@ static void pbDesenhar(uint32_t* tela) {
     preencherRet(tela, (int)(centro - 150.0f), (int)PB_FY - 6, 300, 10, 0xFF101010);
     preencherRet(tela, (int)(centro - 150.0f), (int)(PB_FY + PB_FH) - 4, 300, 10, 0xFF101010);
 
-    float jy = PB_FY + PB_FH - 150.0f;
-    float iy = PB_FY + 150.0f;
-    preencherRet(tela, (int)PB_FX, (int)jy - 2, (int)PB_FW, 4, 0xFFBFC4CC);
-    preencherRet(tela, (int)PB_FX, (int)iy - 2, (int)PB_FW, 4, 0xFFBFC4CC);
-
-    for (int i = 0; i < 3; i++) {
-        float fx = pbRodX + (i - 1) * 95.0f;
-        fisCirculo(tela, fx, jy, 24.0f, 0xFFF1521B);
-        fisCirculo(tela, fx, jy + (pbKickT > 0.0f ? -16.0f : 0.0f), 8.0f, 0xFFFFFFFF);
-        float ix = pbIaX + (i - 1) * 95.0f;
-        fisCirculo(tela, ix, iy, 24.0f, 0xFF2E6DB4);
-        fisCirculo(tela, ix, iy + (pbIaKickT > 0.0f ? 16.0f : 0.0f), 8.0f, 0xFFFFFFFF);
+    for (int r = 0; r < PB_NRODS; r++) {
+        float jy = pbRodY(r, 0);
+        float iy = pbRodY(r, 1);
+        preencherRet(tela, (int)PB_FX, (int)jy - 2, (int)PB_FW, 4, 0xFFBFC4CC);
+        preencherRet(tela, (int)PB_FX, (int)iy - 2, (int)PB_FW, 4, 0xFFBFC4CC);
+        fisCirculo(tela, PB_FX - 14.0f, jy, 7.0f, 0xFFF1521B);
+        fisCirculo(tela, PB_FX + PB_FW + 14.0f, jy, 7.0f, 0xFFF1521B);
+        fisCirculo(tela, PB_FX - 14.0f, iy, 7.0f, 0xFF2E6DB4);
+        fisCirculo(tela, PB_FX + PB_FW + 14.0f, iy, 7.0f, 0xFF2E6DB4);
+        float joff = (pbKickT > 0.0f) ? -12.0f : 0.0f;
+        float ioff = (pbIaKickT > 0.0f) ? 12.0f : 0.0f;
+        for (int i = 0; i < PB_NFIGS[r]; i++) {
+            float fx = pbFigX(pbRodX, PB_NFIGS[r], i);
+            fisCirculo(tela, fx, jy + joff, 20.0f, 0xFFF1521B);
+            fisCirculo(tela, fx, jy + joff, 8.0f, 0xFFFFFFFF);
+            float ix = pbFigX(pbIaX, PB_NFIGS[r], i);
+            fisCirculo(tela, ix, iy + ioff, 20.0f, 0xFF2E6DB4);
+            fisCirculo(tela, ix, iy + ioff, 8.0f, 0xFFFFFFFF);
+        }
     }
 
     fisCirculo(tela, pbBallX, pbBallY, PB_BR, 0xFFFFFFFF);
@@ -6149,7 +6797,7 @@ static void pbDesenhar(uint32_t* tela) {
     snprintf(placar, sizeof(placar), "VOCE %d   x   %d IA", pbPtsJ, pbPtsIA);
     jogoCentro(tela, placar, 30, 960, 944, 0xFFFFFFFF);
     if (pbFim) jogoCentro(tela, "X NOVO JOGO   BOLINHA SAIR", 22, 960, 990, 0xFFA9BCD6);
-    else jogoBarra(tela, "ESQ/DIR MOVER BONECOS   X CHUTAR   BOLINHA SAIR");
+    else jogoBarra(tela, "ESQ/DIR MOVER VARAS   X CHUTAR   BOLINHA SAIR");
 }
 
 static const float SN_L = 320.0f, SN_R = 1600.0f, SN_T = 230.0f, SN_B = 830.0f;
@@ -6161,18 +6809,41 @@ static const uint32_t SN_CORES[16] = {
     0xFFFF8A3D, 0xFF2F9E56, 0xFF8B2E3C
 };
 static float snX[16], snY[16], snVX[16], snVY[16];
-static bool snAtiva[16], snStripe[16];
+static bool snAtiva[16], snStripe[16], snPoteadaTiro[16];
 static float snPoc[6][2];
 static float snAng, snPower;
 static bool snCarregando, snScratch;
 static int snTacadas, snFim, bnModo, bnSel, bnTotal;
+static int snTurno, snTiroDe, snCueSel;
+static float snIaEspera;
 static char snMsg[128];
 
 static void snResetCue() {
-    snX[0] = SN_L + 170.0f;
+    snX[0] = (bnModo == 1) ? SN_L + (SN_R - SN_L) * 0.25f : SN_L + 170.0f;
     snY[0] = (SN_T + SN_B) * 0.5f;
+    for (int t = 0; t < 14; t++) {
+        bool livre = true;
+        for (int i = 1; i < bnTotal; i++) {
+            if (!snAtiva[i]) continue;
+            float dx = snX[0] - snX[i], dy = snY[0] - snY[i];
+            if (dx * dx + dy * dy < 43.0f * 43.0f) { livre = false; break; }
+        }
+        if (livre) break;
+        snY[0] += 44.0f;
+        if (snY[0] > SN_B - 44.0f) { snY[0] = SN_T + 44.0f; snX[0] += 44.0f; }
+    }
     snVX[0] = snVY[0] = 0.0f;
     snAtiva[0] = true;
+}
+static int snBolaDoJogador(int turno) {
+    int base = (turno == 0) ? 0 : 5;
+    for (int i = base; i < base + 5; i++) if (snAtiva[i]) return i;
+    return -1;
+}
+static void snGarantirCue(int turno) {
+    int base = (turno == 0) ? 0 : 5;
+    if (snCueSel >= base && snCueSel < base + 5 && snAtiva[snCueSel]) return;
+    snCueSel = snBolaDoJogador(turno);
 }
 static void snMontarPocos() {
     snPoc[0][0] = SN_L; snPoc[0][1] = SN_T;
@@ -6186,32 +6857,41 @@ static void snIniciar() {
     bnModo = 0; bnSel = 0; bnTotal = 0;
     snFim = 0; snTacadas = 0; snAng = 0.0f; snPower = 0.0f;
     snCarregando = false; snScratch = false;
-    for (int i = 0; i < 16; i++) { snAtiva[i] = false; snStripe[i] = false; snVX[i] = snVY[i] = 0.0f; }
+    snTurno = -1; snTiroDe = -1; snIaEspera = 0.0f; snCueSel = -1;
+    for (int i = 0; i < 16; i++) { snAtiva[i] = false; snStripe[i] = false; snPoteadaTiro[i] = false; snVX[i] = snVY[i] = 0.0f; }
     snMontarPocos();
-    snResetCue();
-    snAtiva[0] = false;
     snprintf(snMsg, sizeof(snMsg), "ESCOLHA O JOGO");
 }
 static void snNovoJogo(int modo) {
     bnModo = modo;
     snMontarPocos();
-    for (int i = 0; i < 16; i++) { snAtiva[i] = false; snStripe[i] = false; snVX[i] = snVY[i] = 0.0f; }
+    for (int i = 0; i < 16; i++) { snAtiva[i] = false; snStripe[i] = false; snPoteadaTiro[i] = false; snVX[i] = snVY[i] = 0.0f; }
     float meio = (SN_T + SN_B) * 0.5f;
-    float baseX = SN_L + (SN_R - SN_L) * 0.64f;
+    float midX = (SN_L + SN_R) * 0.5f;
     if (modo == 1) {
         bnTotal = 10;
-        int idx = 1;
-        int linhas[5] = { 1, 2, 3, 2, 1 };
-        for (int r = 0; r < 5; r++) {
-            for (int k = 0; k < linhas[r]; k++, idx++) {
-                snX[idx] = baseX + r * 34.0f;
-                snY[idx] = meio + (k - (linhas[r] - 1) * 0.5f) * 38.0f;
-                snAtiva[idx] = true;
-            }
+        float parX = 140.0f;
+        float backY = SN_B - SN_RB - 4.0f;
+        float frontY = SN_T + SN_RB + 4.0f;
+        float sideBotY = (meio + SN_B) * 0.5f;
+        float sideTopY = (SN_T + meio) * 0.5f;
+        snX[0] = midX - parX;        snY[0] = backY;
+        snX[1] = midX + parX;        snY[1] = backY;
+        snX[2] = SN_L + SN_RB + 4.0f; snY[2] = sideBotY;
+        snX[3] = SN_R - SN_RB - 4.0f; snY[3] = sideBotY;
+        snX[4] = midX;               snY[4] = SN_B - 110.0f;
+        for (int i = 0; i < 5; i++) snAtiva[i] = true;
+        for (int i = 5; i < 10; i++) {
+            snX[i] = snX[i - 5];
+            snY[i] = (SN_T + SN_B) - snY[i - 5];
+            snAtiva[i] = true;
         }
-        snStripe[9] = true;
+        snTurno = 0;
+        snCueSel = 0;
+        snprintf(snMsg, sizeof(snMsg), "SINUCA - VOCE AZUL x IA AMARELA (5 CADA)");
     } else {
         bnTotal = 16;
+        float baseX = SN_L + (SN_R - SN_L) * 0.64f;
         int idx = 1;
         for (int r = 0; r < 5; r++) {
             for (int k = 0; k <= r; k++, idx++) {
@@ -6221,12 +6901,15 @@ static void snNovoJogo(int modo) {
                 snStripe[idx] = (idx >= 9);
             }
         }
+        snTurno = -1;
+        snCueSel = -1;
+        snResetCue();
+        snprintf(snMsg, sizeof(snMsg), "BILHAR - LIMPE A MESA");
     }
     for (int i = bnTotal; i < 16; i++) snAtiva[i] = false;
-    snResetCue();
     snAng = 0.0f; snPower = 0.0f; snCarregando = false; snScratch = false;
+    snTiroDe = -1; snIaEspera = 0.0f;
     snTacadas = 0; snFim = 0;
-    snprintf(snMsg, sizeof(snMsg), modo == 1 ? "SINUCA - ESQ/DIR MIRA, SEGURE X" : "BILHAR - ESQ/DIR MIRA, SEGURE X");
 }
 static bool snTudoParado() {
     for (int i = 0; i < 16; i++) {
@@ -6236,40 +6919,49 @@ static bool snTudoParado() {
     return true;
 }
 static void snFisica(float h) {
-    for (int i = 0; i < 16; i++) {
+    for (int i = 0; i < bnTotal; i++) {
         if (!snAtiva[i]) continue;
         float sp = sqrtf(snVX[i] * snVX[i] + snVY[i] * snVY[i]);
+        if (sp > 2400.0f) { snVX[i] *= 2400.0f / sp; snVY[i] *= 2400.0f / sp; sp = 2400.0f; }
         if (sp > 0.0f) {
-            float ns = sp - 760.0f * h;
+            float ns = sp - 430.0f * h;
             if (ns < 0.0f) ns = 0.0f;
             snVX[i] *= ns / sp;
             snVY[i] *= ns / sp;
-            if (ns < 6.0f) { snVX[i] = snVY[i] = 0.0f; }
+            if (ns < 5.0f) { snVX[i] = snVY[i] = 0.0f; }
         }
         snX[i] += snVX[i] * h;
         snY[i] += snVY[i] * h;
-        if (snX[i] - SN_RB < SN_L) { snX[i] = SN_L + SN_RB; snVX[i] = fabsf(snVX[i]) * 0.82f; }
-        if (snX[i] + SN_RB > SN_R) { snX[i] = SN_R - SN_RB; snVX[i] = -fabsf(snVX[i]) * 0.82f; }
-        if (snY[i] - SN_RB < SN_T) { snY[i] = SN_T + SN_RB; snVY[i] = fabsf(snVY[i]) * 0.82f; }
-        if (snY[i] + SN_RB > SN_B) { snY[i] = SN_B - SN_RB; snVY[i] = -fabsf(snVY[i]) * 0.82f; }
+
+        bool encacapada = false;
         for (int p = 0; p < 6; p++) {
             float dxp = snX[i] - snPoc[p][0], dyp = snY[i] - snPoc[p][1];
-            if (dxp * dxp + dyp * dyp < 27.0f * 27.0f) {
+            if (dxp * dxp + dyp * dyp < 30.0f * 30.0f) {
                 snAtiva[i] = false;
                 snVX[i] = snVY[i] = 0.0f;
-                if (i == 0) {
+                snPoteadaTiro[i] = true;
+                if (bnModo == 1) {
+                    snprintf(snMsg, sizeof(snMsg), i < 5 ? "AZUL NA CACAPA" : "AMARELA NA CACAPA");
+                } else if (i == 0) {
                     snScratch = true;
-                    snprintf(snMsg, sizeof(snMsg), "BOLA BRANCA NA CACAPA");
+                    snprintf(snMsg, sizeof(snMsg), "BRANCA NA CACAPA - FALTA");
                 } else {
                     snprintf(snMsg, sizeof(snMsg), "BOLA %d NA CACAPA", i);
                 }
+                encacapada = true;
                 break;
             }
         }
+        if (encacapada) continue;
+
+        if (snX[i] - SN_RB < SN_L) { snX[i] = SN_L + SN_RB; snVX[i] = fabsf(snVX[i]) * 0.88f; }
+        if (snX[i] + SN_RB > SN_R) { snX[i] = SN_R - SN_RB; snVX[i] = -fabsf(snVX[i]) * 0.88f; }
+        if (snY[i] - SN_RB < SN_T) { snY[i] = SN_T + SN_RB; snVY[i] = fabsf(snVY[i]) * 0.88f; }
+        if (snY[i] + SN_RB > SN_B) { snY[i] = SN_B - SN_RB; snVY[i] = -fabsf(snVY[i]) * 0.88f; }
     }
-    for (int i = 0; i < 16; i++) {
+    for (int i = 0; i < bnTotal; i++) {
         if (!snAtiva[i]) continue;
-        for (int j = i + 1; j < 16; j++) {
+        for (int j = i + 1; j < bnTotal; j++) {
             if (!snAtiva[j]) continue;
             float dx = snX[j] - snX[i], dy = snY[j] - snY[i];
             float d2 = dx * dx + dy * dy;
@@ -6277,17 +6969,130 @@ static void snFisica(float h) {
             if (d2 < rr * rr && d2 > 0.001f) {
                 float d = sqrtf(d2);
                 float nx = dx / d, ny = dy / d;
-                float over = rr - d;
-                snX[i] -= nx * over * 0.5f; snY[i] -= ny * over * 0.5f;
-                snX[j] += nx * over * 0.5f; snY[j] += ny * over * 0.5f;
+                float over = (rr - d) * 0.5f;
+                snX[i] -= nx * over; snY[i] -= ny * over;
+                snX[j] += nx * over; snY[j] += ny * over;
                 float p = (snVX[i] - snVX[j]) * nx + (snVY[i] - snVY[j]) * ny;
                 if (p > 0.0f) {
-                    snVX[i] -= p * nx * 0.95f; snVY[i] -= p * ny * 0.95f;
-                    snVX[j] += p * nx * 0.95f; snVY[j] += p * ny * 0.95f;
+                    float imp = p * 0.97f;
+                    snVX[i] -= imp * nx; snVY[i] -= imp * ny;
+                    snVX[j] += imp * nx; snVY[j] += imp * ny;
                 }
             }
         }
     }
+}
+static void snAvaliarTiro() {
+    int de = snTiroDe;
+    snTiroDe = -1;
+    if (de < 0) return;
+
+    if (bnModo == 1) {
+        int base = (de == 0) ? 0 : 5;
+        int oppBase = (de == 0) ? 5 : 0;
+        int matei = 0, doOutro = 0, restam = 0;
+        for (int i = base; i < base + 5; i++) {
+            if (snPoteadaTiro[i]) matei++;
+            if (snAtiva[i]) restam++;
+        }
+        for (int i = oppBase; i < oppBase + 5; i++) if (snPoteadaTiro[i]) doOutro++;
+        if (restam == 0) {
+            snFim = 1;
+            if (de == 0) snprintf(snMsg, sizeof(snMsg), "VOCE MATOU TODAS AS SUAS BOLAS!");
+            else snprintf(snMsg, sizeof(snMsg), "IA MATOU TODAS AS DELA");
+        } else {
+            if (doOutro > 0) {
+                snTurno = 1 - de;
+                snIaEspera = 0.9f;
+                if (de == 0) snprintf(snMsg, sizeof(snMsg), "FALTA! VEZ DA IA");
+                else snprintf(snMsg, sizeof(snMsg), "IA FALTOU! SUA VEZ");
+            } else if (matei > 0) {
+                snTurno = de;
+                if (de == 0) snprintf(snMsg, sizeof(snMsg), "BOA! CONTINUE MATANDO AS AZUIS");
+                else snprintf(snMsg, sizeof(snMsg), "IA CONTINUA");
+            } else {
+                snTurno = 1 - de;
+                snIaEspera = 0.9f;
+                if (de == 0) snprintf(snMsg, sizeof(snMsg), "VEZ DA IA");
+                else snprintf(snMsg, sizeof(snMsg), "SUA VEZ: MATE AS AZUIS");
+            }
+            if (snTurno == 0) snGarantirCue(0);
+        }
+    } else {
+        if (snScratch) { snResetCue(); snScratch = false; }
+        bool restam = false;
+        for (int i = 1; i < bnTotal; i++) if (snAtiva[i]) { restam = true; break; }
+        if (!restam) {
+            snFim = 1;
+            snprintf(snMsg, sizeof(snMsg), "MESA LIMPA EM %d TACADAS!", snTacadas);
+        }
+    }
+    for (int i = 0; i < 16; i++) snPoteadaTiro[i] = false;
+}
+static void snIaTacar() {
+    if (bnModo == 1) {
+        int sel = -1;
+        float melhor = 1e18f, melhorAng = 0.0f;
+        for (int i = 5; i < 10; i++) {
+            if (!snAtiva[i]) continue;
+            for (int p = 0; p < 6; p++) {
+                float dxp = snPoc[p][0] - snX[i], dyp = snPoc[p][1] - snY[i];
+                float dp = sqrtf(dxp * dxp + dyp * dyp);
+                if (dp < 60.0f) continue;
+                if (dp < melhor) { melhor = dp; sel = i; melhorAng = atan2f(dyp, dxp); }
+            }
+        }
+        if (sel < 0) {
+            snFim = 1;
+            snprintf(snMsg, sizeof(snMsg), "FIM DE JOGO");
+            return;
+        }
+        float err = (float)((jogoRand() % 100) - 50) / 100.0f * 0.09f;
+        snCueSel = sel;
+        snAng = melhorAng + err;
+        float sp = 520.0f + (float)(jogoRand() % 50) / 100.0f * 700.0f;
+        snVX[sel] = cosf(snAng) * sp;
+        snVY[sel] = sinf(snAng) * sp;
+        for (int i = 0; i < 16; i++) snPoteadaTiro[i] = false;
+        snScratch = false;
+        snTiroDe = 1;
+        snIaEspera = 0.0f;
+        snprintf(snMsg, sizeof(snMsg), "IA TACOU");
+        return;
+    }
+    if (!snAtiva[0]) snResetCue();
+    float melhor = 1e18f, melhorAng = 0.0f;
+    int alvo = -1;
+    for (int i = 2; i < bnTotal; i++) {
+        if (!snAtiva[i]) continue;
+        if (bnModo == 1 && (i % 2) != 1) continue;
+        for (int p = 0; p < 6; p++) {
+            float dxp = snPoc[p][0] - snX[i], dyp = snPoc[p][1] - snY[i];
+            float dp = sqrtf(dxp * dxp + dyp * dyp);
+            if (dp < 1.0f) continue;
+            float gx = snX[i] - dxp / dp * (SN_RB * 2.0f);
+            float gy = snY[i] - dyp / dp * (SN_RB * 2.0f);
+            float dxc = gx - snX[0], dyc = gy - snY[0];
+            float d = sqrtf(dxc * dxc + dyc * dyc) + dp * 0.35f;
+            if (d < melhor) { melhor = d; alvo = i; melhorAng = atan2f(dyc, dxc); }
+        }
+    }
+    if (alvo < 0) {
+        snFim = 1;
+        snprintf(snMsg, sizeof(snMsg), "FIM DE JOGO");
+        return;
+    }
+    float err = (float)((jogoRand() % 100) - 50) / 100.0f * 0.06f;
+    snAng = melhorAng + err;
+    float p = 0.55f + (float)(jogoRand() % 40) / 100.0f;
+    float sp = 480.0f + p * 980.0f;
+    snVX[0] = cosf(snAng) * sp;
+    snVY[0] = sinf(snAng) * sp;
+    for (int i = 0; i < 16; i++) snPoteadaTiro[i] = false;
+    snScratch = false;
+    snTiroDe = 1;
+    snIaEspera = 0.0f;
+    snprintf(snMsg, sizeof(snMsg), "IA TACOU");
 }
 static void snEntrada(uint32_t novos, uint32_t seg, float dt) {
     if (bnModo == 0) {
@@ -6302,46 +7107,89 @@ static void snEntrada(uint32_t novos, uint32_t seg, float dt) {
     if (dt > 0.033f) dt = 0.033f;
 
     bool parado = snTudoParado();
-    if (parado && snScratch) {
-        snResetCue();
-        snScratch = false;
-        snprintf(snMsg, sizeof(snMsg), "BOLA BRANCA DE VOLTA");
-        parado = true;
+    if (parado && snTiroDe >= 0) {
+        snAvaliarTiro();
+        parado = snTudoParado();
     }
-    if (parado) {
-        if (seg & ORBIS_PAD_BUTTON_LEFT) snAng -= 1.9f * dt;
-        if (seg & ORBIS_PAD_BUTTON_RIGHT) snAng += 1.9f * dt;
-        bool segX = (seg & ORBIS_PAD_BUTTON_CROSS) != 0;
-        if (segX) {
-            snCarregando = true;
-            snPower += 1.4f * dt;
-            if (snPower > 1.0f) snPower = 1.0f;
-        } else if (snCarregando) {
-            if (snPower > 0.06f && snAtiva[0]) {
-                float p = snPower;
-                float sp = 420.0f + p * 1380.0f;
-                snVX[0] = cosf(snAng) * sp;
-                snVY[0] = sinf(snAng) * sp;
-                snTacadas++;
-                snprintf(snMsg, sizeof(snMsg), "TACADA %d   FORCA %d%%", snTacadas, (int)(p * 100.0f));
+    if (!snFim && parado) {
+        if (bnModo == 1) {
+            if (snTurno == 1) {
+                if (snIaEspera > 0.0f) snIaEspera -= dt;
+                else snIaTacar();
+            } else {
+                snGarantirCue(0);
+                if ((novos & ORBIS_PAD_BUTTON_UP) || (novos & ORBIS_PAD_BUTTON_DOWN)) {
+                    int dir = (novos & ORBIS_PAD_BUTTON_DOWN) ? 1 : -1;
+                    int nxt = snCueSel;
+                    for (int t = 0; t < 5; t++) {
+                        nxt += dir;
+                        if (nxt < 0) nxt = 4;
+                        if (nxt > 4) nxt = 0;
+                        if (snAtiva[nxt]) { snCueSel = nxt; break; }
+                    }
+                    snCarregando = false;
+                    snPower = 0.0f;
+                }
+                if (seg & ORBIS_PAD_BUTTON_LEFT) snAng -= 1.9f * dt;
+                if (seg & ORBIS_PAD_BUTTON_RIGHT) snAng += 1.9f * dt;
+                bool segX = (seg & ORBIS_PAD_BUTTON_CROSS) != 0;
+                if (segX) {
+                    snCarregando = true;
+                    snPower += 1.4f * dt;
+                    if (snPower > 1.0f) snPower = 1.0f;
+                } else if (snCarregando) {
+                    if (snPower > 0.06f && snCueSel >= 0 && snAtiva[snCueSel]) {
+                        float p = snPower;
+                        float sp = 420.0f + p * 1380.0f;
+                        snVX[snCueSel] = cosf(snAng) * sp;
+                        snVY[snCueSel] = sinf(snAng) * sp;
+                        snTacadas++;
+                        for (int i = 0; i < 16; i++) snPoteadaTiro[i] = false;
+                        snScratch = false;
+                        snTiroDe = 0;
+                        snprintf(snMsg, sizeof(snMsg), "TACADA %d   FORCA %d%%", snTacadas, (int)(p * 100.0f));
+                    }
+                    snCarregando = false;
+                    snPower = 0.0f;
+                }
             }
-            snCarregando = false;
-            snPower = 0.0f;
+        } else {
+            if (seg & ORBIS_PAD_BUTTON_LEFT) snAng -= 1.9f * dt;
+            if (seg & ORBIS_PAD_BUTTON_RIGHT) snAng += 1.9f * dt;
+            bool segX = (seg & ORBIS_PAD_BUTTON_CROSS) != 0;
+            if (segX) {
+                snCarregando = true;
+                snPower += 1.4f * dt;
+                if (snPower > 1.0f) snPower = 1.0f;
+            } else if (snCarregando) {
+                if (snPower > 0.06f && snAtiva[0]) {
+                    float p = snPower;
+                    float sp = 420.0f + p * 1380.0f;
+                    snVX[0] = cosf(snAng) * sp;
+                    snVY[0] = sinf(snAng) * sp;
+                    snTacadas++;
+                    for (int i = 0; i < 16; i++) snPoteadaTiro[i] = false;
+                    snScratch = false;
+                    snTiroDe = 0;
+                    snprintf(snMsg, sizeof(snMsg), "TACADA %d   FORCA %d%%", snTacadas, (int)(p * 100.0f));
+                }
+                snCarregando = false;
+                snPower = 0.0f;
+            }
         }
     }
 
-    snFisica(dt * 0.5f);
-    snFisica(dt * 0.5f);
-
-    bool restam = false;
-    for (int i = 1; i < bnTotal; i++) if (snAtiva[i]) { restam = true; break; }
-    if (!restam && snTudoParado() && !snScratch) {
-        snFim = 1;
-        snprintf(snMsg, sizeof(snMsg), "MESA LIMPA EM %d TACADAS!", snTacadas);
-    }
+    for (int k = 0; k < 4; k++) snFisica(dt * 0.25f);
 }
 static void snDesenharBola(uint32_t* tela, int i) {
     float r = SN_RB;
+    if (bnModo == 1) {
+        uint32_t cor = (i < 5) ? 0xFF2E6DB4 : 0xFFFFD24A;
+        if (i == snCueSel) fisCirculo(tela, snX[i], snY[i], r + 3.0f, 0xFF101010);
+        fisCirculo(tela, snX[i], snY[i], r, cor);
+        fisCirculo(tela, snX[i] - 5.0f, snY[i] - 6.0f, 4.0f, 0xFFFFFFFF);
+        return;
+    }
     if (snStripe[i]) {
         fisCirculo(tela, snX[i], snY[i], r, 0xFFFFFFFF);
         fisCirculo(tela, snX[i], snY[i] - 7.0f, r - 1.0f, SN_CORES[i]);
@@ -6369,25 +7217,40 @@ static void snDesenhar(uint32_t* tela) {
     }
 
     bool parado = snTudoParado();
-    if (bnModo != 0 && snAtiva[0] && parado && !snFim) {
+    bool vezJogador = !(bnModo == 1 && snTurno == 1);
+    int shooter = (bnModo == 1) ? snCueSel : 0;
+    bool temShooter = (shooter >= 0 && shooter < 16 && snAtiva[shooter]);
+    if (bnModo != 0 && temShooter && parado && !snFim && vezJogador) {
+        float bx = snX[shooter], by = snY[shooter];
         float dirx = cosf(snAng), diry = sinf(snAng);
         for (int t = 1; t <= 22; t++) {
             float f = t / 22.0f;
-            fisCirculo(tela, snX[0] + dirx * (SN_RB + 12.0f + f * 190.0f),
-                       snY[0] + diry * (SN_RB + 12.0f + f * 190.0f), 3.0f, 0xFFFFD166);
+            fisCirculo(tela, bx + dirx * (SN_RB + 12.0f + f * 190.0f),
+                       by + diry * (SN_RB + 12.0f + f * 190.0f), 3.0f, 0xFFFFD166);
         }
         for (int t = 0; t < 26; t++) {
             float f = t / 25.0f;
-            float px = snX[0] - dirx * (SN_RB + 8.0f + f * (120.0f + snPower * 70.0f));
-            float py = snY[0] - diry * (SN_RB + 8.0f + f * (120.0f + snPower * 70.0f));
+            float px = bx - dirx * (SN_RB + 8.0f + f * (120.0f + snPower * 70.0f));
+            float py = by - diry * (SN_RB + 8.0f + f * (120.0f + snPower * 70.0f));
             fisCirculo(tela, px, py, 4.0f, 0xFFB98A4A);
         }
     }
 
-    jogoCentro(tela, snMsg, 22, 960, 878, 0xFFDCE6F3);
     char placar[64];
-    snprintf(placar, sizeof(placar), "TACADAS %d", snTacadas);
-    jogoCentro(tela, placar, 26, 960, 912, 0xFFFFD166);
+    if (bnModo == 1) {
+        int azuis = 0, amarelas = 0;
+        for (int i = 0; i < 5; i++) if (snAtiva[i]) azuis++;
+        for (int i = 5; i < 10; i++) if (snAtiva[i]) amarelas++;
+        jogoCentro(tela, snMsg, 22, 960, 866, 0xFFDCE6F3);
+        snprintf(placar, sizeof(placar), "BOLAS NA MESA: AZUIS %d   AMARELAS %d", azuis, amarelas);
+        jogoCentro(tela, placar, 24, 960, 898, 0xFFFFFFFF);
+        snprintf(placar, sizeof(placar), "VEZ: %s", snTurno == 0 ? "VOCE (MATE AS AZUIS)" : "IA (MATE AS AMARELAS)");
+        jogoCentro(tela, placar, 20, 960, 928, 0xFFFFD166);
+    } else {
+        jogoCentro(tela, snMsg, 22, 960, 878, 0xFFDCE6F3);
+        snprintf(placar, sizeof(placar), "TACADAS %d", snTacadas);
+        jogoCentro(tela, placar, 26, 960, 912, 0xFFFFD166);
+    }
 
     preencherRet(tela, 660, 960, 600, 20, 0xFF0A1220);
     jogoBorda(tela, 660, 960, 600, 20, 0xFF9DB4CC, 2);
@@ -6395,22 +7258,262 @@ static void snDesenhar(uint32_t* tela) {
     desenharTexto(tela, "FORCA", 20, 560, 958, 0xFFDCE6F3);
 
     if (bnModo == 0) {
-        preencherRet(tela, 560, 360, 800, 330, 0xF00A1A33);
-        jogoBorda(tela, 560, 360, 800, 330, 0xFFFFD166, 3);
-        jogoCentro(tela, "SINUCA OU BILHAR?", 34, 960, 388, 0xFFFFFFFF);
-        const char* op0 = "SINUCA - 9 BOLAS";
+        preencherRet(tela, 560, 350, 800, 360, 0xF00A1A33);
+        jogoBorda(tela, 560, 350, 800, 360, 0xFFFFD166, 3);
+        jogoCentro(tela, "SINUCA OU BILHAR?", 34, 960, 378, 0xFFFFFFFF);
+        const char* op0 = "SINUCA - 5 BOLAS CADA (SEM BRANCA)";
         const char* op1 = "BILHAR - 15 BOLAS";
-        if (bnSel == 0) preencherRet(tela, 640, 468, 640, 64, 0xFF1C4A7A);
-        else preencherRet(tela, 640, 468, 640, 64, 0xFF10233D);
-        jogoCentro(tela, op0, 30, 960, 482, bnSel == 0 ? 0xFFFFD166 : 0xFFDCE6F3);
-        if (bnSel == 1) preencherRet(tela, 640, 556, 640, 64, 0xFF1C4A7A);
-        else preencherRet(tela, 640, 556, 640, 64, 0xFF10233D);
-        jogoCentro(tela, op1, 30, 960, 570, bnSel == 1 ? 0xFFFFD166 : 0xFFDCE6F3);
-        jogoCentro(tela, "ESQ/DIR ESCOLHER   X CONFIRMAR   BOLINHA SAIR", 20, 960, 646, 0xFFA9BCD6);
+        if (bnSel == 0) preencherRet(tela, 640, 452, 640, 64, 0xFF1C4A7A);
+        else preencherRet(tela, 640, 452, 640, 64, 0xFF10233D);
+        jogoCentro(tela, op0, 30, 960, 466, bnSel == 0 ? 0xFFFFD166 : 0xFFDCE6F3);
+        if (bnSel == 1) preencherRet(tela, 640, 540, 640, 64, 0xFF1C4A7A);
+        else preencherRet(tela, 640, 540, 640, 64, 0xFF10233D);
+        jogoCentro(tela, op1, 30, 960, 554, bnSel == 1 ? 0xFFFFD166 : 0xFFDCE6F3);
+        jogoCentro(tela, "SINUCA: SEM BOLA BRANCA - BATA DIRETO NA SUA BOLA.", 18, 960, 612, 0xFFA9BCD6);
+        jogoCentro(tela, "SINUCA: VOCE E AZUL; A IA E AMARELA. MATE AS SUAS 5.", 18, 960, 634, 0xFFA9BCD6);
+        jogoCentro(tela, "BILHAR: LIMPE TODAS AS BOLAS DA MESA.", 18, 960, 656, 0xFFA9BCD6);
+        jogoCentro(tela, "ESQ/DIR ESCOLHER   X CONFIRMAR   BOLINHA SAIR", 20, 960, 686, 0xFFA9BCD6);
     } else if (snFim) {
         jogoCentro(tela, "X VOLTAR A ESCOLHA   BOLINHA SAIR", 22, 960, 1000, 0xFFA9BCD6);
     } else {
-        jogoBarra(tela, "ESQ/DIR MIRAR   SEGURE X E SOLTE PARA TACAR   BOLINHA SAIR");
+        jogoBarra(tela, "ESQ/DIR MIRAR   CIMA/BAIXO TROCAR BOLA   SEGURE X E SOLTE   BOLINHA SAIR");
+    }
+}
+
+enum { ESP_VOLEI = 1, ESP_TENIS = 2, ESP_FUTEBOL = 3 };
+static int espModo, espPtsJ, espPtsIA, espFim;
+static float espBX, espBY, espVX, espVY;
+static float espJX, espJY, espIAX, espIAY;
+static float espEspera, espJCD, espIACD;
+static char espMsg[96];
+
+static const float ESPL = 320.0f, ESPR = 1600.0f, ESPT = 210.0f, ESPB = 860.0f;
+static const float ESPBR = 16.0f;
+static const float ESPNET = 960.0f;
+
+static void espServir() {
+    espBX = ESPNET;
+    if (espModo == ESP_FUTEBOL) {
+        espBY = (ESPT + ESPB) * 0.5f;
+        espVX = 0.0f;
+        espVY = 0.0f;
+    } else {
+        espBY = ESPT + 180.0f;
+        espVX = (jogoRand() & 1) ? 150.0f : -150.0f;
+        espVY = 180.0f;
+    }
+    espEspera = 0.8f;
+    espJCD = 0.0f;
+    espIACD = 0.0f;
+    snprintf(espMsg, sizeof(espMsg), "PREPARAR...");
+}
+static void espPonto(int quem) {
+    if (quem) espPtsJ++; else espPtsIA++;
+    int alvo = (espModo == ESP_FUTEBOL) ? 5 : 7;
+    if (espPtsJ >= alvo || espPtsIA >= alvo) {
+        espFim = 1;
+        if (espPtsJ > espPtsIA) snprintf(espMsg, sizeof(espMsg), "VOCE VENCEU %d x %d!", espPtsJ, espPtsIA);
+        else snprintf(espMsg, sizeof(espMsg), "IA VENCEU %d x %d", espPtsJ, espPtsIA);
+    } else espServir();
+}
+static void espIniciar(int modo) {
+    espModo = modo;
+    espPtsJ = espPtsIA = 0; espFim = 0;
+    float meioY = (ESPT + ESPB) * 0.5f;
+    espJY = espIAY = ESPB - 60.0f;
+    espJX = ESPL + (ESPNET - ESPL) * 0.5f;
+    espIAX = ESPNET + (ESPR - ESPNET) * 0.5f;
+    if (modo == ESP_FUTEBOL) {
+        espJX = ESPL + 300.0f; espJY = meioY;
+        espIAX = ESPR - 300.0f; espIAY = meioY;
+    }
+    espServir();
+}
+static void espEntrada(uint32_t novos, uint32_t seg, float dt) {
+    if (novos & ORBIS_PAD_BUTTON_CIRCLE) { jogoSairCaminhar = 1; return; }
+    if (espFim) { if (novos & ORBIS_PAD_BUTTON_CROSS) espIniciar(espModo); return; }
+    if (dt > 0.033f) dt = 0.033f;
+    if (espEspera > 0.0f) { espEspera -= dt; return; }
+
+    if (espModo == ESP_FUTEBOL) {
+        float mv = 520.0f * dt;
+        if (seg & ORBIS_PAD_BUTTON_UP) espJY -= mv;
+        if (seg & ORBIS_PAD_BUTTON_DOWN) espJY += mv;
+        if (seg & ORBIS_PAD_BUTTON_LEFT) espJX -= mv;
+        if (seg & ORBIS_PAD_BUTTON_RIGHT) espJX += mv;
+        if (espJX < ESPL + 40.0f) espJX = ESPL + 40.0f;
+        if (espJX > ESPR - 40.0f) espJX = ESPR - 40.0f;
+        if (espJY < ESPT + 40.0f) espJY = ESPT + 40.0f;
+        if (espJY > ESPB - 40.0f) espJY = ESPB - 40.0f;
+
+        if (espJCD > 0.0f) espJCD -= dt;
+        if (espIACD > 0.0f) espIACD -= dt;
+
+        float passoIA = 430.0f * dt;
+        if (espIAX < espBX - 8.0f) espIAX += passoIA;
+        else if (espIAX > espBX + 8.0f) espIAX -= passoIA;
+        if (espIAY < espBY - 8.0f) espIAY += passoIA;
+        else if (espIAY > espBY + 8.0f) espIAY -= passoIA;
+        if (espIAX < ESPL + 40.0f) espIAX = ESPL + 40.0f;
+        if (espIAX > ESPR - 40.0f) espIAX = ESPR - 40.0f;
+        if (espIAY < ESPT + 40.0f) espIAY = ESPT + 40.0f;
+        if (espIAY > ESPB - 40.0f) espIAY = ESPB - 40.0f;
+
+        if ((novos & ORBIS_PAD_BUTTON_CROSS) && espJCD <= 0.0f) {
+            float dx = espBX - espJX, dy = espBY - espJY;
+            if (dx * dx + dy * dy < 80.0f * 80.0f) {
+                espVX = 980.0f;
+                espVY = (espBY - espJY) * 4.0f + (float)((int)(jogoRand() % 120) - 60);
+                espJCD = 0.35f;
+                snprintf(espMsg, sizeof(espMsg), "CHUTE!");
+            }
+        }
+        if (espIACD <= 0.0f) {
+            float dx = espBX - espIAX, dy = espBY - espIAY;
+            if (dx * dx + dy * dy < 80.0f * 80.0f) {
+                espVX = -940.0f;
+                espVY = (espBY - espIAY) * 3.6f + (float)((int)(jogoRand() % 100) - 50);
+                espIACD = 0.7f;
+            }
+        }
+
+        float fr = 1.0f - 0.9f * dt;
+        espVX *= fr; espVY *= fr;
+        espBX += espVX * dt; espBY += espVY * dt;
+        if (fabsf(espVX) < 8.0f) espVX = 0.0f;
+        if (fabsf(espVY) < 8.0f) espVY = 0.0f;
+
+        float dxj = espBX - espJX, dyj = espBY - espJY;
+        float dj = sqrtf(dxj * dxj + dyj * dyj);
+        if (dj < 46.0f && dj > 0.01f) {
+            espBX = espJX + dxj / dj * 46.0f;
+            espBY = espJY + dyj / dj * 46.0f;
+            espVX += dxj / dj * 90.0f;
+            espVY += dyj / dj * 90.0f;
+        }
+        float dxi = espBX - espIAX, dyi = espBY - espIAY;
+        float di = sqrtf(dxi * dxi + dyi * dyi);
+        if (di < 46.0f && di > 0.01f) {
+            espBX = espIAX + dxi / di * 46.0f;
+            espBY = espIAY + dyi / di * 46.0f;
+            espVX += dxi / di * 110.0f;
+            espVY += dyi / di * 110.0f;
+        }
+
+        if (espBY - ESPBR < ESPT) { espBY = ESPT + ESPBR; espVY = fabsf(espVY) * 0.82f; }
+        if (espBY + ESPBR > ESPB) { espBY = ESPB - ESPBR; espVY = -fabsf(espVY) * 0.82f; }
+
+        float gol = 105.0f;
+        float golMeioY = (ESPT + ESPB) * 0.5f;
+        if (espBX - ESPBR < ESPL) {
+            if (fabsf(espBY - golMeioY) < gol) { espPonto(0); return; }
+            espBX = ESPL + ESPBR; espVX = fabsf(espVX) * 0.8f;
+        }
+        if (espBX + ESPBR > ESPR) {
+            if (fabsf(espBY - golMeioY) < gol) { espPonto(1); return; }
+            espBX = ESPR - ESPBR; espVX = -fabsf(espVX) * 0.8f;
+        }
+        return;
+    }
+
+    float mv = 0.0f;
+    if (seg & ORBIS_PAD_BUTTON_LEFT) mv -= 1.0f;
+    if (seg & ORBIS_PAD_BUTTON_RIGHT) mv += 1.0f;
+    espJX += mv * 780.0f * dt;
+    if (espJX < ESPL + 85.0f) espJX = ESPL + 85.0f;
+    if (espJX > ESPNET - 85.0f) espJX = ESPNET - 85.0f;
+
+    float alvoX = (espBX < ESPNET) ? (ESPNET + ESPR) * 0.5f : espBX;
+    if (alvoX < ESPNET + 85.0f) alvoX = ESPNET + 85.0f;
+    if (alvoX > ESPR - 85.0f) alvoX = ESPR - 85.0f;
+    float passo = (espModo == ESP_VOLEI ? 500.0f : 560.0f) * dt;
+    if (espIAX < alvoX - 5.0f) espIAX += passo;
+    else if (espIAX > alvoX + 5.0f) espIAX -= passo;
+    if (espIAX < ESPNET + 85.0f) espIAX = ESPNET + 85.0f;
+    if (espIAX > ESPR - 85.0f) espIAX = ESPR - 85.0f;
+
+    float grav = (espModo == ESP_VOLEI) ? 880.0f : 760.0f;
+    espVY += grav * dt;
+    espBX += espVX * dt;
+    espBY += espVY * dt;
+
+    if (espBX - ESPBR < ESPL) { espBX = ESPL + ESPBR; espVX = fabsf(espVX); }
+    if (espBX + ESPBR > ESPR) { espBX = ESPR - ESPBR; espVX = -fabsf(espVX); }
+    if (espBY - ESPBR < ESPT) { espBY = ESPT + ESPBR; espVY = fabsf(espVY); }
+
+    float netTop = (espModo == ESP_VOLEI) ? ESPT + 250.0f : ESPT + 330.0f;
+    if (espBX + ESPBR > ESPNET - 5.0f && espBX - ESPBR < ESPNET + 5.0f && espBY > netTop) {
+        if (espVX > 0.0f) { espBX = ESPNET - 5.0f - ESPBR; espVX = -fabsf(espVX); }
+        else { espBX = ESPNET + 5.0f + ESPBR; espVX = fabsf(espVX); }
+    }
+
+    if (espBX > espJX - 80.0f && espBX < espJX + 80.0f &&
+        espBY + ESPBR > espJY - 12.0f && espBY - ESPBR < espJY + 12.0f && espVY > 0.0f) {
+        espBY = espJY - 12.0f - ESPBR;
+        espVY = -fabsf(espVY) * 1.02f - 250.0f;
+        espVX = (espBX - espJX) * 3.0f;
+        if (espVX > 700.0f) espVX = 700.0f;
+        if (espVX < -700.0f) espVX = -700.0f;
+    }
+    if (espBX > espIAX - 80.0f && espBX < espIAX + 80.0f &&
+        espBY + ESPBR > espIAY - 12.0f && espBY - ESPBR < espIAY + 12.0f && espVY > 0.0f) {
+        espBY = espIAY - 12.0f - ESPBR;
+        espVY = -fabsf(espVY) * 1.02f - 250.0f;
+        espVX = (espBX - espIAX) * 2.6f;
+        if (espVX > 700.0f) espVX = 700.0f;
+        if (espVX < -700.0f) espVX = -700.0f;
+    }
+
+    if (espBY + ESPBR > ESPB) {
+        if (espBX < ESPNET) espPonto(0); else espPonto(1);
+    }
+}
+static void espDesenhar(uint32_t* tela) {
+    preencherRet(tela, 0, 0, TELA_L, TELA_A, 0xFF0B1A0E);
+    const char* titulo = espModo == ESP_VOLEI ? "VOLEI" : (espModo == ESP_TENIS ? "TENIS" : "FUTEBOL");
+    jogoCentro(tela, titulo, 44, 960, 24, 0xFFFFFFFF);
+    uint32_t branco = 0xFFFFFFFF;
+    float meioY = (ESPT + ESPB) * 0.5f;
+
+    if (espModo == ESP_FUTEBOL) {
+        preencherRet(tela, (int)ESPL - 26, (int)ESPT - 26, (int)(ESPR - ESPL) + 52, (int)(ESPB - ESPT) + 52, 0xFF5A3E2B);
+        preencherRet(tela, (int)ESPL, (int)ESPT, (int)(ESPR - ESPL), (int)(ESPB - ESPT), 0xFF2F8E4A);
+        jogoBorda(tela, (int)ESPL, (int)ESPT, (int)(ESPR - ESPL), (int)(ESPB - ESPT), branco, 4);
+        preencherRet(tela, (int)((ESPL + ESPR) * 0.5f) - 2, (int)ESPT, 4, (int)(ESPB - ESPT), branco);
+        fisCirculo(tela, (ESPL + ESPR) * 0.5f, meioY, 7.0f, branco);
+        preencherRet(tela, (int)ESPL - 22, (int)(meioY - 105), 22, 210, branco);
+        preencherRet(tela, (int)ESPR, (int)(meioY - 105), 22, 210, branco);
+        fisCirculo(tela, espJX, espJY, 26.0f, 0xFF2E6DB4);
+        fisCirculo(tela, espJX, espJY, 10.0f, branco);
+        fisCirculo(tela, espIAX, espIAY, 26.0f, 0xFFE23B2E);
+        fisCirculo(tela, espIAX, espIAY, 10.0f, branco);
+        fisCirculo(tela, espBX, espBY, ESPBR, branco);
+    } else {
+        uint32_t fundo = espModo == ESP_VOLEI ? 0xFFE8D6A8 : 0xFF2E7D5B;
+        preencherRet(tela, (int)ESPL - 26, (int)ESPT - 26, (int)(ESPR - ESPL) + 52, (int)(ESPB - ESPT) + 52, 0xFF5A3E2B);
+        preencherRet(tela, (int)ESPL, (int)ESPT, (int)(ESPR - ESPL), (int)(ESPB - ESPT), fundo);
+        jogoBorda(tela, (int)ESPL, (int)ESPT, (int)(ESPR - ESPL), (int)(ESPB - ESPT), branco, 4);
+        preencherRet(tela, (int)ESPL + 40, (int)ESPT + 40, (int)(ESPR - ESPL) - 80, 4, branco);
+        preencherRet(tela, (int)ESPL + 40, (int)ESPB - 44, (int)(ESPR - ESPL) - 80, 4, branco);
+        preencherRet(tela, (int)ESPL + 40, (int)ESPT + 40, 4, (int)(ESPB - ESPT) - 80, branco);
+        preencherRet(tela, (int)ESPR - 44, (int)ESPT + 40, 4, (int)(ESPB - ESPT) - 80, branco);
+        float netTop = (espModo == ESP_VOLEI) ? ESPT + 250.0f : ESPT + 330.0f;
+        preencherRet(tela, (int)ESPNET - 5, (int)netTop, 10, (int)(ESPB - netTop), branco);
+        preencherRet(tela, (int)ESPNET - 12, (int)netTop - 12, 24, 12, 0xFFBFC4CC);
+        preencherRet(tela, (int)(espJX - 80), (int)(espJY - 12), 160, 24, 0xFF2E6DB4);
+        preencherRet(tela, (int)(espIAX - 80), (int)(espIAY - 12), 160, 24, 0xFFE23B2E);
+        fisCirculo(tela, espBX, espBY, ESPBR, espModo == ESP_VOLEI ? branco : 0xFFE6F04A);
+    }
+
+    jogoCentro(tela, espMsg, 24, 960, 900, 0xFFDCE6F3);
+    char placar[64];
+    snprintf(placar, sizeof(placar), "VOCE %d   x   %d IA", espPtsJ, espPtsIA);
+    jogoCentro(tela, placar, 30, 960, 938, 0xFFFFFFFF);
+    if (espFim) jogoCentro(tela, "X NOVO JOGO   BOLINHA SAIR", 22, 960, 984, 0xFFA9BCD6);
+    else {
+        const char* ajuda = espModo == ESP_FUTEBOL ? "DIRECIONAL MOVER   X CHUTAR   BOLINHA SAIR"
+                                                  : "ESQ/DIR MOVER RACLETA   BOLINHA SAIR";
+        jogoBarra(tela, ajuda);
     }
 }
 
@@ -6498,6 +7601,8 @@ static void desenharUIJogos(uint32_t* tela) {
     else if (jogoAtual == JOGO_AIRHOCKEY) ahDesenhar(tela);
     else if (jogoAtual == JOGO_PEBOLIM) pbDesenhar(tela);
     else if (jogoAtual == JOGO_SINUCA) snDesenhar(tela);
+    else if (jogoAtual == JOGO_VOLEI || jogoAtual == JOGO_TENIS ||
+             jogoAtual == JOGO_FUTEBOL) espDesenhar(tela);
     else desenharUIMenuJogos(tela);
 }
 
@@ -6507,6 +7612,8 @@ static void jogosEntrada(uint32_t novos, uint32_t segurados, float dt) {
     else if (jogoAtual == JOGO_AIRHOCKEY) ahEntrada(novos, segurados, dt);
     else if (jogoAtual == JOGO_PEBOLIM) pbEntrada(novos, segurados, dt);
     else if (jogoAtual == JOGO_SINUCA) snEntrada(novos, segurados, dt);
+    else if (jogoAtual == JOGO_VOLEI || jogoAtual == JOGO_TENIS ||
+             jogoAtual == JOGO_FUTEBOL) espEntrada(novos, segurados, dt);
     else if (jogoAtual == JOGO_DAMA) damaEntrada(novos, dt);
     else if (jogoAtual == JOGO_XADREZ) xadEntrada(novos, dt);
     else if (jogoAtual == JOGO_TRUCO) trucoEntrada(novos, dt);
@@ -6557,12 +7664,25 @@ static void executar() {
     float acumCena = 0.0f, acumRender = 0.0f, acumUpscale = 0.0f, acumHud = 0.0f;
 
     enum { MODO_JOGO, MODO_ESPELHO, MODO_TV, MODO_PICKER, MODO_RADIO_MENU,
-           MODO_RADIO_LISTA, MODO_MUSICA, MODO_IMAGEM, MODO_JOGOS };
+           MODO_RADIO_LISTA, MODO_MUSICA, MODO_IMAGEM, MODO_JOGOS,
+           MODO_OPCOES, MODO_DECOR_LISTA, MODO_DECOR_AJUSTE, MODO_DECOR_PLACE,
+           MODO_EDIT_LISTA, MODO_EDIT_PINTAR, MODO_EDIT_CONSTRUIR, MODO_EDIT_OBJETOS };
     int modo = MODO_JOGO;
     AvatarCfg avatarCfg;
     carregarAvatar(avatarCfg);
+    carregarDecoracoes();
     int avatarCat = 0;
     int tvSel = 0;
+    int opcoesSel = 0;
+    int decorSel = 0;
+    int decorAjusteSel = 0;
+    int editSel = 0;
+    int editPintarSel = 0;
+    int editConstruirSel = 0;
+    int editObjSel = 0;
+    int decorRetorno = MODO_DECOR_LISTA;
+    int ajusteVolta = MODO_DECOR_LISTA;
+    int construirVolta = MODO_EDIT_LISTA;
     float tempoEspelho = 0.0f;
     bool videoApresentando = false;
     float alturaSalto = 0.0f;
@@ -6637,6 +7757,249 @@ static void executar() {
         if (videoApresentando && !videoRodando) {
             videoApresentando = false;
             modo = MODO_JOGO;
+        }
+
+        if (modo == MODO_JOGO && modoAnterior == MODO_JOGO && !videoBloqueiaJogo &&
+            (novos & ORBIS_PAD_BUTTON_OPTIONS)) {
+            modo = MODO_OPCOES;
+            opcoesSel = 0;
+        }
+
+        if (modo == MODO_OPCOES && modoAnterior == MODO_OPCOES && !videoBloqueiaJogo) {
+            if ((novos & ORBIS_PAD_BUTTON_CIRCLE) || (novos & ORBIS_PAD_BUTTON_OPTIONS)) modo = MODO_JOGO;
+            if (novos & ORBIS_PAD_BUTTON_UP) opcoesSel = (opcoesSel + 2) % 3;
+            if (novos & ORBIS_PAD_BUTTON_DOWN) opcoesSel = (opcoesSel + 1) % 3;
+            if (novos & ORBIS_PAD_BUTTON_CROSS) {
+                if (opcoesSel == 0) { decorSel = 0; modo = MODO_DECOR_LISTA; }
+                else if (opcoesSel == 1) { editSel = 0; modo = MODO_EDIT_LISTA; }
+                else modo = MODO_JOGO;
+            }
+        }
+
+        if (modo == MODO_DECOR_LISTA && modoAnterior == MODO_DECOR_LISTA) {
+            const int totalOp = DECOR_TIPOS + 3;
+            if (novos & ORBIS_PAD_BUTTON_CIRCLE) modo = MODO_OPCOES;
+            if (novos & ORBIS_PAD_BUTTON_OPTIONS) modo = MODO_JOGO;
+            if (novos & ORBIS_PAD_BUTTON_UP) decorSel = (decorSel + totalOp - 1) % totalOp;
+            if (novos & ORBIS_PAD_BUTTON_DOWN) decorSel = (decorSel + 1) % totalOp;
+            if (novos & ORBIS_PAD_BUTTON_CROSS) {
+                if (decorSel < DECOR_TIPOS) {
+                    if (decorTotal >= DECOR_MAX) {
+                        snprintf(msgStatus, sizeof(msgStatus), "LIMITE DE %d ITENS DE DECORACAO", DECOR_MAX);
+                        msgTimer = 150;
+                    } else {
+                        DecorItem& it = decorItens[decorTotal];
+                        it.tipo = decorSel;
+                        it.x = px + sinf(yaw) * 2.2f;
+                        it.z = pz - cosf(yaw) * 2.2f;
+                        if (it.x < -29.0f) it.x = -29.0f;
+                        if (it.x > 29.0f) it.x = 29.0f;
+                        if (it.z < -19.0f) it.z = -19.0f;
+                        if (it.z > 59.0f) it.z = 59.0f;
+                        it.rot = yaw;
+                        it.cor = decorCorPadrao(decorSel);
+                        decorEditando = decorTotal;
+                        decorEditNovo = true;
+                        decorTotal++;
+                        decorRetorno = MODO_DECOR_LISTA;
+                        modo = MODO_DECOR_PLACE;
+                    }
+                } else if (decorSel == DECOR_TIPOS) {
+                    decorAjusteSel = 0;
+                    ajusteVolta = MODO_DECOR_LISTA;
+                    modo = MODO_DECOR_AJUSTE;
+                } else if (decorSel == DECOR_TIPOS + 1) {
+                    editConstruirSel = 0;
+                    construirVolta = MODO_DECOR_LISTA;
+                    modo = MODO_EDIT_CONSTRUIR;
+                } else {
+                    modo = MODO_OPCOES;
+                }
+            }
+        }
+
+        if (modo == MODO_DECOR_AJUSTE && modoAnterior == MODO_DECOR_AJUSTE) {
+            if (novos & ORBIS_PAD_BUTTON_CIRCLE) modo = ajusteVolta;
+            if (decorTotal > 0) {
+                if (decorAjusteSel >= decorTotal) decorAjusteSel = decorTotal - 1;
+                if (novos & ORBIS_PAD_BUTTON_UP) decorAjusteSel = (decorAjusteSel + decorTotal - 1) % decorTotal;
+                if (novos & ORBIS_PAD_BUTTON_DOWN) decorAjusteSel = (decorAjusteSel + 1) % decorTotal;
+                if (novos & ORBIS_PAD_BUTTON_CROSS) {
+                    decorEditando = decorAjusteSel;
+                    decorEditNovo = false;
+                    decorAntes = decorItens[decorAjusteSel];
+                    decorRetorno = MODO_DECOR_AJUSTE;
+                    modo = MODO_DECOR_PLACE;
+                }
+                if (novos & ORBIS_PAD_BUTTON_SQUARE) {
+                    for (int i = decorAjusteSel; i < decorTotal - 1; i++) decorItens[i] = decorItens[i + 1];
+                    decorTotal--;
+                    if (decorAjusteSel >= decorTotal && decorAjusteSel > 0) decorAjusteSel--;
+                    salvarDecoracoes();
+                }
+            } else {
+                decorAjusteSel = 0;
+            }
+        }
+
+        if (modo == MODO_DECOR_PLACE && modoAnterior == MODO_DECOR_PLACE &&
+            decorEditando >= 0 && decorEditando < decorTotal) {
+            DecorItem& it = decorItens[decorEditando];
+            float msx = (pad.leftStick.x - 128.0f) / 128.0f;
+            float msy = (pad.leftStick.y - 128.0f) / 128.0f;
+            if (fabsf(msx) < 0.18f) msx = 0.0f;
+            if (fabsf(msy) < 0.18f) msy = 0.0f;
+            float fx = sinf(yaw), fz = -cosf(yaw);
+            float rx = cosf(yaw), rz = sinf(yaw);
+            float passo = 3.0f * dt;
+            it.x += (fx * (-msy) + rx * msx) * passo;
+            it.z += (fz * (-msy) + rz * msx) * passo;
+            if (botoes & ORBIS_PAD_BUTTON_UP) { it.x += fx * passo; it.z += fz * passo; }
+            if (botoes & ORBIS_PAD_BUTTON_DOWN) { it.x -= fx * passo; it.z -= fz * passo; }
+            if (botoes & ORBIS_PAD_BUTTON_LEFT) { it.x -= rx * passo; it.z -= rz * passo; }
+            if (botoes & ORBIS_PAD_BUTTON_RIGHT) { it.x += rx * passo; it.z += rz * passo; }
+            if (botoes & ORBIS_PAD_BUTTON_L1) it.rot -= 2.2f * dt;
+            if (botoes & ORBIS_PAD_BUTTON_R1) it.rot += 2.2f * dt;
+            if (it.x < -29.0f) it.x = -29.0f;
+            if (it.x > 29.0f) it.x = 29.0f;
+            if (it.z < -19.0f) it.z = -19.0f;
+            if (it.z > 59.0f) it.z = 59.0f;
+            if (novos & ORBIS_PAD_BUTTON_TRIANGLE) {
+                if (it.tipo == EDIT_PAREDE || it.tipo == EDIT_JANELA)
+                    it.cor = paletaCiclarCor(CORES_PAREDE, 8, 1, it.cor, 1);
+                else if (it.tipo == EDIT_CHAO)
+                    it.cor = paletaCiclarCor(CORES_CHAO, 8, 1, it.cor, 1);
+                else if (it.tipo == EDIT_TETO)
+                    it.cor = paletaCiclarCor(CORES_TETO, 6, 1, it.cor, 1);
+                else
+                    it.cor = paletaCiclarCor(DECOR_PALETA, 8, 0, it.cor, 1);
+            }
+            if (novos & ORBIS_PAD_BUTTON_CROSS) {
+                const char* nomeItem = (it.tipo >= 0 && it.tipo < OBJ_TIPOS) ? OBJ_NOMES[it.tipo] : "ITEM";
+                snprintf(msgStatus, sizeof(msgStatus), "%s COLOCADO", nomeItem);
+                msgTimer = 90;
+                decorEditando = -1;
+                salvarDecoracoes();
+                modo = decorRetorno;
+            } else if (novos & ORBIS_PAD_BUTTON_CIRCLE) {
+                if (decorEditNovo) {
+                    decorTotal--;
+                } else {
+                    decorItens[decorEditando] = decorAntes;
+                }
+                decorEditando = -1;
+                modo = decorRetorno;
+            }
+        }
+
+        if (modo == MODO_EDIT_LISTA && modoAnterior == MODO_EDIT_LISTA) {
+            const int totalOp = 5;
+            if (novos & ORBIS_PAD_BUTTON_CIRCLE) modo = MODO_OPCOES;
+            if (novos & ORBIS_PAD_BUTTON_OPTIONS) modo = MODO_JOGO;
+            if (novos & ORBIS_PAD_BUTTON_UP) editSel = (editSel + totalOp - 1) % totalOp;
+            if (novos & ORBIS_PAD_BUTTON_DOWN) editSel = (editSel + 1) % totalOp;
+            if (novos & ORBIS_PAD_BUTTON_CROSS) {
+                if (editSel == 0) { editPintarSel = 0; modo = MODO_EDIT_PINTAR; }
+                else if (editSel == 1) { editConstruirSel = 0; construirVolta = MODO_EDIT_LISTA; modo = MODO_EDIT_CONSTRUIR; }
+                else if (editSel == 2) { editObjSel = 0; modo = MODO_EDIT_OBJETOS; }
+                else if (editSel == 3) {
+                    decorAjusteSel = 0;
+                    ajusteVolta = MODO_EDIT_LISTA;
+                    modo = MODO_DECOR_AJUSTE;
+                } else modo = MODO_OPCOES;
+            }
+        }
+
+        if (modo == MODO_EDIT_PINTAR && modoAnterior == MODO_EDIT_PINTAR) {
+            if (novos & ORBIS_PAD_BUTTON_CIRCLE) { salvarDecoracoes(); modo = MODO_EDIT_LISTA; }
+            if (novos & ORBIS_PAD_BUTTON_UP) editPintarSel = (editPintarSel + 3) % 4;
+            if (novos & ORBIS_PAD_BUTTON_DOWN) editPintarSel = (editPintarSel + 1) % 4;
+            if (editPintarSel == 3) {
+                if (novos & ORBIS_PAD_BUTTON_CROSS) { salvarDecoracoes(); modo = MODO_EDIT_LISTA; }
+            } else {
+                const uint32_t* pal = (editPintarSel == 0) ? CORES_PAREDE : (editPintarSel == 1) ? CORES_CHAO : CORES_TETO;
+                int n = (editPintarSel == 2) ? 6 : 8;
+                uint32_t* alvo = (editPintarSel == 0) ? &corParedeEdit : (editPintarSel == 1) ? &corChaoEdit : &corTetoEdit;
+                if (novos & ORBIS_PAD_BUTTON_LEFT) *alvo = paletaCiclar(pal, n, *alvo, -1);
+                if (novos & ORBIS_PAD_BUTTON_RIGHT) *alvo = paletaCiclar(pal, n, *alvo, 1);
+                if (novos & ORBIS_PAD_BUTTON_TRIANGLE) *alvo = 0;
+                if (novos & ORBIS_PAD_BUTTON_CROSS) {
+                    salvarDecoracoes();
+                    snprintf(msgStatus, sizeof(msgStatus), "PINTURA SALVA");
+                    msgTimer = 120;
+                }
+            }
+        }
+
+        if (modo == MODO_EDIT_CONSTRUIR && modoAnterior == MODO_EDIT_CONSTRUIR) {
+            const int totalOp = 5;
+            if (novos & ORBIS_PAD_BUTTON_CIRCLE) modo = construirVolta;
+            if (novos & ORBIS_PAD_BUTTON_OPTIONS) modo = MODO_JOGO;
+            if (novos & ORBIS_PAD_BUTTON_UP) editConstruirSel = (editConstruirSel + totalOp - 1) % totalOp;
+            if (novos & ORBIS_PAD_BUTTON_DOWN) editConstruirSel = (editConstruirSel + 1) % totalOp;
+            if (novos & ORBIS_PAD_BUTTON_CROSS) {
+                if (editConstruirSel == 4) {
+                    modo = construirVolta;
+                } else if (decorTotal >= DECOR_MAX) {
+                    snprintf(msgStatus, sizeof(msgStatus), "LIMITE DE %d ITENS", DECOR_MAX);
+                    msgTimer = 150;
+                } else {
+                    static const int mapa[4] = { EDIT_PAREDE, EDIT_CHAO, EDIT_TETO, EDIT_JANELA };
+                    int tipo = mapa[editConstruirSel];
+                    DecorItem& it = decorItens[decorTotal];
+                    it.tipo = tipo;
+                    it.x = px + sinf(yaw) * 2.6f;
+                    it.z = pz - cosf(yaw) * 2.6f;
+                    if (tipo == EDIT_CHAO || tipo == EDIT_TETO) {
+                        it.x = floorf(it.x / 2.5f + 0.5f) * 2.5f;
+                        it.z = floorf(it.z / 2.5f + 0.5f) * 2.5f;
+                    }
+                    if (it.x < -29.0f) it.x = -29.0f;
+                    if (it.x > 29.0f) it.x = 29.0f;
+                    if (it.z < -19.0f) it.z = -19.0f;
+                    if (it.z > 59.0f) it.z = 59.0f;
+                    it.rot = yaw;
+                    it.cor = decorCorPadrao(tipo);
+                    decorEditando = decorTotal;
+                    decorEditNovo = true;
+                    decorTotal++;
+                    decorRetorno = MODO_EDIT_CONSTRUIR;
+                    modo = MODO_DECOR_PLACE;
+                }
+            }
+        }
+
+        if (modo == MODO_EDIT_OBJETOS && modoAnterior == MODO_EDIT_OBJETOS) {
+            const int totalOp = 9;
+            if (novos & ORBIS_PAD_BUTTON_CIRCLE) modo = MODO_EDIT_LISTA;
+            if (novos & ORBIS_PAD_BUTTON_OPTIONS) modo = MODO_JOGO;
+            if (novos & ORBIS_PAD_BUTTON_UP) editObjSel = (editObjSel + totalOp - 1) % totalOp;
+            if (novos & ORBIS_PAD_BUTTON_DOWN) editObjSel = (editObjSel + 1) % totalOp;
+            if (novos & ORBIS_PAD_BUTTON_CROSS) {
+                if (editObjSel == 8) {
+                    modo = MODO_EDIT_LISTA;
+                } else if (decorTotal >= DECOR_MAX) {
+                    snprintf(msgStatus, sizeof(msgStatus), "LIMITE DE %d ITENS", DECOR_MAX);
+                    msgTimer = 150;
+                } else {
+                    int tipo = EDIT_CADEIRA + editObjSel;
+                    DecorItem& it = decorItens[decorTotal];
+                    it.tipo = tipo;
+                    it.x = px + sinf(yaw) * 2.2f;
+                    it.z = pz - cosf(yaw) * 2.2f;
+                    if (it.x < -29.0f) it.x = -29.0f;
+                    if (it.x > 29.0f) it.x = 29.0f;
+                    if (it.z < -19.0f) it.z = -19.0f;
+                    if (it.z > 59.0f) it.z = 59.0f;
+                    it.rot = yaw;
+                    it.cor = decorCorPadrao(tipo);
+                    decorEditando = decorTotal;
+                    decorEditNovo = true;
+                    decorTotal++;
+                    decorRetorno = MODO_EDIT_OBJETOS;
+                    modo = MODO_DECOR_PLACE;
+                }
+            }
         }
 
         if (modo == MODO_ESPELHO && modoAnterior == MODO_ESPELHO) {
@@ -6936,6 +8299,12 @@ static void executar() {
             bool pertoAir = (dxAH * dxAH + dzAH * dzAH) <= 4.84f;
             float dxPB = px + 20.0f, dzPB = pz - 13.6f;
             bool pertoPebolim = (dxPB * dxPB + dzPB * dzPB) <= 4.84f;
+            float dxVO = px + 15.0f, dzVO = pz - 24.5f;
+            bool pertoVolei = (dxVO * dxVO + dzVO * dzVO) <= 4.84f;
+            float dxTE = px - 4.0f, dzTE = pz - 24.5f;
+            bool pertoTenis = (dxTE * dxTE + dzTE * dzTE) <= 4.84f;
+            float dxFU = px - 0.0f, dzFU = pz - 42.0f;
+            bool pertoFutebol = (dxFU * dxFU + dzFU * dzFU) <= 4.84f;
             if (pertoEspelho) interacao = 1;
             else if (pertoTV) interacao = 2;
             else if (pertoJogos) interacao = 3;
@@ -6943,8 +8312,12 @@ static void executar() {
             else if (pertoSinuca) interacao = 5;
             else if (pertoAir) interacao = 6;
             else if (pertoPebolim) interacao = 7;
+            else if (pertoVolei) interacao = 8;
+            else if (pertoTenis) interacao = 9;
+            else if (pertoFutebol) interacao = 10;
             if (novos & ORBIS_PAD_BUTTON_CROSS) {
-                if (pertoEspelho || pertoTV || pertoJogos || pertoPing || pertoSinuca || pertoAir || pertoPebolim) {
+                if (pertoEspelho || pertoTV || pertoJogos || pertoPing || pertoSinuca || pertoAir || pertoPebolim ||
+                    pertoVolei || pertoTenis || pertoFutebol) {
                     if (videoRodando) { bloqueio_fechar_video = false; pararVideo(); videoApresentando = false; }
                 }
                 if (pertoEspelho) {
@@ -6979,6 +8352,21 @@ static void executar() {
                     jogoFisico = 1; jogoSairCaminhar = 0;
                     jogoAtual = JOGO_PEBOLIM;
                     pbIniciar();
+                } else if (pertoVolei) {
+                    modo = MODO_JOGOS;
+                    jogoFisico = 1; jogoSairCaminhar = 0;
+                    jogoAtual = JOGO_VOLEI;
+                    espIniciar(ESP_VOLEI);
+                } else if (pertoTenis) {
+                    modo = MODO_JOGOS;
+                    jogoFisico = 1; jogoSairCaminhar = 0;
+                    jogoAtual = JOGO_TENIS;
+                    espIniciar(ESP_TENIS);
+                } else if (pertoFutebol) {
+                    modo = MODO_JOGOS;
+                    jogoFisico = 1; jogoSairCaminhar = 0;
+                    jogoAtual = JOGO_FUTEBOL;
+                    espIniciar(ESP_FUTEBOL);
                 } else if (agentePerto >= 0) {
                     dialogoAgente = agentePerto;
                     dialogoTimer = 6.0f;
@@ -7015,7 +8403,7 @@ static void executar() {
         }
         uint64_t tCena = sceKernelGetProcessTime();
         if (cenaEspelho) construirEspelho(avatarCfg, camCena, tempoEspelho);
-        else construirCena(cam, tempo);
+        else { construirCena(cam, tempo); desenharDecoracoes(cam, tempo); }
         uint64_t tCena1 = sceKernelGetProcessTime();
         desenharQuadroRender();
         uint64_t tRender = sceKernelGetProcessTime();
@@ -7044,6 +8432,15 @@ static void executar() {
         } else {
             desenharHUD(bufferQuadro, cam, px, pz, agentePerto, dialogoAgente, dialogoTimer, fps, msSuave, interacao);
             if (modo == MODO_TV) desenharUITV(bufferQuadro, tvSel, tvUltimo);
+            else if (modo == MODO_OPCOES) desenharUIOpcoes(bufferQuadro, opcoesSel);
+            else if (modo == MODO_DECOR_LISTA) desenharUIDecorLista(bufferQuadro, decorSel, decorTotal);
+            else if (modo == MODO_DECOR_AJUSTE) desenharUIDecorAjuste(bufferQuadro, decorAjusteSel, decorTotal);
+            else if (modo == MODO_DECOR_PLACE && decorEditando >= 0 && decorEditando < decorTotal)
+                desenharUIDecorPlace(bufferQuadro, decorItens[decorEditando]);
+            else if (modo == MODO_EDIT_LISTA) desenharUIEditLista(bufferQuadro, editSel, decorTotal);
+            else if (modo == MODO_EDIT_PINTAR) desenharUIEditPintar(bufferQuadro, editPintarSel);
+            else if (modo == MODO_EDIT_CONSTRUIR) desenharUIEditConstruir(bufferQuadro, editConstruirSel);
+            else if (modo == MODO_EDIT_OBJETOS) desenharUIEditObjetos(bufferQuadro, editObjSel);
         }
         if (videoApresentando && videoRodando && video_minimizado && !menu_video_aberto && modo == MODO_JOGO) {
             preencherRet(bufferQuadro, 30, 690, 1080, 44, 0xDD062348);
@@ -7084,12 +8481,14 @@ static void executar() {
             int n = quadrosJanela > 0 ? quadrosJanela : 1;
             FILE* log = fopen("/data/HyperNeiva/escritorio3d_log.txt", "w");
             if (log) {
-                fprintf(log, "versao=2.81\nfps=%.1f\ncpu=%d\nthreads=%d\ncull=%d\ntris=%d\ndrop=%d\ncena_ms=%.2f\nrender_ms=%.2f\nupscale_ms=%.2f\nhud_ms=%.2f\ntotal_ms=%.2f\npx=%.1f\npz=%.1f\nyaw=%.2f\nmodo=%d\nvideo=%d\npip=%d\n",
+                fprintf(log, "versao=%s\nfps=%.1f\ncpu=%d\nthreads=%d\ncull=%d\ntris=%d\ndrop=%d\ncena_ms=%.2f\nrender_ms=%.2f\nupscale_ms=%.2f\nhud_ms=%.2f\ntotal_ms=%.2f\npx=%.1f\npz=%.1f\nyaw=%.2f\nmodo=%d\nvideo=%d\npip=%d\ndecor=%d\nparede=%u\nchao=%u\nteto=%u\n",
+                    HN_VERSAO,
                     fps, (renderFallback || totalThreadsRender == 0) ? 1 : 0, totalThreadsRender, cullingAtivo ? 1 : 0,
                     totalTriangulos, triangulosDescartados,
                     acumCena / n, acumRender / n, acumUpscale / n, acumHud / n,
                     (acumCena + acumRender + acumUpscale + acumHud) / n, px, pz, yaw, modo,
-                    videoRodando ? 1 : 0, video_minimizado ? 1 : 0);
+                    videoRodando ? 1 : 0, video_minimizado ? 1 : 0,
+                    decorTotal, (unsigned)corParedeEdit, (unsigned)corChaoEdit, (unsigned)corTetoEdit);
                 fclose(log);
             }
             quadrosJanela = 0; acumCena = 0.0f; acumRender = 0.0f; acumUpscale = 0.0f; acumHud = 0.0f;
