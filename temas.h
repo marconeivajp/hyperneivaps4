@@ -23,6 +23,8 @@ struct TemaCena {
     const char* tituloPainel;
     unsigned char* previa;
     int previaW, previaH;
+    int temaJogos;
+    const char* sistema;
 };
 
 // Vêm de quem inclui este arquivo.
@@ -32,6 +34,8 @@ void desenharRedimensionado(uint32_t* pixels, unsigned char* img, int imgW, int 
 void temaIcone(uint32_t* p, const char* nome, int tipo, int tam, int x, int y);
 bool temaCapa(int indice, const char* nome, unsigned char** img, int* w, int* h);
 bool temaFavorito(const char* nome);
+// tipo 0 capa, 1 tela do jogo, 2 título, 3 logo.
+bool temaImagemJogo(int indice, const char* nome, int tipo, unsigned char** img, int* w, int* h);
 
 static inline uint32_t tmRgb(int r, int g, int b) { return 0xFF000000u | ((uint32_t)r << 16) | ((uint32_t)g << 8) | (uint32_t)b; }
 static inline uint32_t tmAlfa(uint32_t cor, int a) { return (cor & 0xFFFFFFu) | ((uint32_t)a << 24); }
@@ -148,6 +152,7 @@ static void tmFaixaOnda(uint32_t* p, float fase, int centro, int altura, int for
 
 static float tmSuave = 0.0f;
 static bool tmCapaPendente = false;
+static bool tmRedesenhar = false;
 static int tmUltimoTipo = -1, tmUltimoTotal = -1;
 
 // Devolve true enquanto a seleção ainda desliza.
@@ -444,15 +449,199 @@ static void tmAba(uint32_t* p, const char* texto, int x, bool foco) {
     desenharTexto(p, texto, 28, x + 28, 56, foco ? tmRgb(255, 255, 255) : tmRgb(170, 170, 196));
 }
 
+// Desenha a imagem inteira dentro do retângulo, sem esticar.
+static bool tmImagemCaixa(uint32_t* p, unsigned char* img, int w, int h, int x, int y, int largura, int altura) {
+    if (!img || w <= 0 || h <= 0) return false;
+    int dw = largura, dh = largura * h / w;
+    if (dh > altura) { dh = altura; dw = altura * w / h; }
+    desenharRedimensionado(p, img, w, h, dw, dh, x + (largura - dw) / 2, y + (altura - dh) / 2);
+    return true;
+}
+
+static bool tmImagemDoJogo(uint32_t* p, const TemaCena* c, int i, int tipo, int x, int y, int largura, int altura) {
+    unsigned char* img = NULL;
+    int w = 0, h = 0;
+    return temaImagemJogo(i, c->nomes[i], tipo, &img, &w, &h) && tmImagemCaixa(p, img, w, h, x, y, largura, altura);
+}
+
+// Cartão da grade: capa inteira no centro da célula, nome só quando não há capa.
+static void tmCelulaJogo(uint32_t* p, const TemaCena* c, int i, int x, int y, int largura, int altura, bool foco) {
+    uint32_t destaque = tmRgb(255, 255, 255);
+    if (foco) tmCaixa(p, x - 8, y - 8, largura + 16, altura + 16, 10, destaque);
+    tmCaixa(p, x, y, largura, altura, 6, tmRgb(28, 30, 44));
+    tmCapaPendente = false;
+    unsigned char* img = NULL;
+    int w = 0, h = 0;
+    bool capa = temaCapa(i, c->nomes[i], &img, &w, &h) && img;
+    bool esperando = tmCapaPendente;
+    if (capa) tmImagemCaixa(p, img, w, h, x, y, largura, altura);
+    else if (!esperando) {
+        char nome[256];
+        tmSemExtensao(c->nomes[i], nome, sizeof(nome));
+        tmCentro(p, nome, 24, x + largura / 2, y + altura / 2 - 12, largura - 20, tmRgb(205, 205, 228));
+    }
+    if (temaFavorito(c->nomes[i])) temaIcone(p, "EXTRA", CENA_INICIO, 36, x + largura - 44, y + 8);
+}
+
+static float tmLinhaSuave = 0.0f;
+
+// Grade com rolagem suave por fileira, para a seleção nunca sair da tela.
+static void tmGradeJogos(uint32_t* p, const TemaCena* c, int x0, int y0, int largura, int colunas, int baseTela) {
+    int espaco = 26;
+    int largCelula = (largura - (colunas - 1) * espaco) / colunas;
+    int altCelula = largCelula * 4 / 3;
+    int passo = altCelula + espaco;
+    float alvo = (float)(c->sel / colunas);
+    tmLinhaSuave += (alvo - tmLinhaSuave) * 0.3f;
+    if (fabsf(alvo - tmLinhaSuave) < 0.02f) tmLinhaSuave = alvo;
+    else tmRedesenhar = true;
+    int visiveis = (baseTela - y0) / passo;
+    float topo = tmLinhaSuave - (visiveis > 2 ? 1.0f : 0.0f);
+    if (topo < 0) topo = 0;
+    int primeira = (int)topo;
+    for (int linha = primeira; linha <= primeira + visiveis + 1; linha++) {
+        int y = y0 + (int)((linha - topo) * passo);
+        if (y > baseTela) break;
+        for (int col = 0; col < colunas; col++) {
+            int i = linha * colunas + col;
+            if (i >= c->total) break;
+            tmCelulaJogo(p, c, i, x0 + col * (largCelula + espaco), y, largCelula, altCelula, i == c->sel);
+        }
+    }
+}
+
+// Repinta o fundo nas faixas de cima e de baixo, por cima das células que rolaram para fora.
+static void tmRefazerFaixa(uint32_t* p, int de, int ate) {
+    if (!tmFundoPronto) return;
+    if (de < 0) de = 0;
+    if (ate > 1080) ate = 1080;
+    if (ate > de) memcpy(p + de * 1920, tmFundoPronto + de * 1920, (size_t)(ate - de) * 1920 * 4);
+}
+
+static void tmCabecalhoJogos(uint32_t* p, const TemaCena* c, int x) {
+    char texto[160];
+    desenharTexto(p, "HYPER NEIVA", 30, x, 34, tmRgb(255, 255, 255));
+    tmTexto(p, c->sistema, 30, x + 300, 34, 700, tmRgb(164, 156, 230));
+    snprintf(texto, sizeof(texto), "%s%s", c->aba ? "Favoritos  -  " : "", c->subtitulo);
+    tmTexto(p, texto, 24, x, 84, 1100, tmRgb(205, 205, 228));
+}
+
+static void tmRodapeJogos(uint32_t* p, const TemaCena* c, int x, int largura) {
+    char nome[256] = "";
+    if (c->total > 0) tmSemExtensao(c->nomes[c->sel], nome, sizeof(nome));
+    if (c->total == 1 && strncmp(nome, "Nenhuma", 7) == 0) snprintf(nome, sizeof(nome), "Nenhum jogo encontrado");
+    tmCaixa(p, 0, 960, 1920, 120, 0, tmAlfa(0x000000, 170));
+    tmTexto(p, nome, 36, x, 972, largura, tmRgb(255, 255, 255));
+    desenharTexto(p, c->aba == 2 ? "X  Abrir     Triângulo  Opções     Quadrado  Jogos XML     O  Voltar" : "X  Jogar     Triângulo  Opções     L2  Favorito     R2  Pesquisar     Options  Ordenar     L1/R1  Favoritos", 24, x, 1030, tmRgb(205, 205, 228));
+}
+
+static void tmPainelOpcoes(uint32_t* p, const TemaCena* c) {
+    uint32_t branco = tmRgb(255, 255, 255);
+    tmCaixa(p, 1270, 0, 650, 1080, 0, tmAlfa(0x05060F, 252));
+    tmCaixa(p, 1270, 0, 2, 1080, 0, tmRgb(122, 104, 255));
+    desenharTexto(p, c->tituloPainel, 38, 1320, 90, branco);
+    int linhas = 13, inicio = c->selOpcao - linhas / 2;
+    if (inicio > c->totalOpcoes - linhas) inicio = c->totalOpcoes - linhas;
+    if (inicio < 0) inicio = 0;
+    for (int n = 0; n < linhas && inicio + n < c->totalOpcoes; n++) {
+        int i = inicio + n, y = 170 + n * 62;
+        if (i == c->selOpcao) tmCaixa(p, 1300, y - 12, 590, 58, 10, tmRgb(56, 48, 140));
+        tmTexto(p, c->opcoes[i], 30, 1330, y, 540, i == c->selOpcao ? branco : tmRgb(205, 205, 228));
+    }
+    desenharTexto(p, "X  Escolher     O  Voltar", 26, 1330, 1000, tmRgb(205, 205, 228));
+}
+
+static void tmJogosGrade(uint32_t* p, const TemaCena* c) {
+    tmGradeJogos(p, c, 110, 140, 1700, 6, 960);
+    tmRefazerFaixa(p, 0, 128);
+    tmCabecalhoJogos(p, c, 110);
+    tmRodapeJogos(p, c, 110, 1700);
+}
+
+static void tmJogosDetalhes(uint32_t* p, const TemaCena* c) {
+    tmGradeJogos(p, c, 760, 140, 1100, 4, 960);
+    tmRefazerFaixa(p, 0, 128);
+    tmCaixa(p, 0, 0, 700, 960, 0, tmAlfa(0x000000, 150));
+    tmCabecalhoJogos(p, c, 60);
+    if (c->total > 0) {
+        char nome[256];
+        tmSemExtensao(c->nomes[c->sel], nome, sizeof(nome));
+        bool parado = tmSuave == (float)c->sel;
+        if (!parado || !tmImagemDoJogo(p, c, c->sel, 3, 60, 150, 580, 200)) {
+            tmCaixa(p, 60, 150, 580, 200, 10, tmAlfa(0xFFFFFF, 18));
+            tmCentro(p, nome, 40, 350, 230, 560, tmRgb(255, 255, 255));
+        }
+        tmCaixa(p, 56, 386, 588, 448, 8, tmRgb(70, 58, 170));
+        tmCaixa(p, 60, 390, 580, 440, 6, tmRgb(10, 10, 16));
+        if (!parado || !tmImagemDoJogo(p, c, c->sel, 1, 60, 390, 580, 440))
+            tmCentro(p, "Imagem do jogo", 26, 350, 596, 560, tmRgb(120, 120, 150));
+        tmTexto(p, nome, 30, 60, 860, 600, tmRgb(255, 255, 255));
+        tmTexto(p, c->sistema, 24, 60, 906, 600, tmRgb(164, 156, 230));
+    }
+    tmRodapeJogos(p, c, 60, 1800);
+}
+
+// Roda de logos à direita, como nos frontends de fliperama; à esquerda, a tela do jogo e a capa.
+static void tmJogosRoda(uint32_t* p, const TemaCena* c) {
+    tmCaixa(p, 1200, 0, 720, 1080, 0, tmAlfa(0x000000, 150));
+    for (int d = -4; d <= 4; d++) {
+        int i = c->sel + d;
+        if (i < 0 || i >= c->total) continue;
+        float distancia = i - tmSuave;
+        int y = 540 + (int)(distancia * 150.0f);
+        bool foco = i == c->sel;
+        int largura = foco ? 600 : 440, altura = foco ? 170 : 110;
+        int x = 1560 - largura / 2;
+        if (foco) tmCaixa(p, x - 20, y - altura / 2 - 14, largura + 40, altura + 28, 18, tmAlfa(0xFFFFFF, 34));
+        if (!tmImagemDoJogo(p, c, i, 3, x, y - altura / 2, largura, altura)) {
+            char nome[256];
+            tmSemExtensao(c->nomes[i], nome, sizeof(nome));
+            tmCentro(p, nome, foco ? 40 : 28, 1560, y - (foco ? 20 : 14), largura, foco ? tmRgb(255, 255, 255) : tmRgb(170, 170, 196));
+        }
+    }
+    desenharTexto(p, "HYPER NEIVA", 34, 70, 40, tmRgb(255, 255, 255));
+    tmTexto(p, c->sistema, 34, 380, 40, 760, tmRgb(164, 156, 230));
+    tmCaixa(p, 64, 124, 1032, 652, 10, tmRgb(150, 150, 180));
+    tmCaixa(p, 70, 130, 1020, 640, 6, tmRgb(8, 8, 12));
+    if (c->total > 0) {
+        bool parado = tmSuave == (float)c->sel;
+        if (!parado || !tmImagemDoJogo(p, c, c->sel, 1, 70, 130, 1020, 640))
+            tmCentro(p, "Imagem do jogo", 28, 580, 430, 900, tmRgb(120, 120, 150));
+        tmImagemDoJogo(p, c, c->sel, 0, 860, 520, 320, 420);
+        char nome[256];
+        tmSemExtensao(c->nomes[c->sel], nome, sizeof(nome));
+        if (c->total == 1 && strncmp(nome, "Nenhuma", 7) == 0) snprintf(nome, sizeof(nome), "Nenhum jogo encontrado");
+        tmTexto(p, nome, 40, 70, 800, 780, tmRgb(255, 255, 255));
+        tmTexto(p, c->subtitulo, 24, 70, 860, 780, tmRgb(205, 205, 228));
+    }
+    tmCaixa(p, 0, 1000, 1200, 80, 0, tmAlfa(0x000000, 160));
+    desenharTexto(p, "Cima / Baixo  Navegar     X  Jogar     Triângulo  Opções     L2  Favorito     R2  Pesquisar", 24, 70, 1026, tmRgb(205, 205, 228));
+}
+
+static void tmDesenharCarrossel(uint32_t* p, const TemaCena* c);
+
 static void tmDesenharBiblioteca(uint32_t* p, const TemaCena* c) {
+    if (c->temaJogos == 1) tmJogosGrade(p, c);
+    else if (c->temaJogos == 2) tmJogosDetalhes(p, c);
+    else if (c->temaJogos == 3) tmJogosRoda(p, c);
+    else tmDesenharCarrossel(p, c);
+    if (c->temaJogos >= 1 && c->temaJogos <= 3 && c->previa) {
+        // Prévia da capa sob o seletor, grande, à esquerda do painel.
+        tmCaixa(p, 300, 150, 880, 760, 14, tmAlfa(0x000000, 220));
+        tmImagemCaixa(p, c->previa, c->previaW, c->previaH, 330, 180, 820, 700);
+    }
+    if (c->temaJogos >= 1 && c->temaJogos <= 3 && c->totalOpcoes > 0) tmPainelOpcoes(p, c);
+}
+
+static void tmDesenharCarrossel(uint32_t* p, const TemaCena* c) {
     uint32_t branco = tmRgb(255, 255, 255), suave = tmRgb(164, 156, 230);
     desenharTexto(p, "HYPER NEIVA", 34, 90, 54, branco);
     tmCaixa(p, 600, 36, 560, 72, 16, tmAlfa(0xFFFFFF, 14));
-    tmAba(p, "Biblioteca", 630, c->aba == 0);
+    tmAba(p, c->aba == 2 ? "Sistemas" : "Biblioteca", 630, c->aba != 1);
     tmAba(p, "Favoritos", 880, c->aba == 1);
     desenharTexto(p, "L1", 22, 556, 62, tmRgb(170, 170, 196));
     desenharTexto(p, "R1", 22, 1176, 62, tmRgb(170, 170, 196));
-    desenharTexto(p, c->aba ? "Seus favoritos" : "Seus jogos", 42, 90, 138, branco);
+    desenharTexto(p, c->aba == 2 ? "Seus sistemas" : c->aba ? "Seus favoritos" : "Seus jogos", 42, 90, 138, branco);
     tmTexto(p, c->subtitulo, 26, 90, 192, 900, suave);
     char posicao[32];
     snprintf(posicao, sizeof(posicao), "%d / %d", c->total > 0 ? c->sel + 1 : 0, c->total);
@@ -476,12 +665,12 @@ static void tmDesenharBiblioteca(uint32_t* p, const TemaCena* c) {
         tmSemExtensao(c->nomes[c->sel], nome, sizeof(nome));
         if (c->total == 1 && strncmp(nome, "Nenhuma", 7) == 0) snprintf(nome, sizeof(nome), "Nenhum jogo encontrado");
         tmCentro(p, nome, 44, 960, 760, 1300, branco);
-        tmCentro(p, "Game Boy Advance", 26, 960, 820, 800, tmRgb(205, 205, 228));
+        tmCentro(p, c->sistema, 26, 960, 820, 800, tmRgb(205, 205, 228));
         tmCaixa(p, 840, 866, 240, 68, 12, tmRgb(70, 58, 170));
-        tmCentro(p, "X  Jogar", 30, 960, 884, 220, branco);
+        tmCentro(p, c->aba == 2 ? "X  Abrir" : "X  Jogar", 30, 960, 884, 220, branco);
     }
     tmCaixa(p, 60, 972, 1800, 2, 0, tmAlfa(0xFFFFFF, 40));
-    desenharTexto(p, "X  Jogar      Triângulo  Opções      L2  Favorito      R2  Pesquisar      Options  Ordenar      O  Voltar", 26, 90, 1000, tmRgb(205, 205, 228));
+    desenharTexto(p, c->aba == 2 ? "X  Abrir      Triângulo  Opções      Quadrado  Jogos XML      O  Voltar" : "X  Jogar      Triângulo  Opções      L2  Favorito      R2  Pesquisar      Options  Ordenar      O  Voltar", 26, 90, 1000, tmRgb(205, 205, 228));
 
     if (c->totalOpcoes > 0) {
         tmCaixa(p, 1270, 0, 650, 1080, 0, tmAlfa(0x05060F, 252));
@@ -504,7 +693,6 @@ static void tmDesenharBiblioteca(uint32_t* p, const TemaCena* c) {
 static uint32_t* tmQuadro = NULL;
 static uint32_t tmAssinatura = 0;
 static int tmIdade = 0;
-static bool tmRedesenhar = false;
 
 static uint32_t tmResumo(int tema, const TemaCena* c) {
     uint32_t h = 2166136261u ^ (uint32_t)(tema * 31 + c->tipo * 7 + c->total * 131 + c->sel * 8191);
@@ -515,7 +703,7 @@ static uint32_t tmResumo(int tema, const TemaCena* c) {
     }
     for (const char* s = c->titulo; *s; s++) h = (h ^ (unsigned char)*s) * 16777619u;
     if (c->tipo == CENA_BIBLIOTECA) {
-        h = (h ^ (uint32_t)(c->totalOpcoes * 977 + c->selOpcao * 131 + c->aba + (uint32_t)(uintptr_t)c->previa)) * 16777619u;
+        h = (h ^ (uint32_t)(c->totalOpcoes * 977 + c->selOpcao * 131 + c->aba + c->temaJogos * 7919 + (uint32_t)(uintptr_t)c->previa)) * 16777619u;
         for (const char* s = c->subtitulo; *s; s++) h = (h ^ (unsigned char)*s) * 16777619u;
         for (int i = 0; i < c->totalOpcoes; i++) for (const char* s = c->opcoes[i]; *s; s++) h = (h ^ (unsigned char)*s) * 16777619u;
     }

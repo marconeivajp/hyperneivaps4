@@ -150,11 +150,23 @@ void preencherMenuEditar() {
     // Tema fica no topo; acaoCross_Editar desconta esta linha para achar o item.
     memmove(nomes[1], nomes[0], sizeof(nomes[0]) * 19);
     strcpy(nomes[0], "TEMA DA INTERFACE");
-    totalItens = 20; menuAtual = MENU_EDITAR;
+    strcpy(nomes[20], "TEMA DOS JOGOS");
+    totalItens = 21; menuAtual = MENU_EDITAR;
 }
 
 void preencherMenuEditTarget() {
     memset(nomes, 0, sizeof(nomes)); totalItens = 0;
+
+    if (editTarget == 32) {
+        extern int bibliotecaTemaJogos(), bibliotecaTotalTemas();
+        extern const char* bibliotecaNomeTema(int tema);
+        for (int i = 0; i < bibliotecaTotalTemas(); i++) {
+            sprintf(nomes[totalItens], "%s%s", bibliotecaNomeTema(i), bibliotecaTemaJogos() == i ? " [ATUAL]" : "");
+            mapAcoes[totalItens++] = 320 + i;
+        }
+        menuAtual = MENU_EDIT_TARGET;
+        return;
+    }
 
     if (editTarget == 31) {
         extern int temaAtual();

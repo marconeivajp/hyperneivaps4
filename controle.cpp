@@ -174,11 +174,13 @@ void voltarNavegacao() {
         }
         else if (menuAtual == MENU_EXTRA) preencherMenuExtra();
         else if (menuAtual == MENU_INFORMACAO) preencherMenuInformacao();
-        else if (menuAtual == MENU_EMULADOR) preencherMenuEmulador();
+        else if (menuAtual == MENU_EMULADOR) { extern void preencherMenuGBA(); preencherMenuGBA(); }
+        else if (menuAtual == MENU_SISTEMAS) { extern void bibliotecaMostrarSistemas(); bibliotecaMostrarSistemas(); }
         else if (menuAtual == MENU_BAIXAR_REPOS) preencherMenuRepositorios();
         else if (menuAtual == MENU_BAIXAR_GAMES_XMLS) { extern void listarXMLsRepositorio(); listarXMLsRepositorio(); }
         else if (menuAtual == MENU_BAIXAR_GAMES_LIST) { extern void reabrirXMLRepositorio(); reabrirXMLRepositorio(); }
         else if (menuAtual == MENU_BAIXAR_GITHUB) { extern void preencherMenuGithub(); preencherMenuGithub(); }
+        else if (menuAtual == MENU_BAIXAR_RETROARCH) { extern void preencherMenuRetroArch(); preencherMenuRetroArch(); }
         else if (menuAtual == MENU_BAIXAR_TORRENT) { extern void preencherMenuTorrent(); preencherMenuTorrent(); }
         else if (menuAtual == MENU_BAIXAR_GITHUB_REPOS) { extern void mostrarGithubRepos(); mostrarGithubRepos(); }
         else if (menuAtual == MENU_BAIXAR_GITHUB_RELEASES) { extern void mostrarGithubReleases(); mostrarGithubReleases(); }
@@ -282,11 +284,13 @@ void processarNavegacaoDPad(uint32_t botoes) {
                 int* sAtual = ehEsq ? &selEsq : &sel; int* oAtual = ehEsq ? &offEsq : &off; int tItens = ehEsq ? totalItensEsq : totalItens;
 
                 bool isGameMenu = (menuAtual == MENU_JOGAR_PS4 || menuAtual == JOGAR_XML || menuAtual == SCRAPER_LIST);
-                bool isGrid = (!temaCobreMenu() && (listStyle == 4 || listStyle == 5) && isGameMenu && !showOpcoes && !showUploadOpcoes && menuAtual != MENU_NOTEPAD && menuAtual != MENU_AUDIO_OPCOES);
+                extern int bibliotecaColunas();
+                int colunasBiblioteca = ((menuAtual == MENU_EMULADOR || menuAtual == MENU_SISTEMAS) && temaCobreMenu() && !showOpcoes) ? bibliotecaColunas() : 0;
+                bool isGrid = colunasBiblioteca > 0 || (!temaCobreMenu() && (listStyle == 4 || listStyle == 5) && isGameMenu && !showOpcoes && !showUploadOpcoes && menuAtual != MENU_NOTEPAD && menuAtual != MENU_AUDIO_OPCOES);
 
                 if (isGrid) {
-                    int cols = gridCols; if (cols < 1) cols = 1;
-                    if (listStyle == 5) cols = 3;
+                    int cols = colunasBiblioteca ? colunasBiblioteca : gridCols; if (cols < 1) cols = 1;
+                    if (!colunasBiblioteca && listStyle == 5) cols = 3;
 
                     if (botoes & ORBIS_PAD_BUTTON_DOWN) {
                         if (*sAtual + cols < tItens) { *sAtual += cols; tocarSom(SFX_DOWN); }
@@ -449,6 +453,13 @@ void processarControles(uint32_t botoes, int32_t uId, OrbisImeDialogSetting* ime
         return;
     }
 
+    if (menuAtual == MENU_TABELA_JOGOS) {
+        extern bool bibliotecaTabelaControles(uint32_t botoes, uint32_t antigos);
+        if (bibliotecaTabelaControles(botoes, botoesAntigos)) pCircle = true;
+        botoesAntigos = botoes;
+        return;
+    }
+
     if (menuAtual == MENU_VENTOINHA) {
         extern bool ventoinhaControles(uint32_t novos);
         if (ventoinhaControles(botoes & ~botoesAntigos)) {
@@ -565,14 +576,14 @@ void processarControles(uint32_t botoes, int32_t uId, OrbisImeDialogSetting* ime
 
             if (showUploadOpcoes && (menuAtual == MENU_BAIXAR_DROPBOX_UPLOAD || menuAtual == MENU_BAIXAR_DROPBOX_LISTA)) { extern void acaoCross_MenuUpload(); acaoCross_MenuUpload(); }
             else if (menuAtual == MENU_AUDIO_OPCOES && veioDeOutroMenuParaAudio && selAudioOpcao == 10) { menuAtual = menuAntesDoAudio; showOpcoes = false; veioDeOutroMenuParaAudio = false; }
-            else if (menuAtual == ROOT || menuAtual == MENU_TIPO_JOGO || menuAtual == MENU_JOGAR_PS4 || menuAtual == JOGAR_XML || menuAtual == MENU_MIDIA || menuAtual == MENU_EMULADOR) acaoCross_Root();
+            else if (menuAtual == ROOT || menuAtual == MENU_TIPO_JOGO || menuAtual == MENU_JOGAR_PS4 || menuAtual == JOGAR_XML || menuAtual == MENU_MIDIA || menuAtual == MENU_EMULADOR || menuAtual == MENU_SISTEMAS) acaoCross_Root();
             else if (menuAtual == MENU_MUSICAS || menuAtual == MENU_AUDIO_OPCOES) acaoCross_Musicas();
             else if (menuAtual == MENU_CONQUISTAS) { extern void acaoCross_Conquistas(); acaoCross_Conquistas(); }
             else if (menuAtual == MENU_NOTEPAD) { if (!notepadSomenteLeitura) { if (estadoNotepad == 0) acaoCross_Notepad(uId, imeSetting, imeTitle, linhasNotepad[linhaSelecionada]); else if (estadoNotepad == 1) acaoCross_Notepad(uId, imeSetting, imeTitle, nomeArquivo); } }
 
             else if (menuAtual == MENU_EXTRA) acaoCross_Extra();
 
-            else if (menuAtual == MENU_BAIXAR || menuAtual == MENU_BAIXAR_TORRENT || menuAtual == MENU_BAIXAR_GITHUB || menuAtual == MENU_BAIXAR_GITHUB_REPOS || menuAtual == MENU_BAIXAR_GITHUB_RELEASES || menuAtual == MENU_BAIXAR_GITHUB_ARQUIVOS || menuAtual == MENU_LOJAS || menuAtual == MENU_BAIXAR_REPOS || menuAtual == MENU_BAIXAR_GAMES_XMLS || menuAtual == MENU_BAIXAR_GAMES_LIST || menuAtual == MENU_BAIXAR_LINKS || menuAtual == MENU_BAIXAR_LINK_DIRETO || menuAtual == MENU_BAIXAR_DROPBOX_LISTA || menuAtual == MENU_BAIXAR_DROPBOX_UPLOAD || menuAtual == MENU_BAIXAR_DROPBOX_UPLOAD_RAIZES || menuAtual == MENU_BAIXAR_DROPBOX_BACKUP || menuAtual == MENU_BAIXAR_FTP_SERVIDORES || menuAtual == MENU_BAIXAR_FTP_EDITAR_SERVIDOR || menuAtual == MENU_BAIXAR_FTP_LISTA || menuAtual == MENU_BAIXAR_FTP_UPLOAD_RAIZES || menuAtual == MENU_BAIXAR_FTP_UPLOAD || menuAtual == MENU_CAPAS || menuAtual == MENU_CONSOLES || menuAtual == SCRAPER_LIST) {
+            else if (menuAtual == MENU_BAIXAR || menuAtual == MENU_BAIXAR_TORRENT || menuAtual == MENU_BAIXAR_RETROARCH || menuAtual == MENU_BAIXAR_GITHUB || menuAtual == MENU_BAIXAR_GITHUB_REPOS || menuAtual == MENU_BAIXAR_GITHUB_RELEASES || menuAtual == MENU_BAIXAR_GITHUB_ARQUIVOS || menuAtual == MENU_LOJAS || menuAtual == MENU_BAIXAR_REPOS || menuAtual == MENU_BAIXAR_GAMES_XMLS || menuAtual == MENU_BAIXAR_GAMES_LIST || menuAtual == MENU_BAIXAR_LINKS || menuAtual == MENU_BAIXAR_LINK_DIRETO || menuAtual == MENU_BAIXAR_DROPBOX_LISTA || menuAtual == MENU_BAIXAR_DROPBOX_UPLOAD || menuAtual == MENU_BAIXAR_DROPBOX_UPLOAD_RAIZES || menuAtual == MENU_BAIXAR_DROPBOX_BACKUP || menuAtual == MENU_BAIXAR_FTP_SERVIDORES || menuAtual == MENU_BAIXAR_FTP_EDITAR_SERVIDOR || menuAtual == MENU_BAIXAR_FTP_LISTA || menuAtual == MENU_BAIXAR_FTP_UPLOAD_RAIZES || menuAtual == MENU_BAIXAR_FTP_UPLOAD || menuAtual == MENU_CAPAS || menuAtual == MENU_CONSOLES || menuAtual == SCRAPER_LIST) {
                 acaoCross_Baixar(uId, imeSetting, imeTitle);
             }
             else if (inExplorar) {
@@ -684,6 +695,10 @@ void processarControles(uint32_t botoes, int32_t uId, OrbisImeDialogSetting* ime
                 else if (menuAtual == MENU_MIDIA) {
                     handled = voltarPastaMidia();
                 }
+                else if (menuAtual == MENU_BAIXAR_RETROARCH) {
+                    extern bool acaoCircle_RetroArch();
+                    handled = acaoCircle_RetroArch();
+                }
                 else if (menuAtual == MENU_EMULADOR) {
                     extern bool bibliotecaCirculo();
                     handled = bibliotecaCirculo();
@@ -725,7 +740,7 @@ void processarControles(uint32_t botoes, int32_t uId, OrbisImeDialogSetting* ime
         if (!pTri) {
             if (botoes & ORBIS_PAD_BUTTON_L2) { if (menuAtual != MENU_AUDIO_OPCOES) { menuAntesDoAudio = menuAtual; veioDeOutroMenuParaAudio = true; abrirMenuAudioOpcoes(); } else if (veioDeOutroMenuParaAudio) { menuAtual = menuAntesDoAudio; showOpcoes = false; veioDeOutroMenuParaAudio = false; } }
             else {
-                if (menuAtual == MENU_EMULADOR) { extern void bibliotecaTriangulo(); bibliotecaTriangulo(); }
+                if (menuAtual == MENU_EMULADOR || menuAtual == MENU_SISTEMAS) { extern void bibliotecaTriangulo(); bibliotecaTriangulo(); }
                 else if (menuAtual == MENU_MUSICAS) acaoTriangle_Musicas();
                 else if (menuAtual == MENU_BAIXAR_TORRENT) { extern void acaoTriangle_Torrent(); acaoTriangle_Torrent(); }
                 else if (menuAtual == MENU_RADIO_CATEGORIA || menuAtual == MENU_RADIO_LISTA || menuAtual == MENU_RADIO_FAVORITOS) { extern void acaoTriangle_Radio(); acaoTriangle_Radio(); }
@@ -763,7 +778,9 @@ void processarControles(uint32_t botoes, int32_t uId, OrbisImeDialogSetting* ime
     uint32_t novosBotoes = botoes & ~botoesAntigos;
     if (menuAtual == MENU_EMULADOR) { extern void bibliotecaBotoes(uint32_t novos); bibliotecaBotoes(novosBotoes); }
     // Triângulo agora abre opções: a troca entre XML e Game Boy passou para o Quadrado.
-    if (menuAtual == JOGAR_XML && (novosBotoes & ORBIS_PAD_BUTTON_SQUARE)) { extern void alternarModoLauncher(); alternarModoLauncher(); }
+    // JOGOS XML abre nos sistemas; o Quadrado alterna entre sistemas e a lista XML.
+    if (menuAtual == MENU_SISTEMAS && !showOpcoes && (novosBotoes & ORBIS_PAD_BUTTON_SQUARE)) { extern void carregarXML(const char*); carregarXML("system.xml"); sel = 0; off = 0; }
+    else if (menuAtual == JOGAR_XML && (novosBotoes & ORBIS_PAD_BUTTON_SQUARE)) { extern void bibliotecaMostrarSistemas(); bibliotecaMostrarSistemas(); }
 
     botoesAntigos = botoes;
 }

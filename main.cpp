@@ -203,8 +203,19 @@ void ligarInterfaceGrafica() {
     }
 }
 
+// Mede a abertura e os quadros que demoram: o console não dá depurador, e o log mostra onde travou.
+static void registrarInicio(const char* etapa, uint64_t desde) {
+    FILE* f = fopen("/data/HyperNeiva/inicio_log.txt", "a");
+    if (!f) return;
+    fprintf(f, "%s %llu ms\n", etapa, (unsigned long long)((sceKernelGetProcessTime() - desde) / 1000));
+    fclose(f);
+}
+
 int main(void) {
-    initNetwork(); inicializarAudio();
+    uint64_t inicioApp = sceKernelGetProcessTime();
+    remove("/data/HyperNeiva/inicio_log.txt");
+    initNetwork(); registrarInicio("rede", inicioApp);
+    inicializarAudio(); registrarInicio("audio", inicioApp);
     sceSysmoduleLoadModuleInternal(ORBIS_SYSMODULE_INTERNAL_COMMON_DIALOG);
     sceSysmoduleLoadModule(ORBIS_SYSMODULE_IME_DIALOG);
     sceCommonDialogInitialize();
@@ -243,7 +254,9 @@ int main(void) {
     uint16_t* imeTitle = (uint16_t*)((uint8_t*)bufferTecladoW + 1024);
     uint16_t t[] = { 'D','i','g','i','t','e',' ','o',' ','L','i','n','k','\0' }; memcpy(imeTitle, t, sizeof(t));
 
-    inicializarPastas(); carregarConfiguracao(); inicializarElementosSonoros();
+    registrarInicio("video e fonte", inicioApp);
+    inicializarPastas(); registrarInicio("pastas", inicioApp);
+    carregarConfiguracao(); inicializarElementosSonoros(); registrarInicio("configuracao", inicioApp);
 
     // Configurações já salvas tinham o elemento desligado: liga uma vez e depois respeita a escolha.
     FILE* marcaPersonagem = fopen("/data/HyperNeiva/configuracao/personagem_padrao_v2.txt", "r");
@@ -264,6 +277,7 @@ int main(void) {
     carregarSpriteSheetAnimada();
     struct jbc_cred cred; jbc_get_cred(&cred); jbc_jailbreak_cred(&cred); jbc_set_cred(&cred);
     sceKernelChmod("/mnt/usb0", 0777); sceKernelChmod("/mnt/usb1", 0777);
+    registrarInicio("fundo e personagem", inicioApp);
     preencherRoot();
     
     // CONFIRMAÇÃO VISUAL V45 - LIMPO
@@ -283,7 +297,20 @@ int main(void) {
     // Sem isso, segurar o botão repetia a ação a cada volta do loop.
     static unsigned int botoesConsumidos = 0;
 
+    registrarInicio("menu pronto", inicioApp);
+    uint64_t quadroAnterior = sceKernelGetProcessTime();
+    int quadrosLentos = 0;
     for (;;) {
+        {
+            uint64_t agora = sceKernelGetProcessTime();
+            if (agora - quadroAnterior > 500000 && quadrosLentos < 200) {
+                quadrosLentos++;
+                char etapa[64];
+                snprintf(etapa, sizeof(etapa), "QUADRO LENTO menu=%d duracao", (int)menuAtual);
+                registrarInicio(etapa, quadroAnterior);
+            }
+            quadroAnterior = agora;
+        }
         OrbisPadData pData;
         if (scePadReadState(pad, &pData) == 0) {
             // --- LÓGICA DE CONTROLE DO EMULADOR (V33) ---

@@ -66,11 +66,10 @@ extern void carregarXML(const char* nomeArquivoXML);
 
 void alternarModoLauncher() {
     modoLauncher = (modoLauncher == 0) ? 1 : 0;
-    
-    if (modoLauncher == 1) { // MODO EMULADOR
-        memset(nomes, 0, sizeof(nomes));
-        strcpy(nomes[0], "NINTENDO GAME BOY ADVANCE");
-        totalItens = 1;
+
+    if (modoLauncher == 1) { // MODO EMULADOR: um item por sistema
+        extern void bibliotecaListarSistemas();
+        bibliotecaListarSistemas();
         sel = 0; off = 0;
     } else { // MODO XML (Volta pro system)
         carregarXML("system.xml");
@@ -82,7 +81,8 @@ void alternarModoLauncher() {
 void iniciarEmulador(const char* romPath) {
     bool ehGBA = false;
     const char* ext = strrchr(romPath, '.');
-    if (ext && (strcasecmp(ext, ".gba") == 0)) ehGBA = true;
+    // O mGBA também roda Game Boy e Game Boy Color.
+    if (ext && (strcasecmp(ext, ".gba") == 0 || strcasecmp(ext, ".gb") == 0 || strcasecmp(ext, ".gbc") == 0)) ehGBA = true;
 
     if (!ehGBA && strlen(caminhoCoreSelecionado) == 0) {
         snprintf(msgStatus, sizeof(msgStatus), "ERRO: SELECIONE O NUCLEO NO EXPLORADOR!");
@@ -267,19 +267,51 @@ void chamarJogo(const char* titleId, const char* romPath) {
 }
 
 // ===== BIBLIOTECA DE JOGOS =====
-// Favoritos, capas e trapaças da lista de Game Boy Advance. O download roda numa thread só, uma tarefa por vez.
+// Favoritos, capas e trapaças por sistema. O download roda numa thread só, uma tarefa por vez.
 #define BIB_PASTA "/data/HyperNeiva/emulador"
 #define BIB_CAPAS BIB_PASTA "/capas"
 #define BIB_TRAPACAS BIB_PASTA "/trapacas"
 #define BIB_FAVORITOS BIB_PASTA "/favoritos.txt"
 #define BIB_JOGADOS BIB_PASTA "/jogados.txt"
-#define BIB_CAPAS_EMUSUNI "/data/EmuSuNi/covers/gba"
-#define BIB_URL_CAPAS "https://thumbnails.libretro.com/Nintendo%20-%20Game%20Boy%20Advance/Named_Boxarts/"
-#define BIB_URL_TRAPACAS "https://api.github.com/repos/libretro/libretro-database/contents/cht/Nintendo%20-%20Game%20Boy%20Advance"
-#define BIB_RAW_TRAPACAS "https://raw.githubusercontent.com/libretro/libretro-database/master/cht/Nintendo%20-%20Game%20Boy%20Advance/"
+#define BIB_PASTA_ROMS "/data/retroarch/0 Games"
+#define BIB_TEMA_ARQUIVO BIB_PASTA "/tema_jogos.txt"
+
+// Imagens por jogo, nas pastas do libretro-thumbnails.
+enum { BIB_IMG_CAPA, BIB_IMG_TELA, BIB_IMG_TITULO, BIB_IMG_LOGO, BIB_TOTAL_IMG };
+static const char* bibPastaImagem[BIB_TOTAL_IMG] = { "Capa", "Tela", "Titulo", "Logo" };
+static const char* bibPastaLibretro[BIB_TOTAL_IMG] = { "Named_Boxarts", "Named_Snaps", "Named_Titles", "Named_Logos" };
+
+struct BibSistema { const char* chave; const char* nome; const char* pastas[3]; const char* libretro; const char* extensoes; bool nucleo; };
+// A chave é a mesma das pastas do EmuSuNi, para aproveitar as capas que ele já baixou.
+static const BibSistema bibSistemas[] = {
+    { "gba", "Game Boy Advance", { "Game Boy Advance", "Game Boy Advace", NULL }, "Nintendo - Game Boy Advance", " .gba ", true },
+    { "gb", "Game Boy", { "Game Boy", NULL, NULL }, "Nintendo - Game Boy", " .gb ", true },
+    { "gbc", "Game Boy Color", { "Game Boy Color", NULL, NULL }, "Nintendo - Game Boy Color", " .gbc ", true },
+    { "nes", "Nintendo (NES)", { "Nintendo Entertainment System", "NES", NULL }, "Nintendo - Nintendo Entertainment System", " .nes .fds .unf ", false },
+    { "snes", "Super Nintendo", { "Super Nintendo Entertainment System", "Super Nintendo", "SNES" }, "Nintendo - Super Nintendo Entertainment System", " .sfc .smc .fig .swc ", false },
+    { "n64", "Nintendo 64", { "Nintendo 64", NULL, NULL }, "Nintendo - Nintendo 64", " .z64 .n64 .v64 ", false },
+    { "nds", "Nintendo DS", { "Nintendo DS", NULL, NULL }, "Nintendo - Nintendo DS", " .nds ", false },
+    { "md", "Mega Drive", { "Mega Drive", "Genesis", NULL }, "Sega - Mega Drive - Genesis", " .md .gen .smd .bin ", false },
+    { "sms", "Master System", { "Master System", NULL, NULL }, "Sega - Master System - Mark III", " .sms ", false },
+    { "gg", "Game Gear", { "Game Gear", NULL, NULL }, "Sega - Game Gear", " .gg ", false },
+    { "saturn", "Sega Saturn", { "Sega Saturn", "Saturn", NULL }, "Sega - Saturn", " .cue .chd .iso .ccd ", false },
+    { "dc", "Dreamcast", { "Dreamcast", NULL, NULL }, "Sega - Dreamcast", " .gdi .cdi .chd ", false },
+    { "ps1", "PlayStation", { "PS1", "PlayStation", NULL }, "Sony - PlayStation", " .cue .chd .pbp .iso .bin .m3u ", false },
+    { "psp", "PSP", { "PSP", NULL, NULL }, "Sony - PlayStation Portable", " .iso .cso .pbp ", false },
+    { "atari2600", "Atari 2600", { "Atari 2600", NULL, NULL }, "Atari - 2600", " .a26 .bin ", false },
+    { "atari7800", "Atari 7800", { "Atari 7800", NULL, NULL }, "Atari - 7800", " .a78 ", false },
+    { "lynx", "Atari Lynx", { "Atari Lynx", NULL, NULL }, "Atari - Lynx", " .lnx ", false },
+    { "pce", "PC Engine", { "PC Engine", "TurboGrafx-16", NULL }, "NEC - PC Engine - TurboGrafx 16", " .pce ", false },
+    { "arcade", "Arcade", { "Arcade", NULL, NULL }, "MAME", " ", false },
+};
+#define BIB_TOTAL_SISTEMAS ((int)(sizeof(bibSistemas) / sizeof(bibSistemas[0])))
+static int bibSistema = 0;
+MenuLevel bibliotecaVoltaDaTabela();
+static int bibMidiaItem = 0, bibMidiaFonte = -1;
+static int bibTemaJogos = -1;
 #define BIB_MAX_FAV 1000
 #define BIB_MAX_OPCOES 140
-#define BIB_MAX_ACHADOS 12
+#define BIB_MAX_ACHADOS 20
 
 extern const char* listaOpcoes[150];
 extern int mapOpcoes[150], totalOpcoes, selOpcao;
@@ -288,10 +320,10 @@ extern int httpCtxId;
 extern char caminhoROMsAtual[512];
 extern void preencherMenuGBA();
 
-enum { BIB_OP_INICIAR, BIB_OP_FAVORITO, BIB_OP_TRAPACAS, BIB_OP_CONTROLE, BIB_OP_RENOMEAR, BIB_OP_CAPA, BIB_OP_PESQUISAR, BIB_OP_LIMPAR, BIB_OP_ORDENAR, BIB_OP_FILTRAR, BIB_OP_CANCELAR };
-enum { BIB_PAINEL_JOGO, BIB_PAINEL_TRAPACAS, BIB_PAINEL_CAPAS, BIB_PAINEL_ACHADOS_TRAPACA };
-enum { BIB_TAREFA_NADA, BIB_TAREFA_TODAS_CAPAS, BIB_TAREFA_ACHAR_CAPA, BIB_TAREFA_BAIXAR_CAPA, BIB_TAREFA_ACHAR_TRAPACA, BIB_TAREFA_BAIXAR_TRAPACA, BIB_TAREFA_PREVIA };
-enum { BIB_IME_NADA, BIB_IME_RENOMEAR, BIB_IME_PESQUISAR };
+enum { BIB_OP_INICIAR, BIB_OP_FAVORITO, BIB_OP_TRAPACAS, BIB_OP_CONTROLE, BIB_OP_RENOMEAR, BIB_OP_CAPA, BIB_OP_PESQUISAR, BIB_OP_LIMPAR, BIB_OP_ORDENAR, BIB_OP_FILTRAR, BIB_OP_TEMA, BIB_OP_TABELA, BIB_OP_MIDIAS, BIB_OP_DOWNLOADS, BIB_OP_CANCELAR };
+enum { BIB_PAINEL_JOGO, BIB_PAINEL_TRAPACAS, BIB_PAINEL_CAPAS, BIB_PAINEL_ACHADOS_TRAPACA, BIB_PAINEL_FONTES, BIB_PAINEL_REMOVER_FONTE, BIB_PAINEL_MIDIAS, BIB_PAINEL_MIDIA_FONTE, BIB_PAINEL_MIDIA_ALCANCE, BIB_PAINEL_CONTROLE, BIB_PAINEL_DOWNLOADS, BIB_PAINEL_SISTEMA };
+enum { BIB_TAREFA_NADA, BIB_TAREFA_TODAS_CAPAS, BIB_TAREFA_ACHAR_CAPA, BIB_TAREFA_BAIXAR_CAPA, BIB_TAREFA_ACHAR_TRAPACA, BIB_TAREFA_BAIXAR_TRAPACA, BIB_TAREFA_PREVIA, BIB_TAREFA_EXTRA, BIB_TAREFA_TABELA, BIB_TAREFA_MIDIA };
+enum { BIB_IME_NADA, BIB_IME_RENOMEAR, BIB_IME_PESQUISAR, BIB_IME_FONTE };
 
 struct BibTrapaca { char desc[120]; char codigo[400]; bool ligada; };
 
@@ -300,11 +332,17 @@ static int bibTotalFavoritos = 0, bibAba = 0, bibOrdem = 0, bibPainel = BIB_PAIN
 static char bibBusca[128] = "", bibJogo[256] = "", bibSubtitulo[200] = "";
 static char bibOpcoes[150][200];
 static char bibAchados[BIB_MAX_ACHADOS][200];
+// O nome de verdade e a fonte de cada candidato; bibAchados guarda o texto da lista.
+static char bibAchadoNome[BIB_MAX_ACHADOS][256];
+static int bibAchadoFonte[BIB_MAX_ACHADOS];
+static int bibFonteAtual = -1, bibFonteBusca = -1;
 static int bibTotalAchados = 0;
 static BibTrapaca* bibTrapacas = NULL;
 static int bibTotalTrapacas = 0;
 static wchar_t bibTextoIme[300];
 static bool bibCapasPedidas = false;
+bool bibCapasPedidasPublico = false;
+static int bibTipoExtra = BIB_IMG_TELA;
 
 static volatile int bibTarefa = BIB_TAREFA_NADA, bibResultado = BIB_TAREFA_NADA, bibTarefaEspera = BIB_TAREFA_NADA;
 static unsigned char* bibPreviaImg = NULL;
@@ -324,6 +362,15 @@ static void bibPastas() {
     sceKernelMkdir(BIB_PASTA, 0777);
     sceKernelMkdir(BIB_CAPAS, 0777);
     sceKernelMkdir(BIB_TRAPACAS, 0777);
+    char pasta[300];
+    snprintf(pasta, sizeof(pasta), "%s/%s", BIB_CAPAS, bibSistemas[bibSistema].chave);
+    sceKernelMkdir(pasta, 0777);
+    for (int t = 0; t < BIB_TOTAL_IMG; t++) {
+        snprintf(pasta, sizeof(pasta), "%s/%s/%s", BIB_CAPAS, bibSistemas[bibSistema].chave, bibPastaImagem[t]);
+        sceKernelMkdir(pasta, 0777);
+    }
+    snprintf(pasta, sizeof(pasta), "%s/%s", BIB_TRAPACAS, bibSistemas[bibSistema].chave);
+    sceKernelMkdir(pasta, 0777);
 }
 
 static bool bibExiste(const char* caminho) {
@@ -331,13 +378,166 @@ static bool bibExiste(const char* caminho) {
     return stat(caminho, &info) == 0 && info.st_size > 0;
 }
 
-bool bibliotecaCaminhoCapa(const char* jogo, char* saida, size_t tamanho) {
+// Onde a imagem nova é gravada.
+static void bibDestinoImagem(const char* jogo, int tipo, char* saida, size_t tamanho) {
     char base[256];
     bibBase(jogo, base, sizeof(base));
-    snprintf(saida, tamanho, "%s/%s.png", BIB_CAPAS, base);
+    snprintf(saida, tamanho, "%s/%s/%s/%s.png", BIB_CAPAS, bibSistemas[bibSistema].chave, bibPastaImagem[tipo], base);
+}
+
+// Procura também onde as versões anteriores e o EmuSuNi guardavam as capas.
+bool bibliotecaCaminhoImagem(const char* jogo, int tipo, char* saida, size_t tamanho) {
+    char base[256];
+    bibBase(jogo, base, sizeof(base));
+    bibDestinoImagem(jogo, tipo, saida, tamanho);
     if (bibExiste(saida)) return true;
-    snprintf(saida, tamanho, "%s/%s.png", BIB_CAPAS_EMUSUNI, base);
+    // As mídias no padrão do HyperSpin também valem para os temas.
+    extern bool bibliotecaCaminhoMidia(const char* jogo, int item, char* saida, size_t tamanho);
+    if (tipo == BIB_IMG_LOGO) return bibliotecaCaminhoMidia(jogo, 4, saida, tamanho);
+    if (tipo == BIB_IMG_TELA) return bibliotecaCaminhoMidia(jogo, 3, saida, tamanho);
+    if (tipo != BIB_IMG_CAPA) return false;
+    if (bibliotecaCaminhoMidia(jogo, 0, saida, tamanho)) return true;
+    if (bibSistema == 0) {
+        snprintf(saida, tamanho, "%s/%s.png", BIB_CAPAS, base);
+        if (bibExiste(saida)) return true;
+    }
+    snprintf(saida, tamanho, "/data/EmuSuNi/covers/%s/%s.png", bibSistemas[bibSistema].chave, base);
+    if (bibExiste(saida)) return true;
+    snprintf(saida, tamanho, "/data/EmuSuNi/covers/%s/%s.jpg", bibSistemas[bibSistema].chave, base);
     return bibExiste(saida);
+}
+
+bool bibliotecaCaminhoCapa(const char* jogo, char* saida, size_t tamanho) { return bibliotecaCaminhoImagem(jogo, BIB_IMG_CAPA, saida, tamanho); }
+
+// Endereço da pasta de um tipo de imagem do sistema atual no libretro-thumbnails.
+static void bibUrlImagens(int tipo, char* saida, size_t tamanho);
+
+static void bibEndereco(const char* texto, char* saida, size_t tamanho);
+
+static void bibUrlImagens(int tipo, char* saida, size_t tamanho) {
+    char sistema[300];
+    bibEndereco(bibSistemas[bibSistema].libretro, sistema, sizeof(sistema));
+    snprintf(saida, tamanho, "https://thumbnails.libretro.com/%s/%s/", sistema, bibPastaLibretro[tipo]);
+}
+
+const char* bibliotecaNomeSistema() { return bibSistemas[bibSistema].nome; }
+
+// Temas da tela de jogos.
+enum { BIB_TEMA_CARROSSEL, BIB_TEMA_GRADE, BIB_TEMA_DETALHES, BIB_TEMA_RODA, BIB_TEMA_CLASSICO, BIB_TOTAL_TEMAS };
+static const char* bibNomesTema[BIB_TOTAL_TEMAS] = { "Carrossel", "Grade", "Grade com detalhes", "Roda", "Clássico (capa, CD e imagem)" };
+
+int bibliotecaTemaJogos() {
+    if (bibTemaJogos >= 0) return bibTemaJogos;
+    bibTemaJogos = BIB_TEMA_CARROSSEL;
+    FILE* f = fopen(BIB_TEMA_ARQUIVO, "r");
+    if (f) {
+        int lido = 0;
+        if (fscanf(f, "%d", &lido) == 1 && lido >= 0 && lido < BIB_TOTAL_TEMAS) bibTemaJogos = lido;
+        fclose(f);
+    }
+    return bibTemaJogos;
+}
+
+const char* bibliotecaNomeTema(int tema) { return tema >= 0 && tema < BIB_TOTAL_TEMAS ? bibNomesTema[tema] : ""; }
+int bibliotecaTotalTemas() { return BIB_TOTAL_TEMAS; }
+
+void bibliotecaDefinirTema(int tema) {
+    if (tema < 0 || tema >= BIB_TOTAL_TEMAS) return;
+    bibTemaJogos = tema;
+    sceKernelMkdir(BIB_PASTA, 0777);
+    FILE* f = fopen(BIB_TEMA_ARQUIVO, "w");
+    if (f) { fprintf(f, "%d\n", tema); fclose(f); }
+    clearCoverCache();
+    extern void temaLimparExtras(bool soVazias);
+    temaLimparExtras(false);
+}
+
+// Colunas da grade de cada tema; 0 quando o tema não é grade.
+int bibliotecaColunas() {
+    int tema = bibliotecaTemaJogos();
+    return tema == BIB_TEMA_GRADE ? 6 : tema == BIB_TEMA_DETALHES ? 4 : 0;
+}
+
+static bool bibTemExtensao(const char* nome) {
+    const char* ponto = strrchr(nome, '.');
+    if (!ponto) return false;
+    if (strcasecmp(ponto, ".zip") == 0 || strcasecmp(ponto, ".7z") == 0) return true;
+    char procura[16];
+    snprintf(procura, sizeof(procura), " %s ", ponto);
+    for (char* c = procura; *c; c++) *c = (char)tolower((unsigned char)*c);
+    return strstr(bibSistemas[bibSistema].extensoes, procura) != NULL;
+}
+
+static const char* bibPastaDoSistema(int sistema, char* saida, size_t tamanho) {
+    for (int i = 0; i < 3 && bibSistemas[sistema].pastas[i]; i++) {
+        snprintf(saida, tamanho, "%s/%s", BIB_PASTA_ROMS, bibSistemas[sistema].pastas[i]);
+        struct stat info;
+        if (stat(saida, &info) == 0 && S_ISDIR(info.st_mode)) return saida;
+    }
+    snprintf(saida, tamanho, "%s/%s", BIB_PASTA_ROMS, bibSistemas[sistema].pastas[0]);
+    return NULL;
+}
+
+static int bibContarJogos(int sistema) {
+    char pasta[400];
+    if (!bibPastaDoSistema(sistema, pasta, sizeof(pasta))) return -1;
+    int antes = bibSistema, total = 0;
+    bibSistema = sistema;
+    DIR* d = opendir(pasta);
+    if (d) {
+        struct dirent* item;
+        while ((item = readdir(d)) != NULL && total < 9999) if (item->d_type == DT_REG && bibTemExtensao(item->d_name)) total++;
+        closedir(d);
+    }
+    bibSistema = antes;
+    return total;
+}
+
+// Lista de sistemas do modo emulador, aberta pelo Quadrado em JOGOS XML.
+void bibliotecaListarSistemas() {
+    memset(nomes, 0, sizeof(nomes));
+    totalItens = 0;
+    for (int i = 0; i < BIB_TOTAL_SISTEMAS; i++) {
+        int jogos = bibContarJogos(i);
+        const char* situacao = bibSistemas[i].nucleo ? "" : "   (sem emulador ainda)";
+        if (jogos < 0) snprintf(nomes[totalItens++], 256, "%s   - pasta vazia%s", bibSistemas[i].nome, situacao);
+        else snprintf(nomes[totalItens++], 256, "%s   - %d jogos%s", bibSistemas[i].nome, jogos, situacao);
+    }
+}
+
+extern bool bibCapasPedidasPublico;
+
+void bibliotecaAbrirSistema(int sistema) {
+    if (sistema < 0 || sistema >= BIB_TOTAL_SISTEMAS) return;
+    char pasta[400];
+    if (!bibPastaDoSistema(sistema, pasta, sizeof(pasta))) {
+        sceKernelMkdir(BIB_PASTA_ROMS, 0777);
+        sceKernelMkdir(pasta, 0777);
+        snprintf(msgStatus, sizeof(msgStatus), "COLOQUE OS JOGOS EM %.90s", pasta);
+        msgTimer = 400;
+    }
+    bibSistema = sistema;
+    bibCapasPedidasPublico = false;
+    preencherMenuGBA();
+}
+
+// Monta a lista do sistema atual em nomes[]. preencherMenuGBA (menu.cpp) chama esta.
+void bibliotecaListarJogos() {
+    memset(nomes, 0, sizeof(nomes));
+    totalItens = 0;
+    char pasta[400];
+    bibPastaDoSistema(bibSistema, pasta, sizeof(pasta));
+    snprintf(caminhoROMsAtual, 512, "%s", pasta);
+    DIR* d = opendir(pasta);
+    if (d) {
+        struct dirent* item;
+        while ((item = readdir(d)) != NULL && totalItens < 3000) {
+            if (item->d_type != DT_REG || !bibTemExtensao(item->d_name)) continue;
+            snprintf(nomes[totalItens++], 256, "%s", item->d_name);
+        }
+        closedir(d);
+        qsort(nomes, totalItens, sizeof(nomes[0]), (int (*)(const void*, const void*))strcasecmp);
+    }
 }
 
 static void bibCarregarFavoritos() {
@@ -361,14 +561,24 @@ static void bibGravarFavoritos() {
     fclose(f);
 }
 
+static const char* bibChave(const char* nome) {
+    static char chave[300];
+    if (bibSistema == 0) return nome;
+    snprintf(chave, sizeof(chave), "%s/%s", bibSistemas[bibSistema].chave, nome);
+    return chave;
+}
+
 bool bibliotecaFavorito(const char* nome) {
-    for (int i = 0; i < bibTotalFavoritos; i++) if (strcmp(bibFavoritos[i], nome) == 0) return true;
+    const char* chave = bibChave(nome);
+    for (int i = 0; i < bibTotalFavoritos; i++) if (strcmp(bibFavoritos[i], chave) == 0) return true;
     return false;
 }
 
-static void bibAlternarFavorito(const char* nome) {
+static void bibAlternarFavorito(const char* jogo) {
     extern void conquistaGanhar(const char* chave);
     conquistaGanhar("favorito");
+    char nome[300];
+    snprintf(nome, sizeof(nome), "%s", bibChave(jogo));
     if (!bibFavoritos) bibCarregarFavoritos();
     if (!bibFavoritos) return;
     for (int i = 0; i < bibTotalFavoritos; i++) {
@@ -387,7 +597,9 @@ static void bibAlternarFavorito(const char* nome) {
     msgTimer = 120;
 }
 
-static int bibRecente(const char* nome) {
+static int bibRecente(const char* jogo) {
+    char nome[300];
+    snprintf(nome, sizeof(nome), "%s", bibChave(jogo));
     FILE* f = fopen(BIB_JOGADOS, "r");
     if (!f) return 1 << 30;
     char linha[300];
@@ -506,6 +718,15 @@ int bibliotecaAba() { return bibAba; }
 const char* bibliotecaTituloPainel() {
     if (bibPainel == BIB_PAINEL_TRAPACAS) return "Trapaças";
     if (bibPainel == BIB_PAINEL_CAPAS) return "Escolha a capa";
+    if (bibPainel == BIB_PAINEL_FONTES) return "Fontes de capa";
+    if (bibPainel == BIB_PAINEL_CONTROLE) return "Controle";
+    if (bibPainel == BIB_PAINEL_SISTEMA) return "Sistema";
+    if (bibPainel == BIB_PAINEL_DOWNLOADS) return "Downloads do RetroArch";
+    if (bibPainel == BIB_PAINEL_ACHADOS_TRAPACA) return "Escolha a lista de trapaças";
+    if (bibPainel == BIB_PAINEL_MIDIAS) return "Capas e mídias";
+    if (bibPainel == BIB_PAINEL_MIDIA_FONTE) { static const char* nomesMidia[] = { "Capa (mídia 1)", "CD ou cartucho (mídia 2)", "Vídeo", "Fundo", "Elementos (logo)" }; return bibMidiaItem >= 0 && bibMidiaItem < 5 ? nomesMidia[bibMidiaItem] : ""; }
+    if (bibPainel == BIB_PAINEL_MIDIA_ALCANCE) return "Para quais jogos";
+    if (bibPainel == BIB_PAINEL_REMOVER_FONTE) return "Remover fonte";
     if (bibPainel == BIB_PAINEL_ACHADOS_TRAPACA) return "Escolha a lista";
     return "Jogo";
 }
@@ -514,9 +735,11 @@ static void bibRecarregar(const char* manter) {
     preencherMenuGBA();
     for (int i = 0; manter && i < totalItens; i++) if (strcmp(nomes[i], manter) == 0) { sel = i; break; }
     clearCoverCache();
+    extern void temaLimparExtras(bool soVazias);
+    temaLimparExtras(false);
 }
 
-static bool bibSemJogo() { return totalItens <= 0 || strcmp(nomes[sel], "Nenhuma ROM GBA encontrada") == 0; }
+static bool bibSemJogo() { return totalItens <= 0 || strcmp(nomes[sel], "Nenhuma ROM encontrada") == 0; }
 
 static void bibLimparPrevia() {
     if (bibPreviaImg) { stbi_image_free(bibPreviaImg); bibPreviaImg = NULL; }
@@ -557,16 +780,24 @@ static void bibAbrirPainelJogo() {
     listaOpcoes[n] = "Trapaças"; mapOpcoes[n++] = BIB_OP_TRAPACAS;
     listaOpcoes[n] = "Controle"; mapOpcoes[n++] = BIB_OP_CONTROLE;
     listaOpcoes[n] = "Renomear"; mapOpcoes[n++] = BIB_OP_RENOMEAR;
-    listaOpcoes[n] = "Buscar capa"; mapOpcoes[n++] = BIB_OP_CAPA;
+    listaOpcoes[n] = "Capas e mídias"; mapOpcoes[n++] = BIB_OP_MIDIAS;
     listaOpcoes[n] = "Pesquisar"; mapOpcoes[n++] = BIB_OP_PESQUISAR;
     if (bibBusca[0]) { listaOpcoes[n] = "Limpar pesquisa"; mapOpcoes[n++] = BIB_OP_LIMPAR; }
     listaOpcoes[n] = "Ordenar"; mapOpcoes[n++] = BIB_OP_ORDENAR;
     listaOpcoes[n] = bibAba ? "Filtrar: todos os jogos" : "Filtrar: só favoritos"; mapOpcoes[n++] = BIB_OP_FILTRAR;
+    static char tema[120];
+    snprintf(tema, sizeof(tema), "Tema dos jogos: %s", bibNomesTema[bibliotecaTemaJogos()]);
+    listaOpcoes[n] = tema; mapOpcoes[n++] = BIB_OP_TEMA;
+    listaOpcoes[n] = "Tabela de jogos e mídias"; mapOpcoes[n++] = BIB_OP_TABELA;
+    listaOpcoes[n] = "Downloads do RetroArch (trapaças, controles, banco...)"; mapOpcoes[n++] = BIB_OP_DOWNLOADS;
     listaOpcoes[n] = "Cancelar"; mapOpcoes[n++] = BIB_OP_CANCELAR;
     bibMostrarPainel(BIB_PAINEL_JOGO, n);
 }
 
 // ----- Download -----
+static void bibUrl(const char* texto, char* saida, size_t tamanho);
+static void bibEndereco(const char* texto, char* saida, size_t tamanho) { bibUrl(texto, saida, tamanho); }
+
 static void bibUrl(const char* texto, char* saida, size_t tamanho) {
     size_t n = 0;
     for (const unsigned char* p = (const unsigned char*)texto; *p && n + 4 < tamanho; p++) {
@@ -576,22 +807,36 @@ static void bibUrl(const char* texto, char* saida, size_t tamanho) {
     saida[n] = '\0';
 }
 
-static bool bibBaixar(const char* url, const char* destino) {
+// Cabeçalhos no formato "Nome: valor", separados por quebra de linha. Com corpo, vira POST.
+static bool bibHttp(const char* url, const char* destino, const char* cabecalhos, const char* corpo) {
     char temporario[600];
     snprintf(temporario, sizeof(temporario), "%s.tmp", destino);
     int tpl = sceHttpCreateTemplate(httpCtxId, "HyperNeiva/1.0", ORBIS_HTTP_VERSION_1_1, 1);
     if (tpl < 0) return false;
     sceHttpsSetSslCallback(tpl, skipSslCallback, NULL);
     int conn = sceHttpCreateConnectionWithURL(tpl, url, 1);
-    int req = conn >= 0 ? sceHttpCreateRequestWithURL(conn, ORBIS_METHOD_GET, url, 0) : -1;
+    size_t tamanhoCorpo = corpo ? strlen(corpo) : 0;
+    int req = conn >= 0 ? sceHttpCreateRequestWithURL(conn, corpo ? ORBIS_METHOD_POST : ORBIS_METHOD_GET, url, tamanhoCorpo) : -1;
+    if (req >= 0 && cabecalhos) {
+        char linhas[1200];
+        snprintf(linhas, sizeof(linhas), "%s", cabecalhos);
+        for (char* linha = strtok(linhas, "\n"); linha; linha = strtok(NULL, "\n")) {
+            char* doisPontos = strchr(linha, ':');
+            if (!doisPontos) continue;
+            *doisPontos = '\0';
+            const char* valor = doisPontos + 1;
+            while (*valor == ' ') valor++;
+            sceHttpAddRequestHeader(req, linha, valor, 0);
+        }
+    }
     bool certo = false;
-    if (req >= 0 && sceHttpSendRequest(req, NULL, 0) >= 0) {
+    if (req >= 0 && sceHttpSendRequest(req, corpo, tamanhoCorpo) >= 0) {
         int32_t codigo = 0;
         sceHttpGetStatusCode(req, &codigo);
         if (codigo == 200) {
             FILE* f = fopen(temporario, "wb");
             if (f) {
-                static unsigned char bloco[32768];
+                unsigned char bloco[16384];
                 int n;
                 long total = 0;
                 while ((n = sceHttpReadData(req, bloco, sizeof(bloco))) > 0) { fwrite(bloco, 1, (size_t)n, f); total += n; }
@@ -607,6 +852,8 @@ static bool bibBaixar(const char* url, const char* destino) {
     else unlink(temporario);
     return certo;
 }
+
+static bool bibBaixar(const char* url, const char* destino) { return bibHttp(url, destino, NULL, NULL); }
 
 static void bibNomeLibretro(const char* base, char* saida, size_t tamanho) {
     snprintf(saida, tamanho, "%s", base);
@@ -636,6 +883,8 @@ static int bibPontuar(const char* jogo, const char* candidato) {
     return iguais * 20 - abs(ta - tb) * 3;
 }
 
+static const char* bibNomeFonte(int fonte);
+
 static void bibGuardarAchado(const char* candidato, int* pontos, const char* jogo) {
     int p = bibPontuar(jogo, candidato);
     if (p <= 0) return;
@@ -644,10 +893,16 @@ static void bibGuardarAchado(const char* candidato, int* pontos, const char* jog
     while (i > 0 && pontos[i - 1] < p) {
         pontos[i] = pontos[i - 1];
         memcpy(bibAchados[i], bibAchados[i - 1], sizeof(bibAchados[0]));
+        memcpy(bibAchadoNome[i], bibAchadoNome[i - 1], sizeof(bibAchadoNome[0]));
+        bibAchadoFonte[i] = bibAchadoFonte[i - 1];
         i--;
     }
     pontos[i] = p;
-    snprintf(bibAchados[i], sizeof(bibAchados[0]), "%s", candidato);
+    snprintf(bibAchadoNome[i], sizeof(bibAchadoNome[0]), "%s", candidato);
+    bibAchadoFonte[i] = bibFonteAtual;
+    if (bibFonteAtual == -2) snprintf(bibAchados[i], sizeof(bibAchados[0]), "[No PS4] %.170s", candidato);
+    else if (bibFonteAtual >= 0) snprintf(bibAchados[i], sizeof(bibAchados[0]), "[%.30s] %.160s", bibNomeFonte(bibFonteAtual), candidato);
+    else snprintf(bibAchados[i], sizeof(bibAchados[0]), "%s", candidato);
 }
 
 static char* bibLerArquivo(const char* caminho) {
@@ -673,11 +928,669 @@ static void bibDecodificar(char* texto) {
     *escrita = '\0';
 }
 
+// ----- Fontes de capa -----
+// tipo 0: RetroArch (libretro-thumbnails); 1: pasta no PS4; 2: link com as imagens pelo nome do jogo.
+// Na pasta e no link valem {chave}, {sistema} e {fabricante}; no link, {nome} também.
+#define BIB_FONTES_ARQUIVO BIB_PASTA "/fontes_capas.txt"
+#define BIB_MAX_FONTES 16
+struct BibFonte { int tipo; char nome[64]; char endereco[400]; };
+static BibFonte bibFontes[BIB_MAX_FONTES];
+static int bibTotalFontes = -1;
+static char bibPreviaCaminho[600] = BIB_PASTA "/previa.png";
+
+static void bibGravarFontes() {
+    bibPastas();
+    FILE* f = fopen(BIB_FONTES_ARQUIVO, "w");
+    if (!f) return;
+    fprintf(f, "#v3\n");
+    for (int i = 0; i < bibTotalFontes; i++) fprintf(f, "%d|%s|%s\n", bibFontes[i].tipo, bibFontes[i].nome, bibFontes[i].endereco);
+    fclose(f);
+}
+
+static void bibCarregarFontes() {
+    if (bibTotalFontes >= 0) return;
+    bibTotalFontes = 0;
+    FILE* f = fopen(BIB_FONTES_ARQUIVO, "r");
+    if (f) {
+        char linha[600];
+        while (bibTotalFontes < BIB_MAX_FONTES && fgets(linha, sizeof(linha), f)) {
+            linha[strcspn(linha, "\r\n")] = '\0';
+            if (linha[0] == '#') continue;
+            char* a = strchr(linha, '|');
+            char* b = a ? strchr(a + 1, '|') : NULL;
+            if (!a || !b) continue;
+            *a = '\0';
+            *b = '\0';
+            BibFonte* x = &bibFontes[bibTotalFontes++];
+            x->tipo = atoi(linha);
+            snprintf(x->nome, sizeof(x->nome), "%s", a + 1);
+            snprintf(x->endereco, sizeof(x->endereco), "%s", b + 1);
+        }
+        fclose(f);
+    }
+    // A primeira versão trazia pastas do PS4 como fonte: agora as fontes padrão são servidores.
+    bool versaoNova = false;
+    FILE* marca = fopen(BIB_FONTES_ARQUIVO, "r");
+    if (marca) { char linha[16] = ""; versaoNova = fgets(linha, sizeof(linha), marca) && strncmp(linha, "#v3", 3) == 0; fclose(marca); }
+    if (versaoNova && bibTotalFontes > 0) return;
+    BibFonte usuario[BIB_MAX_FONTES];
+    int totalUsuario = 0;
+    // Ficam as que o usuário adicionou: links e pastas.
+    for (int i = 0; i < bibTotalFontes; i++) if (bibFontes[i].tipo == 2 || (bibFontes[i].tipo == 1 && strstr(bibFontes[i].endereco, "EmuSuNi") == NULL && strstr(bibFontes[i].endereco, "artwork1") == NULL)) usuario[totalUsuario++] = bibFontes[i];
+    static const BibFonte padrao[] = {
+        { 0, "RetroArch", "" },
+        { 3, "RetroArch no GitHub", "" },
+        { 5, "GameTDB (Nintendo DS)", "" },
+        { 6, "Arcade Database (arcade)", "" },
+        { 4, "ScreenScraper (conta)", "" },
+        { 7, "TheGamesDB (chave)", "" },
+        { 8, "MobyGames (chave)", "" },
+        { 9, "SteamGridDB (chave)", "" },
+        { 10, "IGDB (chave do Twitch)", "" },
+    };
+    bibTotalFontes = 0;
+    for (unsigned int i = 0; i < sizeof(padrao) / sizeof(padrao[0]); i++) bibFontes[bibTotalFontes++] = padrao[i];
+    for (int i = 0; i < totalUsuario && bibTotalFontes < BIB_MAX_FONTES; i++) bibFontes[bibTotalFontes++] = usuario[i];
+    bibGravarFontes();
+}
+
+static const char* bibNomeFonte(int fonte) { return fonte >= 0 && fonte < bibTotalFontes ? bibFontes[fonte].nome : ""; }
+
+// "Nintendo - Game Boy Advance" vira "Nintendo"; o arcade fica em "Arcade".
+static void bibFabricante(char* saida, size_t tamanho) {
+    const char* nome = bibSistemas[bibSistema].libretro;
+    const char* traco = strstr(nome, " - ");
+    if (!traco) { snprintf(saida, tamanho, "Arcade"); return; }
+    snprintf(saida, tamanho, "%.*s", (int)(traco - nome), nome);
+}
+
+static void bibTrocarMarcas(const char* modelo, const char* nomeJogo, bool codificar, char* saida, size_t tamanho) {
+    char fabricante[64], valor[700];
+    bibFabricante(fabricante, sizeof(fabricante));
+    size_t n = 0;
+    saida[0] = '\0';
+    for (const char* p = modelo; *p && n + 1 < tamanho;) {
+        const char* troca = NULL;
+        if (strncmp(p, "{chave}", 7) == 0) { troca = bibSistemas[bibSistema].chave; p += 7; }
+        else if (strncmp(p, "{sistema}", 9) == 0) { troca = bibSistemas[bibSistema].libretro; p += 9; }
+        else if (strncmp(p, "{fabricante}", 12) == 0) { troca = fabricante; p += 12; }
+        else if (strncmp(p, "{nome}", 6) == 0) { troca = nomeJogo; p += 6; }
+        if (!troca) { saida[n++] = *p++; saida[n] = '\0'; continue; }
+        if (codificar) bibUrl(troca, valor, sizeof(valor));
+        else snprintf(valor, sizeof(valor), "%s", troca);
+        n += (size_t)snprintf(saida + n, tamanho - n, "%s", valor);
+        if (n >= tamanho) n = tamanho - 1;
+    }
+}
+
+// ----- Mídias no padrão do HyperSpin -----
+enum { MID_CAPA, MID_DISCO, MID_VIDEO, MID_FUNDO, MID_LOGO, MID_TOTAL };
+static const char* midNomes[MID_TOTAL] = { "Capa (mídia 1)", "CD ou cartucho (mídia 2)", "Vídeo", "Fundo", "Elementos (logo)" };
+static const char* midPasta[MID_TOTAL] = { "artwork1", "artwork2", "", "background", "elementos1" };
+static const char* midLibretro[MID_TOTAL] = { "Named_Boxarts", NULL, NULL, "Named_Snaps", "Named_Logos" };
+static const char* midScreenScraper[MID_TOTAL][2] = { { "box-2D", NULL }, { "support-2D", NULL }, { "video-normalized", "video" }, { "fanart", "ss" }, { "wheel", "wheel-hd" } };
+
+// Números de sistema do ScreenScraper, na ordem de bibSistemas.
+static const int bibScreenScraperSistema[] = { 12, 9, 10, 3, 4, 14, 15, 1, 2, 21, 22, 23, 57, 61, 26, 41, 28, 31, 75 };
+
+static void bibCriarPastas(const char* caminho) {
+    char parcial[600];
+    for (size_t i = 1; caminho[i]; i++) {
+        if (caminho[i] != '/') continue;
+        snprintf(parcial, sizeof(parcial), "%.*s", (int)i, caminho);
+        sceKernelMkdir(parcial, 0777);
+    }
+}
+
+static void bibDestinoMidia(const char* jogo, int item, char* saida, size_t tamanho) {
+    char base[256], fabricante[64];
+    bibBase(jogo, base, sizeof(base));
+    bibFabricante(fabricante, sizeof(fabricante));
+    if (item == MID_VIDEO) snprintf(saida, tamanho, "/data/HyperNeiva/midia/videos/Games/%s/%s/%s.mp4", fabricante, bibSistemas[bibSistema].libretro, base);
+    else snprintf(saida, tamanho, "/data/HyperNeiva/midia/imagens/Games/%s/%s/%s/%s.png", fabricante, bibSistemas[bibSistema].libretro, midPasta[item], base);
+}
+
+bool bibliotecaCaminhoMidia(const char* jogo, int item, char* saida, size_t tamanho) {
+    if (item < 0 || item >= MID_TOTAL) return false;
+    bibDestinoMidia(jogo, item, saida, tamanho);
+    if (bibExiste(saida)) return true;
+    if (item == MID_VIDEO) return false;
+    char* ponto = strrchr(saida, '.');
+    if (ponto) { strcpy(ponto, ".jpg"); if (bibExiste(saida)) return true; strcpy(ponto, ".png"); }
+    return false;
+}
+
+static bool bibFonteServe(int fonte, int item) {
+    int tipo = bibFontes[fonte].tipo;
+    if (tipo == 0 || tipo == 3) return midLibretro[item] != NULL;
+    if (tipo == 5) return item == MID_CAPA && strcmp(bibSistemas[bibSistema].chave, "nds") == 0;
+    if (tipo == 6) return (item == MID_CAPA || item == MID_FUNDO || item == MID_LOGO) && strcmp(bibSistemas[bibSistema].chave, "arcade") == 0;
+    if (tipo >= 7) return item == MID_CAPA;
+    return true;
+}
+
+static void bibLerChave(const char* nome, char* saida, size_t tamanho) {
+    saida[0] = '\0';
+    FILE* f = fopen("/data/HyperNeiva/configuracao/chaves_capas.txt", "r");
+    if (!f) return;
+    char linha[400];
+    size_t n = strlen(nome);
+    while (fgets(linha, sizeof(linha), f)) {
+        linha[strcspn(linha, "\r\n")] = '\0';
+        if (strncmp(linha, nome, n) == 0 && linha[n] == '=') { snprintf(saida, tamanho, "%s", linha + n + 1); break; }
+    }
+    fclose(f);
+}
+
+// Título sem região nem versão, para as buscas por nome.
+static void bibTituloLimpo(const char* jogo, char* saida, size_t tamanho) {
+    char base[256];
+    bibBase(jogo, base, sizeof(base));
+    size_t n = strcspn(base, "([");
+    while (n > 0 && base[n - 1] == ' ') n--;
+    snprintf(saida, tamanho, "%.*s", (int)n, base);
+}
+
+// Lê "chave":"valor" de um JSON a partir de onde, já trocando "\/" por "/".
+static char* bibValorJson(char* onde, const char* chave, char* saida, size_t tamanho) {
+    // Aceita "chave":"valor" e "chave": "valor".
+    char procura[80];
+    snprintf(procura, sizeof(procura), "\"%s\":", chave);
+    char* p = onde ? strstr(onde, procura) : NULL;
+    if (!p) return NULL;
+    p += strlen(procura);
+    while (*p == ' ') p++;
+    if (*p != '"') return NULL;
+    p++;
+    size_t n = 0;
+    for (; *p && *p != '"' && n + 1 < tamanho; p++) {
+        if (*p == '\\' && p[1]) { p++; saida[n++] = *p == '/' ? '/' : *p; }
+        else saida[n++] = *p;
+    }
+    saida[n] = '\0';
+    return p;
+}
+
+#define BIB_MAX_URLS 8
+struct BibUrl { char url[700]; char rotulo[160]; };
+static char* bibLerArquivo(const char* caminho);
+
+// Endereços que uma fonte de busca oferece para o jogo. Cada thread passa a própria lista.
+static int bibUrlsDaFonte(int fonte, const char* jogo, int item, BibUrl* saida, const char* arquivoResposta) {
+    int tipo = bibFontes[fonte].tipo, total = 0;
+    char titulo[200], codificado[600], url[1400], chave[200];
+    bibTituloLimpo(jogo, titulo, sizeof(titulo));
+    bibUrl(titulo, codificado, sizeof(codificado));
+    if (tipo == 5) {
+        // GameTDB usa o código gravado na ROM do DS (4 letras no byte 12); a última diz a região.
+        char rom[700];
+        snprintf(rom, sizeof(rom), "%s/%s", caminhoROMsAtual, jogo);
+        FILE* f = fopen(rom, "rb");
+        char codigo[5] = "";
+        if (f) { if (fseek(f, 12, SEEK_SET) == 0 && fread(codigo, 1, 4, f) == 4) codigo[4] = '\0'; else codigo[0] = '\0'; fclose(f); }
+        for (int i = 0; i < 4; i++) if (!isalnum((unsigned char)codigo[i])) codigo[0] = '\0';
+        if (!codigo[0]) return 0;
+        const char* regiao = codigo[3] == 'E' ? "US" : codigo[3] == 'J' ? "JA" : "EN";
+        const char* regioes[] = { regiao, "US", "EN" };
+        for (int r = 0; r < 3 && total < BIB_MAX_URLS; r++) {
+            if (r > 0 && strcmp(regioes[r], regiao) == 0) continue;
+            snprintf(saida[total].url, sizeof(saida[0].url), "https://art.gametdb.com/ds/coverS/%s/%s.png", regioes[r], codigo);
+            snprintf(saida[total++].rotulo, sizeof(saida[0].rotulo), "%s (%s)", codigo, regioes[r]);
+        }
+        return total;
+    }
+    if (tipo == 6) {
+        char base[256], nomeCod[300];
+        bibBase(jogo, base, sizeof(base));
+        bibUrl(base, nomeCod, sizeof(nomeCod));
+        snprintf(url, sizeof(url), "https://adb.arcadeitalia.net/service_scraper.php?ajax=query_mame&game_name=%s", nomeCod);
+        if (!bibBaixar(url, arquivoResposta)) return 0;
+        char* dados = bibLerArquivo(arquivoResposta);
+        if (!dados) return 0;
+        const char* campos[] = { item == MID_FUNDO ? "url_image_ingame" : item == MID_LOGO ? "url_image_marquee" : "url_image_flyer", "url_image_title", "url_image_ingame", "url_image_marquee" };
+        for (int k = 0; k < 4 && total < BIB_MAX_URLS; k++) {
+            if (k > 0 && item != MID_CAPA) break;
+            if (bibValorJson(dados, campos[k], saida[total].url, sizeof(saida[0].url)) && saida[total].url[0]) {
+                snprintf(saida[total].rotulo, sizeof(saida[0].rotulo), "%s %s", base, campos[k] + 10);
+                total++;
+            }
+        }
+        free(dados);
+        return total;
+    }
+    if (tipo == 7) {
+        bibLerChave("thegamesdb", chave, sizeof(chave));
+        if (!chave[0]) { snprintf(msgStatus, sizeof(msgStatus), "THEGAMESDB: FALTA thegamesdb= EM chaves_capas.txt"); msgTimer = 300; return 0; }
+        snprintf(url, sizeof(url), "https://api.thegamesdb.net/v1.1/Games/ByGameName?apikey=%s&name=%s&include=boxart", chave, codificado);
+        if (!bibBaixar(url, arquivoResposta)) return 0;
+        char* dados = bibLerArquivo(arquivoResposta);
+        if (!dados) return 0;
+        char base[300] = "https://cdn.thegamesdb.net/images/original/";
+        char* original = strstr(dados, "\"base_url\"");
+        if (original) bibValorJson(original, "original", base, sizeof(base));
+        for (char* p = dados; total < BIB_MAX_URLS && (p = strstr(p, "\"side\":\"front\"")) != NULL; p++) {
+            char arquivo[300];
+            if (!bibValorJson(p, "filename", arquivo, sizeof(arquivo))) break;
+            snprintf(saida[total].url, sizeof(saida[0].url), "%s%s", base, arquivo);
+            { int numero = total + 1; snprintf(saida[total++].rotulo, sizeof(saida[0].rotulo), "%s, frente %d", titulo, numero); }
+        }
+        free(dados);
+        return total;
+    }
+    if (tipo == 8) {
+        bibLerChave("mobygames", chave, sizeof(chave));
+        if (!chave[0]) { snprintf(msgStatus, sizeof(msgStatus), "MOBYGAMES: FALTA mobygames= EM chaves_capas.txt"); msgTimer = 300; return 0; }
+        snprintf(url, sizeof(url), "https://api.mobygames.com/v1/games?title=%s&format=normal&api_key=%s", codificado, chave);
+        if (!bibBaixar(url, arquivoResposta)) return 0;
+        char* dados = bibLerArquivo(arquivoResposta);
+        if (!dados) return 0;
+        for (char* p = dados; total < BIB_MAX_URLS && (p = strstr(p, "\"sample_cover\":{")) != NULL; p++) {
+            if (!bibValorJson(p, "image", saida[total].url, sizeof(saida[0].url))) break;
+            { int numero = total + 1; snprintf(saida[total++].rotulo, sizeof(saida[0].rotulo), "%s, capa %d", titulo, numero); }
+        }
+        free(dados);
+        return total;
+    }
+    if (tipo == 9) {
+        bibLerChave("steamgriddb", chave, sizeof(chave));
+        if (!chave[0]) { snprintf(msgStatus, sizeof(msgStatus), "STEAMGRIDDB: FALTA steamgriddb= EM chaves_capas.txt"); msgTimer = 300; return 0; }
+        char cabecalho[300], id[40] = "";
+        snprintf(cabecalho, sizeof(cabecalho), "Authorization: Bearer %s", chave);
+        snprintf(url, sizeof(url), "https://www.steamgriddb.com/api/v2/search/autocomplete/%s", codificado);
+        if (!bibHttp(url, arquivoResposta, cabecalho, NULL)) return 0;
+        char* dados = bibLerArquivo(arquivoResposta);
+        char* p = dados ? strstr(dados, "\"id\":") : NULL;
+        if (p) snprintf(id, sizeof(id), "%d", atoi(p + 5));
+        free(dados);
+        if (!id[0] || strcmp(id, "0") == 0) return 0;
+        snprintf(url, sizeof(url), "https://www.steamgriddb.com/api/v2/grids/game/%s?dimensions=600x900", id);
+        if (!bibHttp(url, arquivoResposta, cabecalho, NULL)) return 0;
+        dados = bibLerArquivo(arquivoResposta);
+        for (p = dados; p && total < BIB_MAX_URLS && (p = strstr(p, "\"url\":\"")) != NULL; p++) {
+            bibValorJson(p, "url", saida[total].url, sizeof(saida[0].url));
+            { int numero = total + 1; snprintf(saida[total++].rotulo, sizeof(saida[0].rotulo), "%s, grade %d", titulo, numero); }
+            p += 6;
+        }
+        free(dados);
+        return total;
+    }
+    if (tipo == 10) {
+        char id[200], segredo[200];
+        bibLerChave("igdb_id", id, sizeof(id));
+        bibLerChave("igdb_secret", segredo, sizeof(segredo));
+        if (!id[0] || !segredo[0]) { snprintf(msgStatus, sizeof(msgStatus), "IGDB: FALTA igdb_id= E igdb_secret= EM chaves_capas.txt"); msgTimer = 300; return 0; }
+        snprintf(url, sizeof(url), "https://id.twitch.tv/oauth2/token?client_id=%s&client_secret=%s&grant_type=client_credentials", id, segredo);
+        if (!bibHttp(url, arquivoResposta, "Content-Type: application/x-www-form-urlencoded", "")) return 0;
+        char* dados = bibLerArquivo(arquivoResposta);
+        char ficha[200] = "";
+        if (dados) bibValorJson(dados, "access_token", ficha, sizeof(ficha));
+        free(dados);
+        if (!ficha[0]) return 0;
+        char cabecalho[600], corpo[400];
+        snprintf(cabecalho, sizeof(cabecalho), "Client-ID: %s\nAuthorization: Bearer %s\nContent-Type: text/plain", id, ficha);
+        snprintf(corpo, sizeof(corpo), "search \"%s\"; fields name,cover.image_id; limit 8;", titulo);
+        if (!bibHttp("https://api.igdb.com/v4/games", arquivoResposta, cabecalho, corpo)) return 0;
+        dados = bibLerArquivo(arquivoResposta);
+        for (char* p = dados; p && total < BIB_MAX_URLS && (p = strstr(p, "\"image_id\"")) != NULL; p++) {
+            char imagem[80];
+            if (!bibValorJson(p, "image_id", imagem, sizeof(imagem))) break;
+            p += 10;
+            snprintf(saida[total].url, sizeof(saida[0].url), "https://images.igdb.com/igdb/image/upload/t_cover_big/%s.jpg", imagem);
+            { int numero = total + 1; snprintf(saida[total++].rotulo, sizeof(saida[0].rotulo), "%s, capa %d", titulo, numero); }
+        }
+        free(dados);
+        return total;
+    }
+    return 0;
+}
+
+static void bibLerCredenciais(char* dev, char* senhaDev, char* usuario, char* senha, size_t tamanho) {
+    dev[0] = senhaDev[0] = usuario[0] = senha[0] = '\0';
+    FILE* f = fopen("/data/HyperNeiva/configuracao/screenscraper.txt", "r");
+    if (!f) return;
+    char linha[300];
+    while (fgets(linha, sizeof(linha), f)) {
+        linha[strcspn(linha, "\r\n")] = '\0';
+        char* igual = strchr(linha, '=');
+        if (!igual) continue;
+        *igual = '\0';
+        char* valor = igual + 1;
+        if (strcmp(linha, "devid") == 0) snprintf(dev, tamanho, "%s", valor);
+        else if (strcmp(linha, "devpassword") == 0) snprintf(senhaDev, tamanho, "%s", valor);
+        else if (strcmp(linha, "ssid") == 0) snprintf(usuario, tamanho, "%s", valor);
+        else if (strcmp(linha, "sspassword") == 0) snprintf(senha, tamanho, "%s", valor);
+    }
+    fclose(f);
+}
+
+// Pergunta ao ScreenScraper pelo arquivo da ROM e devolve o endereço da mídia pedida.
+static bool bibScreenScraperUrl(const char* jogo, int item, char* saida, size_t tamanho) {
+    char dev[120], senhaDev[120], usuario[120], senha[120];
+    bibLerCredenciais(dev, senhaDev, usuario, senha, sizeof(dev));
+    if (!dev[0] || !usuario[0]) {
+        snprintf(msgStatus, sizeof(msgStatus), "SCREENSCRAPER: FALTA /data/HyperNeiva/configuracao/screenscraper.txt");
+        msgTimer = 400;
+        return false;
+    }
+    char e[6][300];
+    bibUrl(dev, e[0], sizeof(e[0]));
+    bibUrl(senhaDev, e[1], sizeof(e[1]));
+    bibUrl(usuario, e[2], sizeof(e[2]));
+    bibUrl(senha, e[3], sizeof(e[3]));
+    bibUrl(jogo, e[4], sizeof(e[4]));
+    char url[1600];
+    snprintf(url, sizeof(url), "https://api.screenscraper.fr/api2/jeuInfos.php?devid=%s&devpassword=%s&softname=HyperNeiva&output=json&ssid=%s&sspassword=%s&systemeid=%d&romtype=rom&romnom=%s",
+        e[0], e[1], e[2], e[3], bibScreenScraperSistema[bibSistema], e[4]);
+    const char* resposta = BIB_PASTA "/screenscraper.json";
+    if (!bibBaixar(url, resposta)) return false;
+    char* dados = bibLerArquivo(resposta);
+    if (!dados) return false;
+    bool achou = false;
+    for (int k = 0; k < 2 && !achou && midScreenScraper[item][k]; k++) {
+        char procura[64];
+        snprintf(procura, sizeof(procura), "\"type\":\"%s\"", midScreenScraper[item][k]);
+        char* p = strstr(dados, procura);
+        if (!p) continue;
+        char* u = strstr(p, "\"url\":\"");
+        if (!u || u - p > 800) continue;
+        u += 7;
+        size_t n = 0;
+        for (; *u && *u != '"' && n + 1 < tamanho; u++) {
+            if (*u == '\\' && u[1] == '/') { saida[n++] = '/'; u++; }
+            else saida[n++] = *u;
+        }
+        saida[n] = '\0';
+        achou = n > 0;
+    }
+    free(dados);
+    return achou;
+}
+
+static bool bibCopiarArquivo(const char* de, const char* para) {
+    FILE* a = fopen(de, "rb");
+    FILE* b = a ? fopen(para, "wb") : NULL;
+    bool certo = a && b;
+    if (certo) {
+        static char bloco[65536];
+        size_t lidos;
+        while ((lidos = fread(bloco, 1, sizeof(bloco), a)) > 0) fwrite(bloco, 1, lidos, b);
+    }
+    if (a) fclose(a);
+    if (b) fclose(b);
+    return certo;
+}
+
+static bool bibEnderecoCandidato(int fonte, const char* nome, char* saida, size_t tamanho, bool* local);
+
+// Baixa uma mídia de um jogo de uma fonte, ou da primeira que tiver (fonte -1).
+struct BibUrl;
+static bool bibBaixarMidia(const char* jogo, int item, int fonte) {
+    char destino[600], url[1600], base[256], nome[300], codificado[700];
+    bibDestinoMidia(jogo, item, destino, sizeof(destino));
+    bibCriarPastas(destino);
+    bibBase(jogo, base, sizeof(base));
+    bibNomeLibretro(base, nome, sizeof(nome));
+    bibUrl(nome, codificado, sizeof(codificado));
+    for (int f = 0; f < bibTotalFontes; f++) {
+        if ((fonte >= 0 && f != fonte) || !bibFonteServe(f, item)) continue;
+        BibFonte* x = &bibFontes[f];
+        bool certo = false;
+        if (x->tipo == 0 || x->tipo == 3) {
+            char sistema[300];
+            if (x->tipo == 0) { bibEndereco(x->tipo == 0 ? bibSistemas[bibSistema].libretro : "", sistema, sizeof(sistema)); snprintf(url, sizeof(url), "https://thumbnails.libretro.com/%s/%s/%s.png", sistema, midLibretro[item], codificado); }
+            else {
+                char repositorio[300];
+                snprintf(repositorio, sizeof(repositorio), "%s", bibSistemas[bibSistema].libretro);
+                for (char* c = repositorio; *c; c++) if (*c == ' ') *c = '_';
+                bibEndereco(repositorio, sistema, sizeof(sistema));
+                snprintf(url, sizeof(url), "https://raw.githubusercontent.com/libretro-thumbnails/%s/master/%s/%s.png", sistema, midLibretro[item], codificado);
+            }
+            certo = bibBaixar(url, destino);
+        }
+        else if (x->tipo == 4) certo = bibScreenScraperUrl(jogo, item, url, sizeof(url)) && bibBaixar(url, destino);
+        else if (x->tipo >= 5) {
+            BibUrl urls[BIB_MAX_URLS];
+            certo = bibUrlsDaFonte(f, jogo, item, urls, BIB_PASTA "/resposta_midia.json") > 0 && bibBaixar(urls[0].url, destino);
+        }
+        else if (x->tipo == 1) {
+            char pasta[500], origem[700];
+            bibTrocarMarcas(x->endereco, "", false, pasta, sizeof(pasta));
+            static const char* extensoes[] = { ".png", ".jpg", ".mp4" };
+            for (int k = 0; k < 3 && !certo; k++) {
+                if ((item == MID_VIDEO) != (k == 2)) continue;
+                snprintf(origem, sizeof(origem), "%s/%s%s", pasta, base, extensoes[k]);
+                certo = bibExiste(origem) && bibCopiarArquivo(origem, destino);
+            }
+        }
+        else {
+            bool local = false;
+            bibEnderecoCandidato(f, nome, url, sizeof(url), &local);
+            if (item == MID_VIDEO) { char* ponto = strrchr(url, '.'); if (ponto && strcmp(ponto, ".png") == 0) strcpy(ponto, ".mp4"); }
+            certo = bibBaixar(url, destino);
+        }
+        if (certo) return true;
+    }
+    return false;
+}
+
+
+// A prévia não entra na fila: com capas baixando em segundo plano, ela nunca chegava a aparecer.
+static volatile bool bibPreviaRodando = false, bibPreviaPronta = false;
+static int bibPreviaGeracao = 0, bibPreviaGeracaoPedida = -1, bibPreviaSelPedida = -1;
+static char bibPreviaNome[700];
+static int bibPreviaFonte = -1;
+
+static void* bibThreadPrevia(void*) {
+    char url[1600];
+    bool local = false;
+    bibEnderecoCandidato(bibPreviaFonte, bibPreviaNome, url, sizeof(url), &local);
+    if (local) snprintf(bibPreviaCaminho, sizeof(bibPreviaCaminho), "%s", url);
+    else {
+        snprintf(bibPreviaCaminho, sizeof(bibPreviaCaminho), "%s", BIB_PASTA "/previa.png");
+        unlink(bibPreviaCaminho);
+        bibBaixar(url, bibPreviaCaminho);
+    }
+    bibPreviaPronta = true;
+    bibPreviaRodando = false;
+    return NULL;
+}
+
+static void bibPedirPrevia(int fonte, const char* nome) {
+    if (bibPreviaRodando) return;
+    bibPreviaGeracaoPedida = bibPreviaGeracao;
+    bibPreviaSelPedida = selOpcao;
+    bibPreviaFonte = fonte;
+    snprintf(bibPreviaNome, sizeof(bibPreviaNome), "%s", nome);
+    bibPreviaRodando = true;
+    pthread_t id;
+    pthread_attr_t atributos;
+    pthread_attr_init(&atributos);
+    pthread_attr_setstacksize(&atributos, 256 * 1024);
+    pthread_attr_setdetachstate(&atributos, PTHREAD_CREATE_DETACHED);
+    if (pthread_create(&id, &atributos, bibThreadPrevia, NULL) != 0) bibPreviaRodando = false;
+    pthread_attr_destroy(&atributos);
+}
+static bool bibMidiaTodos = false;
+
+// Endereço da imagem de um candidato: link para baixar ou caminho no PS4.
+static bool bibEnderecoCandidato(int fonte, const char* nome, char* saida, size_t tamanho, bool* local) {
+    *local = false;
+    if (fonte < 0 || fonte >= bibTotalFontes) fonte = 0;
+    BibFonte* x = &bibFontes[fonte];
+    if (x->tipo >= 4) { snprintf(saida, tamanho, "%s", nome); return true; }   // o candidato já é o endereço
+    if (x->tipo == 3) {
+        char repositorio[300], codificado[700], sistema[400];
+        snprintf(repositorio, sizeof(repositorio), "%s", bibSistemas[bibSistema].libretro);
+        for (char* c = repositorio; *c; c++) if (*c == ' ') *c = '_';
+        bibUrl(repositorio, sistema, sizeof(sistema));
+        bibUrl(nome, codificado, sizeof(codificado));
+        snprintf(saida, tamanho, "https://raw.githubusercontent.com/libretro-thumbnails/%s/master/Named_Boxarts/%s.png", sistema, codificado);
+        return true;
+    }
+    if (x->tipo == 1) {
+        char pasta[500];
+        bibTrocarMarcas(x->endereco, "", false, pasta, sizeof(pasta));
+        snprintf(saida, tamanho, "%s/%s", pasta, nome);
+        *local = true;
+        return true;
+    }
+    char codificado[700];
+    bibUrl(nome, codificado, sizeof(codificado));
+    if (x->tipo == 0) {
+        char pasta[600];
+        bibUrlImagens(BIB_IMG_CAPA, pasta, sizeof(pasta));
+        snprintf(saida, tamanho, "%s%s.png", pasta, codificado);
+        return true;
+    }
+    if (strstr(x->endereco, "{nome}")) bibTrocarMarcas(x->endereco, nome, true, saida, tamanho);
+    else {
+        char base[500];
+        bibTrocarMarcas(x->endereco, "", true, base, sizeof(base));
+        size_t t = strlen(base);
+        snprintf(saida, tamanho, "%s%s%s.png", base, t && base[t - 1] == '/' ? "" : "/", codificado);
+    }
+    return true;
+}
+
+static void bibAcharCapasRetroarch(const char* jogo);
+
+static void bibAcharNaPasta(int fonte, const char* jogo, int* pontos) {
+    char pasta[500];
+    bibTrocarMarcas(bibFontes[fonte].endereco, "", false, pasta, sizeof(pasta));
+    DIR* d = opendir(pasta);
+    if (!d) return;
+    struct dirent* item;
+    while ((item = readdir(d)) != NULL) {
+        const char* ponto = strrchr(item->d_name, '.');
+        if (!ponto || (strcasecmp(ponto, ".png") != 0 && strcasecmp(ponto, ".jpg") != 0 && strcasecmp(ponto, ".jpeg") != 0)) continue;
+        bibGuardarAchado(item->d_name, pontos, jogo);
+    }
+    closedir(d);
+}
+
+// Busca numa fonte ou em todas (fonte -1).
 static void bibAcharCapas(const char* jogo) {
-    int pontos[BIB_MAX_ACHADOS] = { 0 };
-    const char* lista = BIB_PASTA "/lista_capas.html";
+    bibCarregarFontes();
     bibTotalAchados = 0;
-    if (!bibExiste(lista) && !bibBaixar(BIB_URL_CAPAS, lista)) return;
+    int pontos[BIB_MAX_ACHADOS] = { 0 };
+    for (int f = 0; f < bibTotalFontes; f++) {
+        if (bibFonteBusca >= 0 && f != bibFonteBusca) continue;
+        bibFonteAtual = f;
+        if (bibFontes[f].tipo == 0 || bibFontes[f].tipo == 3) bibAcharCapasRetroarch(jogo);
+        else if (bibFontes[f].tipo == 1) bibAcharNaPasta(f, jogo, pontos);
+        else if (bibFontes[f].tipo >= 5) {
+            if (!bibFonteServe(f, MID_CAPA)) continue;
+            static BibUrl urls[BIB_MAX_URLS];
+            int n = bibUrlsDaFonte(f, jogo, MID_CAPA, urls, BIB_PASTA "/resposta_busca.json");
+            for (int k = 0; k < n; k++) {
+                int i = bibTotalAchados < BIB_MAX_ACHADOS ? bibTotalAchados++ : BIB_MAX_ACHADOS - 1;
+                pontos[i] = 1;
+                snprintf(bibAchadoNome[i], sizeof(bibAchadoNome[0]), "%s", urls[k].url);
+                bibAchadoFonte[i] = f;
+                snprintf(bibAchados[i], sizeof(bibAchados[0]), "[%.30s] %.150s", bibFontes[f].nome, urls[k].rotulo);
+            }
+        }
+        else if (bibFontes[f].tipo == 4) {
+            char url[1600];
+            if (bibScreenScraperUrl(jogo, MID_CAPA, url, sizeof(url))) {
+                int i = bibTotalAchados < BIB_MAX_ACHADOS ? bibTotalAchados++ : BIB_MAX_ACHADOS - 1;
+                pontos[i] = 1;
+                snprintf(bibAchadoNome[i], sizeof(bibAchadoNome[0]), "%s", url);
+                bibAchadoFonte[i] = f;
+                char base[256];
+                bibBase(jogo, base, sizeof(base));
+                snprintf(bibAchados[i], sizeof(bibAchados[0]), "[%.30s] %.160s", bibFontes[f].nome, base);
+            }
+        }
+        else {
+            // Um link não tem lista: o candidato é o próprio nome do jogo, e a prévia mostra se existe.
+            char base[256], nome[300];
+            bibBase(jogo, base, sizeof(base));
+            bibNomeLibretro(base, nome, sizeof(nome));
+            int i = bibTotalAchados < BIB_MAX_ACHADOS ? bibTotalAchados++ : BIB_MAX_ACHADOS - 1;
+            pontos[i] = 1;
+            snprintf(bibAchadoNome[i], sizeof(bibAchadoNome[0]), "%s", nome);
+            bibAchadoFonte[i] = f;
+            snprintf(bibAchados[i], sizeof(bibAchados[0]), "[%.30s] %.160s", bibFontes[f].nome, nome);
+        }
+    }
+    bibFonteAtual = -1;
+}
+
+static void bibMostrarFontesMidia();
+static void bibMostrarFontes() {
+    bibCarregarFontes();
+    static char rotulos[BIB_MAX_FONTES][120];
+    int n = 0;
+    listaOpcoes[n] = "Buscar em todas as fontes"; mapOpcoes[n++] = 900;
+    for (int i = 0; i < bibTotalFontes; i++) {
+        snprintf(rotulos[i], sizeof(rotulos[0]), "Buscar em: %.70s", bibFontes[i].nome);
+        listaOpcoes[n] = rotulos[i];
+        mapOpcoes[n++] = i;
+    }
+    listaOpcoes[n] = "Adicionar fonte (link ou pasta)"; mapOpcoes[n++] = 901;
+    listaOpcoes[n] = "Remover fonte"; mapOpcoes[n++] = 902;
+    listaOpcoes[n] = "Cancelar"; mapOpcoes[n++] = 903;
+    bibMostrarPainel(BIB_PAINEL_FONTES, n);
+}
+
+// Fontes que têm o tipo de mídia escolhido, mais as ações para todos os jogos e para as fontes.
+static void bibMostrarFontesMidia() {
+    bibCarregarFontes();
+    static char rotulos[BIB_MAX_FONTES][120];
+    static char todos[120];
+    int k = 0;
+    listaOpcoes[k] = bibMidiaItem == MID_CAPA ? "Escolher em todas as fontes" : "Baixar deste jogo, da primeira fonte que tiver"; mapOpcoes[k++] = -1;
+    for (int i = 0; i < bibTotalFontes; i++) {
+        if (!bibFonteServe(i, bibMidiaItem)) continue;
+        snprintf(rotulos[i], sizeof(rotulos[0]), "%s %.70s", bibMidiaItem == MID_CAPA ? "Escolher em:" : "Baixar de:", bibFontes[i].nome);
+        listaOpcoes[k] = rotulos[i]; mapOpcoes[k++] = i;
+    }
+    snprintf(todos, sizeof(todos), "Baixar para todos os jogos sem %s", bibMidiaItem == MID_CAPA ? "capa" : bibMidiaItem == MID_DISCO ? "CD ou cartucho" : bibMidiaItem == MID_VIDEO ? "vídeo" : bibMidiaItem == MID_FUNDO ? "fundo" : "logo");
+    listaOpcoes[k] = todos; mapOpcoes[k++] = 904;
+    listaOpcoes[k] = "Adicionar fonte (link ou pasta)"; mapOpcoes[k++] = 901;
+    listaOpcoes[k] = "Remover fonte"; mapOpcoes[k++] = 902;
+    listaOpcoes[k] = "Cancelar"; mapOpcoes[k++] = 903;
+    bibMostrarPainel(BIB_PAINEL_MIDIA_FONTE, k);
+}
+
+static void bibMostrarRemoverFonte() {
+    static char rotulos[BIB_MAX_FONTES][120];
+    int n = 0;
+    for (int i = 0; i < bibTotalFontes; i++) {
+        snprintf(rotulos[i], sizeof(rotulos[0]), "Remover: %.80s", bibFontes[i].nome);
+        listaOpcoes[n] = rotulos[i];
+        mapOpcoes[n++] = i;
+    }
+    listaOpcoes[n] = "Cancelar"; mapOpcoes[n++] = 903;
+    bibMostrarPainel(BIB_PAINEL_REMOVER_FONTE, n);
+}
+
+static void bibAdicionarFonte(const char* texto) {
+    bibCarregarFontes();
+    if (bibTotalFontes >= BIB_MAX_FONTES || strlen(texto) < 3 || strchr(texto, '|')) { snprintf(msgStatus, sizeof(msgStatus), "FONTE INVALIDA"); msgTimer = 180; return; }
+    BibFonte* x = &bibFontes[bibTotalFontes++];
+    x->tipo = strncmp(texto, "http", 4) == 0 ? 2 : 1;
+    snprintf(x->endereco, sizeof(x->endereco), "%s", texto);
+    // O nome é o site do link ou a última pasta.
+    const char* inicio = texto;
+    if (x->tipo == 2) { const char* barras = strstr(texto, "//"); inicio = barras ? barras + 2 : texto; }
+    else { const char* barra = strrchr(texto, '/'); inicio = barra && barra[1] ? barra + 1 : texto; }
+    snprintf(x->nome, sizeof(x->nome), "%.*s", (int)strcspn(inicio, "/"), inicio);
+    bibGravarFontes();
+    snprintf(msgStatus, sizeof(msgStatus), "FONTE ADICIONADA: %.80s", x->nome);
+    msgTimer = 200;
+}
+
+static void bibAcharCapasRetroarch(const char* jogo) {
+    char lista[300], url[600];
+    snprintf(lista, sizeof(lista), "%s/lista_capas_%s.html", BIB_PASTA, bibSistemas[bibSistema].chave);
+    bibUrlImagens(BIB_IMG_CAPA, url, sizeof(url));
+    static int pontosRetroarch[BIB_MAX_ACHADOS];
+    int* pontos = pontosRetroarch;
+    memset(pontosRetroarch, 0, sizeof(pontosRetroarch));
+    for (int i = 0; i < bibTotalAchados; i++) pontosRetroarch[i] = bibPontuar(jogo, bibAchadoNome[i]);
+    if (!bibExiste(lista) && !bibBaixar(url, lista)) return;
     char* dados = bibLerArquivo(lista);
     if (!dados) return;
     for (char* p = dados; (p = strstr(p, "href=\"")) != NULL;) {
@@ -698,9 +1611,13 @@ static void bibAcharCapas(const char* jogo) {
 
 static void bibAcharTrapacas(const char* jogo) {
     int pontos[BIB_MAX_ACHADOS] = { 0 };
-    const char* lista = BIB_PASTA "/lista_trapacas.json";
+    bibFonteAtual = -1;
+    char lista[300], url[600], sistema[300];
+    snprintf(lista, sizeof(lista), "%s/lista_trapacas_%s.json", BIB_PASTA, bibSistemas[bibSistema].chave);
+    bibEndereco(bibSistemas[bibSistema].libretro, sistema, sizeof(sistema));
+    snprintf(url, sizeof(url), "https://api.github.com/repos/libretro/libretro-database/contents/cht/%s", sistema);
     bibTotalAchados = 0;
-    if (!bibExiste(lista) && !bibBaixar(BIB_URL_TRAPACAS, lista)) return;
+    if (!bibExiste(lista) && !bibBaixar(url, lista)) return;
     char* dados = bibLerArquivo(lista);
     if (!dados) return;
     for (char* p = dados; (p = strstr(p, "\"name\":")) != NULL;) {
@@ -723,30 +1640,455 @@ static void bibAcharTrapacas(const char* jogo) {
     free(dados);
 }
 
+static void bibCaminhoTrapaca(const char* jogo, char* saida, size_t tamanho);
+
+static char* bibLerArquivo(const char* caminho);
+static void bibDecodificar(char* texto);
+static void bibNomeLibretro(const char* base, char* saida, size_t tamanho);
+static bool bibBaixar(const char* url, const char* destino);
+
+// Leitura do banco .rdb do RetroArch: cabeçalho "RARCHDB", depois um mapa msgpack por jogo.
+// Só os campos de texto interessam; o resto é pulado pelo tamanho.
+static bool rdbPular(const unsigned char* d, size_t t, size_t* p);
+
+static bool rdbTexto(const unsigned char* d, size_t t, size_t* p, const char** texto, size_t* tamanho) {
+    if (*p >= t) return false;
+    unsigned char c = d[*p];
+    size_t n = 0, cab = 1;
+    if (c >= 0xa0 && c <= 0xbf) n = c & 31;
+    else if (c == 0xd9 && *p + 1 < t) { n = d[*p + 1]; cab = 2; }
+    else if (c == 0xda && *p + 2 < t) { n = ((size_t)d[*p + 1] << 8) | d[*p + 2]; cab = 3; }
+    else if (c == 0xdb && *p + 4 < t) { n = ((size_t)d[*p + 1] << 24) | ((size_t)d[*p + 2] << 16) | ((size_t)d[*p + 3] << 8) | d[*p + 4]; cab = 5; }
+    else return false;
+    if (*p + cab + n > t) return false;
+    *texto = (const char*)d + *p + cab;
+    *tamanho = n;
+    *p += cab + n;
+    return true;
+}
+
+static bool rdbPular(const unsigned char* d, size_t t, size_t* p) {
+    if (*p >= t) return false;
+    unsigned char c = d[*p];
+    const char* s;
+    size_t n;
+    if (c <= 0x7f || c >= 0xe0 || c == 0xc0 || c == 0xc2 || c == 0xc3) { (*p)++; return true; }
+    if ((c >= 0xa0 && c <= 0xbf) || (c >= 0xd9 && c <= 0xdb)) return rdbTexto(d, t, p, &s, &n);
+    size_t fixos[] = { 0xcc, 1, 0xcd, 2, 0xce, 4, 0xcf, 8, 0xd0, 1, 0xd1, 2, 0xd2, 4, 0xd3, 8, 0xca, 4, 0xcb, 8 };
+    for (size_t i = 0; i < sizeof(fixos) / sizeof(fixos[0]); i += 2) if (c == fixos[i]) { *p += 1 + fixos[i + 1]; return *p <= t; }
+    if (c == 0xc4 || c == 0xc5 || c == 0xc6) {
+        size_t cab = c == 0xc4 ? 2 : c == 0xc5 ? 3 : 5;
+        if (*p + cab > t) return false;
+        n = c == 0xc4 ? d[*p + 1] : c == 0xc5 ? (((size_t)d[*p + 1] << 8) | d[*p + 2]) : (((size_t)d[*p + 1] << 24) | ((size_t)d[*p + 2] << 16) | ((size_t)d[*p + 3] << 8) | d[*p + 4]);
+        *p += cab + n;
+        return *p <= t;
+    }
+    size_t itens = 0;
+    bool mapa = false;
+    if (c >= 0x80 && c <= 0x8f) { itens = c & 15; mapa = true; (*p)++; }
+    else if (c >= 0x90 && c <= 0x9f) { itens = c & 15; (*p)++; }
+    else if ((c == 0xde || c == 0xdc) && *p + 2 < t) { itens = ((size_t)d[*p + 1] << 8) | d[*p + 2]; mapa = c == 0xde; *p += 3; }
+    else return false;
+    for (size_t i = 0; i < itens * (mapa ? 2 : 1); i++) if (!rdbPular(d, t, p)) return false;
+    return true;
+}
+
+// Chama aoAchar com o campo "name" de cada jogo. Devolve quantos achou, ou -1 se o arquivo não abriu.
+static int rdbLerNomes(const char* caminho, void (*aoAchar)(const char* nome, void* dado), void* dado) {
+    FILE* f = fopen(caminho, "rb");
+    if (!f) return -1;
+    fseek(f, 0, SEEK_END);
+    long tamanhoArquivo = ftell(f);
+    fseek(f, 0, SEEK_SET);
+    unsigned char* d = (unsigned char*)malloc((size_t)tamanhoArquivo);
+    if (!d) { fclose(f); return -1; }
+    size_t t = fread(d, 1, (size_t)tamanhoArquivo, f);
+    fclose(f);
+    if (t < 16 || memcmp(d, "RARCHDB", 7) != 0) { free(d); return -1; }
+    size_t fimDados = 0;
+    for (int i = 8; i < 16; i++) fimDados = (fimDados << 8) | d[i];
+    if (fimDados == 0 || fimDados > t) fimDados = t;
+    size_t p = 16;
+    int achados = 0;
+    while (p < fimDados) {
+        unsigned char c = d[p];
+        size_t itens = 0;
+        if (c >= 0x80 && c <= 0x8f) { itens = c & 15; p++; }
+        else if (c == 0xde && p + 2 < t) { itens = ((size_t)d[p + 1] << 8) | d[p + 2]; p += 3; }
+        else break;
+        for (size_t i = 0; i < itens; i++) {
+            const char* chave;
+            size_t tamChave;
+            if (!rdbTexto(d, t, &p, &chave, &tamChave)) { p = fimDados; break; }
+            if (tamChave == 4 && memcmp(chave, "name", 4) == 0) {
+                const char* valor;
+                size_t tamValor;
+                size_t antes = p;
+                if (rdbTexto(d, t, &p, &valor, &tamValor)) {
+                    char nome[256];
+                    snprintf(nome, sizeof(nome), "%.*s", (int)(tamValor < 255 ? tamValor : 255), valor);
+                    aoAchar(nome, dado);
+                    achados++;
+                    continue;
+                }
+                p = antes;
+            }
+            if (!rdbPular(d, t, &p)) { p = fimDados; break; }
+        }
+    }
+    free(d);
+    return achados;
+}
+
+static void bibAdicionarDoBanco(const char* nome, void*);
+
+// ----- Tabela de jogos e mídias -----
+// Junta a lista de jogos conhecidos do RetroArch com as ROMs e marca o que existe de cada um.
+enum { TAB_BANCO = 1, TAB_ROM = 2, TAB_MIDIA1 = 4, TAB_MIDIA2 = 8, TAB_VIDEO = 16, TAB_FUNDO = 32, TAB_ELEMENTOS = 64 };
+#define TAB_CAPA TAB_MIDIA1
+struct BibLinha { char nome[128]; unsigned char marcas; };
+#define BIB_MAX_TABELA 14000
+static BibLinha* bibTabela = NULL;
+static int bibTotalTabela = 0, bibTabelaFiltro = 0, bibTabelaSel = 0, bibTabelaVersao = 0;
+static int bibTabelaVisivel[BIB_MAX_TABELA];
+static int bibTotalVisivel = 0;
+static volatile bool bibTabelaPronta = false;
+static char bibTabelaSistema[64] = "";
+
+static void bibMinusculo(const char* texto, char* saida, size_t tamanho) {
+    size_t i = 0;
+    for (; texto[i] && i + 1 < tamanho; i++) saida[i] = (char)tolower((unsigned char)texto[i]);
+    saida[i] = '\0';
+}
+
+static int bibCompararLinha(const void* a, const void* b) { return strcasecmp(((const BibLinha*)a)->nome, ((const BibLinha*)b)->nome); }
+
+static int bibLimiteBusca = -1;
+
+static int bibAcharLinha(const char* nome) {
+    int de = 0, ate = (bibLimiteBusca >= 0 ? bibLimiteBusca : bibTotalTabela) - 1;
+    while (de <= ate) {
+        int meio = (de + ate) / 2, c = strcasecmp(bibTabela[meio].nome, nome);
+        if (c == 0) return meio;
+        if (c < 0) de = meio + 1; else ate = meio - 1;
+    }
+    return -1;
+}
+
+// Marca nas linhas os arquivos de uma pasta pelo nome sem extensão.
+static void bibMarcarPasta(const char* pasta, unsigned char marca) {
+    DIR* d = opendir(pasta);
+    if (!d) return;
+    struct dirent* item;
+    while ((item = readdir(d)) != NULL) {
+        if (item->d_name[0] == '.') continue;
+        char base[256], nome[300];
+        bibBase(item->d_name, base, sizeof(base));
+        bibNomeLibretro(base, nome, sizeof(nome));
+        int i = bibAcharLinha(nome);
+        if (i >= 0) bibTabela[i].marcas |= marca;
+    }
+    closedir(d);
+}
+
+static char bibTabelaOrigem[80] = "";
+
+static void bibAdicionarDoBanco(const char* nome, void*) {
+    if (bibTotalTabela >= BIB_MAX_TABELA) return;
+    char limpo[300];
+    bibNomeLibretro(nome, limpo, sizeof(limpo));
+    snprintf(bibTabela[bibTotalTabela].nome, sizeof(bibTabela[0].nome), "%s", limpo);
+    bibTabela[bibTotalTabela++].marcas = TAB_BANCO;
+}
+
+static void bibMontarTabela() {
+    const int maximo = BIB_MAX_TABELA;
+    if (!bibTabela) bibTabela = (BibLinha*)calloc(maximo, sizeof(BibLinha));
+    if (!bibTabela) return;
+    bibTotalTabela = 0;
+    // O banco vem do RetroArch instalado no PS4; sem ele, da lista de capas do servidor.
+    char banco[400];
+    snprintf(banco, sizeof(banco), "/data/retroarch/database/rdb/%s.rdb", bibSistemas[bibSistema].libretro);
+    int doBanco = rdbLerNomes(banco, bibAdicionarDoBanco, NULL);
+    snprintf(bibTabelaOrigem, sizeof(bibTabelaOrigem), "%s", doBanco >= 0 ? "banco local do RetroArch" : "lista do servidor do RetroArch");
+    char lista[300], url[600];
+    snprintf(lista, sizeof(lista), "%s/lista_capas_%s.html", BIB_PASTA, bibSistemas[bibSistema].chave);
+    bibUrlImagens(BIB_IMG_CAPA, url, sizeof(url));
+    if (doBanco < 0 && !bibExiste(lista)) bibBaixar(url, lista);
+    char* dados = doBanco >= 0 ? NULL : bibLerArquivo(lista);
+    for (char* p = dados; p && (p = strstr(p, "href=\"")) != NULL && bibTotalTabela < maximo;) {
+        p += 6;
+        char* fim = strstr(p, ".png\"");
+        char* aspas = strchr(p, '"');
+        if (!fim || !aspas || fim > aspas) continue;
+        char nome[256];
+        int n = (int)(fim - p);
+        if (n > 250) n = 250;
+        memcpy(nome, p, (size_t)n);
+        nome[n] = '\0';
+        bibDecodificar(nome);
+        snprintf(bibTabela[bibTotalTabela].nome, sizeof(bibTabela[0].nome), "%s", nome);
+        bibTabela[bibTotalTabela++].marcas = TAB_BANCO;
+    }
+    free(dados);
+    qsort(bibTabela, (size_t)bibTotalTabela, sizeof(BibLinha), bibCompararLinha);
+    // O banco repete nomes (versões com CRC diferente): fica um de cada.
+    int unicos = 0;
+    for (int i = 0; i < bibTotalTabela; i++) if (unicos == 0 || strcasecmp(bibTabela[i].nome, bibTabela[unicos - 1].nome) != 0) bibTabela[unicos++] = bibTabela[i];
+    bibTotalTabela = unicos;
+    // ROMs que não estão no banco entram também.
+    char pasta[400];
+    bibPastaDoSistema(bibSistema, pasta, sizeof(pasta));
+    DIR* d = opendir(pasta);
+    int noBanco = bibTotalTabela;
+    bibLimiteBusca = noBanco;   // as ROMs de fora entram no fim, fora de ordem
+    if (d) {
+        struct dirent* item;
+        while ((item = readdir(d)) != NULL) {
+            if (item->d_type != DT_REG || !bibTemExtensao(item->d_name)) continue;
+            char base[256], nome[300];
+            bibBase(item->d_name, base, sizeof(base));
+            bibNomeLibretro(base, nome, sizeof(nome));
+            int i = bibAcharLinha(nome);
+            if (i >= 0 && i < noBanco) { bibTabela[i].marcas |= TAB_ROM; continue; }
+            if (bibTotalTabela >= maximo) continue;
+            snprintf(bibTabela[bibTotalTabela].nome, sizeof(bibTabela[0].nome), "%s", nome);
+            bibTabela[bibTotalTabela++].marcas = TAB_ROM;
+        }
+        closedir(d);
+    }
+    bibLimiteBusca = -1;
+    qsort(bibTabela, (size_t)bibTotalTabela, sizeof(BibLinha), bibCompararLinha);
+    char caminho[600], fabricante[64];
+    bibFabricante(fabricante, sizeof(fabricante));
+    snprintf(caminho, sizeof(caminho), "%s/%s/%s", BIB_CAPAS, bibSistemas[bibSistema].chave, bibPastaImagem[BIB_IMG_CAPA]);
+    bibMarcarPasta(caminho, TAB_CAPA);
+    if (bibSistema == 0) bibMarcarPasta(BIB_CAPAS, TAB_CAPA);
+    snprintf(caminho, sizeof(caminho), "/data/EmuSuNi/covers/%s", bibSistemas[bibSistema].chave);
+    bibMarcarPasta(caminho, TAB_CAPA);
+    static const struct { const char* pasta; unsigned char marca; } midias[] = {
+        { "artwork1", TAB_MIDIA1 }, { "artwork2", TAB_MIDIA2 }, { "background", TAB_FUNDO }, { "elementos1", TAB_ELEMENTOS },
+    };
+    snprintf(caminho, sizeof(caminho), "%s/%s/%s", BIB_CAPAS, bibSistemas[bibSistema].chave, bibPastaImagem[BIB_IMG_LOGO]);
+    bibMarcarPasta(caminho, TAB_ELEMENTOS);
+    for (unsigned int m = 0; m < sizeof(midias) / sizeof(midias[0]); m++) {
+        snprintf(caminho, sizeof(caminho), "/data/HyperNeiva/midia/imagens/Games/%s/%s/%s", fabricante, bibSistemas[bibSistema].libretro, midias[m].pasta);
+        bibMarcarPasta(caminho, midias[m].marca);
+    }
+    snprintf(caminho, sizeof(caminho), "/data/HyperNeiva/midia/videos/Games/%s/%s", fabricante, bibSistemas[bibSistema].libretro);
+    bibMarcarPasta(caminho, TAB_VIDEO);
+    snprintf(bibTabelaSistema, sizeof(bibTabelaSistema), "%s", bibSistemas[bibSistema].nome);
+    bibTabelaPronta = true;
+}
+
+static const char* bibNomesFiltro[] = { "Todos (minhas ROMs primeiro)", "Tenho a ROM", "No banco e sem ROM", "ROM fora do banco", "ROM sem mídia 1", "ROM sem mídia 2", "ROM sem vídeo" };
+#define BIB_TOTAL_FILTROS 7
+
+static void bibFiltrarTabela() {
+    bibTotalVisivel = 0;
+    for (int i = 0; i < bibTotalTabela && bibTotalVisivel < BIB_MAX_TABELA; i++) {
+        unsigned char m = bibTabela[i].marcas;
+        bool fica = bibTabelaFiltro == 0 || (bibTabelaFiltro == 1 && (m & TAB_ROM)) || (bibTabelaFiltro == 2 && (m & TAB_BANCO) && !(m & TAB_ROM))
+            || (bibTabelaFiltro == 3 && (m & TAB_ROM) && !(m & TAB_BANCO)) || (bibTabelaFiltro == 4 && (m & TAB_ROM) && !(m & TAB_MIDIA1))
+            || (bibTabelaFiltro == 5 && (m & TAB_ROM) && !(m & TAB_MIDIA2)) || (bibTabelaFiltro == 6 && (m & TAB_ROM) && !(m & TAB_VIDEO));
+        // Em Todos, as ROMs que você tem vêm primeiro, inclusive as que não estão no banco.
+        if (fica && !(bibTabelaFiltro == 0 && !(m & TAB_ROM))) bibTabelaVisivel[bibTotalVisivel++] = i;
+    }
+    if (bibTabelaFiltro == 0) for (int i = 0; i < bibTotalTabela && bibTotalVisivel < BIB_MAX_TABELA; i++) if (!(bibTabela[i].marcas & TAB_ROM)) bibTabelaVisivel[bibTotalVisivel++] = i;
+    if (bibTabelaSel >= bibTotalVisivel) bibTabelaSel = bibTotalVisivel > 0 ? bibTotalVisivel - 1 : 0;
+    bibTabelaVersao++;
+}
+
+bool bibliotecaTabelaControles(uint32_t botoes, uint32_t antigos) {
+    static int segurado = 0;
+    uint32_t novos = botoes & ~antigos;
+    if (novos & ORBIS_PAD_BUTTON_CIRCLE) {
+        extern MenuLevel bibliotecaVoltaDaTabela();
+        menuAtual = bibliotecaVoltaDaTabela();
+        if (menuAtual == MENU_SISTEMAS) { extern void bibliotecaMostrarSistemas(); bibliotecaMostrarSistemas(); }
+        return true;
+    }
+    if (!bibTabelaPronta) return false;
+    // Quanto mais tempo segurado, mais rápido: uma linha, depois 3, 10 e 40 por vez.
+    static int seguradoPagina = 0;
+    int passo = 0;
+    if (botoes & (ORBIS_PAD_BUTTON_UP | ORBIS_PAD_BUTTON_DOWN)) {
+        segurado++;
+        int sentido = (botoes & ORBIS_PAD_BUTTON_UP) ? -1 : 1;
+        if (novos & (ORBIS_PAD_BUTTON_UP | ORBIS_PAD_BUTTON_DOWN)) passo = sentido;
+        else if (segurado > 18) {
+            int velocidade = segurado > 240 ? 40 : segurado > 150 ? 10 : segurado > 75 ? 3 : 1;
+            if (segurado % 3 == 0) passo = sentido * velocidade;
+        }
+    }
+    else segurado = 0;
+    if (botoes & (ORBIS_PAD_BUTTON_L2 | ORBIS_PAD_BUTTON_R2)) {
+        seguradoPagina++;
+        int sentido = (botoes & ORBIS_PAD_BUTTON_L2) ? -1 : 1;
+        if (novos & (ORBIS_PAD_BUTTON_L2 | ORBIS_PAD_BUTTON_R2)) passo = sentido * 14;
+        else if (seguradoPagina > 20) {
+            int espera = seguradoPagina > 120 ? 2 : seguradoPagina > 60 ? 5 : 10;
+            if (seguradoPagina % espera == 0) passo = sentido * 14;
+        }
+    }
+    else seguradoPagina = 0;
+    if (passo) {
+        bibTabelaSel += passo;
+        if (bibTabelaSel < 0) bibTabelaSel = 0;
+        if (bibTabelaSel >= bibTotalVisivel) bibTabelaSel = bibTotalVisivel > 0 ? bibTotalVisivel - 1 : 0;
+        bibTabelaVersao++;
+    }
+    if (novos & (ORBIS_PAD_BUTTON_L1 | ORBIS_PAD_BUTTON_R1)) {
+        bibTabelaFiltro = (bibTabelaFiltro + ((novos & ORBIS_PAD_BUTTON_R1) ? 1 : BIB_TOTAL_FILTROS - 1)) % BIB_TOTAL_FILTROS;
+        bibTabelaSel = 0;
+        bibFiltrarTabela();
+    }
+    return false;
+}
+
+static void bibCaixaCheia(uint32_t* p, int x, int y, int w, int h, uint32_t cor) {
+    for (int j = 0; j < h; j++) for (int i = 0; i < w; i++) p[(y + j) * 1920 + x + i] = cor;
+}
+
+void bibliotecaRenderizarTabela(uint32_t* p) {
+    static uint32_t* quadro = NULL;
+    static int ultimaVersao = -1;
+    static bool estavaPronta = false;
+    if (!quadro) quadro = (uint32_t*)malloc(1920 * 1080 * 4);
+    if (!quadro) return;
+    if (bibTabelaPronta && !estavaPronta) { estavaPronta = true; bibFiltrarTabela(); }
+    if (!bibTabelaPronta) estavaPronta = false;
+    if (ultimaVersao != bibTabelaVersao || !bibTabelaPronta) {
+        ultimaVersao = bibTabelaVersao;
+        uint32_t branco = 0xFFFFFFFF, cinza = 0xFFB4BCCB, verde = 0xFF3CC86E, vazio = 0xFF2A2F3C;
+        for (int i = 0; i < 1920 * 1080; i++) quadro[i] = 0xFF0E1018;
+        char texto[200];
+        snprintf(texto, sizeof(texto), "TABELA DE JOGOS - %s", bibTabelaPronta ? bibTabelaSistema : bibSistemas[bibSistema].nome);
+        desenharTexto(quadro, texto, 44, 60, 40, branco);
+        if (!bibTabelaPronta) {
+            desenharTexto(quadro, "Montando a tabela: lendo a lista do RetroArch e as suas pastas...", 32, 60, 140, cinza);
+        }
+        else {
+            int conta[9] = { 0 }, fora = 0;
+            for (int i = 0; i < bibTotalTabela; i++) {
+                for (int b = 0; b < 7; b++) if (bibTabela[i].marcas & (1 << b)) conta[b]++;
+                if ((bibTabela[i].marcas & TAB_ROM) && !(bibTabela[i].marcas & TAB_BANCO)) fora++;
+            }
+            snprintf(texto, sizeof(texto), "Banco: %d   ROMs: %d (fora do banco: %d)   Mídia 1: %d   Mídia 2: %d   Vídeos: %d   Fundos: %d   Elementos: %d",
+                conta[0], conta[1], fora, conta[2], conta[3], conta[4], conta[5], conta[6]);
+            desenharTexto(quadro, texto, 26, 60, 110, cinza);
+            snprintf(texto, sizeof(texto), "Filtro: %s  (%d jogos)   Banco: %s", bibNomesFiltro[bibTabelaFiltro], bibTotalVisivel, bibTabelaOrigem);
+            desenharTexto(quadro, texto, 30, 60, 156, 0xFFFFC83C);
+            static const char* colunas[] = { "Banco", "ROM", "Mídia 1", "Mídia 2", "Vídeo", "Fundo", "Elementos" };
+            int x0 = 980, larg = 128;
+            for (int c = 0; c < 7; c++) desenharTexto(quadro, colunas[c], 24, x0 + c * larg, 214, cinza);
+            desenharTexto(quadro, "Jogo", 24, 60, 214, cinza);
+            int linhas = 14, inicio = bibTabelaSel - linhas / 2;
+            if (inicio > bibTotalVisivel - linhas) inicio = bibTotalVisivel - linhas;
+            if (inicio < 0) inicio = 0;
+            for (int k = 0; k < linhas && inicio + k < bibTotalVisivel; k++) {
+                int v = inicio + k, y = 256 + k * 50;
+                BibLinha* l = &bibTabela[bibTabelaVisivel[v]];
+                if (v == bibTabelaSel) bibCaixaCheia(quadro, 50, y - 6, 1820, 46, 0xFF2E5FB8);
+                char nome[130];
+                snprintf(nome, sizeof(nome), "%.64s", l->nome);
+                desenharTexto(quadro, nome, 26, 60, y, (l->marcas & TAB_ROM) ? branco : cinza);
+                for (int c = 0; c < 7; c++) bibCaixaCheia(quadro, x0 + c * larg + 20, y + 6, 30, 26, (l->marcas & (1 << c)) ? verde : vazio);
+            }
+        }
+        desenharTexto(quadro, "Cima / Baixo  Navegar     L2 / R2  Página     L1 / R1  Filtro     O  Voltar", 26, 60, 1020, cinza);
+    }
+    memcpy(p, quadro, 1920 * 1080 * 4);
+}
+
+static volatile bool bibTabelaMontando = false;
+
+static void* bibThreadTabela(void*) {
+    uint64_t inicio = sceKernelGetProcessTime();
+    bibMontarTabela();
+    FILE* f = fopen("/data/HyperNeiva/zip_debug_log.txt", "a");
+    if (f) { fprintf(f, "TABELA %s linhas=%d origem=%s %llu ms\n", bibSistemas[bibSistema].chave, bibTotalTabela, bibTabelaOrigem, (unsigned long long)((sceKernelGetProcessTime() - inicio) / 1000)); fclose(f); }
+    bibTabelaMontando = false;
+    return NULL;
+}
+
+// A fila de downloads só anda com a tela de jogos aberta: a tabela não pode esperar por ela.
+static void bibIniciarTabela() {
+    if (bibTabelaMontando) return;
+    bibTabelaMontando = true;
+    pthread_t id;
+    pthread_attr_t atributos;
+    pthread_attr_init(&atributos);
+    pthread_attr_setstacksize(&atributos, 512 * 1024);
+    pthread_attr_setdetachstate(&atributos, PTHREAD_CREATE_DETACHED);
+    if (pthread_create(&id, &atributos, bibThreadTabela, NULL) != 0) bibTabelaMontando = false;
+    pthread_attr_destroy(&atributos);
+}
+
 static void* bibThread(void*) {
     int tarefa = bibTarefa;
     char url[900], nome[600], destino[600], base[256];
     bibPastas();
+    char pastaUrl[600];
     if (tarefa == BIB_TAREFA_TODAS_CAPAS) {
+        // A roda mostra o logo de cada jogo; os outros temas, só a capa.
+        bool logos = bibliotecaTemaJogos() == BIB_TEMA_RODA;
         for (int i = 0; i < bibTotalFila; i++) {
-            char existente[600];
-            if (bibliotecaCaminhoCapa(bibFilaCapas[i], existente, sizeof(existente))) continue;
-            bibBase(bibFilaCapas[i], base, sizeof(base));
-            bibNomeLibretro(base, nome, sizeof(nome));
-            char codificado[700];
-            bibUrl(nome, codificado, sizeof(codificado));
-            snprintf(url, sizeof(url), "%s%s.png", BIB_URL_CAPAS, codificado);
-            snprintf(destino, sizeof(destino), "%s/%s.png", BIB_CAPAS, base);
-            if (bibBaixar(url, destino)) bibCapaNova = true;
+            for (int tipo = BIB_IMG_CAPA; tipo <= BIB_IMG_LOGO; tipo += BIB_IMG_LOGO) {
+                if (tipo == BIB_IMG_LOGO && !logos) break;
+                char existente[600];
+                if (bibliotecaCaminhoImagem(bibFilaCapas[i], tipo, existente, sizeof(existente))) continue;
+                bibBase(bibFilaCapas[i], base, sizeof(base));
+                bibNomeLibretro(base, nome, sizeof(nome));
+                char codificado[700];
+                bibUrl(nome, codificado, sizeof(codificado));
+                bibUrlImagens(tipo, pastaUrl, sizeof(pastaUrl));
+                snprintf(url, sizeof(url), "%s%s.png", pastaUrl, codificado);
+                bibDestinoImagem(bibFilaCapas[i], tipo, destino, sizeof(destino));
+                if (bibBaixar(url, destino)) bibCapaNova = true;
+            }
             // O pedido do usuário passa na frente; o resto das capas volta depois.
             if (bibTarefaEspera != BIB_TAREFA_NADA) { bibCapasPedidas = false; break; }
         }
     }
     else if (tarefa == BIB_TAREFA_PREVIA) {
+        bool local = false;
+        bibEnderecoCandidato(bibFonteBusca, bibTarefaNome, url, sizeof(url), &local);
+        if (local) snprintf(bibPreviaCaminho, sizeof(bibPreviaCaminho), "%s", url);
+        else {
+            snprintf(bibPreviaCaminho, sizeof(bibPreviaCaminho), "%s", BIB_PASTA "/previa.png");
+            unlink(bibPreviaCaminho);
+            bibBaixar(url, bibPreviaCaminho);
+        }
+    }
+    else if (tarefa == BIB_TAREFA_TABELA) bibMontarTabela();
+    else if (tarefa == BIB_TAREFA_MIDIA) {
+        bibCarregarFontes();
+        int certos = 0, falhas = 0;
+        int total = bibMidiaTodos ? bibTotalFila : 1;
+        for (int i = 0; i < total; i++) {
+            const char* jogo = bibMidiaTodos ? bibFilaCapas[i] : bibTarefaJogo;
+            char existente[600];
+            if (bibMidiaTodos && bibliotecaCaminhoMidia(jogo, bibMidiaItem, existente, sizeof(existente))) continue;
+            if (bibBaixarMidia(jogo, bibMidiaItem, bibMidiaFonte)) certos++;
+            else falhas++;
+            if (bibMidiaTodos) { snprintf(msgStatus, sizeof(msgStatus), "%s: %d de %d", midNomes[bibMidiaItem], i + 1, total); msgTimer = 120; }
+            if (bibTarefaEspera != BIB_TAREFA_NADA) break;
+        }
+        if (certos || falhas) snprintf(msgStatus, sizeof(msgStatus), "%s: %d BAIXADAS, %d NAO ACHADAS", midNomes[bibMidiaItem], certos, falhas);
+        else snprintf(msgStatus, sizeof(msgStatus), "%s: TODOS OS JOGOS JA TEM", midNomes[bibMidiaItem]);
+        msgTimer = 360;
+        if (certos) bibCapaNova = true;
+    }
+    else if (tarefa == BIB_TAREFA_EXTRA) {
         char codificado[700];
-        bibUrl(bibTarefaNome, codificado, sizeof(codificado));
-        snprintf(url, sizeof(url), "%s%s.png", BIB_URL_CAPAS, codificado);
-        bibBaixar(url, BIB_PASTA "/previa.png");
+        bibBase(bibTarefaJogo, base, sizeof(base));
+        bibNomeLibretro(base, nome, sizeof(nome));
+        bibUrl(nome, codificado, sizeof(codificado));
+        bibUrlImagens(bibTipoExtra, pastaUrl, sizeof(pastaUrl));
+        snprintf(url, sizeof(url), "%s%s.png", pastaUrl, codificado);
+        bibDestinoImagem(bibTarefaJogo, bibTipoExtra, destino, sizeof(destino));
+        if (bibBaixar(url, destino)) bibCapaNova = true;
     }
     else if (tarefa == BIB_TAREFA_ACHAR_CAPA) bibAcharCapas(bibTarefaJogo);
     else if (tarefa == BIB_TAREFA_ACHAR_TRAPACA) bibAcharTrapacas(bibTarefaJogo);
@@ -755,9 +2097,44 @@ static void* bibThread(void*) {
         char codificado[700];
         bibBase(bibTarefaJogo, base, sizeof(base));
         bibUrl(bibTarefaNome, codificado, sizeof(codificado));
-        snprintf(url, sizeof(url), "%s%s%s", capa ? BIB_URL_CAPAS : BIB_RAW_TRAPACAS, codificado, capa ? ".png" : ".cht");
-        snprintf(destino, sizeof(destino), "%s/%s%s", capa ? BIB_CAPAS : BIB_TRAPACAS, base, capa ? ".png" : ".cht");
-        bool certo = bibBaixar(url, destino);
+        char sistema[300];
+        bibEndereco(bibSistemas[bibSistema].libretro, sistema, sizeof(sistema));
+        if (capa) {
+            bool local = false;
+            bibEnderecoCandidato(bibFonteBusca, bibTarefaNome, url, sizeof(url), &local);
+            bibDestinoImagem(bibTarefaJogo, BIB_IMG_CAPA, destino, sizeof(destino));
+            if (local) {
+                // Capa de uma pasta do PS4: só copia.
+                bool copiou = false;
+                FILE* de = fopen(url, "rb");
+                FILE* para = de ? fopen(destino, "wb") : NULL;
+                if (de && para) {
+                    static char bloco[65536];
+                    size_t lidos;
+                    while ((lidos = fread(bloco, 1, sizeof(bloco), de)) > 0) fwrite(bloco, 1, lidos, para);
+                    copiou = true;
+                }
+                if (de) fclose(de);
+                if (para) fclose(para);
+                if (copiou) bibCapaNova = true;
+                else { snprintf(msgStatus, sizeof(msgStatus), "NAO FOI POSSIVEL COPIAR"); msgTimer = 240; }
+                bibResultado = tarefa;
+                bibTarefa = BIB_TAREFA_NADA;
+                bibThreadViva = false;
+                return NULL;
+            }
+        }
+        else {
+            snprintf(url, sizeof(url), "https://raw.githubusercontent.com/libretro/libretro-database/master/cht/%s/%s.cht", sistema, codificado);
+            bibCaminhoTrapaca(bibTarefaJogo, destino, sizeof(destino));
+        }
+        bool certo;
+        if (!capa && bibFonteBusca == -2) {
+            char origem[700];
+            snprintf(origem, sizeof(origem), "/data/retroarch/cheats/%s/%s.cht", bibSistemas[bibSistema].libretro, bibTarefaNome);
+            certo = bibCopiarArquivo(origem, destino);
+        }
+        else certo = bibBaixar(url, destino);
         if (capa && certo) bibCapaNova = true;
         if (!certo) { snprintf(msgStatus, sizeof(msgStatus), "NAO FOI POSSIVEL BAIXAR"); msgTimer = 240; }
     }
@@ -786,7 +2163,9 @@ static bool bibIniciarTarefa(int tarefa) {
 static void bibCaminhoTrapaca(const char* jogo, char* saida, size_t tamanho) {
     char base[256];
     bibBase(jogo, base, sizeof(base));
-    snprintf(saida, tamanho, "%s/%s.cht", BIB_TRAPACAS, base);
+    // O GBA continua na pasta de antes, para não perder as trapaças já ligadas.
+    if (bibSistema == 0) snprintf(saida, tamanho, "%s/%s.cht", BIB_TRAPACAS, base);
+    else snprintf(saida, tamanho, "%s/%s/%s.cht", BIB_TRAPACAS, bibSistemas[bibSistema].chave, base);
 }
 
 static void bibValorCht(const char* linha, char* saida, size_t tamanho) {
@@ -843,10 +2222,37 @@ static void bibMostrarTrapacas(int selecionada) {
         mapOpcoes[n] = i;
         n++;
     }
-    listaOpcoes[n] = "Baixar outra lista";
-    mapOpcoes[n++] = 1000;
+    if (n == 0) { listaOpcoes[n] = "Este jogo ainda não tem trapaças: escolha uma fonte"; mapOpcoes[n++] = 999; }
+    extern bool raPacoteInstalado(int i);
+    listaOpcoes[n] = "Buscar no banco do RetroArch (internet)"; mapOpcoes[n++] = 1000;
+    listaOpcoes[n] = raPacoteInstalado(0) ? "Buscar no pacote do RetroArch no PS4" : "Buscar no pacote do RetroArch no PS4 (baixe antes)"; mapOpcoes[n++] = 1001;
+    listaOpcoes[n] = "Baixar pacote de trapaças de todos os sistemas (35 MB)"; mapOpcoes[n++] = 1002;
+    listaOpcoes[n] = "Cancelar"; mapOpcoes[n++] = 1003;
     bibMostrarPainel(BIB_PAINEL_TRAPACAS, n);
     selOpcao = selecionada < n ? selecionada : 0;
+}
+
+// Trapaças do pacote do RetroArch já extraído no PS4: /data/retroarch/cheats/<sistema>.
+static void bibAcharTrapacasNoPs4(const char* jogo) {
+    int pontos[BIB_MAX_ACHADOS] = { 0 };
+    char pasta[400];
+    snprintf(pasta, sizeof(pasta), "/data/retroarch/cheats/%s", bibSistemas[bibSistema].libretro);
+    bibTotalAchados = 0;
+    bibFonteAtual = -2;
+    DIR* d = opendir(pasta);
+    if (d) {
+        struct dirent* item;
+        while ((item = readdir(d)) != NULL) {
+            char nome[256];
+            snprintf(nome, sizeof(nome), "%s", item->d_name);
+            char* ponto = strrchr(nome, '.');
+            if (!ponto || strcasecmp(ponto, ".cht") != 0) continue;
+            *ponto = '\0';
+            bibGuardarAchado(nome, pontos, jogo);
+        }
+        closedir(d);
+    }
+    bibFonteAtual = -1;
 }
 
 static void bibMostrarAchados(int painel) {
@@ -857,6 +2263,8 @@ static void bibMostrarAchados(int painel) {
         return;
     }
     for (int i = 0; i < bibTotalAchados; i++) { listaOpcoes[i] = bibAchados[i]; mapOpcoes[i] = i; }
+    bibLimparPrevia();
+    bibPreviaGeracao++;
     bibMostrarPainel(painel, bibTotalAchados);
 }
 
@@ -866,7 +2274,7 @@ void bibliotecaAoIniciarJogo() {
     extern char romParaCarregar[512];
     const char* nome = strrchr(romParaCarregar, '/');
     nome = nome ? nome + 1 : romParaCarregar;
-    bibRegistrarJogado(nome);
+    bibRegistrarJogado(bibChave(nome));
     if (!retro_cheat_set_ptr) return;
     if (retro_cheat_reset_ptr) retro_cheat_reset_ptr();
     int total = bibLerTrapacas(nome), ligadas = 0;
@@ -939,16 +2347,18 @@ void bibliotecaAtualizar() {
                 bibRecarregar(NULL);
             }
             else if (botao == 0 && modo == BIB_IME_RENOMEAR && n > 0) bibRenomear(texto);
+            else if (botao == 0 && modo == BIB_IME_FONTE && n > 0) { bibAdicionarFonte(texto); bibMostrarFontesMidia(); }
         }
     }
     if (menuAtual != MENU_EMULADOR) return;
 
-    if (!bibCapasPedidas && !bibThreadViva && strstr(caminhoROMsAtual, "Game Boy Adva")) {
+    if (!bibCapasPedidasPublico) { bibCapasPedidasPublico = true; bibCapasPedidas = false; }
+    if (!bibCapasPedidas && !bibThreadViva) {
         bibCapasPedidas = true;
         if (!bibFilaCapas) bibFilaCapas = (char (*)[256])calloc(3000, 256);
         if (bibFilaCapas) {
             bibTotalFila = 0;
-            for (int i = 0; i < totalItens && i < 3000; i++) if (strcmp(nomes[i], "Nenhuma ROM GBA encontrada") != 0) memcpy(bibFilaCapas[bibTotalFila++], nomes[i], 256);
+            for (int i = 0; i < totalItens && i < 3000; i++) if (strcmp(nomes[i], "Nenhuma ROM encontrada") != 0) memcpy(bibFilaCapas[bibTotalFila++], nomes[i], 256);
             bibIniciarTarefa(BIB_TAREFA_TODAS_CAPAS);
         }
     }
@@ -959,6 +2369,35 @@ void bibliotecaAtualizar() {
     if (bibCapaNova) {
         bibCapaNova = false;
         for (int i = 0; i < MAX_GRID_CACHE; i++) if (coverCache[i].index != -1 && !coverCache[i].img) coverCache[i].index = -1;
+        extern void temaLimparExtras(bool soVazias);
+        extern void recarregarMidiaDinamica();
+        temaLimparExtras(true);
+        recarregarMidiaDinamica();
+    }
+    // Imagem da tela e logo do jogo selecionado: baixadas quando a seleção para.
+    {
+        static int parado = 0, ultimoSel = -1;
+        static char tentados[64][300];
+        static int proximoTentado = 0;
+        int tema = bibliotecaTemaJogos();
+        bool precisaTela = tema != BIB_TEMA_CARROSSEL && tema != BIB_TEMA_GRADE;
+        if (sel != ultimoSel) { ultimoSel = sel; parado = 0; }
+        if (precisaTela && !showOpcoes && !bibSemJogo() && ++parado == 30 && !bibThreadViva) {
+            for (int tipo = BIB_IMG_TELA; tipo <= BIB_IMG_LOGO; tipo += BIB_IMG_LOGO - BIB_IMG_TELA) {
+                char caminho[600], marca[300];
+                if (bibliotecaCaminhoImagem(nomes[sel], tipo, caminho, sizeof(caminho))) continue;
+                snprintf(marca, sizeof(marca), "%d%s/%s", tipo, bibSistemas[bibSistema].chave, nomes[sel]);
+                bool tentado = false;
+                for (int k = 0; k < 64; k++) if (strcmp(tentados[k], marca) == 0) tentado = true;
+                if (tentado) continue;
+                snprintf(tentados[proximoTentado], sizeof(tentados[0]), "%s", marca);
+                proximoTentado = (proximoTentado + 1) % 64;
+                bibTipoExtra = tipo;
+                snprintf(bibTarefaJogo, sizeof(bibTarefaJogo), "%s", nomes[sel]);
+                bibIniciarTarefa(BIB_TAREFA_EXTRA);
+                break;
+            }
+        }
     }
     if (!bibThreadViva && bibTarefaEspera != BIB_TAREFA_NADA) {
         int proxima = bibTarefaEspera;
@@ -966,14 +2405,26 @@ void bibliotecaAtualizar() {
         bibIniciarTarefa(proxima);
     }
     // Espera a seleção parar antes de baixar a prévia da capa.
-    if (showOpcoes && bibPainel == BIB_PAINEL_CAPAS && !bibThreadViva && bibTarefaEspera == BIB_TAREFA_NADA) {
+    if (showOpcoes && bibPainel == BIB_PAINEL_CAPAS && !bibPreviaRodando) {
         if (bibPreviaSel != selOpcao) {
-            if (++bibPreviaQuadros > 20) {
+            if (++bibPreviaQuadros > 8) {
                 bibPreviaQuadros = 0;
                 bibPreviaSel = selOpcao;
-                snprintf(bibTarefaNome, sizeof(bibTarefaNome), "%s", bibAchados[mapOpcoes[selOpcao]]);
-                bibIniciarTarefa(BIB_TAREFA_PREVIA);
+                bibPedirPrevia(bibAchadoFonte[mapOpcoes[selOpcao]], bibAchadoNome[mapOpcoes[selOpcao]]);
             }
+        }
+    }
+    if (bibPreviaPronta) {
+        bibPreviaPronta = false;
+        // Resposta de uma lista anterior ou de outro item: pede de novo para o item atual.
+        if (bibPreviaGeracaoPedida != bibPreviaGeracao || bibPreviaSelPedida != selOpcao) bibPreviaSel = -1;
+        else if (showOpcoes && bibPainel == BIB_PAINEL_CAPAS) {
+            int componentes = 0;
+            if (bibPreviaImg) stbi_image_free(bibPreviaImg);
+            bibPreviaImg = stbi_load(bibPreviaCaminho, &bibPreviaW, &bibPreviaH, &componentes, 4);
+            if (!bibPreviaImg) { snprintf(msgStatus, sizeof(msgStatus), "ESTA FONTE NAO TEM ESTA IMAGEM"); msgTimer = 150; }
+            extern void temaForcarRedesenho();
+            temaForcarRedesenho();
         }
     }
     int feita = bibResultado;
@@ -982,6 +2433,8 @@ void bibliotecaAtualizar() {
     if (feita == BIB_TAREFA_BAIXAR_CAPA) {
         // A capa escolhida substitui uma que já estava na tela.
         clearCoverCache();
+        extern void recarregarMidiaDinamica();
+        recarregarMidiaDinamica();
         snprintf(msgStatus, sizeof(msgStatus), "CAPA ATUALIZADA");
         msgTimer = 150;
     }
@@ -989,7 +2442,7 @@ void bibliotecaAtualizar() {
         if (showOpcoes && bibPainel == BIB_PAINEL_CAPAS) {
             int componentes = 0;
             if (bibPreviaImg) stbi_image_free(bibPreviaImg);
-            bibPreviaImg = stbi_load(BIB_PASTA "/previa.png", &bibPreviaW, &bibPreviaH, &componentes, 4);
+            bibPreviaImg = stbi_load(bibPreviaCaminho, &bibPreviaW, &bibPreviaH, &componentes, 4);
         }
     }
     else if (feita == BIB_TAREFA_ACHAR_CAPA) bibMostrarAchados(BIB_PAINEL_CAPAS);
@@ -999,8 +2452,97 @@ void bibliotecaAtualizar() {
     }
 }
 
+// ----- Tela de sistemas -----
+static MenuLevel bibTabelaVolta = MENU_EMULADOR;
+
+void bibliotecaMostrarSistemas() {
+    bibliotecaListarSistemas();
+    menuAtual = MENU_SISTEMAS;
+    sel = bibSistema < totalItens ? bibSistema : 0;
+    off = 0;
+    clearCoverCache();
+}
+
+const char* bibliotecaSubtituloSistemas() {
+    static char texto[120];
+    snprintf(texto, sizeof(texto), "%d sistemas", BIB_TOTAL_SISTEMAS);
+    return texto;
+}
+
+// Ícone do sistema: vem do pacote de assets do RetroArch, quando ele está no PS4.
+bool bibliotecaIconeSistema(int indice, char* saida, size_t tamanho) {
+    if (indice < 0 || indice >= BIB_TOTAL_SISTEMAS) return false;
+    static const char* temas[] = { "systematic", "monochrome", "flatui", "retroactive", "neoactive", "pixel", "dot-art", "automatic" };
+    for (unsigned int i = 0; i < sizeof(temas) / sizeof(temas[0]); i++) {
+        snprintf(saida, tamanho, "/data/retroarch/assets/xmb/%s/png/%s.png", temas[i], bibSistemas[indice].libretro);
+        if (bibExiste(saida)) return true;
+    }
+    return false;
+}
+
+static void bibAbrirPainelSistema() {
+    static char tema[120];
+    int k = 0;
+    snprintf(tema, sizeof(tema), "Tema: %s", bibNomesTema[bibliotecaTemaJogos()]);
+    listaOpcoes[k] = "Abrir"; mapOpcoes[k++] = 3000;
+    listaOpcoes[k] = tema; mapOpcoes[k++] = 3001;
+    listaOpcoes[k] = "Tabela de jogos e mídias deste sistema"; mapOpcoes[k++] = 3002;
+    listaOpcoes[k] = "Downloads do RetroArch (ícones, trapaças, banco...)"; mapOpcoes[k++] = 3003;
+    listaOpcoes[k] = "Ir para os jogos XML"; mapOpcoes[k++] = 3004;
+    listaOpcoes[k] = "Cancelar"; mapOpcoes[k++] = 3005;
+    bibMostrarPainel(BIB_PAINEL_SISTEMA, k);
+}
+
+static void bibAbrirTabela(MenuLevel volta) {
+    bibTabelaVolta = volta;
+    bibTabelaPronta = false;
+    bibTabelaSel = 0;
+    bibTabelaVersao++;
+    menuAtual = MENU_TABELA_JOGOS;
+    bibIniciarTabela();
+}
+
+static void bibMostrarDownloads() {
+    extern int raTotalPacotes();
+    extern const char* raNomePacote(int i);
+    extern const char* raTamanhoPacote(int i);
+    extern bool raPacoteInstalado(int i);
+    static char rotulos[20][160];
+    int k = 0;
+    for (int i = 0; i < raTotalPacotes() && i < 20; i++) {
+        snprintf(rotulos[i], sizeof(rotulos[0]), "%s (%s)%s", raNomePacote(i), raTamanhoPacote(i), raPacoteInstalado(i) ? "  [já tem]" : "");
+        listaOpcoes[k] = rotulos[i]; mapOpcoes[k++] = i;
+    }
+    listaOpcoes[k] = "Cancelar"; mapOpcoes[k++] = 2003;
+    bibMostrarPainel(BIB_PAINEL_DOWNLOADS, k);
+}
+
+void bibliotecaCruzSistemas() {
+    if (!showOpcoes) { bibliotecaAbrirSistema(sel); return; }
+    if (bibPainel != BIB_PAINEL_SISTEMA) {
+        // Painéis compartilhados com a tela de jogos, como os downloads.
+        int escolha = mapOpcoes[selOpcao];
+        if (bibPainel == BIB_PAINEL_DOWNLOADS && escolha >= 0 && escolha < 2000) { extern void raBaixarPacoteNumero(int i); raBaixarPacoteNumero(escolha); }
+        bibFecharPainel();
+        return;
+    }
+    int escolha = mapOpcoes[selOpcao];
+    int sistema = sel;
+    bibFecharPainel();
+    if (escolha == 3000) bibliotecaAbrirSistema(sistema);
+    else if (escolha == 3001) {
+        bibliotecaDefinirTema((bibliotecaTemaJogos() + 1) % BIB_TOTAL_TEMAS);
+        bibAbrirPainelSistema();
+        selOpcao = 1;
+    }
+    else if (escolha == 3002) { bibSistema = sistema; bibAbrirTabela(MENU_SISTEMAS); }
+    else if (escolha == 3003) bibMostrarDownloads();
+    else if (escolha == 3004) { extern void carregarXML(const char*); carregarXML("system.xml"); sel = 0; off = 0; }
+}
+
 void bibliotecaTriangulo() {
     if (showOpcoes) { bibFecharPainel(); return; }
+    if (menuAtual == MENU_SISTEMAS) { bibAbrirPainelSistema(); return; }
     if (bibSemJogo()) bibAbrirPainelSemJogo();
     else bibAbrirPainelJogo();
 }
@@ -1033,12 +2575,32 @@ void bibliotecaBotoes(uint32_t novos) {
     }
 }
 
+static bool bibSemNucleo() {
+    snprintf(msgStatus, sizeof(msgStatus), "%s: EMULADOR AINDA NAO INCLUIDO NO HYPER NEIVA", bibSistemas[bibSistema].nome);
+    msgTimer = 300;
+    return true;
+}
+
 // Devolve true quando o X foi usado pelo painel.
 bool bibliotecaCruz() {
-    if (!showOpcoes) return false;
+    if (!showOpcoes) return !bibSemJogo() && !bibSistemas[bibSistema].nucleo && bibSemNucleo();
     int escolha = mapOpcoes[selOpcao];
     if (bibPainel == BIB_PAINEL_TRAPACAS) {
-        if (escolha == 1000) { snprintf(bibTarefaJogo, sizeof(bibTarefaJogo), "%s", bibJogo); bibIniciarTarefa(BIB_TAREFA_ACHAR_TRAPACA); return true; }
+        if (escolha == 999) return true;
+        if (escolha == 1003) { bibFecharPainel(); return true; }
+        if (escolha == 1000) {
+            snprintf(bibTarefaJogo, sizeof(bibTarefaJogo), "%s", bibJogo);
+            if (bibIniciarTarefa(BIB_TAREFA_ACHAR_TRAPACA)) { snprintf(msgStatus, sizeof(msgStatus), "BUSCANDO TRAPACAS NA INTERNET..."); msgTimer = 180; }
+            return true;
+        }
+        if (escolha == 1001) {
+            extern bool raPacoteInstalado(int i);
+            if (!raPacoteInstalado(0)) { snprintf(msgStatus, sizeof(msgStatus), "BAIXE ANTES O PACOTE DE TRAPACAS (ULTIMA OPCAO)"); msgTimer = 300; return true; }
+            bibAcharTrapacasNoPs4(bibJogo);
+            bibMostrarAchados(BIB_PAINEL_ACHADOS_TRAPACA);
+            return true;
+        }
+        if (escolha == 1002) { extern void raBaixarPacote(const char* arquivo); raBaixarPacote("cheats.zip"); bibFecharPainel(); return true; }
         if (escolha >= 0 && escolha < bibTotalTrapacas) {
             bibTrapacas[escolha].ligada = !bibTrapacas[escolha].ligada;
             bibGravarTrapacas(bibJogo);
@@ -1046,9 +2608,91 @@ bool bibliotecaCruz() {
         }
         return true;
     }
+    if (bibPainel == BIB_PAINEL_CONTROLE) {
+        if (escolha == 2000) return true;
+        if (escolha == 2002) { extern void raBaixarPacote(const char* arquivo); raBaixarPacote("autoconfig.zip"); }
+        bibFecharPainel();
+        return escolha == 2001 ? (!bibSistemas[bibSistema].nucleo && bibSemNucleo()) : true;
+    }
+    if (bibPainel == BIB_PAINEL_DOWNLOADS) {
+        if (escolha >= 0 && escolha < 2000) { extern void raBaixarPacoteNumero(int i); raBaixarPacoteNumero(escolha); }
+        bibFecharPainel();
+        return true;
+    }
+    if (bibPainel == BIB_PAINEL_MIDIAS) {
+        if (escolha == 903) { bibFecharPainel(); return true; }
+        bibMidiaItem = escolha;
+        bibMostrarFontesMidia();
+        return true;
+    }
+    if (bibPainel == BIB_PAINEL_MIDIA_FONTE) {
+        if (escolha == 903) { bibFecharPainel(); return true; }
+        if (escolha == 901) { bibFecharPainel(); bibAbrirTeclado(BIB_IME_FONTE, L"Link ou pasta da fonte de imagens", "http://"); return true; }
+        if (escolha == 902) { bibMostrarRemoverFonte(); return true; }
+        snprintf(bibTarefaJogo, sizeof(bibTarefaJogo), "%s", bibJogo);
+        if (escolha == 904) {
+            // Todos os jogos da lista que ainda não têm esta mídia, da primeira fonte que tiver.
+            bibMidiaFonte = -1;
+            bibMidiaTodos = true;
+            if (!bibFilaCapas) bibFilaCapas = (char (*)[256])calloc(3000, 256);
+            bibTotalFila = 0;
+            for (int i = 0; bibFilaCapas && i < totalItens && i < 3000; i++) if (strcmp(nomes[i], "Nenhuma ROM encontrada") != 0) memcpy(bibFilaCapas[bibTotalFila++], nomes[i], 256);
+            bibFecharPainel();
+            if (bibIniciarTarefa(BIB_TAREFA_MIDIA)) { snprintf(msgStatus, sizeof(msgStatus), "BAIXANDO %s...", midNomes[bibMidiaItem]); msgTimer = 200; }
+            return true;
+        }
+        bibMidiaFonte = escolha;
+        bibFecharPainel();
+        if (bibMidiaItem == MID_CAPA) {
+            // A capa mostra as opções com prévia para você escolher.
+            bibFonteBusca = escolha;
+            if (bibIniciarTarefa(BIB_TAREFA_ACHAR_CAPA)) { snprintf(msgStatus, sizeof(msgStatus), "BUSCANDO CAPAS..."); msgTimer = 180; }
+        }
+        else {
+            bibMidiaTodos = false;
+            if (bibIniciarTarefa(BIB_TAREFA_MIDIA)) { snprintf(msgStatus, sizeof(msgStatus), "BAIXANDO %s...", midNomes[bibMidiaItem]); msgTimer = 200; }
+        }
+        return true;
+    }
+    if (bibPainel == BIB_PAINEL_MIDIA_ALCANCE) {
+        if (escolha == 903) { bibFecharPainel(); return true; }
+        bibMidiaTodos = escolha == 1;
+        snprintf(bibTarefaJogo, sizeof(bibTarefaJogo), "%s", bibJogo);
+        if (bibMidiaTodos) {
+            if (!bibFilaCapas) bibFilaCapas = (char (*)[256])calloc(3000, 256);
+            bibTotalFila = 0;
+            for (int i = 0; bibFilaCapas && i < totalItens && i < 3000; i++) if (strcmp(nomes[i], "Nenhuma ROM encontrada") != 0) memcpy(bibFilaCapas[bibTotalFila++], nomes[i], 256);
+        }
+        bibFecharPainel();
+        if (bibIniciarTarefa(BIB_TAREFA_MIDIA)) { snprintf(msgStatus, sizeof(msgStatus), "BAIXANDO %s...", midNomes[bibMidiaItem]); msgTimer = 200; }
+        return true;
+    }
+    if (bibPainel == BIB_PAINEL_FONTES) {
+        if (escolha == 903) { bibFecharPainel(); return true; }
+        if (escolha == 901) { bibFecharPainel(); bibAbrirTeclado(BIB_IME_FONTE, L"Link ou pasta da fonte de capas", "http://"); return true; }
+        if (escolha == 902) { bibMostrarRemoverFonte(); return true; }
+        bibFonteBusca = escolha == 900 ? -1 : escolha;
+        snprintf(bibTarefaJogo, sizeof(bibTarefaJogo), "%s", bibJogo);
+        bibFecharPainel();
+        if (bibIniciarTarefa(BIB_TAREFA_ACHAR_CAPA)) { snprintf(msgStatus, sizeof(msgStatus), "BUSCANDO CAPAS..."); msgTimer = 180; }
+        return true;
+    }
+    if (bibPainel == BIB_PAINEL_REMOVER_FONTE) {
+        if (escolha >= 0 && escolha < bibTotalFontes) {
+            snprintf(msgStatus, sizeof(msgStatus), "FONTE REMOVIDA: %.80s", bibFontes[escolha].nome);
+            msgTimer = 200;
+            memmove(&bibFontes[escolha], &bibFontes[escolha + 1], sizeof(BibFonte) * (size_t)(bibTotalFontes - escolha - 1));
+            bibTotalFontes--;
+            bibGravarFontes();
+            bibMostrarFontesMidia();
+        }
+        else bibMostrarFontesMidia();
+        return true;
+    }
     if (bibPainel == BIB_PAINEL_CAPAS || bibPainel == BIB_PAINEL_ACHADOS_TRAPACA) {
         bool capa = bibPainel == BIB_PAINEL_CAPAS;
-        snprintf(bibTarefaNome, sizeof(bibTarefaNome), "%s", bibAchados[escolha]);
+        snprintf(bibTarefaNome, sizeof(bibTarefaNome), "%s", bibAchadoNome[escolha]);
+        bibFonteBusca = bibAchadoFonte[escolha];
         snprintf(bibTarefaJogo, sizeof(bibTarefaJogo), "%s", bibJogo);
         bibFecharPainel();
         bibIniciarTarefa(capa ? BIB_TAREFA_BAIXAR_CAPA : BIB_TAREFA_BAIXAR_TRAPACA);
@@ -1056,30 +2700,61 @@ bool bibliotecaCruz() {
         msgTimer = 120;
         return true;
     }
-    if (escolha == BIB_OP_INICIAR) { bibFecharPainel(); return false; }
+    if (escolha == BIB_OP_INICIAR) { bibFecharPainel(); return !bibSistemas[bibSistema].nucleo && bibSemNucleo(); }
     if (escolha == BIB_OP_CANCELAR) { bibFecharPainel(); return true; }
     bibFecharPainel();
     if (escolha == BIB_OP_FAVORITO) { bibAlternarFavorito(bibJogo); if (bibAba == 1) bibRecarregar(NULL); }
     else if (escolha == BIB_OP_TRAPACAS) {
-        if (bibLerTrapacas(bibJogo) > 0) bibMostrarTrapacas(0);
-        else { snprintf(bibTarefaJogo, sizeof(bibTarefaJogo), "%s", bibJogo); if (bibIniciarTarefa(BIB_TAREFA_ACHAR_TRAPACA)) { snprintf(msgStatus, sizeof(msgStatus), "BUSCANDO TRAPACAS..."); msgTimer = 180; } }
+        bibLerTrapacas(bibJogo);
+        bibMostrarTrapacas(0);
+        if (false) { snprintf(bibTarefaJogo, sizeof(bibTarefaJogo), "%s", bibJogo); if (bibIniciarTarefa(BIB_TAREFA_ACHAR_TRAPACA)) { snprintf(msgStatus, sizeof(msgStatus), "BUSCANDO TRAPACAS..."); msgTimer = 180; } }
     }
-    else if (escolha == BIB_OP_CONTROLE) { snprintf(msgStatus, sizeof(msgStatus), "NO JOGO: L1 + R1 + OPTIONS + TOUCHPAD > CONTROLES"); msgTimer = 300; }
+    else if (escolha == BIB_OP_CONTROLE) {
+        int k = 0;
+        listaOpcoes[k] = "Trocar botões: abra o jogo e aperte L1 + R1 + Options + Touchpad"; mapOpcoes[k++] = 2000;
+        listaOpcoes[k] = "No menu que abrir, escolha Controles e aperte o botão novo"; mapOpcoes[k++] = 2000;
+        listaOpcoes[k] = "Iniciar o jogo agora"; mapOpcoes[k++] = 2001;
+        listaOpcoes[k] = "Baixar configurações de controle do RetroArch (700 KB)"; mapOpcoes[k++] = 2002;
+        listaOpcoes[k] = "Cancelar"; mapOpcoes[k++] = 2003;
+        bibMostrarPainel(BIB_PAINEL_CONTROLE, k);
+    }
+    else if (escolha == BIB_OP_DOWNLOADS) {
+        extern int raTotalPacotes();
+        extern const char* raNomePacote(int i);
+        extern const char* raTamanhoPacote(int i);
+        extern bool raPacoteInstalado(int i);
+        static char rotulos[20][160];
+        int k = 0;
+        for (int i = 0; i < raTotalPacotes() && i < 20; i++) {
+            snprintf(rotulos[i], sizeof(rotulos[0]), "%s (%s)%s", raNomePacote(i), raTamanhoPacote(i), raPacoteInstalado(i) ? "  [já tem]" : "");
+            listaOpcoes[k] = rotulos[i]; mapOpcoes[k++] = i;
+        }
+        listaOpcoes[k] = "Cancelar"; mapOpcoes[k++] = 2003;
+        bibMostrarPainel(BIB_PAINEL_DOWNLOADS, k);
+    }
     else if (escolha == BIB_OP_RENOMEAR) {
         char base[256];
         bibBase(bibJogo, base, sizeof(base));
         bibAbrirTeclado(BIB_IME_RENOMEAR, L"Novo nome do jogo", base);
     }
-    else if (escolha == BIB_OP_CAPA) {
-        char base[256];
-        bibBase(bibJogo, base, sizeof(base));
-        snprintf(bibTarefaJogo, sizeof(bibTarefaJogo), "%s", bibJogo);
-        if (bibIniciarTarefa(BIB_TAREFA_ACHAR_CAPA)) { snprintf(msgStatus, sizeof(msgStatus), "BUSCANDO CAPAS..."); msgTimer = 180; }
+    else if (escolha == BIB_OP_CAPA) bibMostrarFontes();
+    else if (escolha == BIB_OP_MIDIAS) {
+        bibCarregarFontes();
+        int k = 0;
+        for (int i = 0; i < MID_TOTAL; i++) { listaOpcoes[k] = midNomes[i]; mapOpcoes[k++] = i; }
+        listaOpcoes[k] = "Cancelar"; mapOpcoes[k++] = 903;
+        bibMostrarPainel(BIB_PAINEL_MIDIAS, k);
     }
+    else if (escolha == BIB_OP_TABELA) bibAbrirTabela(MENU_EMULADOR);
     else if (escolha == BIB_OP_PESQUISAR) bibAbrirTeclado(BIB_IME_PESQUISAR, L"Pesquisar jogo", bibBusca);
     else if (escolha == BIB_OP_LIMPAR) { bibBusca[0] = '\0'; bibRecarregar(NULL); }
     else if (escolha == BIB_OP_ORDENAR) { bibOrdem = (bibOrdem + 1) % 3; bibRecarregar(bibJogo); }
     else if (escolha == BIB_OP_FILTRAR) { bibAba = bibAba ? 0 : 1; bibRecarregar(NULL); }
+    else if (escolha == BIB_OP_TEMA) {
+        bibliotecaDefinirTema((bibliotecaTemaJogos() + 1) % BIB_TOTAL_TEMAS);
+        snprintf(msgStatus, sizeof(msgStatus), "TEMA DOS JOGOS: %s", bibNomesTema[bibTemaJogos]);
+        msgTimer = 180;
+    }
     return true;
 }
 
@@ -8534,3 +10209,5 @@ static void executar() {
 void abrirEscritorio3D() {
     escritorio3d::executar();
 }
+
+MenuLevel bibliotecaVoltaDaTabela() { return bibTabelaVolta; }

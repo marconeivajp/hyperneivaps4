@@ -629,12 +629,15 @@ static bool temaMenuJogos(MenuLevel m) { return m == MENU_JOGAR_PS4 || m == JOGA
 bool temaCobreMenu() {
     extern bool visualizandoMidiaImagem, visualizandoMidiaTexto, visualizandoPDF, editMode;
     if (editMode || painelDuplo || visualizandoMidiaImagem || visualizandoMidiaTexto || visualizandoPDF) return false;
-    if (menuAtual == MENU_EMULADOR) return true;   // a biblioteca tem tela própria em qualquer tema
+    if (menuAtual == MENU_EMULADOR || menuAtual == MENU_SISTEMAS) {   // a biblioteca tem tela própria em qualquer tema, menos no Clássico
+        extern int bibliotecaTemaJogos();
+        return bibliotecaTemaJogos() != 4;
+    }
     if (temaAtual() == TEMA_PADRAO) return false;
     switch (menuAtual) {
     case ROOT: case MENU_TIPO_JOGO: case MENU_JOGAR_PS4: case JOGAR_XML: case SCRAPER_LIST:
     case MENU_MIDIA: case MENU_BAIXAR: case MENU_EDITAR: case MENU_EDIT_TARGET: case MENU_EXPLORAR: case MENU_EXPLORAR_HOME:
-    case MENU_EXTRA: case MENU_BAIXAR_TORRENT: case MENU_MUSICAS: case MENU_BAIXAR_GITHUB: case MENU_BAIXAR_GITHUB_REPOS:
+    case MENU_EXTRA: case MENU_BAIXAR_TORRENT: case MENU_BAIXAR_RETROARCH: case MENU_MUSICAS: case MENU_BAIXAR_GITHUB: case MENU_BAIXAR_GITHUB_REPOS:
     case MENU_BAIXAR_GITHUB_RELEASES: case MENU_BAIXAR_GITHUB_ARQUIVOS: case MENU_BAIXAR_DROPBOX_LISTA: case MENU_BAIXAR_FTP_LISTA:
     case MENU_RADIO_CATEGORIA: case MENU_RADIO_LISTA: case MENU_RADIO_FAVORITOS: case MENU_CONSOLES:
         return true;
@@ -646,7 +649,7 @@ bool temaCobreMenu() {
 // Nestes menus as setas esquerda e direita andam na fila, como nos cartões do tema.
 bool temaHorizontal() {
     if (!temaCobreMenu()) return false;
-    if (menuAtual == MENU_EMULADOR) return true;
+    if (menuAtual == MENU_EMULADOR || menuAtual == MENU_SISTEMAS) { extern int bibliotecaTemaJogos(); return bibliotecaTemaJogos() == 0; }
     int tema = temaAtual();
     if (temaMenuInicio(menuAtual)) return tema != TEMA_OPL;
     return temaMenuJogos(menuAtual) && (tema == TEMA_PS4 || tema == TEMA_PS5 || tema == TEMA_NETFLIX);
@@ -657,6 +660,59 @@ void temaIcone(uint32_t* p, const char* nome, int tipo, int tam, int x, int y) {
 }
 
 static bool temaCapaCarregada = false;
+
+// Tela, título e logo do jogo: guardadas pela posição na lista, como as capas.
+struct TemaImagemExtra { int indice, tipo; unsigned char* img; int w, h; };
+static TemaImagemExtra temaExtras[24];
+static bool temaExtrasProntos = false;
+
+void temaForcarRedesenho() { tmRedesenhar = true; }
+
+void temaLimparExtras(bool soVazias) {
+    if (!temaExtrasProntos) { for (int i = 0; i < 24; i++) temaExtras[i].indice = -1; temaExtrasProntos = true; }
+    for (int i = 0; i < 24; i++) {
+        if (temaExtras[i].indice == -1 || (soVazias && temaExtras[i].img)) continue;
+        if (temaExtras[i].img) stbi_image_free(temaExtras[i].img);
+        temaExtras[i].img = NULL;
+        temaExtras[i].indice = -1;
+    }
+}
+
+bool temaCapa(int indice, const char* nome, unsigned char** img, int* w, int* h);
+
+bool temaImagemJogo(int indice, const char* nome, int tipo, unsigned char** img, int* w, int* h) {
+    if (tipo == 0) return temaCapa(indice, nome, img, w, h);
+    if (menuAtual != MENU_EMULADOR) return false;
+    if (!temaExtrasProntos) temaLimparExtras(false);
+    int livre = -1, longe = 0, maisLonge = -1;
+    for (int i = 0; i < 24; i++) {
+        TemaImagemExtra* x = &temaExtras[i];
+        if (x->indice == indice && x->tipo == tipo) {
+            if (!x->img) return false;
+            *img = x->img; *w = x->w; *h = x->h;
+            return true;
+        }
+        if (x->indice == -1) { if (livre == -1) livre = i; }
+        else if (abs(x->indice - sel) > longe) { longe = abs(x->indice - sel); maisLonge = i; }
+    }
+    if (temaCapaCarregada) { tmRedesenhar = true; tmCapaPendente = true; return false; }
+    int slot = livre != -1 ? livre : maisLonge;
+    if (slot == -1) return false;
+    TemaImagemExtra* x = &temaExtras[slot];
+    if (x->img) stbi_image_free(x->img);
+    x->img = NULL;
+    x->indice = indice;
+    x->tipo = tipo;
+    temaCapaCarregada = true;
+    tmRedesenhar = true;
+    char caminho[600];
+    extern bool bibliotecaCaminhoImagem(const char* jogo, int tipo, char* saida, size_t tamanho);
+    int componentes = 0;
+    if (bibliotecaCaminhoImagem(nome, tipo, caminho, sizeof(caminho))) x->img = stbi_load(caminho, &x->w, &x->h, &componentes, 4);
+    if (!x->img) return false;
+    *img = x->img; *w = x->w; *h = x->h;
+    return true;
+}
 
 bool temaFavorito(const char* nome) {
     extern bool bibliotecaFavorito(const char* nome);
@@ -676,6 +732,10 @@ bool temaCapa(int indice, const char* nome, unsigned char** img, int* w, int* h)
         if (menuAtual == MENU_EMULADOR) {
             extern bool bibliotecaCaminhoCapa(const char* jogo, char* saida, size_t tamanho);
             bibliotecaCaminhoCapa(nome, caminho, sizeof(caminho));
+        }
+        else if (menuAtual == MENU_SISTEMAS) {
+            extern bool bibliotecaIconeSistema(int indice, char* saida, size_t tamanho);
+            bibliotecaIconeSistema(indice, caminho, sizeof(caminho));
         }
         else if (menuAtual == MENU_JOGAR_PS4) snprintf(caminho, sizeof(caminho), "/user/appmeta/%s/icon0.png", linksAtuais[indice]);
         else {
@@ -712,6 +772,8 @@ void temaDesenharAtual(uint32_t* p) {
     cena.aba = 0;
     cena.tituloPainel = "";
     cena.previa = NULL;
+    cena.temaJogos = 0;
+    cena.sistema = "";
     cena.previaW = 0;
     cena.previaH = 0;
     temaCapaCarregada = false;
@@ -722,9 +784,10 @@ void temaDesenharAtual(uint32_t* p) {
         menuDasCapas = menuAtual;
         initCoverCache();
         clearCoverCache();
+        temaLimparExtras(false);
     }
     int tema = temaAtual();
-    if (menuAtual == MENU_EMULADOR) {
+    if (menuAtual == MENU_EMULADOR || menuAtual == MENU_SISTEMAS) {
         extern const char* bibliotecaSubtitulo();
         extern const char* bibliotecaTituloPainel();
         extern int bibliotecaAba();
@@ -735,8 +798,20 @@ void temaDesenharAtual(uint32_t* p) {
         cena.tipo = CENA_BIBLIOTECA;
         cena.subtitulo = bibliotecaSubtitulo();
         cena.aba = bibliotecaAba();
+        extern int bibliotecaTemaJogos();
+        extern const char* bibliotecaNomeSistema();
+        cena.temaJogos = bibliotecaTemaJogos();
+        cena.sistema = bibliotecaNomeSistema();
         extern unsigned char* bibliotecaPrevia(int* w, int* h);
         cena.previa = bibliotecaPrevia(&cena.previaW, &cena.previaH);
+        if (menuAtual == MENU_SISTEMAS) {
+            // aba 2 avisa o tema que a lista é de sistemas: muda os botões do rodapé.
+            extern const char* bibliotecaSubtituloSistemas();
+            cena.subtitulo = bibliotecaSubtituloSistemas();
+            cena.sistema = "Escolha o sistema";
+            cena.aba = 2;
+            cena.previa = NULL;
+        }
         if (showOpcoes) {
             cena.opcoes = listaOpcoes;
             cena.totalOpcoes = totalOpcoes;
@@ -746,7 +821,8 @@ void temaDesenharAtual(uint32_t* p) {
     }
     if (cena.tipo == CENA_JOGOS || cena.tipo == CENA_BIBLIOTECA) {
         initCoverCache();
-        cleanOldCache(sel > 6 ? sel - 6 : 0, sel + 10);
+        // A grade mostra até 4 fileiras por vez.
+        cleanOldCache(sel > 26 ? sel - 26 : 0, sel + 30);
     }
     temaDesenhar(p, tema, &cena);
 }

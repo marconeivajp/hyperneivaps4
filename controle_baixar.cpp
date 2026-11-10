@@ -112,6 +112,11 @@ void preencherMenuBackup() {
 
 void acaoCross_Baixar(int32_t uId, OrbisImeDialogSetting* imeSetting, uint16_t* imeTitle) {
     extern bool showOpcoes; extern int selOpcao;
+    if (menuAtual == MENU_BAIXAR_RETROARCH) {
+        extern void acaoCross_RetroArch();
+        acaoCross_RetroArch();
+        return;
+    }
     if (menuAtual == MENU_BAIXAR_TORRENT) {
         extern void acaoOpcaoTorrent(int indice), acaoCross_Torrent(int32_t uId);
         if (showOpcoes) acaoOpcaoTorrent(selOpcao);
@@ -131,6 +136,7 @@ void acaoCross_Baixar(int32_t uId, OrbisImeDialogSetting* imeSetting, uint16_t* 
             else if (sel == 4) { preencherMenuFTP(); }
             else if (sel == 5) { extern void abrirMenuGithub(); abrirMenuGithub(); }
             else if (sel == 6) { extern void abrirMenuTorrent(); abrirMenuTorrent(); }
+            else if (sel == 7) { extern void abrirMenuRetroArch(); abrirMenuRetroArch(); }
         }
         else if (emSubmenuFTP) {
             if (sel == 0) { preencherMenuFTPServidores(false); }

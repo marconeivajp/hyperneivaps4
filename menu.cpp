@@ -99,6 +99,10 @@ void abrirPastaMidia(const char* caminho) {
 }
 
 void preencherMenuGBA() {
+    // A lista agora vem do sistema escolhido; o nome ficou por compatibilidade.
+    extern void bibliotecaListarJogos();
+    bibliotecaListarJogos();
+    if (false) {
     memset(nomes, 0, sizeof(nomes));
     totalItens = 0;
 
@@ -125,12 +129,13 @@ void preencherMenuGBA() {
         closedir(d);
         qsort(nomes, totalItens, sizeof(nomes[0]), (int (*)(const void*, const void*))strcasecmp);
     }
+    }
 
     extern void bibliotecaAplicar();
     bibliotecaAplicar();
 
     if (totalItens == 0) {
-        strcpy(nomes[0], "Nenhuma ROM GBA encontrada");
+        strcpy(nomes[0], "Nenhuma ROM encontrada");
         totalItens = 1;
     }
 

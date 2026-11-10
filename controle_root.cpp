@@ -277,7 +277,9 @@ void acaoCross_Root() {
             sel = 0; off = 0; menuAtual = MENU_JOGAR_PS4; timeToLoadCapa = 5;
         }
         else if (sel == 1) {
-            carregarXML("system.xml");
+            extern void bibliotecaMostrarSistemas();
+            bibliotecaMostrarSistemas();
+            if (false) carregarXML("system.xml");
         }
     }
 
@@ -293,17 +295,21 @@ void acaoCross_Root() {
         }
     }
 
+    else if (menuAtual == MENU_SISTEMAS) {
+        extern void bibliotecaCruzSistemas();
+        bibliotecaCruzSistemas();
+    }
     else if (menuAtual == MENU_EMULADOR) {
         extern bool bibliotecaCruz();
         if (bibliotecaCruz()) return;
-        if (totalItens > 0 && strcmp(nomes[sel], "Nenhuma ROM encontrada") != 0 && strcmp(nomes[sel], "Nenhuma ROM GBA encontrada") != 0) {
+        if (totalItens > 0 && strcmp(nomes[sel], "Nenhuma ROM encontrada") != 0) {
             extern char romParaCarregar[512];
             extern char caminhoROMsAtual[512];
             sprintf(romParaCarregar, "%s/%s", caminhoROMsAtual, nomes[sel]);
             
             // NOVO: Se for GBA, não precisa escolher núcleo (é estático!)
             const char* ext = strrchr(romParaCarregar, '.');
-            if (ext && (strcasecmp(ext, ".gba") == 0)) {
+            if (ext && (strcasecmp(ext, ".gba") == 0 || strcasecmp(ext, ".gb") == 0 || strcasecmp(ext, ".gbc") == 0)) {
                 extern void iniciarEmulador(const char* romPath);
                 iniciarEmulador(romParaCarregar);
             } else if (ext && strstr(caminhoROMsAtual, "Game Boy Adva") && (strcasecmp(ext, ".zip") == 0 || strcasecmp(ext, ".7z") == 0)) {
@@ -330,13 +336,11 @@ void acaoCross_Root() {
 
     else if (menuAtual == JOGAR_XML) {
         extern int modoLauncher;
-        if (modoLauncher == 1) { // PASTA EMULADOR
-            if (sel == 0) { // Nintendo Game Boy Advance
-                extern void preencherMenuGBA();
-                preencherMenuGBA();
-                modoLauncher = 0; // Reseta para XML ao entrar
-                sel = 0; off = 0;
-            }
+        if (modoLauncher == 1) { // PASTA EMULADOR: um item por sistema
+            extern void bibliotecaAbrirSistema(int sistema);
+            bibliotecaAbrirSistema(sel);
+            modoLauncher = 0; // Reseta para XML ao entrar
+            sel = 0; off = 0;
         }
         else { // MODO XML NORMAL
             // Se estamos dentro do system.xml e clicamos num nome

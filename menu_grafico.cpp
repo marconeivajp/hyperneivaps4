@@ -82,7 +82,9 @@ extern volatile int baixadosFilaSessao;
 extern int totalOpcoes;
 extern char ipDoPS4[64];
 
-char nomeItemAnterior[128] = ""; 
+char nomeItemAnterior[128] = "";
+// Uma capa nova chegou: o tema Clássico volta a carregar as imagens do jogo selecionado.
+void recarregarMidiaDinamica() { nomeItemAnterior[0] = '\0'; }
 unsigned char* imgBgDinamico = NULL; int dynBgW = 0, dynBgH = 0, dynBgC = 0; 
 unsigned char* imgCapaDinamica = NULL; int dynCapaW = 0, dynCapaH = 0, dynCapaC = 0; 
 unsigned char* imgDiscoDinamico = NULL; int dynDiscoW = 0, dynDiscoH = 0, dynDiscoC = 0;
@@ -144,6 +146,11 @@ void desenharInterface(uint32_t* p) {
     }
     if (menuAtual == MENU_INFORMACAO) {
         renderizarInformacao(p);
+        return;
+    }
+    if (menuAtual == MENU_TABELA_JOGOS) {
+        extern void bibliotecaRenderizarTabela(uint32_t* p);
+        bibliotecaRenderizarTabela(p);
         return;
     }
     if (menuAtual == MENU_VENTOINHA) {
@@ -238,6 +245,21 @@ void desenharInterface(uint32_t* p) {
                          imgPic1 = stbi_load(cp, &wPic1, &hPic1, &cPic1, 4);
                     }
                 } else {
+                    if (menuAtual == MENU_EMULADOR) {
+                        // Clássico da biblioteca: capa no lugar da capa, capa redonda no CD e a tela do jogo atrás.
+                        extern bool bibliotecaCaminhoImagem(const char* jogo, int tipo, char* saida, size_t tamanho);
+                        char cp[600];
+                        extern bool bibliotecaCaminhoMidia(const char* jogo, int item, char* saida, size_t tamanho);
+                        if (bibliotecaCaminhoImagem(nomeItemAnterior, 0, cp, sizeof(cp))) {
+                            imgCapaDinamica = stbi_load(cp, &dynCapaW, &dynCapaH, &dynCapaC, 4);
+                            imgDiscoDinamico = stbi_load(cp, &dynDiscoW, &dynDiscoH, &dynDiscoC, 4);
+                        }
+                        if (bibliotecaCaminhoMidia(nomeItemAnterior, 1, cp, sizeof(cp))) {
+                            if (imgDiscoDinamico) stbi_image_free(imgDiscoDinamico);
+                            imgDiscoDinamico = stbi_load(cp, &dynDiscoW, &dynDiscoH, &dynDiscoC, 4);
+                        }
+                        if (bibliotecaCaminhoImagem(nomeItemAnterior, 1, cp, sizeof(cp))) imgPic1 = stbi_load(cp, &wPic1, &hPic1, &cPic1, 4);
+                    } else
                     imgBgDinamico = carregarMediaCaseInsensitive("/data/HyperNeiva/midia/imagens/Games/Background", nomeItemAnterior, &dynBgW, &dynBgH, &dynBgC);
                     imgCapaDinamica = carregarMediaCaseInsensitive("/data/HyperNeiva/midia/imagens/Games/Artwork1", nomeItemAnterior, &dynCapaW, &dynCapaH, &dynCapaC);
                     imgDiscoDinamico = carregarMediaCaseInsensitive("/data/HyperNeiva/midia/imagens/Games/Artwork2", nomeItemAnterior, &dynDiscoW, &dynDiscoH, &dynDiscoC);
@@ -296,7 +318,7 @@ void desenharInterface(uint32_t* p) {
     // Draw Covers, Discs and previews (Fixed visibility for Edit Mode - AS PER REFERENCE)
     bool isEditingCapaCD = ((menuAtual == MENU_EDIT_TARGET || editMode) && (editTarget == 1 || editTarget == 2 || editTarget == 3));
     bool isMenuPS4 = (menuAtual == MENU_JOGAR_PS4);
-    bool isMenuXML = (menuAtual == JOGAR_XML || menuAtual == SCRAPER_LIST);
+    bool isMenuXML = (menuAtual == JOGAR_XML || menuAtual == SCRAPER_LIST || menuAtual == MENU_EMULADOR);
 
     if ((!esconderElementos || editMode) && !tema) {
         // --- VIDEO PREVIEW (PIC / CAPA DE VIDEO) ---
@@ -362,7 +384,7 @@ void desenharInterface(uint32_t* p) {
         }
 
         // --- OPTION MENUS (TRIANGLE) ---
-        if (showOpcoes && menuAtual != MENU_AUDIO_OPCOES && menuAtual != MENU_EMULADOR) {
+        if (showOpcoes && menuAtual != MENU_AUDIO_OPCOES && !((menuAtual == MENU_EMULADOR || menuAtual == MENU_SISTEMAS) && tema)) {
             if (selOpcao >= totalOpcoes) selOpcao = 0; if (selOpcao < 0) selOpcao = totalOpcoes - 1;
             for (int my = 0; my < upH; my++) for (int mx = 0; mx < upW; mx++) { int pxX = upX + mx; int pyY = upY + my; if (pxX >= 0 && pxX < 1920 && pyY >= 0 && pyY < 1080) p[pyY * 1920 + pxX] = getSysColor(upBg); }
             int maxV = (upH - 50) / 45; if (maxV < 1) maxV = 1;
@@ -435,6 +457,16 @@ void desenharInterface(uint32_t* p) {
             desenharTexto(p, "FALHA NO NUCLEO", 40, 600, 350, msgStatusColor);
             desenharTexto(p, msgStatus, 26, 130, 430, 0xFFFFFFFF);
         } else {
+            // Fundo preto atrás do aviso: por cima do nome do jogo, o texto sumia.
+            {
+                int largura = medirLarguraTexto(msgStatus, msgTam);
+                int x0 = msgX - 18, y0 = msgY - 10, x1 = msgX + largura + 18, y1 = msgY + msgTam + 16;
+                if (x0 < 0) x0 = 0;
+                if (y0 < 0) y0 = 0;
+                if (x1 > 1920) x1 = 1920;
+                if (y1 > 1080) y1 = 1080;
+                for (int y = y0; y < y1; y++) for (int x = x0; x < x1; x++) p[y * 1920 + x] = 0xFF000000;
+            }
             desenharTexto(p, msgStatus, msgTam, msgX, msgY, msgStatusColor); 
             static uint64_t ultimoMsgUs = 0;
             uint64_t agoraMsgUs = sceKernelGetProcessTime();

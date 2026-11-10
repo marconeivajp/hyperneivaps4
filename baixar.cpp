@@ -374,6 +374,241 @@ void atualizarTorrent() {
     if (menuAtual == MENU_BAIXAR_TORRENT) preencherMenuTorrent();
 }
 
+// ===== PACOTES DO RETROARCH =====
+// Os mesmos pacotes do "Atualizador online" do RetroArch, extraídos nas pastas do retroarch.cfg do PS4.
+#include <pthread.h>
+#include <ctype.h>
+#include <sys/stat.h>
+#define RA_SERVIDOR "https://buildbot.libretro.com/assets/"
+#define RA_DOWNLOADS "/data/retroarch/downloads"
+
+struct PacoteRetroArch { const char* nome; const char* arquivo; const char* destino; const char* tamanho; };
+static const PacoteRetroArch pacotesRetroArch[] = {
+    { "Trapaças de todos os sistemas", "frontend/cheats.zip", "/data/retroarch/cheats", "35 MB" },
+    { "Banco de jogos (database)", "frontend/database-rdb.zip", "/data/retroarch/database/rdb", "50 MB" },
+    { "Cursores do banco", "frontend/database-cursors.zip", "/data/retroarch/database/cursors", "2 KB" },
+    { "Assets do menu (ícones e temas)", "frontend/assets.zip", "/data/retroarch/assets", "72 MB" },
+    { "Assets mínimos (GLUI)", "frontend/glui_minimal_assets.zip", "/data/retroarch/assets", "pequeno" },
+    { "Overlays e molduras", "frontend/overlays.zip", "/data/retroarch/overlays", "26 MB" },
+    { "Informação dos núcleos", "frontend/info.zip", "/data/retroarch/info", "300 KB" },
+    { "Configuração de controles", "frontend/autoconfig.zip", "/data/retroarch/autoconfig", "700 KB" },
+    { "Shaders GLSL", "frontend/shaders_glsl.zip", "/data/retroarch/shaders/shaders_glsl", "26 MB" },
+    { "Shaders Slang", "frontend/shaders_slang.zip", "/data/retroarch/shaders/shaders_slang", "grande" },
+    { "Shaders Cg", "frontend/shaders_cg.zip", "/data/retroarch/shaders/shaders_cg", "grande" },
+};
+#define TOTAL_PACOTES_RA ((int)(sizeof(pacotesRetroArch) / sizeof(pacotesRetroArch[0])))
+#define RA_ITEM_SISTEMA TOTAL_PACOTES_RA
+
+// Arquivos de sistema dos núcleos (não são BIOS): lista lida do servidor.
+static char raSistema[200][128];
+static int raTotalSistema = 0;
+static bool raEmSistema = false;
+static volatile bool raBaixando = false;
+static char raUrl[600], raZip[400], raDestino[300], raNome[160];
+
+static bool raPastaTemArquivos(const char* pasta) {
+    DIR* d = opendir(pasta);
+    if (!d) return false;
+    int n = 0;
+    struct dirent* item;
+    while ((item = readdir(d)) != NULL && n < 3) if (item->d_name[0] != '.') n++;
+    closedir(d);
+    return n > 0;
+}
+
+static void raCriarPastas(const char* caminho) {
+    char parcial[400];
+    for (size_t i = 1; caminho[i]; i++) {
+        if (caminho[i] != '/') continue;
+        snprintf(parcial, sizeof(parcial), "%.*s", (int)i, caminho);
+        sceKernelMkdir(parcial, 0777);
+    }
+    sceKernelMkdir(caminho, 0777);
+}
+
+// Baixa mostrando a barra de download do app; progresso pelo tamanho que o servidor informa.
+static bool raBaixar(const char* url, const char* destino, bool barra) {
+    extern volatile bool downloadEmSegundoPlano;
+    extern volatile float progressoAtualDownload;
+    extern char msgDownloadBg[256];
+    char temporario[500];
+    snprintf(temporario, sizeof(temporario), "%s.tmp", destino);
+    int tpl = sceHttpCreateTemplate(httpCtxId, "HyperNeiva/1.0", ORBIS_HTTP_VERSION_1_1, 1);
+    if (tpl < 0) return false;
+    sceHttpsSetSslCallback(tpl, skipSslCallback, NULL);
+    int conn = sceHttpCreateConnectionWithURL(tpl, url, 1);
+    int req = conn >= 0 ? sceHttpCreateRequestWithURL(conn, ORBIS_METHOD_GET, url, 0) : -1;
+    bool certo = false;
+    if (req >= 0 && sceHttpSendRequest(req, NULL, 0) >= 0) {
+        int32_t codigo = 0;
+        sceHttpGetStatusCode(req, &codigo);
+        int resultado = 0;
+        size_t total = 0;
+        sceHttpGetResponseContentLength(req, &resultado, &total);
+        FILE* f = codigo == 200 ? fopen(temporario, "wb") : NULL;
+        if (f) {
+            unsigned char bloco[32768];
+            int lidos;
+            uint64_t feito = 0;
+            if (barra) { snprintf(msgDownloadBg, sizeof(msgDownloadBg), "%.200s", raNome); progressoAtualDownload = 0.0f; downloadEmSegundoPlano = true; }
+            while ((lidos = sceHttpReadData(req, bloco, sizeof(bloco))) > 0) {
+                fwrite(bloco, 1, (size_t)lidos, f);
+                feito += (uint64_t)lidos;
+                if (barra && total > 0) progressoAtualDownload = (float)((double)feito / (double)total);
+            }
+            fclose(f);
+            certo = lidos == 0 && feito > 0;
+            if (barra) downloadEmSegundoPlano = false;
+        }
+    }
+    if (req >= 0) sceHttpDeleteRequest(req);
+    if (conn >= 0) sceHttpDeleteConnection(conn);
+    sceHttpDeleteTemplate(tpl);
+    if (certo) rename(temporario, destino);
+    else unlink(temporario);
+    return certo;
+}
+
+static void* raThread(void*) {
+    raCriarPastas(RA_DOWNLOADS);
+    raCriarPastas(raDestino);
+    unlink(raZip);
+    if (raBaixar(raUrl, raZip, true)) {
+        extern void hnEnfileirarExtracao(const char* arquivo, const char* destino);
+        hnEnfileirarExtracao(raZip, raDestino);
+        snprintf(msgStatus, sizeof(msgStatus), "BAIXADO. EXTRAINDO EM %.80s", raDestino);
+    }
+    else snprintf(msgStatus, sizeof(msgStatus), "NAO FOI POSSIVEL BAIXAR %.80s", raNome);
+    msgTimer = 400;
+    raBaixando = false;
+    return NULL;
+}
+
+static void raIniciar(const char* arquivo, const char* destino, const char* nome) {
+    if (raBaixando) { sprintf(msgStatus, "AGUARDE O DOWNLOAD ATUAL TERMINAR"); msgTimer = 200; return; }
+    char codificado[400];
+    size_t n = 0;
+    for (const unsigned char* p = (const unsigned char*)arquivo; *p && n + 4 < sizeof(codificado); p++) {
+        if (isalnum(*p) || strchr("-_./~", *p)) codificado[n++] = (char)*p;
+        else n += (size_t)snprintf(codificado + n, 4, "%%%02X", *p);
+    }
+    codificado[n] = '\0';
+    snprintf(raUrl, sizeof(raUrl), "%s%s", RA_SERVIDOR, codificado);
+    const char* barra = strrchr(arquivo, '/');
+    snprintf(raZip, sizeof(raZip), "%s/%s", RA_DOWNLOADS, barra ? barra + 1 : arquivo);
+    snprintf(raDestino, sizeof(raDestino), "%s", destino);
+    snprintf(raNome, sizeof(raNome), "RetroArch: %.140s", nome);
+    raBaixando = true;
+    pthread_t id;
+    pthread_attr_t atributos;
+    pthread_attr_init(&atributos);
+    pthread_attr_setstacksize(&atributos, 256 * 1024);
+    pthread_attr_setdetachstate(&atributos, PTHREAD_CREATE_DETACHED);
+    if (pthread_create(&id, &atributos, raThread, NULL) != 0) raBaixando = false;
+    pthread_attr_destroy(&atributos);
+    sprintf(msgStatus, "BAIXANDO %.100s...", nome);
+    msgTimer = 200;
+}
+
+int raTotalPacotes() { return TOTAL_PACOTES_RA; }
+const char* raNomePacote(int i) { return i >= 0 && i < TOTAL_PACOTES_RA ? pacotesRetroArch[i].nome : ""; }
+const char* raTamanhoPacote(int i) { return i >= 0 && i < TOTAL_PACOTES_RA ? pacotesRetroArch[i].tamanho : ""; }
+bool raPacoteInstalado(int i) { return i >= 0 && i < TOTAL_PACOTES_RA && raPastaTemArquivos(pacotesRetroArch[i].destino); }
+// Pelo nome do arquivo, como "cheats.zip": a biblioteca pede pacotes sem saber a posição na lista.
+void raBaixarPacote(const char* arquivo) {
+    for (int i = 0; i < TOTAL_PACOTES_RA; i++) {
+        if (strstr(pacotesRetroArch[i].arquivo, arquivo)) { raIniciar(pacotesRetroArch[i].arquivo, pacotesRetroArch[i].destino, pacotesRetroArch[i].nome); return; }
+    }
+}
+void raBaixarPacoteNumero(int i) { if (i >= 0 && i < TOTAL_PACOTES_RA) raIniciar(pacotesRetroArch[i].arquivo, pacotesRetroArch[i].destino, pacotesRetroArch[i].nome); }
+
+void preencherMenuRetroArch() {
+    memset(nomes, 0, sizeof(nomes));
+    totalItens = 0;
+    if (!raEmSistema) {
+        for (int i = 0; i < TOTAL_PACOTES_RA; i++) {
+            bool tem = raPastaTemArquivos(pacotesRetroArch[i].destino);
+            snprintf(nomes[totalItens++], 256, "%s  (%s)%s", pacotesRetroArch[i].nome, pacotesRetroArch[i].tamanho, tem ? "  [já tem]" : "");
+        }
+        snprintf(nomes[totalItens++], 256, "Arquivos de sistema dos núcleos  >");
+    }
+    else {
+        for (int i = 0; i < raTotalSistema; i++) snprintf(nomes[totalItens++], 256, "%s", raSistema[i]);
+        if (raTotalSistema == 0) snprintf(nomes[totalItens++], 256, "Nada encontrado no servidor");
+    }
+    menuAtual = MENU_BAIXAR_RETROARCH;
+}
+
+void abrirMenuRetroArch() {
+    raEmSistema = false;
+    sel = 0;
+    off = 0;
+    preencherMenuRetroArch();
+}
+
+// Lê a página do servidor com os .zip de arquivos de sistema.
+static void raListarSistema() {
+    raTotalSistema = 0;
+    const char* lista = RA_DOWNLOADS "/lista_sistema.html";
+    raCriarPastas(RA_DOWNLOADS);
+    if (!raBaixar(RA_SERVIDOR "system/", lista, false)) return;
+    FILE* f = fopen(lista, "rb");
+    if (!f) return;
+    fseek(f, 0, SEEK_END);
+    long tamanho = ftell(f);
+    fseek(f, 0, SEEK_SET);
+    char* dados = (char*)malloc((size_t)tamanho + 1);
+    if (dados) dados[fread(dados, 1, (size_t)tamanho, f)] = '\0';
+    fclose(f);
+    for (char* p = dados; p && raTotalSistema < 200 && (p = strstr(p, "href=\"/assets/system/")) != NULL;) {
+        p += 21;
+        char* fim = strstr(p, ".zip\"");
+        if (!fim) break;
+        char nome[256];
+        int n = (int)(fim - p);
+        if (n > 120) n = 120;
+        int k = 0;
+        for (int i = 0; i < n && k < 120; i++) {
+            unsigned int valor;
+            if (p[i] == '%' && sscanf(p + i + 1, "%2x", &valor) == 1) { nome[k++] = (char)valor; i += 2; }
+            else nome[k++] = p[i];
+        }
+        nome[k] = '\0';
+        snprintf(raSistema[raTotalSistema++], 128, "%s", nome);
+        p = fim + 5;
+    }
+    free(dados);
+}
+
+void acaoCross_RetroArch() {
+    if (raEmSistema) {
+        if (sel < 0 || sel >= raTotalSistema) return;
+        char arquivo[200];
+        snprintf(arquivo, sizeof(arquivo), "system/%s.zip", raSistema[sel]);
+        raIniciar(arquivo, "/data/retroarch/system", raSistema[sel]);
+        return;
+    }
+    if (sel == RA_ITEM_SISTEMA) {
+        raListarSistema();
+        raEmSistema = true;
+        sel = 0;
+        off = 0;
+        preencherMenuRetroArch();
+        return;
+    }
+    if (sel >= 0 && sel < TOTAL_PACOTES_RA) raIniciar(pacotesRetroArch[sel].arquivo, pacotesRetroArch[sel].destino, pacotesRetroArch[sel].nome);
+}
+
+// O Círculo dentro dos arquivos de sistema volta para a lista de pacotes.
+bool acaoCircle_RetroArch() {
+    if (!raEmSistema) return false;
+    raEmSistema = false;
+    sel = RA_ITEM_SISTEMA;
+    off = 0;
+    preencherMenuRetroArch();
+    return true;
+}
+
 void preencherMenuBaixar() {
     pegarIPLocalPS4(); // <-- AQUI! ELE PEGA O IP EXATAMENTE QUANDO VOC CLICA NO MENU "BAIXAR"
 
@@ -389,7 +624,8 @@ void preencherMenuBaixar() {
     strcpy(nomes[4], "FTP (PC / Android)");
     strcpy(nomes[5], "GitHub");
     strcpy(nomes[6], "Torrent");
-    totalItens = 7;
+    strcpy(nomes[7], "RetroArch (assets, trapaças, banco...)");
+    totalItens = 8;
     menuAtual = MENU_BAIXAR;
     sel = 0;
     off = 0;

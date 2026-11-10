@@ -87,8 +87,12 @@ void verificarTecladoVirtual() {
 
 void acaoCross_Editar() {
     if (menuAtual == MENU_EDITAR) {
-        int item = sel == 0 ? 19 : sel - 1;
-        if (item == 19) {
+        int item = sel == 0 ? 19 : sel == 20 ? 20 : sel - 1;
+        if (item == 20) {
+            editTarget = 32; preencherMenuEditTarget();
+            sel = 0; if (listFocus) off = sel - (numSlotsPadrao / 2); else off = 0;
+        }
+        else if (item == 19) {
             editTarget = 31; preencherMenuEditTarget();
             sel = 0; if (listFocus) off = sel - (numSlotsPadrao / 2); else off = 0;
         }
@@ -118,7 +122,14 @@ void acaoCross_Editar() {
     }
     else if (menuAtual == MENU_EDIT_TARGET) {
         int acaoReal = mapAcoes[sel];
-        if (acaoReal >= 310 && acaoReal <= 316) {
+        if (acaoReal >= 320 && acaoReal <= 329) {
+            extern void bibliotecaDefinirTema(int tema);
+            bibliotecaDefinirTema(acaoReal - 320);
+            int selAntes = sel;
+            preencherMenuEditTarget();
+            sel = selAntes;
+        }
+        else if (acaoReal >= 310 && acaoReal <= 316) {
             extern void definirTema(int tema);
             definirTema(acaoReal - 310);
             int selAntes = sel;
