@@ -1,0 +1,113 @@
+diff --git a/Graphics/plugins.c b/Graphics/plugins.c
+index cc828a5..12c95d1 100644
+--- a/Graphics/plugins.c
++++ b/Graphics/plugins.c
+@@ -3,4 +3,6 @@
+ #include "plugin.h"
+ 
+ /* Just setting this to something, and GFX_GLIDE64 is 0 */
+-enum gfx_plugin_type gfx_plugin = GFX_GLIDE64;
++/* Hyper Neiva (PS4): sem OpenGL e sem opções do frontend, o padrão precisa ser o
++ * renderizador em software; GFX_GLIDE64 nunca terminava o quadro. */
++enum gfx_plugin_type gfx_plugin = GFX_ANGRYLION;
+diff --git a/libretro/libretro.c b/libretro/libretro.c
+index fd1247f..6390681 100644
+--- a/libretro/libretro.c
++++ b/libretro/libretro.c
+@@ -2307,7 +2307,7 @@ void update_variables(bool startup)
+          }
+       }
+       else
+-         r4300_emumode = 2; /* default: dynamic recompiler */
++         r4300_emumode = 0; /* Hyper Neiva (PS4): sem dynarec, e o cached interpreter travava no boot */
+    }
+    /* NOTE: the CPU core / JIT backend is applied at startup only. Changing it in
+     * the Quick Menu while content is running must NOT switch dynarecs on the fly
+diff --git a/mupen64plus-core/src/device/r4300/cached_interp.c b/mupen64plus-core/src/device/r4300/cached_interp.c
+index 1ed9088..91504b4 100644
+--- a/mupen64plus-core/src/device/r4300/cached_interp.c
++++ b/mupen64plus-core/src/device/r4300/cached_interp.c
+@@ -1045,6 +1045,20 @@ void run_cached_interpreter(struct r4300_core* r4300)
+         if (g_DebuggerActive) update_debugger((*r4300_pc_struct(r4300))->addr);
+ #endif
+         r4300_regs(r4300)[0] = 0;
++        {   /* Hyper Neiva: a cada 20 milhoes de instrucoes, onde a CPU esta e se o contador anda */
++            extern retro_log_printf_t log_cb;
++            static unsigned long long hn_ops = 0;
++            static int hn_marcas = 0;
++            if ((++hn_ops <= 300 || (hn_ops % 1000000ULL) == 0) && hn_marcas < 340 && log_cb)
++            {
++                hn_marcas++;
++                log_cb(RETRO_LOG_INFO, "HN laco ops=%llu pc=%08x count=%08x prox_int=%08x ciclos=%d\n",
++                       hn_ops, (unsigned)*r4300_pc(r4300),
++                       (unsigned)r4300_cp0_regs(&r4300->cp0)[CP0_COUNT_REG],
++                       (unsigned)*r4300_cp0_next_interrupt(&r4300->cp0),
++                       *r4300_cp0_cycle_count(&r4300->cp0));
++            }
++        }
+         (*r4300_pc_struct(r4300))->ops();
+     }
+ }
+diff --git a/mupen64plus-core/src/device/r4300/interrupt.c b/mupen64plus-core/src/device/r4300/interrupt.c
+index 7664532..dec6149 100644
+--- a/mupen64plus-core/src/device/r4300/interrupt.c
++++ b/mupen64plus-core/src/device/r4300/interrupt.c
+@@ -620,6 +620,14 @@ void gen_interrupt(struct r4300_core* r4300)
+         return;
+     }
+ 
++    {   /* Hyper Neiva: primeiras interrupcoes e, depois, uma a cada 2000 */
++        extern retro_log_printf_t log_cb;
++        static unsigned hn_ints = 0;
++        hn_ints++;
++        if (log_cb && (hn_ints <= 30 || hn_ints % 2000 == 0))
++            log_cb(RETRO_LOG_INFO, "HN int %u tipo=%d pc=%08x count=%08x\n",
++                   hn_ints, (int)r4300->cp0.q.first->data.type, (unsigned)*r4300_pc(r4300), (unsigned)cp0_regs[CP0_COUNT_REG]);
++    }
+     switch (r4300->cp0.q.first->data.type)
+     {
+         case VI_INT:
+diff --git a/mupen64plus-core/src/main/main.c b/mupen64plus-core/src/main/main.c
+index 0f959c8..ecfde9d 100644
+--- a/mupen64plus-core/src/main/main.c
++++ b/mupen64plus-core/src/main/main.c
+@@ -275,6 +275,10 @@ void new_vi(void)
+     gs_apply_cheats(&g_cheat_ctx);
+ 
+     main_check_inputs();
++    {   /* Hyper Neiva: marca as primeiras interrupções de vídeo no log */
++        static int hn_vis = 0;
++        if (hn_vis < 5 && log_cb) log_cb(RETRO_LOG_INFO, "HN new_vi %d\n", ++hn_vis);
++    }
+     retro_return(false);
+ }
+ 
+diff --git a/mupen64plus-video-angrylion/interface.c b/mupen64plus-video-angrylion/interface.c
+index 9621466..17dd69e 100644
+--- a/mupen64plus-video-angrylion/interface.c
++++ b/mupen64plus-video-angrylion/interface.c
+@@ -218,6 +218,11 @@ void vdac_sync(bool invalid)
+ {
+    /* Latch only valid frames; invalid syncs render nothing new. */
+    if (!invalid)
++      {   /* Hyper Neiva: marca os primeiros quadros desenhados */
++          extern retro_log_printf_t log_cb;
++          static int hn_quadros = 0;
++          if (hn_quadros < 5 && log_cb) log_cb(RETRO_LOG_INFO, "HN angrylion quadro %d\n", ++hn_quadros);
++      }
+       retro_return(true);
+ }
+ void vdac_close(void) { }
+diff --git a/mupen64plus-video-angrylion/parallel_al.c b/mupen64plus-video-angrylion/parallel_al.c
+index a8f7fca..6ff90e7 100644
+--- a/mupen64plus-video-angrylion/parallel_al.c
++++ b/mupen64plus-video-angrylion/parallel_al.c
+@@ -159,6 +159,8 @@ void parallel_alinit(uint32_t num)
+     }
+     if (num == 0)
+         num = 1;
++    /* Hyper Neiva (PS4): uma thread só, até a sincronização ser confirmada no console */
++    num = 1;
+     if (num > PARALLEL_MAX_WORKERS)
+         num = PARALLEL_MAX_WORKERS;
+ #if !defined(RETRO_ATOMIC_LOCK_FREE)

@@ -1,0 +1,84 @@
+diff --git a/controls.cpp b/controls.cpp
+index a5b6ad2..5f8179f 100644
+--- a/controls.cpp
++++ b/controls.cpp
+@@ -216,6 +216,10 @@ static int maptype (int t)
+ 	}
+ }
+ 
++#include "libretro.h"
++extern retro_log_printf_t log_cb;
++#define HN_LOG(...) do { if (log_cb) log_cb(RETRO_LOG_INFO, __VA_ARGS__); } while (0)
++
+ void S9xControlsReset (void)
+ {
+ 	S9xControlsSoftReset();
+@@ -227,9 +231,11 @@ void S9xControlsReset (void)
+ 
+ void S9xControlsSoftReset (void)
+ {
++	HN_LOG("HN soft exemultis=%p begin=%p end=%p size=%lu%c", (void*)&exemultis, (void*)&*exemultis.begin(), (void*)&*exemultis.end(), (unsigned long)exemultis.size(), 10);
+ 	for (set<struct exemulti *>::iterator it = exemultis.begin(); it != exemultis.end(); it++)
+ 		delete *it;
+ 	exemultis.clear();
++	HN_LOG("HN soft clear ok%c", 10);
+ 
+ 	for (int i = 0; i < 2; i++)
+ 		for (int j = 0; j < 2; j++)
+@@ -265,8 +271,10 @@ void S9xSetJoypadButtons (int pad, uint16 buttons)
+ void S9xUnmapAllControls (void)
+ {
+ 	S9xControlsReset();
++	HN_LOG("HN reset ok keymap=%p size=%lu%c", (void*)&keymap, (unsigned long)keymap.size(), 10);
+ 
+ 	keymap.clear();
++	HN_LOG("HN keymap clear ok multis=%lu%c", (unsigned long)multis.size(), 10);
+ 
+ 	for (int i = 0; i < (int) multis.size(); i++)
+ 		free(multis[i]);
+diff --git a/libretro/libretro.cpp b/libretro/libretro.cpp
+index b7aaace..130e6e5 100644
+--- a/libretro/libretro.cpp
++++ b/libretro/libretro.cpp
+@@ -1751,6 +1751,7 @@ void retro_init(void)
+     Settings.ChannelsVolumePercent[7] = 100;
+     Settings.ChannelsVolumePercent[8] = 100;
+ 
++    if (log_cb) log_cb(RETRO_LOG_INFO, "HN retro_init settings%c", 10);
+     CPU.Flags = 0;
+ 
+     if (!Memory.Init() || !S9xInitAPU())
+@@ -1763,24 +1764,33 @@ void retro_init(void)
+         exit(1);
+     }
+ 
++    if (log_cb) log_cb(RETRO_LOG_INFO, "HN retro_init apu ok%c", 10);
+     S9xInitSound(32);
++    if (log_cb) log_cb(RETRO_LOG_INFO, "HN retro_init som ok%c", 10);
+ 
+     S9xSetSoundMute(FALSE);
+     S9xSetSamplesAvailableCallback(NULL, NULL);
+ 
+     ntsc_screen_buffer = (uint16*) calloc(1, MAX_SNES_WIDTH_NTSC * 2 * (MAX_SNES_HEIGHT + 16));
+     snes_ntsc_buffer = ntsc_screen_buffer + (MAX_SNES_WIDTH_NTSC >> 1) * 16;
++    if (log_cb) log_cb(RETRO_LOG_INFO, "HN retro_init ntsc ok%c", 10);
+     S9xGraphicsInit();
++    if (log_cb) log_cb(RETRO_LOG_INFO, "HN retro_init graficos ok%c", 10);
+ 
+     S9xInitInputDevices();
++    if (log_cb) log_cb(RETRO_LOG_INFO, "HN retro_init entrada ok%c", 10);
++
+     for (int i = 0; i < 2; i++)
+     {
+         S9xSetController(i, CTL_JOYPAD, i, 0, 0, 0);
+         snes_devices[i] = RETRO_DEVICE_JOYPAD;
+     }
+ 
++    if (log_cb) log_cb(RETRO_LOG_INFO, "HN retro_init controles ok%c", 10);
+     S9xUnmapAllControls();
++    if (log_cb) log_cb(RETRO_LOG_INFO, "HN retro_init unmap ok%c", 10);
+     map_buttons();
++    if (log_cb) log_cb(RETRO_LOG_INFO, "HN retro_init botoes ok%c", 10);
+     check_system_specs();
+ 	
+     if (environ_cb(RETRO_ENVIRONMENT_GET_INPUT_BITMASKS, NULL))

@@ -1,0 +1,18 @@
+# Mudanças nos fontes dos núcleos
+
+Os fontes ficam fora do repositório, em `C:\Users\Marco\source\repos\teste3\nucleos_fonte\`.
+São clones dos repositórios oficiais do libretro, nas versões abaixo. Para refazer:
+clone, faça checkout da versão, aplique o patch (`git apply`) e compile com `../compilar_fonte.sh`.
+
+| Núcleo | Repositório | Versão | Patch |
+|---|---|---|---|
+| snes9x | libretro/snes9x | fae2fea | `snes9x.patch` (só marcas `HN` no log) |
+| stella2014 | libretro/stella2014-libretro | 7d1361e | sem mudança |
+| parallel-n64 | libretro/parallel-n64 | f80b843 | `parallel-n64.patch` |
+| pcsx_rearmed | libretro/pcsx_rearmed | 7b0e8f8 | sem mudança; crie `include/revision.h` com `#define REV "7b0e8f8"` |
+
+No parallel-n64, o que faz o N64 rodar no PS4:
+- `Graphics/plugins.c`: vídeo padrão angrylion (sem opções do frontend ficava em Glide64, que precisa de OpenGL).
+- `libretro/libretro.c`: CPU padrão no interpretador puro (o cached interpreter travava na primeira escrita do boot, em 0xA4000064).
+- `parallel_al.c`: angrylion com uma thread só.
+- O resto do patch são marcas `HN` de diagnóstico no `nucleo_log.txt`, com limite de linhas.
