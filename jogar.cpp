@@ -84,8 +84,9 @@ void iniciarEmulador(const char* romPath) {
     // O mGBA também roda Game Boy e Game Boy Color.
     if (ext && (strcasecmp(ext, ".gba") == 0 || strcasecmp(ext, ".gb") == 0 || strcasecmp(ext, ".gbc") == 0)) ehGBA = true;
 
-    if (!ehGBA && strlen(caminhoCoreSelecionado) == 0) {
-        snprintf(msgStatus, sizeof(msgStatus), "ERRO: SELECIONE O NUCLEO NO EXPLORADOR!");
+    extern const char* bridge_nucleo_para_rom(const char* rom);
+    if (!ehGBA && !bridge_nucleo_para_rom(romPath) && strlen(caminhoCoreSelecionado) == 0) {
+        snprintf(msgStatus, sizeof(msgStatus), "ERRO: SISTEMA AINDA SEM EMULADOR (OU SELECIONE O NUCLEO NO EXPLORADOR)");
         msgTimer = 240;
         return;
     }
@@ -287,18 +288,18 @@ static const BibSistema bibSistemas[] = {
     { "gba", "Game Boy Advance", { "Game Boy Advance", "Game Boy Advace", NULL }, "Nintendo - Game Boy Advance", " .gba ", true },
     { "gb", "Game Boy", { "Game Boy", NULL, NULL }, "Nintendo - Game Boy", " .gb ", true },
     { "gbc", "Game Boy Color", { "Game Boy Color", NULL, NULL }, "Nintendo - Game Boy Color", " .gbc ", true },
-    { "nes", "Nintendo (NES)", { "Nintendo Entertainment System", "NES", NULL }, "Nintendo - Nintendo Entertainment System", " .nes .fds .unf ", false },
-    { "snes", "Super Nintendo", { "Super Nintendo Entertainment System", "Super Nintendo", "SNES" }, "Nintendo - Super Nintendo Entertainment System", " .sfc .smc .fig .swc ", false },
+    { "nes", "Nintendo (NES)", { "Nintendo Entertainment System", "NES", NULL }, "Nintendo - Nintendo Entertainment System", " .nes .fds .unf ", true },
+    { "snes", "Super Nintendo", { "Super Nintendo Entertainment System", "Super Nintendo", "SNES" }, "Nintendo - Super Nintendo Entertainment System", " .sfc .smc .fig .swc ", true },
     { "n64", "Nintendo 64", { "Nintendo 64", NULL, NULL }, "Nintendo - Nintendo 64", " .z64 .n64 .v64 ", false },
-    { "nds", "Nintendo DS", { "Nintendo DS", NULL, NULL }, "Nintendo - Nintendo DS", " .nds ", false },
-    { "md", "Mega Drive", { "Mega Drive", "Genesis", NULL }, "Sega - Mega Drive - Genesis", " .md .gen .smd .bin ", false },
-    { "sms", "Master System", { "Master System", NULL, NULL }, "Sega - Master System - Mark III", " .sms ", false },
-    { "gg", "Game Gear", { "Game Gear", NULL, NULL }, "Sega - Game Gear", " .gg ", false },
-    { "saturn", "Sega Saturn", { "Sega Saturn", "Saturn", NULL }, "Sega - Saturn", " .cue .chd .iso .ccd ", false },
+    { "nds", "Nintendo DS", { "Nintendo DS", NULL, NULL }, "Nintendo - Nintendo DS", " .nds ", true },
+    { "md", "Mega Drive", { "Mega Drive", "Genesis", NULL }, "Sega - Mega Drive - Genesis", " .md .gen .smd .bin ", true },
+    { "sms", "Master System", { "Master System", NULL, NULL }, "Sega - Master System - Mark III", " .sms ", true },
+    { "gg", "Game Gear", { "Game Gear", NULL, NULL }, "Sega - Game Gear", " .gg ", true },
+    { "saturn", "Sega Saturn", { "Sega Saturn", "Saturn", NULL }, "Sega - Saturn", " .cue .chd .iso .ccd ", true },
     { "dc", "Dreamcast", { "Dreamcast", NULL, NULL }, "Sega - Dreamcast", " .gdi .cdi .chd ", false },
     { "ps1", "PlayStation", { "PS1", "PlayStation", NULL }, "Sony - PlayStation", " .cue .chd .pbp .iso .bin .m3u ", false },
     { "psp", "PSP", { "PSP", NULL, NULL }, "Sony - PlayStation Portable", " .iso .cso .pbp ", false },
-    { "atari2600", "Atari 2600", { "Atari 2600", NULL, NULL }, "Atari - 2600", " .a26 .bin ", false },
+    { "atari2600", "Atari 2600", { "Atari 2600", NULL, NULL }, "Atari - 2600", " .a26 .bin ", true },
     { "atari7800", "Atari 7800", { "Atari 7800", NULL, NULL }, "Atari - 7800", " .a78 ", false },
     { "lynx", "Atari Lynx", { "Atari Lynx", NULL, NULL }, "Atari - Lynx", " .lnx ", false },
     { "pce", "PC Engine", { "PC Engine", "TurboGrafx-16", NULL }, "NEC - PC Engine - TurboGrafx 16", " .pce ", false },

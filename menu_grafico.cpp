@@ -458,16 +458,19 @@ void desenharInterface(uint32_t* p) {
             desenharTexto(p, msgStatus, 26, 130, 430, 0xFFFFFFFF);
         } else {
             // Fundo preto atrás do aviso: por cima do nome do jogo, o texto sumia.
+            // Na biblioteca de jogos o aviso sobe para o topo, acima dos nomes e das capas.
+            bool avisoNoTopo = menuAtual == MENU_EMULADOR || menuAtual == MENU_SISTEMAS;
+            int avisoY = avisoNoTopo ? 14 : msgY;
             {
                 int largura = medirLarguraTexto(msgStatus, msgTam);
-                int x0 = msgX - 18, y0 = msgY - 10, x1 = msgX + largura + 18, y1 = msgY + msgTam + 16;
+                int x0 = msgX - 18, y0 = avisoY - 10, x1 = msgX + largura + 18, y1 = avisoY + msgTam + 16;
                 if (x0 < 0) x0 = 0;
                 if (y0 < 0) y0 = 0;
                 if (x1 > 1920) x1 = 1920;
                 if (y1 > 1080) y1 = 1080;
                 for (int y = y0; y < y1; y++) for (int x = x0; x < x1; x++) p[y * 1920 + x] = 0xFF000000;
             }
-            desenharTexto(p, msgStatus, msgTam, msgX, msgY, msgStatusColor); 
+            desenharTexto(p, msgStatus, msgTam, msgX, avisoY, msgStatusColor); 
             static uint64_t ultimoMsgUs = 0;
             uint64_t agoraMsgUs = sceKernelGetProcessTime();
             if (agoraMsgUs - ultimoMsgUs >= 50000) { ultimoMsgUs = agoraMsgUs; msgTimer--; }

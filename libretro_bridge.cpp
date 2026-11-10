@@ -5,6 +5,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <ctype.h>
+#include <stdarg.h>
 #include <errno.h> 
 #include <unistd.h>
 #include <fcntl.h>
@@ -44,6 +46,8 @@ extern "C" {
 
 static void* core_handle = NULL;
 static bool static_core_active = false;
+// Núcleo em .prx separado, baixado fora do PKG. -1 quando não há módulo carregado.
+static int modulo_nucleo = -1;
 
 void (*retro_init_ptr)(void) = NULL;
 void (*retro_deinit_ptr)(void) = NULL;
@@ -90,12 +94,45 @@ static void registrarEmulador(const char* etapa, const char* caminho, size_t tam
     FILE* f = fopen("/data/HyperNeiva/zip_debug_log.txt", "a");
     if (f) { fprintf(f, "EMULADOR %s %zu %s\n", etapa, tamanho, caminho); fclose(f); }
 }
+// Etapas do núcleo no log: quando o app cai, a última linha mostra onde foi.
+static void etapaNucleo(const char* etapa, long valor) {
+    FILE* f = fopen("/data/HyperNeiva/zip_debug_log.txt", "a");
+    if (f) { fprintf(f, "ETAPA %s %ld\n", etapa, valor); fclose(f); }
+}
+static uint8_t ambientePedido[256];
 static uint64_t bridge_periodo_us = 16667, bridge_proximo_quadro = 0;
 extern void definirTaxaAudioEmulador(double taxa);
 void bridge_set_pausado(bool p) { bridge_pausado = p; }
 bool bridge_esta_pausado() { return bridge_pausado; }
 
+// Os núcleos escrevem log por aqui.
+#ifndef RETRO_ENVIRONMENT_GET_LOG_INTERFACE
+#define RETRO_ENVIRONMENT_GET_LOG_INTERFACE 27
+#endif
+#ifndef RETRO_ENVIRONMENT_GET_SAVE_DIRECTORY
+#define RETRO_ENVIRONMENT_GET_SAVE_DIRECTORY 31
+#endif
+// Mesma forma da struct retro_log_callback do libretro.h (o cabeçalho reduzido da ponte não a tem).
+struct ponte_log_callback { void (*log)(int nivel, const char* formato, ...); };
+// O log dos núcleos vai para nucleo_log.txt (no máximo 400 linhas por jogo, para não encher o disco).
+static int linhasLogNucleo = 0;
+static void retro_log_vazio(int nivel, const char* formato, ...) {
+    if (!formato || linhasLogNucleo >= 400) return;
+    linhasLogNucleo++;
+    FILE* f = fopen("/data/HyperNeiva/nucleo_log.txt", "a");
+    if (!f) return;
+    fprintf(f, "[%d] ", nivel);
+    va_list argumentos;
+    va_start(argumentos, formato);
+    vfprintf(f, formato, argumentos);
+    va_end(argumentos);
+    fclose(f);
+}
+
 static bool retro_environment_cb(unsigned cmd, void *data) {
+    // Cada comando pedido pelo núcleo aparece uma vez no log.
+    unsigned numero = cmd & 0xFFFF;
+    if (numero < 256 && !ambientePedido[numero]) { ambientePedido[numero] = 1; etapaNucleo("ambiente", (long)cmd); }
     switch (cmd) {
         case RETRO_ENVIRONMENT_SET_PIXEL_FORMAT: {
             enum retro_pixel_format fmt = *(enum retro_pixel_format*)data;
@@ -110,6 +147,15 @@ static bool retro_environment_cb(unsigned cmd, void *data) {
         case RETRO_ENVIRONMENT_GET_CAN_DUPE: {
             bool *b = (bool*)data;
             *b = true;
+            return true;
+        }
+        case RETRO_ENVIRONMENT_GET_SAVE_DIRECTORY: {
+            mkdir("/data/retroarch/saves", 0777);
+            *(const char**)data = "/data/retroarch/saves";
+            return true;
+        }
+        case RETRO_ENVIRONMENT_GET_LOG_INTERFACE: {
+            ((struct ponte_log_callback*)data)->log = retro_log_vazio;
             return true;
         }
     }
@@ -152,14 +198,36 @@ int gba_to_ps4_map[16][2] = {
     { 0, 0 }, { 0, 0 }
 };
 
+// Layout do RetroArch no PS4 para os outros sistemas (SNES, Mega Drive, Saturn...):
+// X = B, Bolinha = A, Quadrado = Y, Triângulo = X. O mapa acima, configurável, fica para o GBA.
+static const int mapaPadraoRetro[16][2] = {
+    { ORBIS_PAD_BUTTON_CROSS, 0 },    // B
+    { ORBIS_PAD_BUTTON_SQUARE, 0 },   // Y
+    { ORBIS_PAD_BUTTON_OPTIONS, 0 },  // SELECT
+    { ORBIS_PAD_BUTTON_TOUCH_PAD, 0 },// START
+    { ORBIS_PAD_BUTTON_UP, PS4_ANALOG_L_UP },
+    { ORBIS_PAD_BUTTON_DOWN, PS4_ANALOG_L_DOWN },
+    { ORBIS_PAD_BUTTON_LEFT, PS4_ANALOG_L_LEFT },
+    { ORBIS_PAD_BUTTON_RIGHT, PS4_ANALOG_L_RIGHT },
+    { ORBIS_PAD_BUTTON_CIRCLE, 0 },   // A
+    { ORBIS_PAD_BUTTON_TRIANGLE, 0 }, // X
+    { ORBIS_PAD_BUTTON_L1, 0 },       // L
+    { ORBIS_PAD_BUTTON_R1, 0 },       // R
+    { ORBIS_PAD_BUTTON_L2, 0 },       // L2
+    { ORBIS_PAD_BUTTON_R2, 0 },       // R2
+    { ORBIS_PAD_BUTTON_L3, 0 },       // L3
+    { ORBIS_PAD_BUTTON_R3, 0 },       // R3
+};
+static bool usarMapaPadrao = false;
+
 static int16_t retro_input_state_cb(unsigned port, unsigned device, unsigned index, unsigned id) {
     if (port != 0 || device != RETRO_DEVICE_JOYPAD) return 0;
-    
+
     // V33: Agora usamos o buffer global preenchido uma unica vez por frame
     unsigned int btn = gEmuPadButtons;
     if (id < 16) {
         for (int m = 0; m < 2; m++) { // V55: Suporte a mapeamento duplo
-            int target = gba_to_ps4_map[id][m];
+            int target = usarMapaPadrao ? mapaPadraoRetro[id][m] : gba_to_ps4_map[id][m];
             if (target == 0) continue;
             
             // V54: Checagem de Analógicos
@@ -203,6 +271,88 @@ extern void ligarInterfaceGrafica();
 extern void liberarSpriteSheetParaEmu(); 
 extern void limpezaProfundaRAM();
 
+// Núcleos separados, baixados fora do PKG, ficam em /data/HyperNeiva/nucleos/<nome>_libretro.prx.
+// A extensão escolhe o núcleo; quando ela serve a vários sistemas, a pasta decide.
+const char* bridge_nucleo_para_rom(const char* rom) {
+    const char* ponto = strrchr(rom, '.');
+    if (!ponto || strlen(ponto) > 8) return NULL;
+    char ext[12], caminho[600];
+    snprintf(ext, sizeof(ext), " %s ", ponto);
+    for (int i = 0; ext[i]; i++) ext[i] = (char)tolower((unsigned char)ext[i]);
+    snprintf(caminho, sizeof(caminho), "%s", rom);
+    for (int i = 0; caminho[i]; i++) caminho[i] = (char)tolower((unsigned char)caminho[i]);
+    bool saturn = strstr(caminho, "saturn") != NULL;
+    bool atari = strstr(caminho, "atari") != NULL;
+    if (strstr(" .gba .gb .gbc ", ext)) return "mgba";
+    if (strstr(" .nes .fds .unf .unif ", ext)) return "fceumm";
+    if (strstr(" .sfc .smc .fig .swc ", ext)) return "snes9x";
+    if (strstr(" .nds ", ext)) return "desmume2015";
+    if (strstr(" .a26 ", ext)) return "stella2014";
+    if (strstr(" .md .gen .smd .sms .gg .sg ", ext)) return "genesis_plus_gx";
+    if (strstr(" .cue .chd .ccd .iso ", ext)) return saturn ? "mednafen_saturn" : NULL;
+    if (strstr(" .bin ", ext)) {
+        if (atari) return "stella2014";
+        if (saturn || strstr(caminho, "playstation") || strstr(caminho, "ps1")) return NULL;
+        return "genesis_plus_gx";
+    }
+    return NULL;
+}
+
+static void registrarNucleo(const char* formato, const char* texto, int valor) {
+    FILE* f = fopen("/data/HyperNeiva/zip_debug_log.txt", "a");
+    if (!f) return;
+    fprintf(f, formato, texto, valor);
+    fputc('\n', f);
+    fclose(f);
+}
+
+static void* alocarAlinhadoNucleo(size_t alinhamento, size_t tamanho) {
+    void* p = NULL;
+    if (alinhamento < sizeof(void*)) alinhamento = sizeof(void*);
+    return posix_memalign(&p, alinhamento, tamanho) == 0 ? p : NULL;
+}
+
+// Carrega o núcleo de um .prx e pega cada função pelo nome. Devolve false se faltar algo.
+static bool carregarNucleoPrx(const char* caminho) {
+    etapaNucleo(caminho, 0);
+    modulo_nucleo = sceKernelLoadStartModule(caminho, 0, NULL, 0, NULL, NULL);
+    registrarNucleo("NUCLEO %s modulo=0x%08X", caminho, modulo_nucleo);
+    if (modulo_nucleo < 0) { modulo_nucleo = -1; return false; }
+    #define PEGAR_FUNCAO(n) \
+        if (sceKernelDlsym(modulo_nucleo, #n, (void**)&n##_ptr) != 0 || !n##_ptr) { \
+            registrarNucleo("NUCLEO sem a funcao %s (%d)", #n, 0); \
+            sceKernelStopUnloadModule(modulo_nucleo, 0, NULL, 0, NULL, NULL); \
+            modulo_nucleo = -1; \
+            return false; \
+        }
+    PEGAR_FUNCAO(retro_init); PEGAR_FUNCAO(retro_deinit); PEGAR_FUNCAO(retro_api_version);
+    PEGAR_FUNCAO(retro_get_system_info); PEGAR_FUNCAO(retro_get_system_av_info); PEGAR_FUNCAO(retro_set_environment);
+    PEGAR_FUNCAO(retro_set_video_refresh); PEGAR_FUNCAO(retro_set_audio_sample); PEGAR_FUNCAO(retro_set_audio_sample_batch);
+    PEGAR_FUNCAO(retro_set_input_poll); PEGAR_FUNCAO(retro_set_input_state); PEGAR_FUNCAO(retro_set_controller_port_device);
+    PEGAR_FUNCAO(retro_reset); PEGAR_FUNCAO(retro_run); PEGAR_FUNCAO(retro_serialize_size); PEGAR_FUNCAO(retro_serialize);
+    PEGAR_FUNCAO(retro_unserialize); PEGAR_FUNCAO(retro_cheat_reset); PEGAR_FUNCAO(retro_cheat_set);
+    PEGAR_FUNCAO(retro_load_game); PEGAR_FUNCAO(retro_unload_game); PEGAR_FUNCAO(retro_get_region);
+    PEGAR_FUNCAO(retro_get_memory_data); PEGAR_FUNCAO(retro_get_memory_size);
+    #undef PEGAR_FUNCAO
+    // O núcleo usa a memória do app (heap grande da libc do PS4), não páginas novas do kernel.
+    struct AlocadorNucleo {
+        void* (*malloc)(size_t);
+        void  (*free)(void*);
+        void* (*calloc)(size_t, size_t);
+        void* (*realloc)(void*, size_t);
+        void* (*memalign)(size_t, size_t);
+        void  (*registrar)(const char*, long);
+    };
+    void (*definirAlocador)(const AlocadorNucleo*, size_t) = NULL;
+    if (sceKernelDlsym(modulo_nucleo, "hn_definir_alocador", (void**)&definirAlocador) == 0 && definirAlocador) {
+        AlocadorNucleo alocador = { malloc, free, calloc, realloc, alocarAlinhadoNucleo, etapaNucleo };
+        definirAlocador(&alocador, sizeof(alocador));
+        registrarNucleo("NUCLEO %s usa a memoria do app (%d)", caminho, 1);
+    }
+    registrarNucleo("NUCLEO %s carregado (%d funcoes)", caminho, 24);
+    return true;
+}
+
 bool bridge_iniciar(const char* caminho_core, const char* caminho_rom) {
     limpezaProfundaRAM();
     snprintf(msgStatus, sizeof(msgStatus), "Limpando RAM e Correndo..."); msgTimer = 120;
@@ -221,11 +371,29 @@ bool bridge_iniciar(const char* caminho_core, const char* caminho_rom) {
 
     bool ehGBA = false;
     const char* ext = strrchr(caminho_rom, '.');
-    if (ext && (strcasecmp(ext, ".gba") == 0)) {
+    if (ext && (strcasecmp(ext, ".gba") == 0 || strcasecmp(ext, ".gb") == 0 || strcasecmp(ext, ".gbc") == 0)) {
         ehGBA = true;
     }
 
-    if (ehGBA) {
+    // Núcleo separado: com o .prx no PS4, ele é usado. O GBA ainda tem o embutido como reserva.
+    const char* nucleo = bridge_nucleo_para_rom(caminho_rom);
+    char caminhoPrx[200] = "";
+    if (nucleo) snprintf(caminhoPrx, sizeof(caminhoPrx), "/data/HyperNeiva/nucleos/%s_libretro.prx", nucleo);
+    usarMapaPadrao = !ehGBA;
+    struct stat infoPrx;
+    if (nucleo && stat(caminhoPrx, &infoPrx) == 0 && carregarNucleoPrx(caminhoPrx)) {
+        printf("[BRIDGE] Usando nucleo %s\n", caminhoPrx);
+        snprintf(msgStatus, sizeof(msgStatus), "NUCLEO: %s", nucleo);
+        msgTimer = 240;
+    }
+    else if (!ehGBA && nucleo && (!caminho_core || !caminho_core[0])) {
+        char erro[200];
+        snprintf(erro, sizeof(erro), "FALTA O NUCLEO %s_libretro.prx EM /data/HyperNeiva/nucleos", nucleo);
+        registrarNucleo("NUCLEO %s ausente (%d)", caminhoPrx, 0);
+        parar_bridge(erro);
+        return false;
+    }
+    else if (ehGBA) {
         printf("[BRIDGE] Usando modo ESTATICO para GBA\n");
         retro_init_ptr = retro_init;
         retro_deinit_ptr = retro_deinit;
@@ -297,19 +465,58 @@ bool bridge_iniciar(const char* caminho_core, const char* caminho_rom) {
         CARREGAR_SIMBOLO(retro_get_memory_size);
     }
 
+    memset(ambientePedido, 0, sizeof(ambientePedido));
+    linhasLogNucleo = 0;
+    gEmuPixelFormat = 0; // padrão do libretro (0RGB1555) até o núcleo pedir outro
+    etapaNucleo("set_environment", 0);
     retro_set_environment_ptr(retro_environment_cb);
+    etapaNucleo("set_callbacks", 0);
     retro_set_video_refresh_ptr(retro_video_refresh_cb);
     retro_set_audio_sample_ptr(retro_audio_sample_cb);
     retro_set_audio_sample_batch_ptr(retro_audio_sample_batch_cb);
     retro_set_input_poll_ptr(retro_input_poll_cb);
     retro_set_input_state_ptr(retro_input_state_cb);
 
+    etapaNucleo("retro_init", 0);
     retro_init_ptr();
+    etapaNucleo("retro_init ok", 0);
     
     romEmUso = romPendente;
     size_t tamanhoRom = romPendenteTamanho;
     romPendente = NULL;
     romPendenteTamanho = 0;
+    // Núcleos sem need_fullpath (stella, fceumm...) esperam os bytes da ROM, não só o caminho.
+    struct retro_system_info infoSistema;
+    memset(&infoSistema, 0, sizeof(infoSistema));
+    retro_get_system_info_ptr(&infoSistema);
+    etapaNucleo("need_fullpath", infoSistema.need_fullpath ? 1 : 0);
+    // Núcleos com need_fullpath (genesis_plus_gx, desmume, saturn) só abrem pelo caminho:
+    // a ROM extraída do compactado vai para um arquivo temporário.
+    static char caminhoTemporario[600];
+    if (romEmUso && infoSistema.need_fullpath) {
+        const char* base = strrchr(caminho_rom, '/');
+        mkdir("/data/HyperNeiva/rom_temp", 0777);
+        snprintf(caminhoTemporario, sizeof(caminhoTemporario), "/data/HyperNeiva/rom_temp/%s", base ? base + 1 : caminho_rom);
+        FILE* temporario = fopen(caminhoTemporario, "wb");
+        bool gravou = temporario && fwrite(romEmUso, 1, tamanhoRom, temporario) == tamanhoRom;
+        if (temporario) fclose(temporario);
+        registrarEmulador(gravou ? "temporario" : "temporario falhou", caminhoTemporario, tamanhoRom);
+        if (gravou) caminho_rom = caminhoTemporario;
+    }
+    if (!romEmUso && !infoSistema.need_fullpath) {
+        FILE* arquivoRom = fopen(caminho_rom, "rb");
+        if (arquivoRom) {
+            fseek(arquivoRom, 0, SEEK_END);
+            long tamanho = ftell(arquivoRom);
+            fseek(arquivoRom, 0, SEEK_SET);
+            if (tamanho > 0 && tamanho <= 128L * 1024 * 1024) {
+                romEmUso = malloc((size_t)tamanho);
+                if (romEmUso && fread(romEmUso, 1, (size_t)tamanho, arquivoRom) == (size_t)tamanho) tamanhoRom = (size_t)tamanho;
+                else { free(romEmUso); romEmUso = NULL; }
+            }
+            fclose(arquivoRom);
+        }
+    }
     registrarEmulador("carregando", caminho_rom, tamanhoRom);
     struct retro_game_info game = { caminho_rom, romEmUso, tamanhoRom, NULL };
     if (!retro_load_game_ptr(&game)) {
@@ -321,6 +528,9 @@ bool bridge_iniciar(const char* caminho_core, const char* caminho_rom) {
     struct retro_system_av_info info;
     memset(&info, 0, sizeof(info));
     retro_get_system_av_info_ptr(&info);
+    etapaNucleo("largura", (long)info.geometry.base_width);
+    etapaNucleo("altura", (long)info.geometry.base_height);
+    etapaNucleo("audio", (long)info.sample_rate);
     bridge_periodo_us = (uint64_t)(1000000.0 / (info.fps > 1.0 ? info.fps : 60.0));
     bridge_proximo_quadro = 0;
     definirTaxaAudioEmulador(info.sample_rate);
@@ -346,15 +556,25 @@ void bridge_atualizar() {
             msgTimer = 2; 
         }
     }
+    if (bridge_frame_count <= 2) etapaNucleo("retro_run", (long)bridge_frame_count);
     retro_run_ptr();
+    if (bridge_frame_count <= 2) etapaNucleo("retro_run ok", (long)bridge_frame_count);
 }
 
 void bridge_finalizar() {
+    // Fechar o jogo e abrir outro chamam esta função duas vezes seguidas.
+    // Zerar os ponteiros impede encerrar o núcleo de novo (deinit duplo travava com CE-34878-0).
     if (retro_unload_game_ptr) retro_unload_game_ptr();
     if (retro_deinit_ptr) retro_deinit_ptr();
+    retro_unload_game_ptr = NULL;
+    retro_deinit_ptr = NULL;
     if (core_handle) {
         dlclose(core_handle);
         core_handle = NULL;
+    }
+    if (modulo_nucleo >= 0) {
+        sceKernelStopUnloadModule(modulo_nucleo, 0, NULL, 0, NULL, NULL);
+        modulo_nucleo = -1;
     }
     static_core_active = false;
     retro_run_ptr = NULL;

@@ -801,7 +801,15 @@ void extrair7z(const char* zipPath, const char* outPath) {
 }
 
 // HN_ROM_INICIO
-// Lê o .gba de dentro do compactado direto para a memória, sem criar arquivo em disco.
+// Serve qualquer ROM que tenha núcleo. O caminho do compactado entra para a pasta decidir (.bin, .cue).
+static bool hnRomComNucleo(const char* arquivo, const char* item) {
+    extern const char* bridge_nucleo_para_rom(const char* rom);
+    char caminho[1400];
+    snprintf(caminho, sizeof(caminho), "%s/%s", arquivo, item);
+    return bridge_nucleo_para_rom(caminho) != NULL;
+}
+
+// Lê a ROM de dentro do compactado direto para a memória, sem criar arquivo em disco.
 bool hnCarregarRomGba(const char* arquivo, void** dados, size_t* tamanho, char* nome, int tamanhoNome) {
     unsigned char assinatura[6] = { 0 };
     FILE* f = fopen(arquivo, "rb");
@@ -817,7 +825,7 @@ bool hnCarregarRomGba(const char* arquivo, void** dados, size_t* tamanho, char* 
         int total = (int)mz_zip_reader_get_num_files(&zip);
         for (int i = 0; i < total && !*dados; i++) {
             mz_zip_archive_file_stat info;
-            if (!mz_zip_reader_file_stat(&zip, i, &info) || mz_zip_reader_is_file_a_directory(&zip, i) || !hnTermina(info.m_filename, ".gba")) continue;
+            if (!mz_zip_reader_file_stat(&zip, i, &info) || mz_zip_reader_is_file_a_directory(&zip, i) || !hnRomComNucleo(arquivo, info.m_filename)) continue;
             *dados = mz_zip_reader_extract_to_heap(&zip, i, tamanho, 0);
             const char* base = strrchr(info.m_filename, '/');
             snprintf(nome, tamanhoNome, "%s", base ? base + 1 : info.m_filename);
@@ -832,7 +840,7 @@ bool hnCarregarRomGba(const char* arquivo, void** dados, size_t* tamanho, char* 
         char item[1024];
         int pasta = 0;
         unsigned long long bytes = 0;
-        if (hn7z_info(h, i, item, sizeof(item), &pasta, &bytes) != 0 || pasta || !hnTermina(item, ".gba") || !bytes) continue;
+        if (hn7z_info(h, i, item, sizeof(item), &pasta, &bytes) != 0 || pasta || !hnRomComNucleo(arquivo, item) || !bytes) continue;
         unsigned char* memoria = (unsigned char*)malloc((size_t)bytes);
         if (!memoria) break;
         unsigned long long feito = 0;

@@ -367,10 +367,16 @@ void desenharBufferEmulador(const void* data, unsigned width, unsigned height, s
             uint32_t currX = 0;
             for (int x = 0; x < dW; x++) {
                 uint16_t c565 = srcRow[currX >> 16];
-                uint32_t r = (c565 & 0xF800) << 8;
-                uint32_t g = (c565 & 0x07E0) << 5;
-                uint32_t b = (c565 & 0x001F) << 3;
-                r |= (r >> 5) & 0xFF0000; g |= (g >> 6) & 0x00FF00; b |= (b >> 5);
+                uint32_t r, g, b;
+                if (gEmuPixelFormat == 0) { // 0RGB1555, padrão do libretro
+                    r = (c565 & 0x7C00) << 9; g = (c565 & 0x03E0) << 6; b = (c565 & 0x001F) << 3;
+                    r |= (r >> 5) & 0xFF0000; g |= (g >> 5) & 0x00FF00; b |= (b >> 5);
+                } else {
+                    r = (c565 & 0xF800) << 8;
+                    g = (c565 & 0x07E0) << 5;
+                    b = (c565 & 0x001F) << 3;
+                    r |= (r >> 5) & 0xFF0000; g |= (g >> 6) & 0x00FF00; b |= (b >> 5);
+                }
                 dstRow[x] = 0xFF000000 | r | g | b;
                 currX += stepX;
             }

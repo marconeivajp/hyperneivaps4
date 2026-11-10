@@ -635,13 +635,15 @@ void processarControles(uint32_t botoes, int32_t uId, OrbisImeDialogSetting* ime
             if (menuAtual != mAntes || strcmp(pathExplorar, pAntes) != 0 || menuAtualEsq != mEsqAntes || strcmp(pathExplorarEsq, pEsqAntes) != 0) {
                 // Previne pushes duplicados para o mesmo nível de menu
                 // As opções de áudio são um painel por cima do menu, não um nível para onde voltar.
-                bool isRedundant = mAntes == MENU_AUDIO_OPCOES || (navTopo > 0 && pilhaNav[navTopo - 1].menu == mAntes && strcmp(pilhaNav[navTopo - 1].path, pAntes) == 0);
+                // Abrir um jogo também não é nível: senão a primeira Bolinha depois de sair voltava para a mesma lista.
+                bool abriuJogo = menuAtual == MENU_EMULADOR_EXECUCAO;
+                bool isRedundant = abriuJogo || mAntes == MENU_AUDIO_OPCOES || (navTopo > 0 && pilhaNav[navTopo - 1].menu == mAntes && strcmp(pilhaNav[navTopo - 1].path, pAntes) == 0);
                 if (!isRedundant && navTopo < MAX_NAV_STACK) {
                     pilhaNav[navTopo].menu = mAntes; strcpy(pilhaNav[navTopo].path, pAntes); pilhaNav[navTopo].sel = sAntes; pilhaNav[navTopo].off = oAntes;
                     pilhaNav[navTopo].menuEsq = mEsqAntes; strcpy(pilhaNav[navTopo].pathEsq, pEsqAntes); pilhaNav[navTopo].selEsq = sEsqAntes; pilhaNav[navTopo].offEsq = oEsqAntes;
                     navTopo++;
                 }
-                if (menuAtual != mAntes || strcmp(pathExplorar, pAntes) != 0) { 
+                if (!abriuJogo && (menuAtual != mAntes || strcmp(pathExplorar, pAntes) != 0)) { 
                     sel = 0; 
                     if (listFocus) off = sel - (numSlotsPadrao / 2); else off = 0; 
                 }

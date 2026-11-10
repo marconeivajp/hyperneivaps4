@@ -312,24 +312,32 @@ void acaoCross_Root() {
             if (ext && (strcasecmp(ext, ".gba") == 0 || strcasecmp(ext, ".gb") == 0 || strcasecmp(ext, ".gbc") == 0)) {
                 extern void iniciarEmulador(const char* romPath);
                 iniciarEmulador(romParaCarregar);
-            } else if (ext && strstr(caminhoROMsAtual, "Game Boy Adva") && (strcasecmp(ext, ".zip") == 0 || strcasecmp(ext, ".7z") == 0)) {
+            } else if (ext && (strcasecmp(ext, ".zip") == 0 || strcasecmp(ext, ".7z") == 0)) {
                 extern void iniciarEmulador(const char* romPath);
                 extern bool hnCarregarRomGba(const char* arquivo, void** dados, size_t* tamanho, char* nome, int tamanhoNome);
                 extern void bridge_rom_em_memoria(void* dados, size_t tamanho);
                 void* dados = NULL;
                 size_t tamanho = 0;
                 char nome[256];
-                if (hnCarregarRomGba(romParaCarregar, &dados, &tamanho, nome, sizeof(nome))) {
+                FILE* registro = fopen("/data/HyperNeiva/zip_debug_log.txt", "a");
+                if (registro) { fprintf(registro, "ZIP abrindo %s\n", romParaCarregar); fclose(registro); }
+                bool achou = hnCarregarRomGba(romParaCarregar, &dados, &tamanho, nome, sizeof(nome));
+                registro = fopen("/data/HyperNeiva/zip_debug_log.txt", "a");
+                if (registro) { fprintf(registro, "ZIP %s %zu %s\n", achou ? "rom" : "sem rom", tamanho, achou ? nome : ""); fclose(registro); }
+                if (achou) {
                     // O núcleo recebe os dados; o nome .gba só indica o tipo do jogo.
                     static char romVirtual[800];
                     snprintf(romVirtual, sizeof(romVirtual), "%s/%s", caminhoROMsAtual, nome);
                     bridge_rom_em_memoria(dados, tamanho);
                     iniciarEmulador(romVirtual);
                 }
-                else { snprintf(msgStatus, sizeof(msgStatus), "NENHUM ARQUIVO .GBA DENTRO DESTE COMPACTADO"); msgTimer = 300; }
+                else { snprintf(msgStatus, sizeof(msgStatus), "NENHUMA ROM COM EMULADOR DENTRO DESTE COMPACTADO"); msgTimer = 300; }
             } else {
-                // extern void listarCoresDisponiveis();
-                // listarCoresDisponiveis(); 
+                // Outros sistemas: abre quando há núcleo separado para a extensão.
+                extern const char* bridge_nucleo_para_rom(const char* rom);
+                extern void iniciarEmulador(const char* romPath);
+                if (bridge_nucleo_para_rom(romParaCarregar)) iniciarEmulador(romParaCarregar);
+                else { snprintf(msgStatus, sizeof(msgStatus), "ESTE ARQUIVO AINDA NAO TEM EMULADOR"); msgTimer = 240; }
             }
         }
     }
