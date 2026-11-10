@@ -221,6 +221,14 @@ static const int mapaPadraoRetro[16][2] = {
 static bool usarMapaPadrao = false;
 
 static int16_t retro_input_state_cb(unsigned port, unsigned device, unsigned index, unsigned id) {
+    // Analógicos (N64 e outros): índice 0 é o esquerdo, 1 o direito; id 0 é X, 1 é Y.
+    if (port == 0 && device == RETRO_DEVICE_ANALOG && index < 2 && id < 2) {
+        uint8_t bruto = index == 0 ? (id == 0 ? gEmuAnaLX : gEmuAnaLY) : (id == 0 ? gEmuAnaRX : gEmuAnaRY);
+        int valor = ((int)bruto - 128) * 256;
+        if (valor > -3000 && valor < 3000) valor = 0; // zona morta
+        if (valor > 32767) valor = 32767;
+        return (int16_t)valor;
+    }
     if (port != 0 || device != RETRO_DEVICE_JOYPAD) return 0;
 
     // V33: Agora usamos o buffer global preenchido uma unica vez por frame
@@ -283,16 +291,19 @@ const char* bridge_nucleo_para_rom(const char* rom) {
     for (int i = 0; caminho[i]; i++) caminho[i] = (char)tolower((unsigned char)caminho[i]);
     bool saturn = strstr(caminho, "saturn") != NULL;
     bool atari = strstr(caminho, "atari") != NULL;
+    bool ps1 = strstr(caminho, "/ps1") || strstr(caminho, "playstation");
     if (strstr(" .gba .gb .gbc ", ext)) return "mgba";
+    if (strstr(" .n64 .z64 .v64 ", ext)) return "parallel_n64";
     if (strstr(" .nes .fds .unf .unif ", ext)) return "fceumm";
     if (strstr(" .sfc .smc .fig .swc ", ext)) return "snes9x";
     if (strstr(" .nds ", ext)) return "desmume2015";
     if (strstr(" .a26 ", ext)) return "stella2014";
     if (strstr(" .md .gen .smd .sms .gg .sg ", ext)) return "genesis_plus_gx";
+    if (ps1 && strstr(" .cue .chd .pbp .iso .bin .m3u .img ", ext)) return "pcsx_rearmed";
     if (strstr(" .cue .chd .ccd .iso ", ext)) return saturn ? "mednafen_saturn" : NULL;
     if (strstr(" .bin ", ext)) {
         if (atari) return "stella2014";
-        if (saturn || strstr(caminho, "playstation") || strstr(caminho, "ps1")) return NULL;
+        if (saturn) return NULL;
         return "genesis_plus_gx";
     }
     return NULL;
@@ -524,6 +535,8 @@ bool bridge_iniciar(const char* caminho_core, const char* caminho_rom) {
         return false;
     }
     registrarEmulador("carregado", caminho_rom, tamanhoRom);
+    // Declara um controle padrão na porta 1 (o N64 ficava "sem nada plugado" sem isto).
+    if (retro_set_controller_port_device_ptr) retro_set_controller_port_device_ptr(0, RETRO_DEVICE_JOYPAD);
 
     struct retro_system_av_info info;
     memset(&info, 0, sizeof(info));
