@@ -99,15 +99,15 @@ index 9621466..17dd69e 100644
  }
  void vdac_close(void) { }
 diff --git a/mupen64plus-video-angrylion/parallel_al.c b/mupen64plus-video-angrylion/parallel_al.c
-index a8f7fca..6ff90e7 100644
+index a8f7fca..eb84d5e 100644
 --- a/mupen64plus-video-angrylion/parallel_al.c
 +++ b/mupen64plus-video-angrylion/parallel_al.c
 @@ -159,6 +159,8 @@ void parallel_alinit(uint32_t num)
      }
      if (num == 0)
          num = 1;
-+    /* Hyper Neiva (PS4): uma thread só, até a sincronização ser confirmada no console */
-+    num = 1;
++    /* Hyper Neiva (PS4): 4 threads; a espera entre elas usa pthread (rthreads/eventcount com ORBIS) */
++    if (num > 4) num = 4;
      if (num > PARALLEL_MAX_WORKERS)
          num = PARALLEL_MAX_WORKERS;
  #if !defined(RETRO_ATOMIC_LOCK_FREE)

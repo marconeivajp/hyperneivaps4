@@ -15,7 +15,7 @@ clone, faça checkout da versão, aplique o patch (`git apply`) e compile com `.
 No parallel-n64, o que faz o N64 rodar no PS4:
 - `Graphics/plugins.c`: vídeo padrão angrylion (sem opções do frontend ficava em Glide64, que precisa de OpenGL).
 - `libretro/libretro.c`: CPU padrão no interpretador puro (o cached interpreter travava na primeira escrita do boot, em 0xA4000064).
-- `parallel_al.c`: angrylion com uma thread só.
+- `parallel_al.c`: angrylion com até 4 threads (a espera usa pthread via rthreads/eventcount com `ORBIS`).
 - O resto do patch são marcas `HN` de diagnóstico no `nucleo_log.txt`, com limite de linhas.
 
 No yabause, o que faz o Saturn rodar no PS4:
@@ -24,3 +24,7 @@ No yabause, o que faz o Saturn rodar no PS4:
 - `rthreads.c`: pilha de 1 MB nas threads com `ORBIS`.
 - Compilar com `-O3 -flto -DHAVE_THREADS=1 -DORBIS -D__ORBIS__`; o `vfs_implementation.c` vai sem `ORBIS` (pede `sys/dirent.h`).
 - A ponte mantém o módulo carregado entre jogos (as threads dele nunca terminam).
+
+Velocidade (todos os núcleos compilados do fonte): use `-O3 -flto` nos defines do `compilar_fonte.sh`.
+No parallel-n64 passe também `-DORBIS -D__ORBIS__ -include libretro.h` para todas as fontes, e compile
+o `libretro/libretro.c` à parte com `-DHAVE_OPENGLES2`.
