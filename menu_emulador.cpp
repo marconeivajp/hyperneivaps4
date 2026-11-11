@@ -116,8 +116,10 @@ void desenharMenuEmulador(uint32_t* pixels) {
 
     desenharTexto(pixels, "MENU PAUSA", 40, boxX + 80, boxY + 50, 0xFF00FF00);
 
-    const char* itens[] = { "CONTINUAR", "SALVAR STATE", "CARREGAR STATE", "CONTROLES", "SAIR DO JOGO" };
-    for (int i = 0; i < 5; i++) {
+    extern bool gMostrarFps;
+    const char* itens[] = { "CONTINUAR", "SALVAR STATE", "CARREGAR STATE", "CONTROLES",
+                            gMostrarFps ? "MOSTRAR FPS: SIM" : "MOSTRAR FPS: NAO", "SAIR DO JOGO" };
+    for (int i = 0; i < 6; i++) {
         uint32_t cor = (menuEmuSelecao == i) ? 0xFF00FF00 : 0xFFFFFFFF;
         desenharTexto(pixels, itens[i], 30, boxX + 60, boxY + 150 + (i * 50), cor);
         if (menuEmuSelecao == i) desenharTexto(pixels, ">", 30, boxX + 30, boxY + 150 + (i * 50), 0xFF00FF00);

@@ -300,7 +300,8 @@ const char* bridge_nucleo_para_rom(const char* rom) {
     if (strstr(" .a26 ", ext)) return "stella2014";
     if (strstr(" .md .gen .smd .sms .gg .sg ", ext)) return "genesis_plus_gx";
     if (ps1 && strstr(" .cue .chd .pbp .iso .bin .m3u .img ", ext)) return "pcsx_rearmed";
-    if (strstr(" .cue .chd .ccd .iso ", ext)) return saturn ? "mednafen_saturn" : NULL;
+    // Saturn: Yabause (leve, vídeo em software). O mednafen_saturn é pesado demais para o PS4.
+    if (strstr(" .cue .chd .ccd .iso .mds .m3u ", ext)) return saturn ? "yabause" : NULL;
     if (strstr(" .bin ", ext)) {
         if (atari) return "stella2014";
         if (saturn) return NULL;
@@ -323,10 +324,56 @@ static void* alocarAlinhadoNucleo(size_t alinhamento, size_t tamanho) {
     return posix_memalign(&p, alinhamento, tamanho) == 0 ? p : NULL;
 }
 
+// Registrador de crash: grava sinal, endereço acessado e instrução (RIP) antes do app fechar.
+// O sigaction vem do libkernel, com a estrutura do FreeBSD (não a da musl dos cabeçalhos).
+struct HnSigactionFreeBsd { void (*acao)(int, void*, void*); int flags; uint32_t mascara[4]; };
+extern "C" int hnSigaction(int, const void*, void*) __asm__("sigaction");
+static uint64_t hnBaseNucleo = 0;
+static void hnRegistrarCrash(int sinal, void* info, void* contexto) {
+    // FreeBSD amd64: siginfo.si_addr fica em +24; ucontext.uc_mcontext em +16, e nele mc_rip é o 21º campo de 8 bytes.
+    uint64_t endereco = info ? *(uint64_t*)((char*)info + 24) : 0;
+    uint64_t rip = contexto ? *(uint64_t*)((char*)contexto + 16 + 20 * 8) : 0;
+    uint64_t rsp = contexto ? *(uint64_t*)((char*)contexto + 16 + 23 * 8) : 0;
+    char texto[256];
+    int n = snprintf(texto, sizeof(texto), "CRASH sinal=%d endereco=%llx rip=%llx rsp=%llx base_nucleo=%llx rip_no_nucleo=%llx\n",
+                     sinal, (unsigned long long)endereco, (unsigned long long)rip, (unsigned long long)rsp,
+                     (unsigned long long)hnBaseNucleo,
+                     (unsigned long long)(hnBaseNucleo && rip >= hnBaseNucleo ? rip - hnBaseNucleo : 0));
+    int fd = open("/data/HyperNeiva/zip_debug_log.txt", O_WRONLY | O_APPEND | O_CREAT, 0666);
+    if (fd >= 0) { write(fd, texto, (size_t)n); close(fd); }
+    HnSigactionFreeBsd padrao;
+    memset(&padrao, 0, sizeof(padrao));
+    hnSigaction(sinal, &padrao, NULL);   // volta ao padrão e deixa o sistema fechar o app
+}
+static void hnInstalarRegistradorCrash() {
+    static bool instalado = false;
+    if (instalado) return;
+    instalado = true;
+    HnSigactionFreeBsd acao;
+    memset(&acao, 0, sizeof(acao));
+    acao.acao = hnRegistrarCrash;
+    acao.flags = 0x40;                 // SA_SIGINFO
+    const int sinais[] = { 4, 8, 10, 11 }; // SIGILL, SIGFPE, SIGBUS, SIGSEGV
+    for (int i = 0; i < 4; i++) hnSigaction(sinais[i], &acao, NULL);
+}
+
 // Carrega o núcleo de um .prx e pega cada função pelo nome. Devolve false se faltar algo.
+// Núcleos com threads próprias (Yabause) ficam carregados depois do primeiro uso: descarregar
+// o módulo com as threads dele dormindo deixaria código apagado sob elas.
+static int moduloPersistente = -1;
+static char caminhoPersistente[200] = "";
+
 static bool carregarNucleoPrx(const char* caminho) {
     etapaNucleo(caminho, 0);
-    modulo_nucleo = sceKernelLoadStartModule(caminho, 0, NULL, 0, NULL, NULL);
+    if (moduloPersistente >= 0 && strcmp(caminhoPersistente, caminho) == 0) {
+        modulo_nucleo = moduloPersistente;
+        etapaNucleo("modulo reaproveitado", modulo_nucleo);
+    }
+    else modulo_nucleo = sceKernelLoadStartModule(caminho, 0, NULL, 0, NULL, NULL);
+    if (modulo_nucleo >= 0 && moduloPersistente < 0 && strstr(caminho, "yabause")) {
+        moduloPersistente = modulo_nucleo;
+        snprintf(caminhoPersistente, sizeof(caminhoPersistente), "%s", caminho);
+    }
     registrarNucleo("NUCLEO %s modulo=0x%08X", caminho, modulo_nucleo);
     if (modulo_nucleo < 0) { modulo_nucleo = -1; return false; }
     #define PEGAR_FUNCAO(n) \
@@ -361,6 +408,11 @@ static bool carregarNucleoPrx(const char* caminho) {
         registrarNucleo("NUCLEO %s usa a memoria do app (%d)", caminho, 1);
     }
     registrarNucleo("NUCLEO %s carregado (%d funcoes)", caminho, 24);
+    {
+        FILE* f = fopen("/data/HyperNeiva/zip_debug_log.txt", "a");
+        if (f) { fprintf(f, "NUCLEO retro_run=%llx retro_init=%llx\n", (unsigned long long)(uintptr_t)retro_run_ptr, (unsigned long long)(uintptr_t)retro_init_ptr); fclose(f); }
+    }
+    hnInstalarRegistradorCrash();
     return true;
 }
 
@@ -553,6 +605,31 @@ bool bridge_iniciar(const char* caminho_core, const char* caminho_rom) {
 }
 
 static uint32_t bridge_frame_count = 0;
+
+// Contador de FPS e velocidade, ligado no menu de pausa.
+bool gMostrarFps = false;
+static void desenharContadorFps() {
+    static uint64_t inicioSegundo = 0;
+    static int quadrosNoSegundo = 0, fpsMedido = 0;
+    uint64_t agora = sceKernelGetProcessTime();
+    if (inicioSegundo == 0) inicioSegundo = agora;
+    quadrosNoSegundo++;
+    if (agora - inicioSegundo >= 1000000) {
+        fpsMedido = (int)((uint64_t)quadrosNoSegundo * 1000000 / (agora - inicioSegundo));
+        quadrosNoSegundo = 0;
+        inicioSegundo = agora;
+    }
+    if (!gMostrarFps) return;
+    uint32_t* tela = obterBufferVideo();
+    if (!tela) return;
+    int fpsConsole = bridge_periodo_us ? (int)((1000000 + bridge_periodo_us / 2) / bridge_periodo_us) : 60;
+    int velocidade = fpsConsole ? fpsMedido * 100 / fpsConsole : 0;
+    char texto[80];
+    snprintf(texto, sizeof(texto), "FPS %d / %d   VELOCIDADE %d%%", fpsMedido, fpsConsole, velocidade);
+    for (int y = 12; y < 62; y++) for (int x = 12; x < 620; x++) tela[y * 1920 + x] = 0xFF000000;
+    desenharTexto(tela, texto, 30, 24, 20, velocidade >= 95 ? 0xFF00FF00 : (velocidade >= 60 ? 0xFFFFFF00 : 0xFFFF4040));
+}
+
 void bridge_atualizar() {
     if (!retro_run_ptr) return;
     // O núcleo roda o mais rápido que puder: quem marca a velocidade do jogo é este relógio.
@@ -572,6 +649,7 @@ void bridge_atualizar() {
     if (bridge_frame_count <= 2) etapaNucleo("retro_run", (long)bridge_frame_count);
     retro_run_ptr();
     if (bridge_frame_count <= 2) etapaNucleo("retro_run ok", (long)bridge_frame_count);
+    desenharContadorFps();
 }
 
 void bridge_finalizar() {
@@ -586,7 +664,7 @@ void bridge_finalizar() {
         core_handle = NULL;
     }
     if (modulo_nucleo >= 0) {
-        sceKernelStopUnloadModule(modulo_nucleo, 0, NULL, 0, NULL, NULL);
+        if (modulo_nucleo != moduloPersistente) sceKernelStopUnloadModule(modulo_nucleo, 0, NULL, 0, NULL, NULL);
         modulo_nucleo = -1;
     }
     static_core_active = false;

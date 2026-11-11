@@ -41,6 +41,80 @@ static void Print_Free(const char *s, int *counter)
 }
 #endif
 
+/* Hyper Neiva (PS4): 7z compactados com dicionario LZMA2 enorme (768 MB nos jogos de
+ * Saturn) pedem um bloco que o malloc do app nao entrega (erro 2, SZ_ERROR_MEM). Blocos de
+ * 64 MB ou mais vem da memoria direta do console, mapeada so enquanto o 7z esta aberto. */
+#include <sys/types.h>
+#include <stdint.h>
+int32_t sceKernelAllocateDirectMemory(off_t, off_t, size_t, size_t, int32_t, off_t*);
+int32_t sceKernelMapDirectMemory(void**, size_t, int32_t, int32_t, off_t, size_t);
+int32_t sceKernelReleaseDirectMemory(off_t, size_t);
+size_t sceKernelGetDirectMemorySize();
+int munmap(void*, size_t);
+void *mmap(void*, size_t, int, int, int, off_t);
+#define HN7Z_BLOCO_GRANDE ((size_t)64 * 1024 * 1024)
+#define HN7Z_ALINHAMENTO ((size_t)2 * 1024 * 1024)
+/* tipo 1: memoria direta; tipo 2: mmap anonimo (memoria flexivel) */
+static struct { void *ptr; size_t tam; off_t fisico; int tipo; } hn7zGrandes[8];
+
+static void hn7z_registrar(const char *texto, long a, long b2, long c)
+{
+  FILE *f = fopen("/data/HyperNeiva/zip_debug_log.txt", "a");
+  if (!f) return;
+  fprintf(f, "7Z MEMORIA %s %ld %ld %ld\n", texto, a, b2, c);
+  fclose(f);
+}
+
+static void *hn7z_alocar_grande(size_t size)
+{
+  size_t tam = (size + HN7Z_ALINHAMENTO - 1) & ~(HN7Z_ALINHAMENTO - 1);
+  off_t fisico = 0;
+  void *ptr = NULL;
+  int i, rc, rcMapa = 0;
+  for (i = 0; i < 8 && hn7zGrandes[i].ptr; i++) {}
+  if (i == 8) return NULL;
+  hn7z_registrar("pedido (MB, total direta MB, -)", (long)(tam >> 20), (long)(sceKernelGetDirectMemorySize() >> 20), 0);
+  rc = sceKernelAllocateDirectMemory(0, (off_t)sceKernelGetDirectMemorySize(), tam, HN7Z_ALINHAMENTO, 0 /* WB_ONION */, &fisico);
+  if (rc == 0)
+  {
+    rcMapa = sceKernelMapDirectMemory(&ptr, tam, 0x03 /* leitura e escrita da CPU */, 0, fisico, HN7Z_ALINHAMENTO);
+    if (rcMapa == 0 && ptr)
+    {
+      hn7zGrandes[i].ptr = ptr; hn7zGrandes[i].tam = tam; hn7zGrandes[i].fisico = fisico; hn7zGrandes[i].tipo = 1;
+      hn7z_registrar("direta ok (MB, -, -)", (long)(tam >> 20), 0, 0);
+      return ptr;
+    }
+    sceKernelReleaseDirectMemory(fisico, tam);
+  }
+  hn7z_registrar("direta falhou (rc alocar, rc mapear, -)", (long)rc, (long)rcMapa, 0);
+  /* Segunda tentativa: memoria anonima (flexivel). PROT_READ|PROT_WRITE = 3, MAP_PRIVATE|MAP_ANON = 0x1002 */
+  ptr = mmap(NULL, tam, 3, 0x1002, -1, 0);
+  if (ptr && ptr != (void *)-1)
+  {
+    hn7zGrandes[i].ptr = ptr; hn7zGrandes[i].tam = tam; hn7zGrandes[i].fisico = 0; hn7zGrandes[i].tipo = 2;
+    hn7z_registrar("mmap ok (MB, -, -)", (long)(tam >> 20), 0, 0);
+    return ptr;
+  }
+  hn7z_registrar("mmap falhou (MB, -, -)", (long)(tam >> 20), 0, 0);
+  return NULL;
+}
+
+static int hn7z_liberar_grande(void *address)
+{
+  int i;
+  for (i = 0; i < 8; i++)
+  {
+    if (hn7zGrandes[i].ptr == address && address)
+    {
+      munmap(address, hn7zGrandes[i].tam);
+      if (hn7zGrandes[i].tipo == 1) sceKernelReleaseDirectMemory(hn7zGrandes[i].fisico, hn7zGrandes[i].tam);
+      hn7zGrandes[i].ptr = NULL;
+      return 1;
+    }
+  }
+  return 0;
+}
+
 void *SzAlloc(ISzAllocPtr p, size_t size)
 {
   UNUSED_VAR(p)
@@ -49,6 +123,11 @@ void *SzAlloc(ISzAllocPtr p, size_t size)
   #ifdef SZ_ALLOC_DEBUG
   Print_Alloc("Alloc", size, &g_allocCount);
   #endif
+  if (size >= HN7Z_BLOCO_GRANDE)
+  {
+    void *grande = hn7z_alocar_grande(size);
+    if (grande) return grande;
+  }
   return malloc(size);
 }
 
@@ -59,6 +138,7 @@ void SzFree(ISzAllocPtr p, void *address)
   if (address)
     Print_Free("Free ", &g_allocCount);
   #endif
+  if (hn7z_liberar_grande(address)) return;
   free(address);
 }
 

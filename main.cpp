@@ -331,8 +331,8 @@ int main(void) {
 
                 if (menuEmuladorAtivo) {
                     unsigned int btnM = pData.buttons & ~ultimos_botoes;
-                    if (btnM & ORBIS_PAD_BUTTON_UP) { menuEmuSelecao--; if (menuEmuSelecao < 0) menuEmuSelecao = 4; }
-                    if (btnM & ORBIS_PAD_BUTTON_DOWN) { menuEmuSelecao++; if (menuEmuSelecao > 4) menuEmuSelecao = 0; }
+                    if (btnM & ORBIS_PAD_BUTTON_UP) { menuEmuSelecao--; if (menuEmuSelecao < 0) menuEmuSelecao = 5; }
+                    if (btnM & ORBIS_PAD_BUTTON_DOWN) { menuEmuSelecao++; if (menuEmuSelecao > 5) menuEmuSelecao = 0; }
                     
                     if (btnM & ORBIS_PAD_BUTTON_CROSS) { 
                         if (menuEmuSelecao == 0) menuEmuladorAtivo = false; // Continuar
@@ -351,7 +351,11 @@ int main(void) {
                         if (menuEmuSelecao == 3) { // Controles
                             menuAtual = MENU_EMU_CONTROLES; // V45: TRANSIÇÃO REAL PARA TELA DE CONTROLES
                         }
-                        if (menuEmuSelecao == 4) { // Sair
+                        if (menuEmuSelecao == 4) { // Mostrar FPS e velocidade na tela do jogo
+                            extern bool gMostrarFps;
+                            gMostrarFps = !gMostrarFps;
+                        }
+                        if (menuEmuSelecao == 5) { // Sair
                             fecharEmulador();
                             menuEmuladorAtivo = false;
                             

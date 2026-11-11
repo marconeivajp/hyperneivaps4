@@ -1,0 +1,44 @@
+diff --git a/yabause/src/libretro/libretro-common/rthreads/rthreads.c b/yabause/src/libretro/libretro-common/rthreads/rthreads.c
+index 3942651..e7dd397 100644
+--- a/yabause/src/libretro/libretro-common/rthreads/rthreads.c
++++ b/yabause/src/libretro/libretro-common/rthreads/rthreads.c
+@@ -227,6 +227,11 @@ sthread_t *sthread_create_with_priority(void (*thread_func)(void*), void *userda
+    pthread_attr_setstacksize(&thread_attr , 0x10000 );
+    thread_attr_needed = true;
+ #endif
++#if defined(ORBIS)
++   /* Hyper Neiva (PS4): pilha de 1 MB para as threads de desenho do Yabause */
++   pthread_attr_setstacksize(&thread_attr , 0x100000 );
++   thread_attr_needed = true;
++#endif
+ 
+ #ifdef HAVE_THREAD_ATTR
+    if (thread_attr_needed)
+diff --git a/yabause/src/libretro/libretro.c b/yabause/src/libretro/libretro.c
+index a5c771f..a44fc11 100644
+--- a/yabause/src/libretro/libretro.c
++++ b/yabause/src/libretro/libretro.c
+@@ -52,9 +52,9 @@ int game_height;
+ 
+ static bool one_frame_rendered = false;
+ static bool hle_bios_force = false;
+-static bool frameskip_enable = false;
++static bool frameskip_enable = false; /* Hyper Neiva (PS4): o frameskip fazia os sprites (VDP1) piscarem */
+ static int addon_cart_type = CART_NONE;
+-static int numthreads = 1;
++static int numthreads = 4; /* Hyper Neiva (PS4): desenho do vidsoft dividido entre 4 nucleos */
+ 
+ static bool libretro_supports_bitmasks = false;
+ static int16_t libretro_input_bitmask[12] = {-1,};
+@@ -522,6 +522,11 @@ void YuiSwapBuffers(void)
+    int current_width  = 320;
+    int current_height = 240;
+ 
++   /* Hyper Neiva (PS4): quadro pulado pelo frameskip usa o VIDDummy; enviar o buffer
++    * velho com 320x240 fazia a tela piscar. Sem envio, o frontend repete o ultimo quadro. */
++   if (!VIDCore || !VIDCore->id)
++      return;
++
+    /* Test if VIDCore valid AND NOT the
+     * Dummy Interface (or at least VIDCore->id != 0).
+     * Avoid calling GetGlSize if Dummy/ID = 0 is selected

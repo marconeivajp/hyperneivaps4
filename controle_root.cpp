@@ -16,6 +16,95 @@
 #include "stb_image.h"
 #include "audio.h"
 #include "bloco_de_notas.h"
+#include <sys/stat.h>
+
+// Jogos de CD (Saturn, PS1...) dentro de .zip/.7z não cabem na memória e o .cue precisa
+// dos .bin ao lado: o compactado é extraído uma vez para uma pasta com o mesmo nome.
+static bool hnCompactadoDeCd(const char* arquivo) {
+    char minusculo[600];
+    snprintf(minusculo, sizeof(minusculo), "%s", arquivo);
+    for (int i = 0; minusculo[i]; i++) if (minusculo[i] >= 'A' && minusculo[i] <= 'Z') minusculo[i] += 32;
+    if (strstr(minusculo, "saturn") || strstr(minusculo, "/ps1") || strstr(minusculo, "playstation") ||
+        strstr(minusculo, "dreamcast") || strstr(minusculo, "/psp") || strstr(minusculo, "sega cd") || strstr(minusculo, "mega cd"))
+        return true;
+    struct stat info;
+    return stat(arquivo, &info) == 0 && info.st_size > 64LL * 1024 * 1024;
+}
+
+// Imagem CloneCD só com .ccd: o Yabause caía lendo o .ccd. Gera um .cue equivalente
+// (mesmo .img, faixas e início de cada uma) e abre por ele.
+static bool hnCcdParaCue(const char* ccd, char* cue, size_t tamanho) {
+    FILE* f = fopen(ccd, "r");
+    if (!f) return false;
+    int pontos[100], plba[100], modos[100], total = 0, ponto = -1, faixa = -1, controle = 4;
+    int controles[100];
+    for (int i = 0; i < 100; i++) modos[i] = 1;
+    char linha[160];
+    while (fgets(linha, sizeof(linha), f)) {
+        int valor;
+        if (strncmp(linha, "[Entry", 6) == 0) { ponto = -1; controle = 4; }
+        else if (sscanf(linha, "Control=0x%x", &valor) == 1) controle = valor;
+        else if (sscanf(linha, "Point=0x%x", &valor) == 1) ponto = valor;
+        else if (sscanf(linha, "PLBA=%d", &valor) == 1 && ponto >= 1 && ponto <= 99 && total < 100) { pontos[total] = ponto; plba[total] = valor; controles[total] = controle; total++; }
+        else if (sscanf(linha, "[TRACK %d]", &valor) == 1) faixa = valor;
+        else if (sscanf(linha, "MODE=%d", &valor) == 1 && faixa >= 1 && faixa <= 99) modos[faixa] = valor;
+    }
+    fclose(f);
+    if (total == 0) return false;
+    const char* base = strrchr(ccd, '/');
+    base = base ? base + 1 : ccd;
+    snprintf(cue, tamanho, "%.*s.cue", (int)(strrchr(ccd, '.') - ccd), ccd);
+    FILE* s = fopen(cue, "w");
+    if (!s) return false;
+    fprintf(s, "FILE \"%.*s.img\" BINARY\n", (int)(strrchr(base, '.') - base), base);
+    for (int i = 0; i < total; i++) {
+        int n = pontos[i], lba = plba[i];
+        // Control 0x04 marca faixa de dados; sem ele é áudio. O MODE de [TRACK] (quando existe) define 1 ou 2.
+        const char* tipo = !(controles[i] & 0x04) ? "AUDIO" : (modos[n] == 2 ? "MODE2/2352" : "MODE1/2352");
+        fprintf(s, "  TRACK %02d %s\n    INDEX 01 %02d:%02d:%02d\n", n, tipo, lba / 4500, (lba / 75) % 60, lba % 75);
+    }
+    fclose(s);
+    FILE* registro = fopen("/data/HyperNeiva/zip_debug_log.txt", "a");
+    if (registro) { fprintf(registro, "CD cue gerado do ccd (%d faixas): %s\n", total, cue); fclose(registro); }
+    return true;
+}
+
+// Procura o disco dentro da pasta extraída (até um nível de subpasta). Ordem: m3u, cue, chd, iso, ccd, mds.
+static bool hnAcharDisco(const char* pasta, char* saida, size_t tamanho, int nivel) {
+    static const char* ordem[] = { ".m3u", ".cue", ".chd", ".iso", ".ccd", ".mds" };
+    for (int o = 0; o < 6; o++) {
+        DIR* d = opendir(pasta);
+        if (!d) return false;
+        struct dirent* item;
+        while ((item = readdir(d)) != NULL) {
+            if (item->d_name[0] == '.') continue;
+            const char* ponto = strrchr(item->d_name, '.');
+            if (item->d_type == DT_REG && ponto && strcasecmp(ponto, ordem[o]) == 0) {
+                snprintf(saida, tamanho, "%s/%s", pasta, item->d_name);
+                closedir(d);
+                if (strcasecmp(ordem[o], ".ccd") == 0) {
+                    char cue[800];
+                    if (hnCcdParaCue(saida, cue, sizeof(cue))) snprintf(saida, tamanho, "%s", cue);
+                }
+                return true;
+            }
+        }
+        closedir(d);
+    }
+    if (nivel > 0) return false;
+    DIR* d = opendir(pasta);
+    if (!d) return false;
+    struct dirent* item;
+    bool achou = false;
+    while (!achou && (item = readdir(d)) != NULL) {
+        if (item->d_type != DT_DIR || item->d_name[0] == '.') continue;
+        char sub[700];
+        snprintf(sub, sizeof(sub), "%s/%s", pasta, item->d_name);
+        achou = hnAcharDisco(sub, saida, tamanho, nivel + 1);
+    }
+    closedir(d);
+    return achou;
+}
 
 // DECLARAÇÃO DOS NOVOS MENUS
 extern void preencherMenuExtra();
@@ -312,6 +401,23 @@ void acaoCross_Root() {
             if (ext && (strcasecmp(ext, ".gba") == 0 || strcasecmp(ext, ".gb") == 0 || strcasecmp(ext, ".gbc") == 0)) {
                 extern void iniciarEmulador(const char* romPath);
                 iniciarEmulador(romParaCarregar);
+            } else if (ext && (strcasecmp(ext, ".zip") == 0 || strcasecmp(ext, ".7z") == 0) && hnCompactadoDeCd(romParaCarregar)) {
+                // Jogo de CD: extrai uma vez para a pasta de mesmo nome e abre o disco dela.
+                static char pastaJogo[600], disco[800];
+                snprintf(pastaJogo, sizeof(pastaJogo), "%.*s", (int)(ext - romParaCarregar), romParaCarregar);
+                FILE* registro = fopen("/data/HyperNeiva/zip_debug_log.txt", "a");
+                if (hnAcharDisco(pastaJogo, disco, sizeof(disco), 0)) {
+                    if (registro) { fprintf(registro, "CD extraido, abrindo %s\n", disco); fclose(registro); }
+                    extern void iniciarEmulador(const char* romPath);
+                    iniciarEmulador(disco);
+                } else {
+                    if (registro) { fprintf(registro, "CD extraindo %s para %s\n", romParaCarregar, pastaJogo); fclose(registro); }
+                    mkdir(pastaJogo, 0777);
+                    extern void hnEnfileirarExtracao(const char* arquivo, const char* destino);
+                    hnEnfileirarExtracao(romParaCarregar, pastaJogo);
+                    snprintf(msgStatus, sizeof(msgStatus), "EXTRAINDO O JOGO DE CD. QUANDO A BARRA TERMINAR, APERTE X DE NOVO");
+                    msgTimer = 600;
+                }
             } else if (ext && (strcasecmp(ext, ".zip") == 0 || strcasecmp(ext, ".7z") == 0)) {
                 extern void iniciarEmulador(const char* romPath);
                 extern bool hnCarregarRomGba(const char* arquivo, void** dados, size_t* tamanho, char* nome, int tamanhoNome);
