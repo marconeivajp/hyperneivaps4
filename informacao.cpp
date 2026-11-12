@@ -39,7 +39,7 @@ void renderizarInformacao(uint32_t* p) {
         "Telegram completo: conversas, grupos, canais, arquivos e áudio",
         "Celular e PC: controle, teclado, tela do PS4 e do PC, arquivos e chaves",
         "IA (Gemini, OpenAI, Groq), transcrição de áudio e tradução",
-        "Previsão do tempo, piano, teste de controle, ventoinha e conquistas",
+        "Editor de imagem com camadas, texto e filtros; tempo, piano e conquistas",
     };
     for (int i = 0; i < 10; i++) desenharTexto(p, recursos[i], 22, 80, 210 + i * 34, 0xFFDDE3EA);
 

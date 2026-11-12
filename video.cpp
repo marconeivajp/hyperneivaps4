@@ -157,6 +157,10 @@ void pularParaTempo(double tempo);
 #define FILA_VIDEO_CAP 1024
 #define FILA_AUDIO_CAP 2048
 #define FILA_VIDEO_MAX_BYTES (32 * 1024 * 1024)
+// Vídeo do Telegram/celular/PC: o app já está perto do limite de memória (log: 0 MB livres com
+// 1080p do Telegram e quedas). 12 MB ainda são uns 20 s de 1080p adiantados.
+#define FILA_VIDEO_MAX_BYTES_REDE (12 * 1024 * 1024)
+static bool filaVideoLeve = false;
 #define FILA_FRAMES_CAP 8
 
 #define PILHA_THREAD (2 * 1024 * 1024)
@@ -409,11 +413,29 @@ void removerMarker(int index) {}
 // ==========================================
 // DEMUX: lê o arquivo e separa os pacotes
 // ==========================================
+// Quanto ainda dá para alocar, só na abertura (blocos de 8 MB, até 128 MB): alocar tudo no meio
+// do vídeo podia, ele mesmo, faltar memória para as outras threads.
+static __attribute__((unused)) int memoriaLivreMB() {
+    static void* blocos[16];
+    int n = 0;
+    while (n < 16 && (blocos[n] = malloc(8u * 1024 * 1024)) != NULL) n++;
+    for (int i = 0; i < n; i++) free(blocos[i]);
+    return n * 8;
+}
+// Memória flexível livre segundo o sistema (só consulta). O protótipo do OpenOrbis não tem o ponteiro.
+static int memoriaFlexivelMB() {
+    size_t livre = 0;
+    ((int32_t (*)(size_t*))(void*)sceKernelAvailableFlexibleMemorySize)(&livre);
+    return (int)(livre / (1024 * 1024));
+}
+static uint64_t logInicioVideoUs = 0;
 static void registrarEstatisticas() {
     uint64_t agora = sceKernelGetProcessTime();
-    if (logUltimoUs == 0) { logUltimoUs = agora; return; }
+    if (logUltimoUs == 0) { logUltimoUs = agora; logInicioVideoUs = agora; logVideoInfo("MEMORIA no inicio: flexivel %d MB", memoriaFlexivelMB());   /* sem sonda: alocar para medir derrubava o decodificador */ return; }
     uint64_t passou = agora - logUltimoUs;
-    if (passou < 5000000) return;
+    // Nos primeiros 15 s, uma linha por segundo (as quedas do Telegram vinham antes dos 5 s).
+    uint64_t intervalo = agora - logInicioVideoUs < 15000000 ? 1000000 : 5000000;
+    if (passou < intervalo) return;
 
     int exibidos = estatExibidos, decodificados = estatDecodificados;
     int descartados = estatDescartados, underruns = estatUnderruns;
@@ -425,11 +447,11 @@ static void registrarEstatisticas() {
     double vTime = lerCompartilhado(video_time_current), aTime = lerCompartilhado(audio_time_current);
     double diferenca = temAudio ? vTime - aTime : 0.0;
 
-    logVideoInfo("PLAYBACK: FPS:%.1f | Dec:%.1f | Drop:%d | V_Time:%.2fs | A_Time:%.2fs | Diff:%.3fs | Filas V:%d A:%d Q:%d | Nivel:%d | Conv:%.1fms | Compor:%.1fms | Underrun:%d | Mult:%.2fx",
+    logVideoInfo("PLAYBACK: FPS:%.1f | Dec:%.1f | Drop:%d | V_Time:%.2fs | A_Time:%.2fs | Diff:%.3fs | Filas V:%d A:%d Q:%d | Nivel:%d | Conv:%.1fms | Compor:%.1fms | Underrun:%d | Mult:%.2fx | Flex:%dMB",
         fps, (double)(decodificados - logDecodificados) / segundos, descartados - logDescartados, vTime, aTime, diferenca,
         filaPacotesTamanho(&filaVideo), filaPacotesTamanho(&filaAudio), filaFramesTamanho(), nivelQualidade,
         (double)(converterUs - logConverterUs) / divisor, (double)(comporUs - logComporUs) / divisor,
-        underruns - logUnderruns, lerCompartilhado(video_fps_multiplier));
+        underruns - logUnderruns, lerCompartilhado(video_fps_multiplier), memoriaFlexivelMB());
 
     if (!lerCompartilhado(video_pausado)) fps_video = fps;
     logExibidos = exibidos; logDecodificados = decodificados; logDescartados = descartados; logUnderruns = underruns;
@@ -532,7 +554,7 @@ static void* threadDemux(void*) {
         }
 
         bool videoCheio = filaPacotesCheia(&filaVideo) ||
-            __atomic_load_n(&filaVideo.bytes, __ATOMIC_RELAXED) > FILA_VIDEO_MAX_BYTES;
+            __atomic_load_n(&filaVideo.bytes, __ATOMIC_RELAXED) > (filaVideoLeve ? FILA_VIDEO_MAX_BYTES_REDE : FILA_VIDEO_MAX_BYTES);
         bool audioCheio = temAudio && filaPacotesCheia(&filaAudio);
         // Sem o primeiro quadro o áudio ainda não anda: esperar por ele aqui seria um impasse.
         bool audioEmEspera = serialRelogio != serialAtual;
@@ -1322,6 +1344,12 @@ static bool abrirDecodificadorVideo() {
 
     int largura = stream->codecpar->width, altura = stream->codecpar->height;
     int threads = (int64_t)largura * altura <= 1280 * 720 ? 4 : 5;
+    // Pouca memória (Telegram aberto: 126 MB livres e o 1080p caía ao abrir): cada thread a mais
+    // guarda seus próprios quadros. Com 3 threads o 1080p ainda decodifica a 24 fps.
+    {
+        int livre = memoriaFlexivelMB();
+        if (livre < 220 && threads > 3) { threads = 3; logVideoInfo("MEMORIA baixa (%d MB): decodificando com 3 threads", livre); }
+    }
 
     // O decodificador roda fora do loop principal, então a latência das threads por quadro é
     // só alguns quadros a mais de espera na abertura, e nunca segura a tela.
@@ -1430,6 +1458,7 @@ void iniciarVideoMP4(const char* caminho) {
     // Vídeo do Telegram em andamento: lê pelo TDLib em vez de direto do arquivo.
     extern AVIOContext* telegramAbrirFluxo(const char* caminho);
     AVIOContext* fluxoTelegram = telegramAbrirFluxo(caminho);
+    filaVideoLeve = fluxoTelegram != NULL || strstr(caminho, "://") != NULL || memoriaFlexivelMB() < 220;
     if (fluxoTelegram) {
         pFormatCtx = avformat_alloc_context();
         pFormatCtx->pb = fluxoTelegram;

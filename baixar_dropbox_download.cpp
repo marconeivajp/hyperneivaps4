@@ -877,24 +877,67 @@ void acessarDropbox(const char* path) {
     menuAtual = MENU_BAIXAR_DROPBOX_LISTA; sel = 0; off = 0;
 }
 
+#ifndef logDownload
+#define logDownload(...) do { FILE* logF = fopen("/data/HyperNeiva/download_debug_log.txt", "a"); if (logF) { fprintf(logF, __VA_ARGS__); fprintf(logF, "\n"); fclose(logF); } } while (0)
+#endif
 void dlRegistrarTarefaPs4(int id, const char* nome);
+static char bgftUrlOriginal[4096] = "";   // link antes dos saltos (para renovar o link assinado)
+static void definirRedirecionamento(int template_, int ligar);
+static void definirLimiteCabecalho(int template_, size_t tamanho);
+bool tentarBgft(const char* urlFinal, const char* nomeExibicao);
+static bool bgftSemPonte = false;
+static bool tentarBgftDireto(const char* urlFinal, const char* nomeExibicao) {
+    bgftSemPonte = true;
+    logDownload("BGFT: tentando o link direto %.200s", urlFinal);
+    bool ok = tentarBgft(urlFinal, nomeExibicao);
+    bgftSemPonte = false;
+    return ok;
+}
 bool tentarBgft(const char* urlFinal, const char* nomeExibicao) {
     sprintf(msgStatus, "TENTANDO BGFT DO PS4..."); atualizarBarra(0.2f);
     uint64_t fileSize = 0; char contentId[40] = { 0 };
     int tpl = sceHttpCreateTemplate(httpCtxId, "Mozilla/5.0 (PlayStation 4 9.00)", ORBIS_HTTP_VERSION_1_1, 1);
-    sceHttpsSetSslCallback(tpl, skipSslCallback, NULL); sceHttpSetAutoRedirect();
+    if (tpl < 0) { logDownload("BGFT: template falhou 0x%08X", (unsigned)tpl); return false; }
+    // O protótipo do sceHttpSetAutoRedirect no OpenOrbis não tem argumentos: chamar direto passava
+    // lixo. E a resposta do GitHub tem cabeçalhos grandes: sem limite maior, o pedido falhava e
+    // o "Pelo PS4" caía em silêncio no download pelo app.
+    sceHttpsSetSslCallback(tpl, skipSslCallback, NULL);
+    definirLimiteCabecalho(tpl, 65536);
+    definirRedirecionamento(tpl, 1);
     int conn = sceHttpCreateConnectionWithURL(tpl, urlFinal, 1);
-    int req = sceHttpCreateRequestWithURL(conn, ORBIS_METHOD_GET, urlFinal, 0);
+    int req = conn >= 0 ? sceHttpCreateRequestWithURL(conn, ORBIS_METHOD_GET, urlFinal, 0) : -1;
+    if (req < 0) { logDownload("BGFT: conexao 0x%08X pedido 0x%08X", (unsigned)conn, (unsigned)req); if (conn >= 0) sceHttpDeleteConnection(conn); sceHttpDeleteTemplate(tpl); return false; }
     sceHttpAddRequestHeader(req, "Range", "bytes=0-16383", 1);
-    if (sceHttpSendRequest(req, NULL, 0) >= 0) {
+    int envio = sceHttpSendRequest(req, NULL, 0);
+    int32_t statusBgft = 0; if (envio >= 0) sceHttpGetStatusCode(req, &statusBgft);
+    logDownload("BGFT: envio 0x%08X status %d", (unsigned)envio, (int)statusBgft);
+    if (envio >= 0) {
+        // Tamanho total: vem no "Content-Range: bytes 0-16383/TOTAL" da resposta. O campo 0x18
+        // do cabeçalho do PKG não é o tamanho (dava 46 TB e o sistema recusava com 0x80990033).
+        uint64_t tamanhoServidor = 0;
+        {
+            char* cab = NULL; size_t ncab = 0;
+            if (sceHttpGetAllResponseHeaders(req, &cab, &ncab) >= 0 && cab) {
+                for (size_t i = 0; i + 14 < ncab; i++) {
+                    if ((i == 0 || cab[i - 1] == '\n') && !strncasecmp(cab + i, "content-range:", 14)) {
+                        const char* barra = (const char*)memchr(cab + i, '/', ncab - i);
+                        if (barra) tamanhoServidor = strtoull(barra + 1, NULL, 10);
+                        break;
+                    }
+                }
+            }
+        }
         unsigned char headerBuf[16384]; memset(headerBuf, 0, sizeof(headerBuf)); int totalRead = 0;
-        while (totalRead < 0x200) { int n = sceHttpReadData(req, headerBuf + totalRead, sizeof(headerBuf) - totalRead); if (n <= 0) break; totalRead += n; }
+        while (totalRead < 0x440) { int n = sceHttpReadData(req, headerBuf + totalRead, sizeof(headerBuf) - totalRead); if (n <= 0) break; totalRead += n; }
         if (totalRead >= 0x80 && headerBuf[0] == 0x7F && headerBuf[1] == 'C' && headerBuf[2] == 'N' && headerBuf[3] == 'T') {
             memcpy(contentId, headerBuf + 0x40, 36); contentId[36] = '\0';
             for (int i = 0; i < 36; i++) { if (contentId[i] < 32 || contentId[i] > 126) contentId[i] = '0'; }
-            uint64_t sizePkg = 0; sizePkg |= ((uint64_t)headerBuf[0x18] << 56); sizePkg |= ((uint64_t)headerBuf[0x19] << 48); sizePkg |= ((uint64_t)headerBuf[0x1A] << 40); sizePkg |= ((uint64_t)headerBuf[0x1B] << 32); sizePkg |= ((uint64_t)headerBuf[0x1C] << 24); sizePkg |= ((uint64_t)headerBuf[0x1D] << 16); sizePkg |= ((uint64_t)headerBuf[0x1E] << 8);  sizePkg |= ((uint64_t)headerBuf[0x1F]); fileSize = sizePkg;
+            uint64_t sizePkg = 0; sizePkg |= ((uint64_t)headerBuf[0x18] << 56); sizePkg |= ((uint64_t)headerBuf[0x19] << 48); sizePkg |= ((uint64_t)headerBuf[0x1A] << 40); sizePkg |= ((uint64_t)headerBuf[0x1B] << 32); sizePkg |= ((uint64_t)headerBuf[0x1C] << 24); sizePkg |= ((uint64_t)headerBuf[0x1D] << 16); sizePkg |= ((uint64_t)headerBuf[0x1E] << 8);  sizePkg |= ((uint64_t)headerBuf[0x1F]); (void)sizePkg;
+            // plano B: pkg_size (big-endian) em 0x430 do cabeçalho
+            uint64_t tam430 = 0; if (totalRead >= 0x438) for (int k = 0; k < 8; k++) tam430 = (tam430 << 8) | headerBuf[0x430 + k];
+            fileSize = tamanhoServidor ? tamanhoServidor : tam430;
         }
-        else { sceHttpDeleteRequest(req); sceHttpDeleteConnection(conn); sceHttpDeleteTemplate(tpl); return false; }
+        else { logDownload("BGFT: nao e PKG (lidos %d, inicio %02X %02X %02X %02X)", totalRead, headerBuf[0], headerBuf[1], headerBuf[2], headerBuf[3]); sceHttpDeleteRequest(req); sceHttpDeleteConnection(conn); sceHttpDeleteTemplate(tpl); return false; }
     }
     else { sceHttpDeleteRequest(req); sceHttpDeleteConnection(conn); sceHttpDeleteTemplate(tpl); return false; }
     sceHttpDeleteRequest(req); sceHttpDeleteConnection(conn); sceHttpDeleteTemplate(tpl);
@@ -909,9 +952,21 @@ bool tentarBgft(const char* urlFinal, const char* nomeExibicao) {
     int32_t userId = 0; sceUserServiceGetInitialUser(&userId);
 
     OrbisBgftDownloadParam params; memset(&params, 0, sizeof(OrbisBgftDownloadParam));
-    params.userId = userId; params.entitlementType = 5; params.id = contentId; params.contentUrl = urlFinal; params.contentName = nomeExibicao; params.playgoScenarioId = "0"; memcpy(&params.packageSize, &fileSize, sizeof(fileSize));   // 64 bits: o header do OpenOrbis corta acima de 4 GB
+    params.userId = userId; params.entitlementType = 5; params.id = contentId; params.contentUrl = urlFinal; params.contentName = nomeExibicao; params.playgoScenarioId = "0"; params.option = ORBIS_BGFT_TASK_OPT_DISABLE_CDN_QUERY_PARAM; params.packageType = "PS4GD"; params.packageSubType = ""; memcpy(&params.packageSize, &fileSize, sizeof(fileSize));   // 64 bits: o header do OpenOrbis corta acima de 4 GB
     OrbisBgftTaskId taskId = -1;
-    if (sceBgftServiceIntDebugDownloadRegisterPkg(&params, &taskId) == 0 && taskId >= 0) { dlRegistrarTarefaPs4((int)taskId, nomeExibicao); sceBgftServiceDownloadStartTask(taskId); sprintf(msgStatus, "DOWNLOAD DA WEB INICIADO!"); atualizarBarra(1.0f); msgTimer = 400; return true; }
+    int registro = sceBgftServiceIntDebugDownloadRegisterPkg(&params, &taskId); if (registro != 0) { params.option = ORBIS_BGFT_TASK_OPT_NONE; params.packageType = NULL; params.packageSubType = NULL; taskId = -1; registro = sceBgftServiceIntDebugDownloadRegisterPkg(&params, &taskId); }
+    logDownload("BGFT: registro 0x%08X tarefa %d id %s tamanho %llu", (unsigned)registro, (int)taskId, contentId, (unsigned long long)fileSize);
+    if (registro == 0 && taskId >= 0) { dlRegistrarTarefaPs4((int)taskId, nomeExibicao); sceBgftServiceDownloadStartTask(taskId); sprintf(msgStatus, "DOWNLOAD DA WEB INICIADO!"); atualizarBarra(1.0f); msgTimer = 400; return true; }
+    // A ponte do app (127.0.0.1:8080) derrubava o app uns 5 s depois de começar (3.66 a 3.71) e
+    // não serve para fechar o app: ficou desligada. Recusado aqui, a escolha reabre em "Pelo Hyper Neiva".
+    if (bgftSemPonte || true) return false;
+    // O sistema recusa link longo (o do GitHub: 0x80990033). Pela ponte do app ele aceita.
+    extern bool hnPkgWebRegistrar(const char* contentId, const char* urlOriginal, const char* urlFinal, const char* titulo, unsigned long long tamanho);
+    if (hnPkgWebRegistrar(contentId, bgftUrlOriginal[0] ? bgftUrlOriginal : urlFinal, urlFinal, nomeExibicao, fileSize)) {
+        logDownload("BGFT: pela ponte do app (127.0.0.1:8080)");
+        sprintf(msgStatus, "BAIXANDO PELO PS4 (MANTENHA O HYPER NEIVA ABERTO)"); atualizarBarra(1.0f); msgTimer = 500;
+        return true;
+    }
     return false;
 }
 
@@ -976,7 +1031,9 @@ int dlInternos(DlLinha* l, int max) {
 }
 
 // Registro de cada etapa: sem ele, uma falha de rede no console não deixa pista nenhuma.
+#ifndef logDownload
 #define logDownload(...) do { FILE* logF = fopen("/data/HyperNeiva/download_debug_log.txt", "a"); if (logF) { fprintf(logF, __VA_ARGS__); fprintf(logF, "\n"); fclose(logF); } } while (0)
+#endif
 
 // O stub do OpenOrbis declara esta função sem argumentos, mas a real recebe (id, ligar).
 static void definirRedirecionamento(int template_, int ligar) {
@@ -1237,18 +1294,60 @@ static bool resolverLinkFinal(const char* url, char* saida, size_t tam) {
     return ok;
 }
 
+static void baixarPkgPeloPs4Agora(const char* url, const char* nome);
+static char pelaPs4Url[4096], pelaPs4Nome[128];
+static volatile bool pelaPs4Rodando = false;
+static void* threadPelaPs4(void*) {
+    baixarPkgPeloPs4Agora(pelaPs4Url, pelaPs4Nome);
+    pelaPs4Rodando = false;
+    return NULL;
+}
 static void baixarPkgPeloPs4(const char* url, const char* nome) {
+    if (pelaPs4Rodando) { snprintf(msgStatus, sizeof(msgStatus), "ESPERE: O PS4 AINDA ESTA RECEBENDO O DOWNLOAD ANTERIOR"); msgTimer = 200; return; }
+    snprintf(pelaPs4Url, sizeof(pelaPs4Url), "%s", url);
+    snprintf(pelaPs4Nome, sizeof(pelaPs4Nome), "%s", nome);
+    snprintf(msgStatus, sizeof(msgStatus), "PREPARANDO O DOWNLOAD PELO PS4..."); msgTimer = 300;
+    pelaPs4Rodando = true;
+    pthread_t t;
+    pthread_attr_t at; pthread_attr_init(&at); pthread_attr_setstacksize(&at, 512 * 1024);   // buffers de 16 KB e SSL do sistema
+    int criou = pthread_create(&t, &at, threadPelaPs4, NULL); pthread_attr_destroy(&at);
+    if (criou == 0) pthread_detach(t);
+    else { pelaPs4Rodando = false; baixarPkgPeloPs4Agora(url, nome); }
+}
+static bool tentarBgftDireto(const char* urlFinal, const char* nomeExibicao);
+static void baixarPkgPeloPs4Agora(const char* url, const char* nome) {
+    // 1) Link curto do GitHub (https e http): o sistema segue o redirecionamento sozinho, e o
+    //    download continua mesmo fechando o Hyper Neiva.
+    extern char githubLinkNavegador[512];
+    if (menuAtual == MENU_BAIXAR_GITHUB_ARQUIVOS && githubLinkNavegador[0]) {
+        char curto[600];
+        snprintf(curto, sizeof(curto), "%s", githubLinkNavegador);
+        if (tentarBgftDireto(curto, nome)) { snprintf(msgStatus, sizeof(msgStatus), "BAIXANDO PELO PS4: PODE FECHAR O APP (NOTIFICACOES > DOWNLOADS)"); msgTimer = 500; return; }
+        if (!strncmp(curto, "https://", 8)) {
+            char http[600]; snprintf(http, sizeof(http), "http://%s", curto + 8);
+            if (tentarBgftDireto(http, nome)) { snprintf(msgStatus, sizeof(msgStatus), "BAIXANDO PELO PS4: PODE FECHAR O APP (NOTIFICACOES > DOWNLOADS)"); msgTimer = 500; return; }
+        }
+    }
+    snprintf(bgftUrlOriginal, sizeof(bgftUrlOriginal), "%s", url);
     char final_[4096];
     if (!resolverLinkFinal(url, final_, sizeof(final_))) snprintf(final_, sizeof(final_), "%s", url);
     // O sistema aceita até 2047 letras de endereço.
-    if (strlen(final_) < 2048 && tentarBgft(final_, nome)) {
+    bool aceito = strlen(final_) < 2048 && tentarBgft(final_, nome);
+    bgftUrlOriginal[0] = 0;
+    if (aceito) {
         snprintf(msgStatus, sizeof(msgStatus), "BAIXANDO PELO PS4: VEJA EM NOTIFICACOES > DOWNLOADS");
         msgTimer = 400;
         return;
     }
-    snprintf(msgStatus, sizeof(msgStatus), "O PS4 NAO ACEITOU ESTE LINK. BAIXANDO PELO HYPER NEIVA...");
-    msgTimer = 300;
-    iniciarDownloadFila(url);
+    // Não baixa em silêncio pelo app: a pessoa escolheu "Pelo PS4". Reabre a escolha já no
+    // outro modo, para ela decidir (o motivo fica no download_debug_log.txt).
+    logDownload("PELO PS4 FALHOU: %.200s", final_);
+    snprintf(msgStatus, sizeof(msgStatus), "O PS4 RECUSOU ESTE LINK (GITHUB NAO DA). BAIXE PELO HYPER NEIVA: INSTALA DIRETO");
+    msgTimer = 400;
+    snprintf(escolhaPkgUrl, sizeof(escolhaPkgUrl), "%s", url);
+    snprintf(escolhaPkgNome, sizeof(escolhaPkgNome), "%s", nome);
+    escolhaPkgSel = 1;
+    escolhaPkgAberta = true;
 }
 
 void escolhaPkgDesenhar(uint32_t* p) {
@@ -1504,3 +1603,6 @@ void dropboxCriarPasta(const char* path) {
     sprintf(msgStatus, "PASTA CRIADA: %s", path);
     msgTimer = 120;
 }
+
+// Para a ponte do "Pelo PS4" (controle_explorar.cpp) renovar o link assinado que venceu.
+bool hnResolverLink(const char* url, char* saida, size_t tam) { return resolverLinkFinal(url, saida, tam); }

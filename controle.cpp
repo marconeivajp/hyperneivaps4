@@ -457,6 +457,23 @@ void processarControles(uint32_t botoes, int32_t uId, OrbisImeDialogSetting* ime
     }
 
     {
+        // Editor de imagem aberto (network.cpp): recebe todos os botões.
+        extern bool editorImagemAberto;
+        if (editorImagemAberto) {
+            extern bool editorImagemControles(uint32_t botoes, uint32_t antigos, int32_t usuario);
+            editorImagemControles(botoes, botoesAntigos, uId);
+            if (botoes & ORBIS_PAD_BUTTON_CROSS) pCross = true;
+            if (botoes & ORBIS_PAD_BUTTON_CIRCLE) pCircle = true;
+            if (botoes & ORBIS_PAD_BUTTON_SQUARE) pSquare = true;
+            if (botoes & ORBIS_PAD_BUTTON_TRIANGLE) pTri = true;
+            if (botoes & ORBIS_PAD_BUTTON_L1) pL1 = true;
+            if (botoes & ORBIS_PAD_BUTTON_R1) pR1 = true;
+            if (botoes & ORBIS_PAD_BUTTON_L2) pL2 = true;
+            botoesAntigos = botoes;
+            return;
+        }
+    }
+    {
         // Visualizador 3D aberto (network.cpp).
         extern bool modelo3dAberto;
         if (modelo3dAberto) {
@@ -812,7 +829,8 @@ void processarControles(uint32_t botoes, int32_t uId, OrbisImeDialogSetting* ime
                     handled = githubVoltarPasta();
                 }
                 else if (menuAtual == MENU_RADIO_CATEGORIA || menuAtual == MENU_RADIO_LISTA || menuAtual == MENU_RADIO_FAVORITOS) {
-                    handled = false; // Deixa o global voltar
+                    extern bool radioVoltar();
+                    handled = radioVoltar(); // episódios voltam para os podcasts; o resto, o global
                 }
                 else if (menuAtual == MENU_EDITAR || menuAtual == MENU_EDIT_TARGET) {
                     extern void acaoCircle_Editar(); acaoCircle_Editar(); 

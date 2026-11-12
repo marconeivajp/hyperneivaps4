@@ -186,6 +186,7 @@ void abrirOpcoesImagem(const char* caminho, bool permitirExtrair) {
     totalOpcoes = 0;
     if (capaAlvoVideo[0] && !avatar) { listaOpcoes[totalOpcoes] = "usar como capa do video"; mapOpcoes[totalOpcoes++] = 195; }
     listaOpcoes[totalOpcoes] = "visualizar"; mapOpcoes[totalOpcoes++] = avatar ? 13 : 14;
+    if (!avatar) { listaOpcoes[totalOpcoes] = "editar imagem"; mapOpcoes[totalOpcoes++] = 196; }
     listaOpcoes[totalOpcoes] = "definir imagem de perfil"; mapOpcoes[totalOpcoes++] = 12;
     if (avatar) {
         if (permitirExtrair) { listaOpcoes[totalOpcoes] = "extrair zip / avatar"; mapOpcoes[totalOpcoes++] = 7; }
@@ -498,6 +499,14 @@ void acaoArquivo(int idxOpcao) {
     }
     case 192: { extern void videoCapaAlternarAuto(); videoCapaAlternarAuto(); int volta = selOpcao; abrirOpcoesVideos(); selOpcao = volta; break; }
     case 193: { extern void videoCapaAlternarSalvas(); videoCapaAlternarSalvas(); int volta = selOpcao; abrirOpcoesVideos(); selOpcao = volta; break; }
+    case 196: {
+        // Editor de imagem (network.cpp / editor_imagem_ui.h)
+        extern bool editorImagemAbrir(const char* caminho);
+        showOpcoes = false;
+        visualizandoMidiaImagem = false;
+        if (!editorImagemAbrir(caminhoImagemAberta)) { snprintf(msgStatus, sizeof(msgStatus), "NAO CONSEGUI ABRIR NO EDITOR"); msgTimer = 150; }
+        break;
+    }
     case 195: {
         extern bool videoDefinirCapa(const char* video, const char* imagem);
         extern void voltarNavegacao();

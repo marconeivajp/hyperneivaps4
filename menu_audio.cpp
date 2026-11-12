@@ -221,6 +221,7 @@ extern bool radioInfo(const char* url, char* nome, int tamNome, char* capa, int 
 extern unsigned radioVersaoCapas();
 extern void radioTrocarEstacao(int passo);
 extern bool radioFavoritaAtual();
+extern bool radioEhPodcast();
 extern void radioFavoritarAtual();
 static int mpMenuItens() { return mpRadio ? 8 : 6; }
 static const int mpIconesRadioCheio[] = { MP_ANTERIOR, MP_PLAY, MP_PROXIMO, MP_VOLUME, MP_MUDO, MP_TAMANHO, MP_MENU };
@@ -301,7 +302,7 @@ static void mpPreparar(const char* c) {
         char nome[200];
         if (!radioInfo(c, nome, sizeof(nome), capaRadio, sizeof(capaRadio))) snprintf(nome, sizeof(nome), "Radio");
         snprintf(mpTitulo, sizeof(mpTitulo), "%s", nome);
-        snprintf(mpArtista, sizeof(mpArtista), "Radio ao vivo");
+        snprintf(mpArtista, sizeof(mpArtista), "%s", radioEhPodcast() ? "Podcast" : "Radio ao vivo");
         const char* host = c + (c[4] == 's' ? 8 : 7);
         snprintf(mpPasta, sizeof(mpPasta), "%.*s", (int)strcspn(host, "/:?"), host);
     }
@@ -393,10 +394,11 @@ static void mpBarraEIcones(uint32_t* p, int x, int largura, int barraY, int icon
         int espessura = mpCheio ? 8 : 6;
         mpRetangulo(p, x, barraY - espessura / 2, largura, espessura, parado ? 0xFF5A5A5A : 0xFFE53935);
         int tamAo = mpCheio ? 26 : tamTexto;
-        int wAo = medirLarguraTexto("AO VIVO", tamAo) + 28;
+        const char* selo = radioEhPodcast() ? "PODCAST" : "AO VIVO";
+        int wAo = medirLarguraTexto(selo, tamAo) + 28;
         int xAo = mpCheio ? 60 : x;
         mpRetangulo(p, xAo, barraY - tamAo, wAo, tamAo + 18, parado ? 0xFF444444 : 0xFFE53935);
-        desenharTexto(p, "AO VIVO", tamAo, xAo + 14, barraY - tamAo + 6, 0xFFFFFFFF);
+        desenharTexto(p, selo, tamAo, xAo + 14, barraY - tamAo + 6, 0xFFFFFFFF);
         char tt[24]; mpTempo(tempo, tt, sizeof(tt));
         if (mpCheio) desenharTexto(p, tt, 28, 1735, barraY - 16, 0xFFCCCCCC);
         else desenharTexto(p, tt, tamTexto, x + largura - medirLarguraTexto(tt, tamTexto), barraY + 12, 0xFFCCCCCC);

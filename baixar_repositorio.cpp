@@ -865,12 +865,15 @@ void acaoOpcaoGithub(int indice) {
 }
 
 char githubNomeDownload[128] = "";
+static char githubLinksCurtos[200][512];
+char githubLinkNavegador[512] = "";
 
 // O item da lista é "12.3 MB - nome.pkg": o nome do arquivo é o que vem depois do traço.
 void githubBaixarArquivo(int indice) {
     if (!linksAtuais[indice][0]) return;
     const char* traco = strstr(nomes[indice], " - ");
     snprintf(githubNomeDownload, sizeof(githubNomeDownload), "%s", traco ? traco + 3 : nomes[indice]);
+    snprintf(githubLinkNavegador, sizeof(githubLinkNavegador), "%s", indice < 200 ? githubLinksCurtos[indice] : "");
     extern void iniciarDownload(const char* url);
     iniciarDownload(linksAtuais[indice]);
 }
@@ -922,6 +925,8 @@ void githubAbrirReleases(const char* repo) {
     mostrarGithubReleases();
 }
 
+// Link curto (browser_download_url) de cada arquivo: o download do PS4 aceita este e segue o
+// redirecionamento sozinho, e aí continua com o app fechado. O link final da CDN é recusado.
 void githubAbrirRelease(int indice) {
     const char* item = jsonPrimeiro(githubRespostaReleases);
     for (int i = 0; item && i < indice; i++) item = jsonProximo(item);
@@ -932,6 +937,7 @@ void githubAbrirRelease(int indice) {
         char nome[180];
         jsonTexto(jsonCampo(a, "name"), nome, sizeof(nome));
         jsonTexto(jsonCampo(a, "url"), linksAtuais[totalItens], 1024);
+        jsonTexto(jsonCampo(a, "browser_download_url"), githubLinksCurtos[totalItens], sizeof(githubLinksCurtos[0]));
         snprintf(nomes[totalItens], 256, "%.1f MB - %s", (double)jsonNumero(jsonCampo(a, "size")) / 1048576.0, nome);
         totalItens++;
     }

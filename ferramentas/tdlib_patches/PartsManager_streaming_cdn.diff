@@ -1,0 +1,29 @@
+--- a/td/telegram/files/PartsManager.cpp
++++ b/td/telegram/files/PartsManager.cpp
+@@ -38,7 +38,10 @@
+     return first_streaming_not_ready_part_;
+   };
+ 
+-  if (offset < 0 || need_check_ || (!unknown_size_flag_ && get_size() < offset)) {
++  // Hyper Neiva: arquivo vindo da CDN (need_check_) também aceita começar em outro ponto. Sem isso,
++  // MP4 com o índice no fim só tocava depois do download inteiro. Os hashes continuam conferidos
++  // em ordem (check_loop) e o arquivo só fica pronto com tudo conferido.
++  if (offset < 0 || (!unknown_size_flag_ && get_size() < offset)) {
+     streaming_offset_ = 0;
+     LOG_IF(ERROR, offset != 0) << "Ignore streaming_offset " << offset << ", need_check_ = " << need_check_
+                                << ", unknown_size_flag_ = " << unknown_size_flag_ << ", size = " << get_size();
+@@ -219,11 +222,9 @@
+ }
+ 
+ string PartsManager::get_bitmask() {
+-  int32 prefix_count = -1;
+-  if (need_check_) {
+-    prefix_count = narrow_cast<int32>(checked_prefix_size_ / part_size_);
+-  }
+-  return bitmask_.encode(prefix_count);
++  // Hyper Neiva: informa todas as partes já gravadas (não só o começo conferido), para o player
++  // enxergar o fim do arquivo que ele pediu antes do meio chegar.
++  return bitmask_.encode(-1);
+ }
+ 
+ bool PartsManager::is_part_in_streaming_limit(int part_id) const {

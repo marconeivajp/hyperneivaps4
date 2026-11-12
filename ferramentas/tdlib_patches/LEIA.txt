@@ -1,0 +1,10 @@
+Ajustes no TDLib compilado para o PS4 (td_ps4, fora deste repositorio).
+
+PartsManager_streaming_cdn.diff (3.70)
+  Arquivos grandes de canais vem da CDN do Telegram (need_check_). O TDLib ignorava o pedido
+  de baixar a partir de outro ponto e so mostrava ao app as partes ja conferidas em ordem.
+  MP4 com o indice no fim so tocava depois do download inteiro. O patch aceita o ponto pedido
+  e informa todas as partes gravadas; os hashes continuam conferidos em ordem.
+
+Aplicar: em td_ps4/src, patch -p1 < PartsManager_streaming_cdn.diff
+Recompilar: em td_ps4, python compilar.py tdcore

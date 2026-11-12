@@ -71,7 +71,8 @@ void preencherMenuExtra() {
     strcpy(nomes[4], "Inteligencia Artificial (Gemini)");
     strcpy(nomes[5], "Chaves de API");
     strcpy(nomes[6], "Previsao do tempo");
-    totalItens = 7;
+    strcpy(nomes[7], "Editor de imagem");
+    totalItens = 8;
     menuAtual = MENU_EXTRA;
     sel = 0;
 }
@@ -1501,6 +1502,21 @@ static void tgFormatarTempo(long long s, char* o, int t) {
     else snprintf(o, t, "%lld:%02lld", s / 60, s % 60);
 }
 // "45%  2.3 MB/s  1:12  faltam 0:35"
+// "120,4 MB de 850,0 MB  -  faltam 729,6 MB"
+static void tgMb(long long b, char* o, int t) {
+    if (b >= 1073741824LL) snprintf(o, t, "%.2f GB", b / 1073741824.0);
+    else snprintf(o, t, "%.1f MB", b / 1048576.0);
+    for (char* c = o; *c; c++) if (*c == '.') *c = ',';
+}
+static void tgTamanhos(const TgDownload* d, char* o, int t) {
+    char feito[24], total[24], resta[24];
+    tgMb(d->baixado, feito, sizeof(feito));
+    if (d->total <= 0) { snprintf(o, t, "%s baixados", feito); return; }
+    tgMb(d->total, total, sizeof(total));
+    if (d->estado != TG_D_BAIXANDO) { snprintf(o, t, "%s", total); return; }
+    tgMb(d->total > d->baixado ? d->total - d->baixado : 0, resta, sizeof(resta));
+    snprintf(o, t, "%s de %s  -  faltam %s", feito, total, resta);
+}
 static void tgInfoDownload(const TgDownload* d, char* o, int t) {
     int porcento = d->total > 0 ? (int)(d->baixado * 100 / d->total) : 0;
     if (!d->inicioMs || d->velocidade <= 1.0) { snprintf(o, t, "%d%%", porcento); return; }
@@ -1513,8 +1529,8 @@ static void tgInfoDownload(const TgDownload* d, char* o, int t) {
 }
 
 static void tgDesenharFila(uint32_t* p) {
-    int largura = 1040, linhas = tgTotalDownloads > 0 ? (tgTotalDownloads < 9 ? tgTotalDownloads : 9) : 1;
-    int altura = 76 + linhas * 84 + 56;
+    int largura = 1040, linhas = tgTotalDownloads > 0 ? (tgTotalDownloads < 8 ? tgTotalDownloads : 8) : 1;
+    int altura = 76 + linhas * 104 + 56;
     int x = (1920 - largura) / 2, y = (1080 - altura) / 2;
     tgArredondado(p, x, y, largura, altura, 18, TG_COR(30, 44, 58), 0, 1080);
     tgEscrever(p, "Downloads", 0, 1 << 30, 30, x + 28, y + 20, TG_COR(255, 255, 255));
@@ -1522,8 +1538,8 @@ static void tgDesenharFila(uint32_t* p) {
     int topo = tgFilaSel >= linhas ? tgFilaSel - linhas + 1 : 0;
     for (int i = 0; i < linhas && topo + i < tgTotalDownloads; i++) {
         const TgDownload* d = &tgDownloads[topo + i];
-        int yl = y + 76 + i * 84;
-        if (topo + i == tgFilaSel) tgArredondado(p, x + 12, yl, largura - 24, 78, 12, TG_COR(43, 82, 120), 0, 1080);
+        int yl = y + 76 + i * 104;
+        if (topo + i == tgFilaSel) tgArredondado(p, x + 12, yl, largura - 24, 98, 12, TG_COR(43, 82, 120), 0, 1080);
         char estado[96];
         int porcento = d->total > 0 ? (int)(d->baixado * 100 / d->total) : 0;
         if (d->estado == TG_D_BAIXANDO && !d->iniciado) strcpy(estado, "Na fila");
@@ -1535,9 +1551,11 @@ static void tgDesenharFila(uint32_t* p) {
         int larguraEstado = tgLargura(estado, 22);
         tgEscreverCortado(p, d->nome, 24, x + 30, yl + 10, largura - 90 - larguraEstado, TG_COR(245, 245, 245));
         tgEscrever(p, estado, 0, 1 << 30, 22, x + largura - 30 - larguraEstado, yl + 12, TG_COR(190, 205, 220));
-        tgArredondado(p, x + 30, yl + 52, largura - 60, 10, 5, TG_COR(23, 33, 43), 0, 1080);
+        char tamanhos[96]; tgTamanhos(d, tamanhos, sizeof(tamanhos));
+        tgEscrever(p, tamanhos, 0, 1 << 30, 20, x + 30, yl + 44, TG_COR(160, 178, 196));
+        tgArredondado(p, x + 30, yl + 74, largura - 60, 10, 5, TG_COR(23, 33, 43), 0, 1080);
         int cheio = d->estado == TG_D_BAIXANDO ? (largura - 60) * porcento / 100 : largura - 60;
-        if (cheio >= 10) tgArredondado(p, x + 30, yl + 52, cheio, 10, 5, d->estado == TG_D_ERRO ? TG_COR(200, 80, 70) : TG_COR(100, 180, 240), 0, 1080);
+        if (cheio >= 10) tgArredondado(p, x + 30, yl + 74, cheio, 10, 5, d->estado == TG_D_ERRO ? TG_COR(200, 80, 70) : TG_COR(100, 180, 240), 0, 1080);
     }
     const char* dica = "O  Fechar";
     if (tgTotalDownloads > 0) dica = tgDownloads[tgFilaSel].estado == TG_D_BAIXANDO ? "X  Cancelar     O  Fechar" : tgDownloads[tgFilaSel].estado >= TG_D_PRONTO ? "X  Tirar da lista     O  Fechar" : "O  Fechar";
@@ -2182,6 +2200,26 @@ static void tgFilaRestaurada(const char* r, long long mensagem) {
     tgSujo = true;
 }
 
+// MP4 com o índice (moov) no fim: o player precisa ler o fim antes de começar, e o TDLib
+// ignora pedido de pular ("need_check"). Abrir assim deixava a tela parada por minutos.
+static __attribute__((unused)) bool tgMp4IndiceNoFim(const char* caminho, long long disponivel) {
+    FILE* f = fopen(caminho, "rb");
+    if (!f) return false;
+    long long pos = 0; bool noFim = false;
+    for (int i = 0; i < 16 && pos + 8 <= disponivel; i++) {
+        unsigned char h[16];
+        if (fseek(f, (long)pos, SEEK_SET) != 0 || fread(h, 1, 16, f) < 8) break;
+        unsigned long long tam = ((unsigned)h[0] << 24) | ((unsigned)h[1] << 16) | ((unsigned)h[2] << 8) | h[3];
+        if (tam == 1) { tam = 0; for (int k = 8; k < 16; k++) tam = (tam << 8) | h[k]; }
+        if (!memcmp(h + 4, "moov", 4)) break;
+        if (!memcmp(h + 4, "mdat", 4)) { noFim = true; break; }
+        if (tam < 8) break;
+        pos += (long long)tam;
+    }
+    fclose(f);
+    return noFim;
+}
+
 static void tgProcessarArquivo(const char* r) {
     long long id = 0;
     if (!tgNumero(r, NULL, "{\"@type\":\"file\",\"id\":", &id)) return;
@@ -2197,11 +2235,13 @@ static void tgProcessarArquivo(const char* r) {
         if (completo) tgFluxo.completo = true;
         // O player só abre com folga de dados: com 512 KB, um vídeo 1080p começava sem nada
         // para decodificar e o app fechava (9 de 49 vídeos 1080p no log; nenhum 720p).
-        long long folga = tgFluxo.total > 0 && tgFluxo.total < 16LL * 1024 * 1024 ? tgFluxo.total / 2 : 8LL * 1024 * 1024;
+        long long folga = tgFluxo.total > 0 && tgFluxo.total < 8LL * 1024 * 1024 ? tgFluxo.total / 2 : 4LL * 1024 * 1024;
         // Áudio toca com bem menos: uns 384 KB já são vários segundos de MP3.
         bool audio = tgPendenteTipo == TG_M_AUDIO;
         if (audio) folga = tgFluxo.total > 0 && tgFluxo.total < 512LL * 1024 ? tgFluxo.total : 384LL * 1024;
         if (!tgFluxo.ativo && !completo && id == tgPendente && tgFluxo.caminho[0] && tgFluxo.inicio == 0) {
+            // Índice no fim do MP4 não espera mais o download inteiro: o TDLib do app foi ajustado
+            // para baixar o trecho que o player pede, mesmo de arquivo da CDN (PartsManager.cpp).
             if (tgFluxo.prefixo >= folga) tgAbrirAgora = true;
             else snprintf(tgAviso, sizeof(tgAviso), audio ? "Carregando áudio... %lld%%" : "Carregando vídeo... %lld%%", tgFluxo.prefixo * 100 / (folga > 0 ? folga : 1));
         }
@@ -2223,7 +2263,8 @@ static void tgProcessarArquivo(const char* r) {
     }
     if (id == tgPendente && !completo && d && id != tgFluxo.arquivo) {
         char info[96]; tgInfoDownload(d, info, sizeof(info));
-        snprintf(tgAviso, sizeof(tgAviso), "Baixando %s   Options: downloads", info);
+        char tam[96]; tgTamanhos(d, tam, sizeof(tam));
+        snprintf(tgAviso, sizeof(tgAviso), "Baixando %s  (%s)   Options: downloads", info, tam);
     }
     if (!completo) return;
     TgArquivo* a = tgArquivo((int)id);
@@ -2594,6 +2635,9 @@ static void* threadImagens(void*) {
     static char caminho[220];
     tgCarregarFontes();
     for (;;) {
+        // Com vídeo em tela cheia, não carrega imagens: elas só ocupariam a memória do player.
+        extern bool videoRodando, video_minimizado;
+        if (videoRodando && !video_minimizado) { sceKernelUsleep(200000); continue; }
         int id = 0, melhorUso = -1, limite = 640;
         pthread_mutex_lock(&tgTrava);
         for (int i = 0; i < tgTotalArquivos; i++) {
@@ -2804,9 +2848,20 @@ static void tgAbrirNoNavegador(const char* url) {
 
 // O player lê daqui enquanto o TDLib baixa. Trecho que ainda não chegou espera, e um salto
 // no vídeo pede o download a partir do ponto novo.
+static void tgFluxoLog(const char* formato, long long a, long long b, long long c, long long d) {
+    static int linhas = 0;
+    FILE* lg = fopen("/data/HyperNeiva/tg_fluxo_log.txt", linhas == 0 ? "w" : "a");
+    if (!lg) return;
+    linhas++;
+    fprintf(lg, "%llu ", (unsigned long long)(sceKernelGetProcessTime() / 1000));
+    fprintf(lg, formato, a, b, c, d);
+    fputc('\n', lg);
+    fclose(lg);
+}
 static int tgFluxoLer(void*, uint8_t* destino, int tamanho) {
     // Sem limite de espera: rede lenta não pode virar fim de vídeo. Só para quando o vídeo
     // fecha (parar) ou quando o arquivo inteiro já foi lido.
+    uint64_t esperaDesde = 0;
     for (;;) {
         if (tgFluxo.parar) return AVERROR_EOF;
         pthread_mutex_lock(&tgTrava);
@@ -2818,17 +2873,20 @@ static int tgFluxoLer(void*, uint8_t* destino, int tamanho) {
             tgEnviar("{\"@type\":\"downloadFile\",\"file_id\":%d,\"priority\":32,\"offset\":%lld,\"limit\":0,\"synchronous\":false}", tgFluxo.arquivo, tgFluxo.pos);
         }
         pthread_mutex_unlock(&tgTrava);
-        if (tgFluxo.completo && disponivel <= 0) return AVERROR_EOF;
+        if (tgFluxo.completo && disponivel <= 0) { tgFluxoLog("fim pos %lld total %lld (%lld %lld)", tgFluxo.pos, tgFluxo.total, 0, 0); return AVERROR_EOF; }
         if (disponivel > 0) {
             int n = disponivel < tamanho ? (int)disponivel : tamanho;
             fseek(tgFluxo.f, (long)tgFluxo.pos, SEEK_SET);
             int lidos = (int)fread(destino, 1, n, tgFluxo.f);
             if (lidos > 0) {
+                if (esperaDesde) tgFluxoLog("esperou %lld ms em %lld (inicio %lld prefixo %lld)", (long long)((sceKernelGetProcessTime() - esperaDesde) / 1000), tgFluxo.pos, tgFluxo.inicio, tgFluxo.prefixo);
                 tgFluxo.pos += lidos;
                 return lidos;
             }
+            tgFluxoLog("leitura vazia em %lld (pediu %lld, disponivel %lld, erro %lld)", tgFluxo.pos, n, disponivel, ferror(tgFluxo.f));
             clearerr(tgFluxo.f);   // o TDLib avisou antes de o trecho chegar ao disco: tenta de novo
         }
+        if (!esperaDesde) esperaDesde = sceKernelGetProcessTime();
         sceKernelUsleep(20000);
     }
 }
@@ -2838,6 +2896,7 @@ static int64_t tgFluxoSaltar(void*, int64_t posicao, int origem) {
     if (origem == AVSEEK_SIZE) return tgFluxo.total;
     long long nova = origem == SEEK_SET ? posicao : origem == SEEK_CUR ? tgFluxo.pos + posicao : tgFluxo.total + posicao;
     if (nova < 0) return -1;
+    tgFluxoLog("salto de %lld para %lld (total %lld prefixo %lld)", tgFluxo.pos, nova, tgFluxo.total, tgFluxo.inicio + tgFluxo.prefixo);
     tgFluxo.pos = nova;
     return nova;
 }
@@ -2849,6 +2908,7 @@ AVIOContext* telegramAbrirFluxo(const char* caminho) {
     AVIOContext* remoto = remotoAbrirFluxo(caminho);
     if (remoto) return remoto;
     if (!tgFluxo.ativo || strcmp(caminho, tgFluxo.caminho) != 0) return NULL;
+    tgFluxoLog("abrir total %lld inicio %lld prefixo %lld arquivo %lld", tgFluxo.total, tgFluxo.inicio, tgFluxo.prefixo, tgFluxo.arquivo);
     tgFluxo.f = fopen(caminho, "rb");
     unsigned char* memoria = tgFluxo.f ? (unsigned char*)av_malloc(65536) : NULL;
     if (memoria) tgFluxo.avio = avio_alloc_context(memoria, 65536, 0, NULL, tgFluxoLer, NULL, tgFluxoSaltar);
@@ -2882,6 +2942,21 @@ void telegramFecharFluxo() {
     tgFluxo.completo = false;
     tgFluxo.caminho[0] = '\0';
     pthread_mutex_unlock(&tgTrava);
+}
+
+// Vídeo 1080p do Telegram deixava o app sem memória (log: 0 MB livres) e ele caía. Antes de
+// abrir, solta as imagens, emojis e letras guardadas: elas voltam sozinhas quando aparecerem.
+static void tgLiberarMemoriaParaVideo() {
+    pthread_mutex_lock(&tgTrava);
+    for (int i = 0; i < tgTotalArquivos; i++) {
+        TgArquivo* a = &tgArquivos[i];
+        if (a->pixels) { free(a->pixels); a->pixels = NULL; }
+    }
+    tgMemoriaImagens = 0;
+    for (int i = 0; i < TG_MAX_EMOJIS; i++) if (tgEmojiImagens[i].pixels) { stbi_image_free(tgEmojiImagens[i].pixels); tgEmojiImagens[i].pixels = NULL; tgEmojiImagens[i].uso = 0; }
+    for (int i = 0; i < TG_MAX_GLIFOS; i++) { free(tgGlifos[i].alfa); memset(&tgGlifos[i], 0, sizeof(tgGlifos[i])); }
+    pthread_mutex_unlock(&tgTrava);
+    tgSujo = true;
 }
 
 // Fora da trava: o player leva tempo para abrir e usa a thread principal.
@@ -2939,6 +3014,7 @@ static void tgAbrirPendente() {
     else {
         extern bool video_repetir, video_telegram, video_repetir_telegram;
         tgPararAudio();
+        tgLiberarMemoriaParaVideo();
         iniciarVideoMP4(tgPendenteCaminho);
         tgTrocandoVideo = false;
         pthread_mutex_lock(&tgTrava);
@@ -4154,6 +4230,7 @@ void acaoCross_Extra() {
     else if (sel == 4) { extern void iaAbrir(); iaAbrir(); }
     else if (sel == 5) { extern void chavesAbrir(); chavesAbrir(); }
     else if (sel == 6) { extern void tempoAbrir(); tempoAbrir(); }
+    else if (sel == 7) { extern bool editorImagemAbrir(const char* caminho); editorImagemAbrir(NULL); }
 }
 
 // =======================================================
@@ -4648,7 +4725,12 @@ int dlTelegram(DlLinha* l, int max) {
         snprintf(l[n].nome, sizeof(l[n].nome), "%s", d->nome);
         l[n].progresso = d->total > 0 ? (float)d->baixado / (float)d->total : -1;
         if (d->estado == TG_D_BAIXANDO && !d->iniciado) snprintf(l[n].info, sizeof(l[n].info), "na fila");
-        else if (d->estado == TG_D_BAIXANDO) tgInfoDownload(d, l[n].info, sizeof(l[n].info));
+        else if (d->estado == TG_D_BAIXANDO) {
+            // No gerenciador: tamanhos primeiro, depois velocidade e tempo.
+            char tam[96], vel[96]; tgTamanhos(d, tam, sizeof(tam)); tgInfoDownload(d, vel, sizeof(vel));
+            snprintf(l[n].info, sizeof(l[n].info), "%s", tam);
+            snprintf(l[n].nome + strlen(l[n].nome), sizeof(l[n].nome) - strlen(l[n].nome), "   %s", vel);
+        }
         else if (d->estado == TG_D_COPIANDO || d->estado == TG_D_COPIAR) snprintf(l[n].info, sizeof(l[n].info), "salvando");
         else if (d->estado == TG_D_ERRO) snprintf(l[n].info, sizeof(l[n].info), "erro");
         else snprintf(l[n].info, sizeof(l[n].info), "concluído");
@@ -4656,4 +4738,17 @@ int dlTelegram(DlLinha* l, int max) {
     }
     pthread_mutex_unlock(&tgTrava);
     return n;
+}
+
+// Emoji do pacote (72x72, RGBA) para o editor de imagem (network.cpp).
+bool hnEmojiRGBA(const char* nome, uint32_t* rgba) {
+    if (!tgEmojis) tgAbrirEmojis("/app0/assets/emoji.pack");
+    if (!tgEmojis) return false;
+    int i = tgBuscarEmoji(nome);
+    if (i < 0) { char n2[80]; snprintf(n2, sizeof(n2), "%s-fe0f", nome); i = tgBuscarEmoji(n2); }
+    if (i < 0) return false;
+    uint32_t* px = tgImagemEmoji(i);
+    if (!px) return false;
+    memcpy(rgba, px, 72 * 72 * 4);
+    return true;
 }

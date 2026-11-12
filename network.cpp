@@ -23,8 +23,10 @@ void initNetwork() {
 
     sceNetInit();
     netPoolId = sceNetPoolCreate("netPool", 16384, 0);
-    sslCtxId = sceSslInit(256 * 1024);
-    httpCtxId = sceHttpInit(netPoolId, sslCtxId, 128 * 1024);
+    // Reservas maiores: com várias conexões HTTPS juntas (ponte do PS4, capas, Drive), 128 KB
+    // de HTTP e 256 KB de SSL estouravam e o app caía dentro da biblioteca de rede.
+    sslCtxId = sceSslInit(512 * 1024);
+    httpCtxId = sceHttpInit(netPoolId, sslCtxId, 512 * 1024);
 }
 
 // =========================================================================
@@ -4165,9 +4167,11 @@ static void pcTraduzirControle(OrbisPadData* d) {
 static int hnPadLerInterno(int handle, OrbisPadData* dados);
 
 // L3 + R3 juntos (fora dos jogos) mostra ou esconde o QR.
+static OrbisPadData hnPadUltimo;      // o editor de imagem lê o touchpad daqui
 int hnPadLer(int handle, OrbisPadData* dados) {
     int rc = hnPadLerInterno(handle, dados);
     if (rc == 0) {
+        hnPadUltimo = *dados;
         extern bool emuladorAtivo;
         static uint32_t antes = 0;
         const uint32_t combo = ORBIS_PAD_BUTTON_L3 | ORBIS_PAD_BUTTON_R3;
@@ -5211,8 +5215,9 @@ static bool remotoEspelhoQuadro(const uint8_t* jpeg, int tam) {
         espelhoQuadros++;
     }
     pthread_mutex_lock(&remotoTrava);
-    // Depois de fechar, recusa até o PC parar de mandar por uns segundos.
-    if (espelhoRecusar && remotoAgoraMs() - espelhoUltimo > 3000) espelhoRecusar = false;
+    // Depois de fechar, recusa até o PS4 pedir de novo (pcAbrirTela) ou 30 s sem quadros:
+    // com 3 s, uma pausa do PC reabria a tela sozinha e derrubava o vídeo do Telegram.
+    if (espelhoRecusar && remotoAgoraMs() - espelhoUltimo > 30000) espelhoRecusar = false;
     bool recusar = espelhoRecusar;
     espelhoUltimo = remotoAgoraMs();
     pthread_mutex_unlock(&remotoTrava);
@@ -5243,11 +5248,9 @@ static void remotoAtenderEspelho() {
         remotoEspelhando = false;
         pthread_mutex_lock(&remotoTrava); espelhoRecusar = true; pthread_mutex_unlock(&remotoTrava);
         remotoLog("ESPELHO fechado no PS4");
-        if (pcControlando) {
-            pcControlando = false;
-            pcPedir("botao	esq	0"); pcPedir("botao	dir	0");
-            pcPedir("espelho	0");
-        }
+        if (pcControlando) { pcPedir("botao	esq	0"); pcPedir("botao	dir	0"); }
+        pcControlando = false;
+        pcPedir("espelho	0");   // sempre: aberto pelo navegador, o PC seguia mandando
         return;
     }
     pthread_mutex_lock(&remotoTrava);
@@ -5268,6 +5271,15 @@ static void remotoAtenderEspelho() {
     if (!novo) return;
     if (emuladorAtivo) { stbi_image_free(novo); return; }
     if (!remotoEspelhando) {
+        // Tela do PC que o PS4 não pediu não toma a tela de um vídeo, do editor ou do emulador.
+        extern bool editorImagemAberto;
+        if (!pcControlando && (videoRodando || editorImagemAberto)) {
+            stbi_image_free(novo);
+            pthread_mutex_lock(&remotoTrava); espelhoRecusar = true; pthread_mutex_unlock(&remotoTrava);
+            pcPedir("espelho	0");
+            remotoLog("ESPELHO recusado: video ou editor aberto");
+            return;
+        }
         if (videoRodando) { bloqueio_fechar_video = false; pararVideo(); }
         remotoEspelhando = true;
         remotoAviso("TELA DO PC NO PS4 - [O] FECHA");
@@ -6345,6 +6357,32 @@ void modelo3dRenderizar(uint32_t* p) {
     desenharTexto(p, t, 30, 40, 30, 0xFFFFFFFF);
     desenharTexto(p, "Analógico ou setas giram   L1/R1 ou analógico direito zoom   X arame   Quadrado volta ao início   O fecha", 22, 40, 1030, 0xFFB8C2CC);
 }
+
+// =========================================================================
+// EDITOR DE IMAGEM (editor_imagem.h e editor_imagem_ui.h)
+// =========================================================================
+#include "stb_truetype.h"
+static void edPlatTexto(uint32_t* p, const char* t, int tam, int x, int y, uint32_t cor) { desenharTexto(p, t, tam, x, y, cor); }
+static int edPlatLargura(const char* t, int tam) { return medirLarguraTexto(t, tam); }
+static uint64_t edPlatAgoraMs() { return remotoAgoraMs(); }
+static bool edPlatTecladoAbrir(int32_t usuario, const char* titulo, int limite, const char* inicial) { return iaAbrirTecladoBase(usuario, titulo, limite, inicial); }
+static int edPlatTecladoResultado(char* texto, int tam) { return iaTecladoResultado(texto, tam); }
+static int edPlatToque(int* x, int* y) {
+    if (!hnPadUltimo.touch.fingers) return 0;
+    *x = hnPadUltimo.touch.touch[0].x; *y = hnPadUltimo.touch.touch[0].y;
+    return hnPadUltimo.touch.fingers;
+}
+static void edPlatAnalogico(int* lx, int* ly, int* rx, int* ry) {
+    extern uint8_t gEmuAnaLX, gEmuAnaLY, gEmuAnaRX, gEmuAnaRY;
+    bool vazio = !gEmuAnaLX && !gEmuAnaLY && !gEmuAnaRX && !gEmuAnaRY;
+    *lx = vazio ? 128 : gEmuAnaLX; *ly = vazio ? 128 : gEmuAnaLY; *rx = vazio ? 128 : gEmuAnaRX; *ry = vazio ? 128 : gEmuAnaRY;
+}
+extern bool hnEmojiRGBA(const char* nome, uint32_t* rgba);   // extra.cpp (pacote do Telegram)
+static bool edPlatEmoji(const char* nome, uint32_t* rgba) { return hnEmojiRGBA(nome, rgba); }
+static void edPlatUsarImagem(const char* caminho) { extern void abrirOpcoesImagem(const char*, bool); abrirOpcoesImagem(caminho, false); }
+static void edPlatConquista(const char* chave) { conquistaGanhar(chave); }
+static void edPlatCriarPasta(const char* caminho) { mkdir(caminho, 0777); }
+#include "editor_imagem_ui.h"
 
 // ---- Thread principal: abre o que chegou do celular ----
 void remotoAtender() {

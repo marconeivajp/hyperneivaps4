@@ -13,6 +13,7 @@
 #include <sys/stat.h>
 
 #include <pthread.h>
+#include <fcntl.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
@@ -24,6 +25,8 @@
 #include <orbis/Sysmodule.h>
 #include <orbis/AppInstUtil.h>
 #include <orbis/Bgft.h>
+#include <orbis/libkernel.h>
+#include <orbis/Http.h>
 #include <orbis/UserService.h>
 
 #include "controle_explorar.h"
@@ -121,37 +124,312 @@ extern void hnTituloPkg(const char* caminho, char* saida, int tamanho);
 extern long long hnBytesFaltandoPkg(const char* caminho);
 
 // O console pede cada PKG pelo content id: várias instalações podem correr juntas.
-static struct { char id[40]; char caminho[512]; char titulo[128]; } pkgsServidor[32];
+static struct { char id[40]; char caminho[512]; char titulo[128]; char* url; char* urlOriginal; long long tamanho; } pkgsServidor[32];
 static int proximoPkgServidor = 0;
 
+static int vagaDoPedido(const char* pedido) {
+    for (int i = 0; i < 32; i++) if (pkgsServidor[i].id[0] && strstr(pedido, pkgsServidor[i].id)) return i;
+    return -1;
+}
 static const char* caminhoDoPedido(const char* pedido) {
     for (int i = 0; i < 32; i++) if (pkgsServidor[i].id[0] && strstr(pedido, pkgsServidor[i].id)) return pkgsServidor[i].caminho;
     return caminhoPkgAtual;
 }
 
+// Entrega o PKG ao download do sistema (instalação de arquivo local). O sistema pede em
+// pedaços ("bytes=X-Y"): responder do X até o fim do arquivo fazia vários pedidos lerem o
+// arquivo inteiro ao mesmo tempo, e a instalação ia a 0,2 MB/s.
+static volatile int pkgServidorPedidos = 0;
+static void pkgServidorLog(int n, long long a, long long b, long long c, int head) {
+    if (n > 40 && n % 200) return;
+    FILE* lg = fopen("/data/HyperNeiva/pkg_servidor_log.txt", n == 1 ? "w" : "a");
+    if (!lg) return;
+    fprintf(lg, "#%d pedido %lld-%lld de %lld%s\n", n, a, b, c, head ? " (HEAD)" : "");
+    fclose(lg);
+}
+static bool enviarTudoPkg(int fd, const char* dados, size_t n) {
+    while (n > 0) { ssize_t k = send(fd, dados, n, 0); if (k <= 0) return false; dados += k; n -= (size_t)k; }
+    return true;
+}
+// ---- "Pelo PS4" com link da internet: o sistema recusa link longo (o do GitHub tem 900+
+// letras: 0x80990033), mas aceita o do app. O app busca cada pedaço pedido no link de verdade.
+extern int httpCtxId;
+extern int skipSslCallback(int libsslId, unsigned int verifyErr, void* const sslCert[], int certNum, void* userArg);
+extern bool hnResolverLink(const char* url, char* saida, size_t tam);
+static pthread_mutex_t pkgWebTrava = PTHREAD_MUTEX_INITIALIZER;
+static int pkgWebTarefa[32];
+static bool pkgWebEnviar(int fd, int vaga, long long ini, long long fim) {
+    long long total = fim - ini + 1;
+    char* buffer = (char*)malloc(256 * 1024);
+    if (!buffer) return false;
+    bool ok = false;
+    for (int tentativa = 0; tentativa < 2 && !ok; tentativa++) {
+        char url[4096];
+        pthread_mutex_lock(&pkgWebTrava); snprintf(url, sizeof(url), "%s", pkgsServidor[vaga].url ? pkgsServidor[vaga].url : ""); pthread_mutex_unlock(&pkgWebTrava);
+        int tpl = sceHttpCreateTemplate(httpCtxId, "HyperNeiva/1.0", ORBIS_HTTP_VERSION_1_1, 1);
+        if (tpl < 0) break;
+        sceHttpsSetSslCallback(tpl, skipSslCallback, NULL);
+        ((int (*)(int, size_t))(void*)sceHttpSetResponseHeaderMaxSize)(tpl, 32768);
+        ((int (*)(int, int))(void*)sceHttpSetAutoRedirect)(tpl, 1);
+        int conn = sceHttpCreateConnectionWithURL(tpl, url, 1);
+        int req = conn >= 0 ? sceHttpCreateRequestWithURL(conn, ORBIS_METHOD_GET, url, 0) : -1;
+        int32_t status = 0;
+        if (req >= 0) {
+            char faixa[80]; snprintf(faixa, sizeof(faixa), "bytes=%lld-%lld", ini, fim);
+            sceHttpAddRequestHeader(req, "Range", faixa, 1);
+            if (sceHttpSendRequest(req, NULL, 0) >= 0) sceHttpGetStatusCode(req, &status);
+            if (status == 206 || (status == 200 && ini == 0)) {
+                long long enviado = 0; int n;
+                while (enviado < total && (n = sceHttpReadData(req, buffer, (int)(total - enviado < 256 * 1024 ? total - enviado : 256 * 1024))) > 0) {
+                    if (!enviarTudoPkg(fd, buffer, (size_t)n)) break;
+                    enviado += n;
+                }
+                ok = enviado == total;
+            }
+        }
+        if (req >= 0) sceHttpDeleteRequest(req);
+        if (conn >= 0) sceHttpDeleteConnection(conn);
+        sceHttpDeleteTemplate(tpl);
+        FILE* lg = fopen("/data/HyperNeiva/pkg_servidor_log.txt", "a");
+        if (lg) {
+            OrbisBgftTaskProgress pr; memset(&pr, 0, sizeof(pr));
+            int rp = pkgWebTarefa[vaga] > 0 ? sceBgftServiceDownloadGetProgress(pkgWebTarefa[vaga], &pr) : -1;
+            fprintf(lg, "web %lld-%lld status %d %s | sistema rc 0x%08X %u/%u bytes, total %u/%u, erro 0x%08X\n", ini, fim, (int)status, ok ? "ok" : "falhou",
+                (unsigned)rp, pr.transferred, pr.length, pr.transferredTotal, pr.lengthTotal, (unsigned)pr.errorResult);
+            fclose(lg);
+        }
+        // O link assinado do GitHub vence em ~1 h: resolve de novo a partir do original.
+        if (!ok && tentativa == 0 && (status == 403 || status == 404 || status == 410 || status == 400) && pkgsServidor[vaga].urlOriginal) {
+            char novo[4096];
+            if (hnResolverLink(pkgsServidor[vaga].urlOriginal, novo, sizeof(novo))) {
+                pthread_mutex_lock(&pkgWebTrava); free(pkgsServidor[vaga].url); pkgsServidor[vaga].url = strdup(novo); pthread_mutex_unlock(&pkgWebTrava);
+            }
+            else break;
+        }
+        else break;
+    }
+    free(buffer);
+    return ok;
+}
+
+// ---- Ponte rápida: baixa o arquivo adiantado em 2 conexões, em blocos de 8 MB, para um
+// arquivo temporário; o PS4 lê do disco o que já chegou. Antes, cada pedaço pedido pelo PS4
+// era buscado na hora, numa conexão só, no ritmo do sistema.
+#define PONTE_BLOCO (8LL * 1024 * 1024)
+#define PONTE_TRABALHADORES 2
+static struct {
+    volatile bool ativa, parar;
+    int vaga, fd, blocos;
+    long long tamanho;
+    volatile uint8_t* estado;          // 0 falta, 1 baixando, 2 pronto
+    volatile int prioridade;           // bloco que o PS4 está pedindo
+    volatile int rodando;
+    volatile long long baixados;
+    uint64_t inicioMs;
+    char arquivo[300];
+} ponte;
+static pthread_mutex_t ponteTrava = PTHREAD_MUTEX_INITIALIZER;
+static uint64_t ponteAgoraMs() { return sceKernelGetProcessTime() / 1000; }
+static void ponteLog(const char* formato, long long a, long long b, long long c, long long d) {
+    FILE* lg = fopen("/data/HyperNeiva/pkg_servidor_log.txt", "a");
+    if (!lg) return;
+    fprintf(lg, "[%llu ms] ", (unsigned long long)(ponteAgoraMs() - ponte.inicioMs));
+    fprintf(lg, formato, a, b, c, d); fputc('\n', lg); fclose(lg);
+}
+// Baixa um bloco do link para o arquivo. Renova o link assinado se ele vencer.
+static bool ponteBaixarBloco(int b, char* buffer) {
+    long long ini = (long long)b * PONTE_BLOCO, fim = ini + PONTE_BLOCO - 1;
+    if (fim > ponte.tamanho - 1) fim = ponte.tamanho - 1;
+    long long total = fim - ini + 1;
+    for (int tentativa = 0; tentativa < 4 && !ponte.parar; tentativa++) {
+        char url[4096];
+        pthread_mutex_lock(&pkgWebTrava); snprintf(url, sizeof(url), "%s", pkgsServidor[ponte.vaga].url ? pkgsServidor[ponte.vaga].url : ""); pthread_mutex_unlock(&pkgWebTrava);
+        int tpl = sceHttpCreateTemplate(httpCtxId, "HyperNeiva/1.0", ORBIS_HTTP_VERSION_1_1, 1);
+        if (tpl < 0) { sceKernelUsleep(500000); continue; }
+        sceHttpsSetSslCallback(tpl, skipSslCallback, NULL);
+        ((int (*)(int, size_t))(void*)sceHttpSetResponseHeaderMaxSize)(tpl, 32768);
+        ((int (*)(int, int))(void*)sceHttpSetAutoRedirect)(tpl, 1);
+        int conn = sceHttpCreateConnectionWithURL(tpl, url, 1);
+        int req = conn >= 0 ? sceHttpCreateRequestWithURL(conn, ORBIS_METHOD_GET, url, 0) : -1;
+        int32_t status = 0; long long feito = 0;
+        if (req >= 0) {
+            ((int (*)(int, unsigned int))(void*)sceHttpSetRecvTimeOut)(req, 30u * 1000000u);
+            char faixa[80]; snprintf(faixa, sizeof(faixa), "bytes=%lld-%lld", ini, fim);
+            sceHttpAddRequestHeader(req, "Range", faixa, 1);
+            if (sceHttpSendRequest(req, NULL, 0) >= 0) sceHttpGetStatusCode(req, &status);
+            if (status == 206) {
+                int n;
+                while (feito < total && !ponte.parar && (n = sceHttpReadData(req, buffer, (int)(total - feito < 1024 * 1024 ? total - feito : 1024 * 1024))) > 0) {
+                    if ((ssize_t)sceKernelPwrite(ponte.fd, buffer, (size_t)n, (off_t)(ini + feito)) != n) break;
+                    feito += n;
+                }
+            }
+        }
+        if (req >= 0) sceHttpDeleteRequest(req);
+        if (conn >= 0) sceHttpDeleteConnection(conn);
+        sceHttpDeleteTemplate(tpl);
+        if (feito == total) { __sync_add_and_fetch(&ponte.baixados, total); return true; }
+        ponteLog("bloco %lld falhou: status %lld, %lld de %lld bytes", b, status, feito, total);
+        if ((status == 403 || status == 404 || status == 410 || status == 400) && pkgsServidor[ponte.vaga].urlOriginal) {
+            char novo[4096];
+            if (hnResolverLink(pkgsServidor[ponte.vaga].urlOriginal, novo, sizeof(novo))) {
+                pthread_mutex_lock(&pkgWebTrava); free(pkgsServidor[ponte.vaga].url); pkgsServidor[ponte.vaga].url = strdup(novo); pthread_mutex_unlock(&pkgWebTrava);
+            }
+        }
+        sceKernelUsleep(300000);
+    }
+    return false;
+}
+static void* ponteTrabalhador(void*) {
+    char* buffer = (char*)malloc(1024 * 1024);
+    while (buffer && !ponte.parar) {
+        int b = -1;
+        pthread_mutex_lock(&ponteTrava);
+        // primeiro o bloco que o PS4 pediu e os seguintes; depois qualquer um que falte
+        for (int i = ponte.prioridade; i < ponte.blocos && b < 0; i++) if (ponte.estado[i] == 0) b = i;
+        for (int i = 0; i < ponte.blocos && b < 0; i++) if (ponte.estado[i] == 0) b = i;
+        if (b >= 0) ponte.estado[b] = 1;
+        pthread_mutex_unlock(&ponteTrava);
+        if (b < 0) break;
+        bool ok = ponteBaixarBloco(b, buffer);
+        pthread_mutex_lock(&ponteTrava); ponte.estado[b] = ok ? 2 : 0; pthread_mutex_unlock(&ponteTrava);
+        if (!ok) sceKernelUsleep(1000000);
+        if (ok && (b % 8 == 0 || b == ponte.blocos - 1)) {
+            uint64_t ms = ponteAgoraMs() - ponte.inicioMs;
+            ponteLog("internet: %lld MB de %lld MB, %lld KB/s (bloco %lld)", ponte.baixados >> 20, ponte.tamanho >> 20, ms ? ponte.baixados * 1000 / (long long)ms / 1024 : 0, b);
+        }
+    }
+    free(buffer);
+    __sync_sub_and_fetch(&ponte.rodando, 1);
+    return NULL;
+}
+static void ponteParar() {
+    if (!ponte.ativa) return;
+    ponte.parar = true;
+    for (int i = 0; i < 300 && ponte.rodando > 0; i++) sceKernelUsleep(20000);
+    if (ponte.fd >= 0) sceKernelClose(ponte.fd);
+    remove(ponte.arquivo);
+    free((void*)ponte.estado); ponte.estado = NULL;
+    ponte.ativa = false;
+}
+static bool ponteIniciar(int vaga, const char* contentId, long long tamanho) {
+    ponteParar();
+    mkdir("/data/pkg", 0777); mkdir("/data/pkg/ponte", 0777);
+    snprintf(ponte.arquivo, sizeof(ponte.arquivo), "/data/pkg/ponte/%s.part", contentId);
+    ponte.fd = sceKernelOpen(ponte.arquivo, O_RDWR | O_CREAT | O_TRUNC, 0666);
+    if (ponte.fd < 0) return false;
+    ponte.tamanho = tamanho; ponte.vaga = vaga;
+    ponte.blocos = (int)((tamanho + PONTE_BLOCO - 1) / PONTE_BLOCO);
+    ponte.estado = (volatile uint8_t*)calloc(ponte.blocos, 1);
+    if (!ponte.estado) { sceKernelClose(ponte.fd); ponte.fd = -1; return false; }
+    ponte.prioridade = 0; ponte.baixados = 0; ponte.parar = false; ponte.inicioMs = ponteAgoraMs();
+    ponte.ativa = true;
+    FILE* lg = fopen("/data/HyperNeiva/pkg_servidor_log.txt", "w"); if (lg) fclose(lg);
+    ponteLog("ponte: %lld MB em %lld blocos, %lld conexoes", tamanho >> 20, ponte.blocos, PONTE_TRABALHADORES, 0);
+    for (int i = 0; i < PONTE_TRABALHADORES; i++) {
+        pthread_t t;
+        __sync_add_and_fetch(&ponte.rodando, 1);
+        pthread_attr_t at; pthread_attr_init(&at); pthread_attr_setstacksize(&at, 256 * 1024);
+        int criou = pthread_create(&t, &at, ponteTrabalhador, NULL); pthread_attr_destroy(&at);
+        if (criou == 0) pthread_detach(t); else __sync_sub_and_fetch(&ponte.rodando, 1);
+    }
+    return true;
+}
+// Entrega ao PS4 o trecho pedido, do disco, esperando cada bloco chegar.
+static bool ponteEnviar(int fd, long long ini, long long fim) {
+    char* buffer = (char*)malloc(1024 * 1024);
+    if (!buffer) return false;
+    uint64_t t0 = ponteAgoraMs();
+    long long pos = ini;
+    bool ok = true;
+    while (pos <= fim && ok) {
+        int b = (int)(pos / PONTE_BLOCO);
+        ponte.prioridade = b;
+        int espera = 0;
+        while (ponte.ativa && !ponte.parar && ponte.estado[b] != 2 && espera < 6000) { sceKernelUsleep(20000); espera++; }   // até 2 min
+        if (!ponte.ativa || ponte.estado[b] != 2) { ok = false; break; }
+        long long fimBloco = ((long long)b + 1) * PONTE_BLOCO - 1; if (fimBloco > fim) fimBloco = fim;
+        while (pos <= fimBloco && ok) {
+            size_t n = (size_t)(fimBloco - pos + 1 < 1024 * 1024 ? fimBloco - pos + 1 : 1024 * 1024);
+            ssize_t lidos = (ssize_t)sceKernelPread(ponte.fd, buffer, n, (off_t)pos);
+            if (lidos <= 0 || !enviarTudoPkg(fd, buffer, (size_t)lidos)) { ok = false; break; }
+            pos += lidos;
+        }
+    }
+    free(buffer);
+    uint64_t ms = ponteAgoraMs() - t0;
+    if (fim - ini > 1024 * 1024) ponteLog("PS4 leu %lld KB em %lld ms (%lld KB/s) %s", (pos - ini) >> 10, (long long)ms, ms ? ((pos - ini) * 1000 / (long long)ms) >> 10 : 0, ok ? 0 : 1);
+    return ok;
+}
+
 static void* handle_client(void* arg) {
     int client_fd = *(int*)arg; free(arg); int set = 1;
     setsockopt(client_fd, SOL_SOCKET, SO_NOSIGPIPE, (void*)&set, sizeof(int));
-    char buffer_req[2048]; memset(buffer_req, 0, sizeof(buffer_req));
-    recv(client_fd, buffer_req, sizeof(buffer_req) - 1, 0);
-    if (strlen(caminhoPkgAtual) > 0 && strlen(buffer_req) > 0) {
+    int bufSock = 1024 * 1024; setsockopt(client_fd, SOL_SOCKET, SO_SNDBUF, &bufSock, sizeof(bufSock));
+    char buffer_req[4096]; memset(buffer_req, 0, sizeof(buffer_req));
+    // o pedido pode chegar em partes: lê até o fim do cabeçalho
+    int lido = 0;
+    while (lido < (int)sizeof(buffer_req) - 1) {
+        int k = recv(client_fd, buffer_req + lido, sizeof(buffer_req) - 1 - lido, 0);
+        if (k <= 0) break;
+        lido += k; buffer_req[lido] = 0;
+        if (strstr(buffer_req, "\r\n\r\n")) break;
+    }
+    int vagaWeb = lido > 0 ? vagaDoPedido(buffer_req) : -1;
+    if (vagaWeb >= 0 && pkgsServidor[vagaWeb].url) {
+        bool head = strncmp(buffer_req, "HEAD", 4) == 0;
+        long long fsize = pkgsServidor[vagaWeb].tamanho, ini = 0, fim = fsize - 1;
+        const char* r = strstr(buffer_req, "Range: bytes="); if (!r) r = strstr(buffer_req, "range: bytes=");
+        bool parcial = false;
+        if (r) { long long a = -1, b = -1; int k = sscanf(r + 13, "%lld-%lld", &a, &b); if (k >= 1 && a >= 0) { ini = a; if (k == 2 && b >= a) fim = b; parcial = true; } }
+        if (fim > fsize - 1) fim = fsize - 1;
+        if (ini > fim) ini = fim;
+        char cab[512];
+        if (parcial) snprintf(cab, sizeof(cab), "HTTP/1.1 206 Partial Content\r\nContent-Type: application/octet-stream\r\nAccept-Ranges: bytes\r\nContent-Range: bytes %lld-%lld/%lld\r\nContent-Length: %lld\r\nConnection: close\r\n\r\n", ini, fim, fsize, fim - ini + 1);
+        else snprintf(cab, sizeof(cab), "HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nAccept-Ranges: bytes\r\nContent-Length: %lld\r\nConnection: close\r\n\r\n", fsize);
+        int pedido = __sync_add_and_fetch(&pkgServidorPedidos, 1);
+        pkgServidorLog(pedido, ini, fim, fsize, head);
+        if (enviarTudoPkg(client_fd, cab, strlen(cab)) && !head) {
+            if (ponte.ativa && ponte.vaga == vagaWeb) ponteEnviar(client_fd, ini, fim);
+            else pkgWebEnviar(client_fd, vagaWeb, ini, fim);
+        }
+    }
+    else if (strlen(caminhoPkgAtual) > 0 && lido > 0) {
         bool is_head_request = (strncmp(buffer_req, "HEAD", 4) == 0);
         FILE* f = fopen(caminhoDoPedido(buffer_req), "rb");
         if (f) {
-            fseek(f, 0, SEEK_END); size_t fsize = ftell(f); fseek(f, 0, SEEK_SET);
-            size_t start_range = 0; char* range_str = strstr(buffer_req, "Range: bytes=");
-            if (range_str) sscanf(range_str, "Range: bytes=%zu-", &start_range);
-            char header[512];
-            if (start_range > 0) {
-                sprintf(header, "HTTP/1.1 206 Partial Content\r\nContent-Type: application/octet-stream\r\nAccept-Ranges: bytes\r\nContent-Range: bytes %zu-%zu/%zu\r\nContent-Length: %zu\r\nConnection: close\r\n\r\n", start_range, fsize - 1, fsize, fsize - start_range);
-                fseek(f, start_range, SEEK_SET);
+            fseeko(f, 0, SEEK_END); long long fsize = (long long)ftello(f); fseeko(f, 0, SEEK_SET);
+            long long ini = 0, fim = fsize - 1;
+            const char* range_str = strstr(buffer_req, "Range: bytes="); if (!range_str) range_str = strstr(buffer_req, "range: bytes=");
+            bool parcial = false;
+            if (range_str) {
+                long long a = -1, b = -1;
+                int lidos = sscanf(range_str + 13, "%lld-%lld", &a, &b);
+                if (lidos >= 1 && a >= 0) { ini = a; if (lidos == 2 && b >= a) fim = b; parcial = true; }
             }
-            else { sprintf(header, "HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nAccept-Ranges: bytes\r\nContent-Length: %zu\r\nConnection: close\r\n\r\n", fsize); }
-            send(client_fd, header, strlen(header), 0);
-            if (!is_head_request) {
-                size_t bytes_read; char* file_buffer = (char*)malloc(65536);
-                while ((bytes_read = fread(file_buffer, 1, 65536, f)) > 0) { if (send(client_fd, file_buffer, bytes_read, 0) < 0) break; } free(file_buffer);
-            } fclose(f);
+            if (fim > fsize - 1) fim = fsize - 1;
+            if (ini > fim) ini = fim;
+            long long total = fim - ini + 1;
+            char header[512];
+            if (parcial) snprintf(header, sizeof(header), "HTTP/1.1 206 Partial Content\r\nContent-Type: application/octet-stream\r\nAccept-Ranges: bytes\r\nContent-Range: bytes %lld-%lld/%lld\r\nContent-Length: %lld\r\nConnection: close\r\n\r\n", ini, fim, fsize, total);
+            else snprintf(header, sizeof(header), "HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nAccept-Ranges: bytes\r\nContent-Length: %lld\r\nConnection: close\r\n\r\n", fsize);
+            int pedido = __sync_add_and_fetch(&pkgServidorPedidos, 1);
+            pkgServidorLog(pedido, ini, fim, fsize, is_head_request);
+            bool ok = enviarTudoPkg(client_fd, header, strlen(header));
+            if (ok && !is_head_request) {
+                const size_t BLOCO = 1024 * 1024;
+                char* file_buffer = (char*)malloc(BLOCO);
+                fseeko(f, ini, SEEK_SET);
+                long long falta = parcial ? total : fsize;
+                while (file_buffer && falta > 0) {
+                    size_t pedir = falta < (long long)BLOCO ? (size_t)falta : BLOCO;
+                    size_t n = fread(file_buffer, 1, pedir, f);
+                    if (n == 0 || !enviarTudoPkg(client_fd, file_buffer, n)) break;
+                    falta -= (long long)n;
+                }
+                free(file_buffer);
+            }
+            fclose(f);
         }
         else { char* not_found = (char*)"HTTP/1.1 404 Not Found\r\n\r\n"; send(client_fd, not_found, strlen(not_found), 0); }
     } close(client_fd); return NULL;
@@ -161,7 +439,7 @@ static void* threadServidorHTTP(void* arg) {
     int server_fd = socket(AF_INET, SOCK_STREAM, 0); struct sockaddr_in addr; addr.sin_family = AF_INET; addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK); addr.sin_port = htons(8080);
     int opt = 1; setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
     if (bind(server_fd, (struct sockaddr*)&addr, sizeof(addr)) < 0) return NULL; listen(server_fd, 10);
-    while (1) { int client_fd = accept(server_fd, NULL, NULL); if (client_fd < 0) continue; int* pclient = (int*)malloc(sizeof(int)); *pclient = client_fd; pthread_t tid; pthread_create(&tid, NULL, handle_client, pclient); pthread_detach(tid); }
+    while (1) { int client_fd = accept(server_fd, NULL, NULL); if (client_fd < 0) continue; int* pclient = (int*)malloc(sizeof(int)); *pclient = client_fd; pthread_t tid; pthread_attr_t at; pthread_attr_init(&at); pthread_attr_setstacksize(&at, 256 * 1024); if (pthread_create(&tid, &at, handle_client, pclient) == 0) pthread_detach(tid); else { close(client_fd); free(pclient); } pthread_attr_destroy(&at); }
     return NULL;
 }
 
@@ -169,9 +447,127 @@ static void ligarServidorSeNecessario() {
     if (!servidorRodando) { pthread_t tid; pthread_create(&tid, NULL, threadServidorHTTP, NULL); servidorRodando = true; }
 }
 
+static void instalarPkgPeloServidor(const char* caminhoAbsoluto);
+static void pkgLog(const char* formato, int a, const char* b) {
+    FILE* registro = fopen("/data/HyperNeiva/zip_debug_log.txt", "a");
+    if (registro) { fprintf(registro, formato, a, b); fputc('\n', registro); fclose(registro); }
+}
+// Instala direto do arquivo (sceAppInstUtilAppInstallPkg): sem passar pelo download do
+// sistema, que fica lento (0,2 MB/s) enquanto um app está aberto. Se o sistema recusar,
+// cai no jeito antigo (download do sistema servido pelo próprio app).
+static char pkgDiretoCaminho[512];
+static volatile bool pkgDiretoRodando = false;
+static void* threadPkgDireto(void*) {
+    sceSysmoduleLoadModuleInternal(ORBIS_SYSMODULE_INTERNAL_APP_INST_UTIL);
+    static bool iniciado = false;
+    if (!iniciado) { int r0 = sceAppInstUtilInitialize(); pkgLog("INSTALAR DIRETO: inicializar 0x%08X %s", r0, ""); iniciado = true; }
+    // O instalador só aceita o caminho completo do sistema: /data/... dava 0x80020012.
+    char completo[540];
+    if (!strncmp(pkgDiretoCaminho, "/data/", 6)) snprintf(completo, sizeof(completo), "/user%s", pkgDiretoCaminho);
+    else snprintf(completo, sizeof(completo), "%s", pkgDiretoCaminho);
+    int r = sceAppInstUtilAppInstallPkg(completo, NULL);
+    pkgLog("INSTALAR DIRETO: 0x%08X %s", r, completo);
+    if (r < 0 && strcmp(completo, pkgDiretoCaminho) != 0) {
+        r = sceAppInstUtilAppInstallPkg(pkgDiretoCaminho, NULL);
+        pkgLog("INSTALAR DIRETO (sem /user): 0x%08X %s", r, pkgDiretoCaminho);
+    }
+    if (r >= 0) {
+        snprintf(msgStatus, sizeof(msgStatus), "INSTALANDO DIRETO NO PS4... VEJA NA TELA INICIAL");
+        msgTimer = 500;
+    }
+    else {
+        snprintf(msgStatus, sizeof(msgStatus), "INSTALACAO DIRETA RECUSADA (0x%08X): USANDO O DOWNLOAD DO SISTEMA", (unsigned)r);
+        msgTimer = 400;
+        instalarPkgPeloServidor(pkgDiretoCaminho);
+    }
+    pkgDiretoRodando = false;
+    return NULL;
+}
 void instalarPkgLocal(const char* caminhoAbsoluto) {
     extern void conquistaGanhar(const char* chave);
     conquistaGanhar("pkg");
+    long long faltamAntes = hnBytesFaltandoPkg(caminhoAbsoluto);
+    if (faltamAntes > 0) {
+        snprintf(msgStatus, sizeof(msgStatus), "PKG INCOMPLETO: FALTAM %.2f GB. BAIXE E EXTRAIA TODAS AS PARTES", (double)faltamAntes / 1073741824.0);
+        msgTimer = 600;
+        return;
+    }
+    if (pkgDiretoRodando) { snprintf(msgStatus, sizeof(msgStatus), "ESPERE A INSTALACAO ATUAL COMECAR"); msgTimer = 200; return; }
+    snprintf(pkgDiretoCaminho, sizeof(pkgDiretoCaminho), "%s", caminhoAbsoluto);
+    snprintf(msgStatus, sizeof(msgStatus), "INSTALANDO DIRETO DO ARQUIVO..."); msgTimer = 300;
+    pkgDiretoRodando = true;
+    pthread_t t;
+    if (pthread_create(&t, NULL, threadPkgDireto, NULL) == 0) pthread_detach(t);
+    else { pkgDiretoRodando = false; instalarPkgPeloServidor(caminhoAbsoluto); }
+}
+
+// "Pelo PS4" com link da internet que o sistema recusou: registra o download apontando para o app.
+bool hnPkgWebRegistrar(const char* contentId, const char* urlOriginal, const char* urlFinal, const char* titulo, unsigned long long tamanho) {
+    if (!contentId || strlen(contentId) != 36 || !tamanho) return false;
+    if (!caminhoPkgAtual[0]) snprintf(caminhoPkgAtual, sizeof(caminhoPkgAtual), "web");
+    ligarServidorSeNecessario();
+    int vaga = -1;
+    for (int i = 0; i < 32; i++) if (strcmp(pkgsServidor[i].id, contentId) == 0) vaga = i;
+    if (vaga < 0) { vaga = proximoPkgServidor; proximoPkgServidor = (proximoPkgServidor + 1) % 32; }
+    pthread_mutex_lock(&pkgWebTrava);
+    snprintf(pkgsServidor[vaga].id, sizeof(pkgsServidor[vaga].id), "%s", contentId);
+    pkgsServidor[vaga].caminho[0] = 0;
+    snprintf(pkgsServidor[vaga].titulo, sizeof(pkgsServidor[vaga].titulo), "%s", titulo);
+    free(pkgsServidor[vaga].url); pkgsServidor[vaga].url = strdup(urlFinal);
+    free(pkgsServidor[vaga].urlOriginal); pkgsServidor[vaga].urlOriginal = strdup(urlOriginal ? urlOriginal : urlFinal);
+    pkgsServidor[vaga].tamanho = (long long)tamanho;
+    pthread_mutex_unlock(&pkgWebTrava);
+    int32_t userId = 0; sceUserServiceGetInitialUser(&userId);
+    static char urlPkg[160]; snprintf(urlPkg, sizeof(urlPkg), "http://127.0.0.1:8080/%s.pkg", contentId);
+    static char id[40]; snprintf(id, sizeof(id), "%s", contentId);
+    OrbisBgftTaskId tarefaAntiga = -1; sceBgftServiceIntDownloadFindActiveTask(id, ORBIS_BGFT_TASK_SUB_TYPE_PACKAGE, &tarefaAntiga);
+    if (tarefaAntiga != -1) sceBgftServiceIntDownloadUnregisterTask(tarefaAntiga);
+    OrbisBgftDownloadParam params; memset(&params, 0, sizeof(params));
+    params.userId = userId; params.entitlementType = 5; params.id = id; params.contentUrl = urlPkg; params.contentName = pkgsServidor[vaga].titulo; params.playgoScenarioId = "0"; params.option = ORBIS_BGFT_TASK_OPT_DISABLE_CDN_QUERY_PARAM; params.packageType = "PS4GD"; params.packageSubType = "";
+    uint64_t t64 = tamanho; memcpy(&params.packageSize, &t64, sizeof(t64));
+    OrbisBgftTaskId taskId = -1;
+    if (!ponteIniciar(vaga, contentId, (long long)tamanho)) pkgLog("PONTE RAPIDA: nao abriu o temporario 0x%08X %s", 0, contentId);
+    // Registro normal (o da loja) primeiro: com o de teste, o PS4 ficava em "Calculando".
+    // A tarefa da tentativa anterior (guardada em arquivo) sai antes: com ela no sistema o
+    // registro normal dava 0x80990015 e o de teste travava o app.
+    {
+        FILE* fa = fopen("/data/HyperNeiva/configuracao/ponte_tarefa.txt", "r");
+        char idAntigo[48] = ""; int tarefaVelha = -1;
+        if (fa) { if (fscanf(fa, "%47s %d", idAntigo, &tarefaVelha) != 2) tarefaVelha = -1; fclose(fa); }
+        if (tarefaVelha >= 0 && !strcmp(idAntigo, contentId)) { int u = sceBgftServiceIntDownloadUnregisterTask(tarefaVelha); pkgLog("PONTE: removeu a tarefa antiga 0x%08X %s", u, contentId); }
+    }
+    // Registro de teste: o "normal" (da loja) derrubava o app uns 5 s depois de começar.
+    int res = sceBgftServiceIntDebugDownloadRegisterPkg(&params, &taskId);
+    pkgLog("PELO PS4 PELA PONTE: registro 0x%08X %s", res, contentId);
+    if ((unsigned)res == 0x80990015u) {
+        // já existe: acha, remove e registra de novo
+        OrbisBgftTaskId existente = -1;
+        sceBgftServiceIntDownloadFindActiveTask(id, ORBIS_BGFT_TASK_SUB_TYPE_PACKAGE, &existente);
+        if (existente != -1) sceBgftServiceIntDownloadUnregisterTask(existente);
+        taskId = -1; res = sceBgftServiceIntDebugDownloadRegisterPkg(&params, &taskId);
+        pkgLog("PELO PS4 PELA PONTE: registro (de novo) 0x%08X %s", res, contentId);
+        if (res != 0) {
+            snprintf(msgStatus, sizeof(msgStatus), "JA HA UM DOWNLOAD DESTE PKG NO PS4: APAGUE EM NOTIFICACOES > DOWNLOADS");
+            msgTimer = 600;
+        }
+    }
+    else if (res != 0 || taskId < 0) {
+        if (res != 0) { params.option = ORBIS_BGFT_TASK_OPT_NONE; params.packageType = NULL; params.packageSubType = NULL; taskId = -1; res = sceBgftServiceIntDebugDownloadRegisterPkg(&params, &taskId); }
+    }
+    pkgLog("PELO PS4 PELA PONTE: registro 0x%08X %s", res, contentId);
+    if (res == 0 && taskId >= 0) {
+        FILE* fa = fopen("/data/HyperNeiva/configuracao/ponte_tarefa.txt", "w");
+        if (fa) { fprintf(fa, "%s %d\n", contentId, (int)taskId); fclose(fa); }
+    }
+    if (res != 0 || taskId < 0) ponteParar();
+    if (res != 0 || taskId < 0) return false;
+    pkgWebTarefa[vaga] = (int)taskId;
+    extern void dlRegistrarTarefaPs4(int id, const char* nome); dlRegistrarTarefaPs4((int)taskId, pkgsServidor[vaga].titulo);
+    sceBgftServiceDownloadStartTask(taskId);
+    return true;
+}
+
+static void instalarPkgPeloServidor(const char* caminhoAbsoluto) {
     // PKG cortado sempre falha no console: melhor dizer o motivo antes de tentar.
     long long faltam = hnBytesFaltandoPkg(caminhoAbsoluto);
     if (faltam > 0) {
@@ -190,6 +586,7 @@ void instalarPkgLocal(const char* caminhoAbsoluto) {
     if (vaga < 0) { vaga = proximoPkgServidor; proximoPkgServidor = (proximoPkgServidor + 1) % 32; }
     snprintf(pkgsServidor[vaga].id, sizeof(pkgsServidor[vaga].id), "%s", contentId);
     snprintf(pkgsServidor[vaga].caminho, sizeof(pkgsServidor[vaga].caminho), "%s", caminhoAbsoluto);
+    pthread_mutex_lock(&pkgWebTrava); free(pkgsServidor[vaga].url); pkgsServidor[vaga].url = NULL; free(pkgsServidor[vaga].urlOriginal); pkgsServidor[vaga].urlOriginal = NULL; pthread_mutex_unlock(&pkgWebTrava);
     hnTituloPkg(caminhoAbsoluto, pkgsServidor[vaga].titulo, sizeof(pkgsServidor[vaga].titulo));
     sceSysmoduleLoadModuleInternal(ORBIS_SYSMODULE_INTERNAL_APP_INST_UTIL); sceSysmoduleLoadModuleInternal(ORBIS_SYSMODULE_INTERNAL_BGFT);
     static void* bgftHeap = NULL;
@@ -197,12 +594,12 @@ void instalarPkgLocal(const char* caminhoAbsoluto) {
     OrbisBgftTaskId tarefaAntiga = -1; sceBgftServiceIntDownloadFindActiveTask(contentId, ORBIS_BGFT_TASK_SUB_TYPE_PACKAGE, &tarefaAntiga); if (tarefaAntiga != -1) { sceBgftServiceIntDownloadUnregisterTask(tarefaAntiga); }
     int32_t userId = 0; sceUserServiceGetInitialUser(&userId);
     char urlPkg[1024]; sprintf(urlPkg, "http://127.0.0.1:8080/%s.pkg", contentId);
-    OrbisBgftDownloadParam params; memset(&params, 0, sizeof(OrbisBgftDownloadParam)); params.userId = userId; params.entitlementType = 5; params.id = contentId; params.contentUrl = urlPkg; params.contentName = pkgsServidor[vaga].titulo; params.playgoScenarioId = "0"; memcpy(&params.packageSize, &fileSize, sizeof(fileSize));
-    OrbisBgftTaskId taskId = -1; int res = sceBgftServiceIntDebugDownloadRegisterPkg(&params, &taskId);
+    OrbisBgftDownloadParam params; memset(&params, 0, sizeof(OrbisBgftDownloadParam)); params.userId = userId; params.entitlementType = 5; params.id = contentId; params.contentUrl = urlPkg; params.contentName = pkgsServidor[vaga].titulo; params.playgoScenarioId = "0"; params.option = ORBIS_BGFT_TASK_OPT_DISABLE_CDN_QUERY_PARAM; params.packageType = "PS4GD"; params.packageSubType = ""; memcpy(&params.packageSize, &fileSize, sizeof(fileSize));
+    OrbisBgftTaskId taskId = -1; int res = sceBgftServiceIntDebugDownloadRegisterPkg(&params, &taskId); if (res != 0) { params.option = ORBIS_BGFT_TASK_OPT_NONE; params.packageType = NULL; params.packageSubType = NULL; taskId = -1; res = sceBgftServiceIntDebugDownloadRegisterPkg(&params, &taskId); }
     if (res == 0 && taskId >= 0) { extern volatile int hnTarefaPkg; hnTarefaPkg = (int)taskId; extern void dlRegistrarTarefaPs4(int id, const char* nome); dlRegistrarTarefaPs4((int)taskId, pkgsServidor[vaga].titulo); sceBgftServiceDownloadStartTask(taskId); sprintf(msgStatus, "DOWNLOAD INICIADO! Verifique as Notificacoes."); atualizarBarra(1.0f); }
     else { sprintf(msgStatus, "ERRO: 0x%08X", res); atualizarBarra(0.0f); }
     FILE* registro = fopen("/data/HyperNeiva/zip_debug_log.txt", "a");
-    if (registro) { fprintf(registro, "INSTALAR res=0x%08X tarefa=%d tamanho=%llu %s\n", (unsigned int)res, (int)taskId, (unsigned long long)fileSize, caminhoAbsoluto); fclose(registro); }
+    if (registro) { fprintf(registro, "INSTALAR PELO DOWNLOAD res=0x%08X tarefa=%d tamanho=%llu %s\n", (unsigned int)res, (int)taskId, (unsigned long long)fileSize, caminhoAbsoluto); fclose(registro); }
     msgTimer = 400;
 }
 

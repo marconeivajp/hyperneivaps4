@@ -32,7 +32,7 @@ char debugHttpInfo[256] = "";
 
 // ---- Lista própria das rádios (o 'nomes' do menu muda quando se sai da tela) ----
 struct RadioEst { char nome[128]; char url[512]; char icone[512]; };
-static RadioEst radioLista[60];
+static RadioEst radioLista[100];
 static int radioTotal = 0, radioAtual = -1;
 static RadioEst radioUltima;            // a que está tocando (para o player)
 static volatile unsigned radioVersao = 1;
@@ -140,7 +140,7 @@ static void radioCarregarFavoritos() {
     FILE* f = fopen(RADIO_FAV_TXT, "r");
     if (f) {
         char l[1300];
-        while (radioTotal < 60 && fgets(l, sizeof(l), f)) {
+        while (radioTotal < 100 && fgets(l, sizeof(l), f)) {
             l[strcspn(l, "\r\n")] = 0;
             char* a = strchr(l, '\t'); if (!a) continue; *a = 0;
             char* b = strchr(a + 1, '\t'); if (b) *b = 0;
@@ -160,10 +160,227 @@ static void radioCarregarFavoritos() {
     radioListaPronta();
 }
 
+// =========================================================================
+// PODCASTS: Top 50 do Brasil e busca (API pública da Apple, sem chave) e os
+// episódios lidos do feed RSS de cada podcast.
+// =========================================================================
+static int radioModo = 0;              // 0 rádios, 1 lista de podcasts, 2 episódios
+static RadioEst podShows[100];
+static int podTotal = 0, podSel = 0;
+static bool radioUltimaPodcast = false;
+bool radioPesquisaPodcast = false;     // o teclado 10 pesquisa podcast em vez de rádio
+bool radioEhPodcast() { return radioUltimaPodcast; }
+
+static void radioListaParaMenu(const char* vazio) {
+    memset(nomes, 0, sizeof(nomes));
+    memset(linksAtuais, 0, sizeof(linksAtuais));
+    for (int i = 0; i < radioTotal; i++) {
+        snprintf(nomes[i], 256, "%s", radioLista[i].nome);
+        snprintf(linksAtuais[i], 1024, "%s", radioLista[i].url);
+    }
+    totalItens = radioTotal;
+    if (!totalItens) { snprintf(nomes[0], 256, "%s", vazio); totalItens = 1; }
+}
+static char* radioLerArquivo(const char* caminho) {
+    FILE* f = fopen(caminho, "rb");
+    if (!f) return NULL;
+    fseek(f, 0, SEEK_END); long n = ftell(f); fseek(f, 0, SEEK_SET);
+    if (n <= 0 || n > 16 * 1024 * 1024) { fclose(f); return NULL; }
+    char* b = (char*)malloc(n + 1);
+    if (b) { b[fread(b, 1, n, f)] = 0; }
+    fclose(f);
+    return b;
+}
+static void radioCodificarUrl(const char* in, char* out, int tam) {
+    static const char* hex = "0123456789ABCDEF";
+    int k = 0;
+    for (const unsigned char* c = (const unsigned char*)in; *c && k < tam - 4; c++) {
+        if ((*c >= 'a' && *c <= 'z') || (*c >= 'A' && *c <= 'Z') || (*c >= '0' && *c <= '9') || *c == '-' || *c == '_' || *c == '.') out[k++] = *c;
+        else if (*c == ' ') out[k++] = '+';
+        else { out[k++] = '%'; out[k++] = hex[*c >> 4]; out[k++] = hex[*c & 15]; }
+    }
+    out[k] = 0;
+}
+// "chave":"valor" do JSON (só texto), entre ini e fim, com \uXXXX e \/ resolvidos.
+static bool podJson(const char* ini, const char* fim, const char* chave, char* out, int tam) {
+    out[0] = 0;
+    char k[64]; snprintf(k, sizeof(k), "\"%s\":\"", chave);
+    const char* p = strstr(ini, k);
+    if (!p || (fim && p >= fim)) return false;
+    p += strlen(k);
+    int n = 0;
+    while (*p && *p != '"' && n < tam - 4) {
+        if (*p == '\\' && p[1]) {
+            p++;
+            if (*p == 'u') {
+                char hx[5] = { p[1], p[2], p[3], p[4], 0 }; unsigned v = (unsigned)strtol(hx, NULL, 16);
+                p += 5;
+                if (v < 0x80) out[n++] = (char)v;
+                else if (v < 0x800) { out[n++] = (char)(0xC0 | (v >> 6)); out[n++] = (char)(0x80 | (v & 63)); }
+                else { out[n++] = (char)(0xE0 | (v >> 12)); out[n++] = (char)(0x80 | ((v >> 6) & 63)); out[n++] = (char)(0x80 | (v & 63)); }
+                continue;
+            }
+            out[n++] = *p == 'n' ? ' ' : *p == 't' ? ' ' : *p;
+            p++;
+            continue;
+        }
+        out[n++] = *p++;
+    }
+    out[n] = 0;
+    return true;
+}
+// Resultados do iTunes (lookup ou search): nome, feed e capa de cada podcast.
+static void podLerItunes(const char* j) {
+    podTotal = 0;
+    const char* p = strstr(j, "\"results\"");
+    while (p && podTotal < 100) {
+        const char* ini = strstr(p, "\"wrapperType\"");
+        if (!ini) break;
+        const char* fim = strstr(ini + 13, "\"wrapperType\"");
+        RadioEst* e = &podShows[podTotal];
+        podJson(ini, fim, "collectionName", e->nome, sizeof(e->nome));
+        podJson(ini, fim, "feedUrl", e->url, sizeof(e->url));
+        if (!podJson(ini, fim, "artworkUrl600", e->icone, sizeof(e->icone))) podJson(ini, fim, "artworkUrl100", e->icone, sizeof(e->icone));
+        if (e->nome[0] && e->url[0]) podTotal++;
+        p = fim;
+    }
+}
+static void podMostrarShows() {
+    radioModo = 1;
+    radioTotal = podTotal;
+    memcpy(radioLista, podShows, sizeof(RadioEst) * podTotal);
+    radioListaParaMenu("Nenhum podcast encontrado.");
+    radioListaPronta();
+}
+static void* podThreadTop(void* arg) {
+    char* termo = (char*)arg;
+    const char* arq = "/data/HyperNeiva/podcast_api.json";
+    bool ok = false;
+    if (termo) {
+        char q[300]; radioCodificarUrl(termo, q, sizeof(q));
+        char url[512]; snprintf(url, sizeof(url), "https://itunes.apple.com/search?media=podcast&entity=podcast&country=BR&limit=50&term=%s", q);
+        if (baixarArquivoRadio(url, arq) == 0) { char* j = radioLerArquivo(arq); if (j) { podLerItunes(j); free(j); ok = true; } }
+        free(termo);
+    }
+    else {
+        // Ranking da Apple Podcasts no Brasil e, com os ids, os feeds.
+        snprintf(nomes[0], 256, "Buscando o Top 50 do Brasil...");
+        if (baixarArquivoRadio("https://rss.marketingtools.apple.com/api/v2/br/podcasts/top/50/podcasts.json", arq) == 0) {
+            char* j = radioLerArquivo(arq);
+            char ids[1200] = "";
+            for (const char* p = j ? strstr(j, "\"results\"") : NULL; p; ) {
+                p = strstr(p, "\"id\":\"");
+                if (!p) break;
+                p += 6;
+                int n = 0; while (p[n] >= '0' && p[n] <= '9') n++;
+                if (n > 0 && p[n] == '"' && strlen(ids) + n + 2 < sizeof(ids)) { if (ids[0]) strcat(ids, ","); strncat(ids, p, n); }
+            }
+            free(j);
+            if (ids[0]) {
+                snprintf(nomes[0], 256, "Lendo os podcasts...");
+                char url[1400]; snprintf(url, sizeof(url), "https://itunes.apple.com/lookup?country=BR&entity=podcast&id=%s", ids);
+                if (baixarArquivoRadio(url, arq) == 0) { char* l = radioLerArquivo(arq); if (l) { podLerItunes(l); free(l); ok = true; } }
+            }
+        }
+    }
+    if (!ok) { radioTotal = 0; podTotal = 0; radioModo = 1; radioListaParaMenu("Erro de rede: nao consegui buscar os podcasts."); return NULL; }
+    podMostrarShows();
+    return NULL;
+}
+static void podDecodificar(char* s) {
+    char* o = s;
+    for (char* p = s; *p; ) {
+        if (*p == '&') {
+            struct { const char* e; char c; } t[] = { { "&amp;", '&' }, { "&lt;", '<' }, { "&gt;", '>' }, { "&quot;", '"' }, { "&apos;", '\'' }, { "&#39;", '\'' } };
+            bool feito = false;
+            for (int i = 0; i < 6 && !feito; i++) { size_t n = strlen(t[i].e); if (!strncmp(p, t[i].e, n)) { *o++ = t[i].c; p += n; feito = true; } }
+            if (feito) continue;
+        }
+        *o++ = *p++;
+    }
+    *o = 0;
+}
+static void* podThreadFeed(void* arg) {
+    (void)arg;
+    RadioEst show = podShows[podSel];
+    const char* arq = "/data/HyperNeiva/podcast_feed.xml";
+    char* x = baixarArquivoRadio(show.url, arq) == 0 ? radioLerArquivo(arq) : NULL;
+    int total = 0;
+    for (const char* it = x ? strstr(x, "<item") : NULL; it && total < 100; ) {
+        const char* fim = strstr(it + 5, "</item>");
+        if (!fim) break;
+        RadioEst* e = &radioLista[total];
+        e->nome[0] = 0; e->url[0] = 0;
+        snprintf(e->icone, sizeof(e->icone), "%s", show.icone);
+        const char* t = strstr(it, "<title");
+        if (t && t < fim) {
+            t = strchr(t, '>');
+            const char* tf = t ? strstr(t, "</title>") : NULL;
+            if (t && tf && tf < fim) {
+                t++;
+                if (!strncmp(t, "<![CDATA[", 9)) { t += 9; const char* c = strstr(t, "]]>"); if (c && c < tf) tf = c; }
+                int n = (int)(tf - t); if (n > (int)sizeof(e->nome) - 1) n = sizeof(e->nome) - 1;
+                memcpy(e->nome, t, n); e->nome[n] = 0;
+                podDecodificar(e->nome);
+            }
+        }
+        const char* en = strstr(it, "<enclosure");
+        if (en && en < fim) {
+            const char* u = strstr(en, "url=");
+            if (u && u < fim) {
+                char aspas = u[4]; u += 5;
+                const char* uf = strchr(u, aspas);
+                int n = uf ? (int)(uf - u) : 0;
+                if (n > 0 && n < (int)sizeof(e->url)) { memcpy(e->url, u, n); e->url[n] = 0; podDecodificar(e->url); }
+            }
+        }
+        if (e->url[0]) { if (!e->nome[0]) snprintf(e->nome, sizeof(e->nome), "Episodio %d", total + 1); total++; }
+        it = strstr(fim, "<item");
+    }
+    bool lido = x != NULL;
+    free(x);
+    if (radioModo != 2) return NULL;     // o usuário já voltou
+    radioTotal = total;
+    radioListaParaMenu(lido ? "Nenhum episodio com audio neste podcast." : "Erro de rede: nao consegui ler o feed.");
+    sel = 0; off = 0;
+    radioListaPronta();
+    return NULL;
+}
+static void podIniciar(char* termo) {
+    radioTotal = 0; radioModo = 1; radioVersao++;
+    memset(nomes, 0, sizeof(nomes));
+    memset(linksAtuais, 0, sizeof(linksAtuais));
+    strcpy(nomes[0], termo ? "Pesquisando podcasts..." : "Buscando o Top 50 do Brasil...");
+    totalItens = 1; sel = 0; off = 0;
+    menuAtual = MENU_RADIO_LISTA;
+    pthread_t t;
+    if (pthread_create(&t, NULL, podThreadTop, termo) == 0) pthread_detach(t);
+    else free(termo);
+}
+static void podAbrirShow(int i) {
+    if (i < 0 || i >= podTotal) return;
+    podSel = i;
+    radioModo = 2; radioTotal = 0; radioVersao++;
+    memset(nomes, 0, sizeof(nomes));
+    memset(linksAtuais, 0, sizeof(linksAtuais));
+    snprintf(nomes[0], 256, "Carregando episodios de %.200s...", podShows[i].nome);
+    totalItens = 1; sel = 0; off = 0;
+    pthread_t t;
+    if (pthread_create(&t, NULL, podThreadFeed, NULL) == 0) pthread_detach(t);
+}
+// Bolinha nos episódios volta para a lista de podcasts (controle.cpp).
+bool radioVoltar() {
+    if (menuAtual != MENU_RADIO_LISTA || radioModo != 2) return false;
+    podMostrarShows();
+    sel = podSel < totalItens ? podSel : 0; off = 0;
+    return true;
+}
+
 static void radioTocarIndice(int i) {
     if (i < 0 || i >= radioTotal || strlen(radioLista[i].url) < 6) return;
     radioAtual = i;
     radioUltima = radioLista[i];
+    radioUltimaPodcast = radioModo == 2;
     // Preserve HTTPS: o cliente OpenOrbis faz o transporte TLS no PS4.
     tocarMusicaNova(radioLista[i].url);
     if ((menuAtual == MENU_RADIO_LISTA || menuAtual == MENU_RADIO_FAVORITOS) && i < totalItens) sel = i;
@@ -171,7 +388,7 @@ static void radioTocarIndice(int i) {
 
 // Próxima / anterior na lista das rádios (player e menu antigo).
 void radioTrocarEstacao(int passo) {
-    if (radioTotal <= 0) return;
+    if (radioTotal <= 0 || radioModo == 1) return;
     int i = radioAtual < 0 ? (menuAtual == MENU_RADIO_LISTA || menuAtual == MENU_RADIO_FAVORITOS ? sel : 0) : radioAtual;
     for (int k = 0; k < radioTotal; k++) {
         i = (i + passo + radioTotal) % radioTotal;
@@ -204,7 +421,9 @@ void preencherMenuRadioCategorias() {
     strcpy(nomes[2], "Podcasts (Tags)");
     strcpy(nomes[3], "Pesquisar (Regiao ou Estilo)");
     strcpy(nomes[4], "Meus Favoritos");
-    totalItens = 5; sel = 0; off = 0; menuAtual = MENU_RADIO_CATEGORIA;
+    strcpy(nomes[5], "Podcasts brasileiros (Top 50)");
+    strcpy(nomes[6], "Pesquisar podcasts (Brasil)");
+    totalItens = 7; sel = 0; off = 0; menuAtual = MENU_RADIO_CATEGORIA;
 }
 
 int baixarArquivoRadio(const char* url, const char* localPath) {
@@ -213,6 +432,11 @@ int baixarArquivoRadio(const char* url, const char* localPath) {
 
     int tmpl = sceHttpCreateTemplate(httpCtxId, "HyperNeiva/1.0", 1, 1);
     bool ownTmpl = true;
+    if (tmpl >= 0) {
+        sceHttpsSetSslCallback(tmpl, skipSslCallback, NULL);
+        typedef int (*DefinirRedirecionamento)(int, int);
+        ((DefinirRedirecionamento)(void*)sceHttpSetAutoRedirect)(tmpl, 1);
+    }
     if (tmpl < 0) {
         tmpl = httpCtxId;
         ownTmpl = false;
@@ -404,6 +628,8 @@ void* threadBuscarRadio(void* arg) {
 }
 
 void buscarEstacoesRadio(const char* query, bool isPodcast) {
+    if (radioPesquisaPodcast) { radioPesquisaPodcast = false; podIniciar(strdup(query)); return; }
+    radioModo = 0;
     strcpy(radioBrowserQuery, query);
     memset(nomes, 0, sizeof(nomes));
     memset(linksAtuais, 0, sizeof(linksAtuais));
@@ -427,10 +653,13 @@ void acaoCross_Radio() {
             extern void exibirTecladoVirtual(int tipo);
             exibirTecladoVirtual(10);
         }
-        else if (sel == 4) { menuAtual = MENU_RADIO_FAVORITOS; radioCarregarFavoritos(); }
+        else if (sel == 4) { menuAtual = MENU_RADIO_FAVORITOS; radioModo = 0; radioCarregarFavoritos(); }
+        else if (sel == 5) podIniciar(NULL);
+        else if (sel == 6) { radioPesquisaPodcast = true; extern void exibirTecladoVirtual(int tipo); exibirTecladoVirtual(10); }
     }
     else if (menuAtual == MENU_RADIO_LISTA || menuAtual == MENU_RADIO_FAVORITOS) {
-        if (sel < radioTotal && strlen(radioLista[sel].url) > 5) { radioTocarIndice(sel); extern void conquistaGanhar(const char*); conquistaGanhar("radio_player"); }
+        if (menuAtual == MENU_RADIO_LISTA && radioModo == 1) { if (sel < podTotal) podAbrirShow(sel); }
+        else if (sel < radioTotal && strlen(radioLista[sel].url) > 5) { radioTocarIndice(sel); extern void conquistaGanhar(const char*); conquistaGanhar("radio_player"); }
         else if (strlen(linksAtuais[sel]) > 5) {
             // Preserve HTTPS: o cliente OpenOrbis faz o transporte TLS no PS4.
             tocarMusicaNova(linksAtuais[sel]);
@@ -456,7 +685,8 @@ void executarAcaoMenuRadio(int id) {
     if (id == 700) { extern void exibirTecladoVirtual(int tipo); exibirTecladoVirtual(10); showOpcoes = false; }
     else if (id == 701) {
         showOpcoes = false;
-        if ((menuAtual == MENU_RADIO_LISTA || menuAtual == MENU_RADIO_FAVORITOS) && sel < radioTotal) {
+        if (menuAtual == MENU_RADIO_LISTA && radioModo == 1) { sprintf(msgStatus, "ABRA O PODCAST E FAVORITE UM EPISODIO"); msgTimer = 120; }
+        else if ((menuAtual == MENU_RADIO_LISTA || menuAtual == MENU_RADIO_FAVORITOS) && sel < radioTotal) {
             bool fav = radioFavoritoAlternar(&radioLista[sel]);
             sprintf(msgStatus, fav ? "ADICIONADA AOS FAVORITOS" : "REMOVIDA DOS FAVORITOS"); msgTimer = 90;
             if (menuAtual == MENU_RADIO_FAVORITOS) { int volta = sel; radioCarregarFavoritos(); sel = volta < totalItens ? volta : totalItens - 1; }
@@ -485,7 +715,7 @@ void executarAcaoMenuRadio(int id) {
 // As opções antigas continuam no player: três pontinhos > Opções antigas da rádio.
 void acaoTriangle_Radio() {
     if (showOpcoes) { showOpcoes = false; return; }
-    if (menuAtual == MENU_RADIO_LISTA || menuAtual == MENU_RADIO_FAVORITOS) {
+    if ((menuAtual == MENU_RADIO_LISTA && radioModo != 1) || menuAtual == MENU_RADIO_FAVORITOS) {
         if (!radioUltima.url[0] && sel < radioTotal) radioUltima = radioLista[sel];
         extern void musicaPlayerAbrir(bool cheio);
         musicaPlayerAbrir(false);
