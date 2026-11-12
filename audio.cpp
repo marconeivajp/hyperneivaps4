@@ -156,8 +156,10 @@ void carregarConfiguracaoAudio() {
         ultimaMusicaTocada[sizeof(ultimaMusicaTocada) - 1] = '\0';
         if (fread(&pausado, 1, sizeof(int), f) != sizeof(int)) pausado = 0;
         salva[sizeof(salva) - 1] = '\0';
-        // Rádio não reconecta sozinho ao abrir o app.
+        // Rádio não reconecta sozinho ao abrir o app, e também não vira a música padrão:
+        // quem estava na rádio (ou desligou a música) abre em silêncio.
         if (salva[0] && strncmp(salva, "http", 4) != 0) strcpy(musicaAtual, salva);
+        else if (!strncmp(salva, "http", 4)) strcpy(musicaAtual, "PARADO");
         if (volume >= 0 && volume <= 100) volumeGeral = volume;
         modoReproducao = (decltype(modoReproducao))modo;
         // Até a 2.60 religar a música gravava "pausado": limpa uma vez para ela voltar a tocar.

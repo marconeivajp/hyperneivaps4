@@ -286,7 +286,9 @@ void processarNavegacaoDPad(uint32_t botoes) {
                 bool isGameMenu = (menuAtual == MENU_JOGAR_PS4 || menuAtual == JOGAR_XML || menuAtual == SCRAPER_LIST);
                 extern int bibliotecaColunas();
                 extern int temaMidiaBiblioteca();
-                int colunasBiblioteca = ((menuAtual == MENU_EMULADOR || menuAtual == MENU_SISTEMAS || temaMidiaBiblioteca()) && temaCobreMenu() && !showOpcoes) ? bibliotecaColunas() : 0;
+                extern int temaMidiaColunas(int midia);
+                int colunasBiblioteca = ((menuAtual == MENU_EMULADOR || menuAtual == MENU_SISTEMAS || temaMidiaBiblioteca()) && temaCobreMenu() && !showOpcoes) ?
+                    (temaMidiaBiblioteca() ? temaMidiaColunas(temaMidiaBiblioteca()) : bibliotecaColunas()) : 0;
                 bool isGrid = colunasBiblioteca > 0 || (!temaCobreMenu() && (listStyle == 4 || listStyle == 5) && isGameMenu && !showOpcoes && !showUploadOpcoes && menuAtual != MENU_NOTEPAD && menuAtual != MENU_AUDIO_OPCOES);
 
                 if (isGrid) {
@@ -455,10 +457,50 @@ void processarControles(uint32_t botoes, int32_t uId, OrbisImeDialogSetting* ime
     }
 
     {
+        // Visualizador 3D aberto (network.cpp).
+        extern bool modelo3dAberto;
+        if (modelo3dAberto) {
+            extern void modelo3dControles(uint32_t botoes, uint32_t antigos);
+            modelo3dControles(botoes, botoesAntigos);
+            if (botoes & ORBIS_PAD_BUTTON_CROSS) pCross = true;
+            if (botoes & ORBIS_PAD_BUTTON_CIRCLE) pCircle = true;
+            if (botoes & ORBIS_PAD_BUTTON_SQUARE) pSquare = true;
+            botoesAntigos = botoes;
+            return;
+        }
+    }
+    if (menuAtual == MENU_TEMPO || menuAtual == MENU_DOWNLOADS || menuAtual == MENU_GDRIVE) {
+        extern bool tempoControles(uint32_t, uint32_t, int32_t), downloadsControles(uint32_t, uint32_t, int32_t), gdriveControles(uint32_t, uint32_t, int32_t);
+        bool sai = menuAtual == MENU_TEMPO ? tempoControles(botoes, botoesAntigos, uId) : menuAtual == MENU_DOWNLOADS ? downloadsControles(botoes, botoesAntigos, uId) : gdriveControles(botoes, botoesAntigos, uId);
+        if (sai) {
+            voltarNavegacao();
+            int volta = sel;
+            if (menuAtual == MENU_BAIXAR) { extern void preencherMenuBaixar(); preencherMenuBaixar(); }
+            else if (menuAtual == MENU_EXTRA) { extern void preencherMenuExtra(); preencherMenuExtra(); }
+            if (volta < totalItens) sel = volta;
+            pCross = pTri = pSquare = pL1 = pR1 = pL2 = false;
+            pCircle = true;
+        }
+        botoesAntigos = botoes;
+        return;
+    }
+    {
+        // Escolha de como baixar um PKG (baixar_dropbox_download.cpp).
+        extern bool escolhaPkgAberta;
+        if (escolhaPkgAberta) {
+            extern void escolhaPkgControles(uint32_t botoes, uint32_t antigos);
+            escolhaPkgControles(botoes, botoesAntigos);
+            if (botoes & ORBIS_PAD_BUTTON_CROSS) pCross = true;
+            if (botoes & ORBIS_PAD_BUTTON_CIRCLE) pCircle = true;
+            botoesAntigos = botoes;
+            return;
+        }
+    }
+    {
         // Player de música aberto: ele recebe todos os botões (menu_audio.cpp).
         extern bool musicaPlayerAberto;
         extern bool showOpcoes;
-        if (musicaPlayerAberto && (menuAtual != MENU_MUSICAS || showOpcoes)) musicaPlayerAberto = false;
+        if (musicaPlayerAberto && showOpcoes) musicaPlayerAberto = false;
         if (musicaPlayerAberto) {
             extern bool musicaPlayerControles(uint32_t botoes, uint32_t antigos);
             musicaPlayerControles(botoes, botoesAntigos);
@@ -796,10 +838,16 @@ void processarControles(uint32_t botoes, int32_t uId, OrbisImeDialogSetting* ime
 
     if (botoes & ORBIS_PAD_BUTTON_TRIANGLE) {
         if (!pTri) {
-            if (botoes & ORBIS_PAD_BUTTON_L2) { if (menuAtual != MENU_AUDIO_OPCOES) { menuAntesDoAudio = menuAtual; veioDeOutroMenuParaAudio = true; abrirMenuAudioOpcoes(); } else if (veioDeOutroMenuParaAudio) { menuAtual = menuAntesDoAudio; showOpcoes = false; veioDeOutroMenuParaAudio = false; } }
+            // L2 + Triângulo, de qualquer menu: o player de música novo, em tela pequena.
+            if (botoes & ORBIS_PAD_BUTTON_L2) { extern void musicaPlayerAbrir(bool cheio); showOpcoes = false; musicaPlayerAbrir(false); }
             else {
                 if (menuAtual == MENU_EMULADOR || menuAtual == MENU_SISTEMAS) { extern void bibliotecaTriangulo(); bibliotecaTriangulo(); }
                 else if (menuAtual == MENU_MUSICAS) acaoTriangle_Musicas();
+                else if (menuAtual == MENU_MIDIA && [](){ extern int temaMidiaBiblioteca(); return temaMidiaBiblioteca() == 4; }()) {
+                    // Mídia > videos: tema da lista e capas (explorar.cpp).
+                    extern void abrirOpcoesVideos();
+                    if (showOpcoes) showOpcoes = false; else abrirOpcoesVideos();
+                }
                 else if (menuAtual == MENU_BAIXAR_TORRENT) { extern void acaoTriangle_Torrent(); acaoTriangle_Torrent(); }
                 else if (menuAtual == MENU_RADIO_CATEGORIA || menuAtual == MENU_RADIO_LISTA || menuAtual == MENU_RADIO_FAVORITOS) { extern void acaoTriangle_Radio(); acaoTriangle_Radio(); }
                 else if (menuAtual == MENU_BAIXAR_FTP_SERVIDORES || menuAtual == MENU_BAIXAR_FTP_LISTA || menuAtual == MENU_BAIXAR_FTP_UPLOAD) acaoTriangle_Baixar();

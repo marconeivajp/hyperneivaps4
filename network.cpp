@@ -2316,6 +2316,25 @@ static bool capaJaTentou(const char* nome) {
 #define TMDB_IMG "https://image.tmdb.org/t/p/w500"
 #endif
 #define CAPA_VIDEO_PASTA REMOTO_RAIZ "/midia/imagens/Videos"
+#define CAPA_VIDEO_TEMP REMOTO_RAIZ "/cache/capas_videos"          // apagada a cada abertura do app
+#define CAPA_VIDEO_CONFIG REMOTO_RAIZ "/configuracao/capas_videos.txt"
+static int capaVideoAuto = -1, capaVideoSalvas = 1;
+static void capaVideoLerConfig() {
+    if (capaVideoAuto >= 0) return;
+    capaVideoAuto = 1; capaVideoSalvas = 1;
+    FILE* f = fopen(CAPA_VIDEO_CONFIG, "r");
+    if (f) { int a = 1, b = 1; if (fscanf(f, "%d %d", &a, &b) == 2) { capaVideoAuto = a != 0; capaVideoSalvas = b != 0; } fclose(f); }
+}
+static void capaVideoSalvarConfig() {
+    remotoCriarPastas(REMOTO_RAIZ "/configuracao");
+    FILE* f = fopen(CAPA_VIDEO_CONFIG, "w");
+    if (f) { fprintf(f, "%d %d\n", capaVideoAuto, capaVideoSalvas); fclose(f); }
+}
+bool videoCapaAuto() { capaVideoLerConfig(); return capaVideoAuto != 0; }
+bool videoCapaSalvas() { capaVideoLerConfig(); return capaVideoSalvas != 0; }
+void videoCapaAlternarAuto() { capaVideoLerConfig(); capaVideoAuto = !capaVideoAuto; capaVideoSalvarConfig(); }
+void videoCapaAlternarSalvas() { capaVideoLerConfig(); capaVideoSalvas = !capaVideoSalvas; capaVideoSalvarConfig(); }
+static const char* videoCapaPasta() { return videoCapaSalvas() ? CAPA_VIDEO_PASTA : CAPA_VIDEO_TEMP; }
 
 static bool tmdbChave(char* chave, int tam) {
     chave[0] = 0;
@@ -2373,11 +2392,13 @@ static void videoTermo(const char* nome, bool arquivo, char* termo, int tam, boo
     }
 }
 
-static void videoCaminhoCache(const char* nome, bool arquivo, char* saida, int tam) {
+static void videoCaminhoEm(const char* pasta, const char* nome, bool arquivo, char* saida, int tam) {
     char base[260]; snprintf(base, sizeof(base), "%s", nome);
     if (arquivo) { char* ponto = strrchr(base, '.'); if (ponto) *ponto = 0; }
-    snprintf(saida, tam, CAPA_VIDEO_PASTA "/%s.jpg", base);
+    snprintf(saida, tam, "%s/%s.jpg", pasta, base);
 }
+// Onde gravar a capa baixada (salvas ou temporárias, conforme a opção).
+static void videoCaminhoCache(const char* nome, bool arquivo, char* saida, int tam) { videoCaminhoEm(videoCapaPasta(), nome, arquivo, saida, tam); }
 
 // Primeiro "poster_path" que não seja null (aceita espaço depois dos dois pontos).
 static void tmdbPoster(const char* resp, char* poster, int tam) {
@@ -2428,7 +2449,7 @@ static void videoBuscarCapa(const char* caminho) {
     stt = iaHttpGet(url, &resp, &tam);
     if (stt != 200 || tam < 500) { free(resp); remotoLog("CAPA VIDEO %s: imagem falhou (HTTP %d)", nome, stt); return; }
     char destino[600]; videoCaminhoCache(nome, arquivo, destino, sizeof(destino));
-    remotoCriarPastas(CAPA_VIDEO_PASTA);
+    remotoCriarPastas(videoCapaPasta());
     FILE* o = fopen(destino, "wb");
     if (o) { fwrite(resp, 1, tam, o); fclose(o); }
     free(resp);
@@ -2577,6 +2598,26 @@ int letraCarregar(const char* caminhoMusica) {
     return letraN;
 }
 // Caminho da capa pronta para a música (ou "" e um pedido em segundo plano).
+// Triângulo > Trocar capa: a imagem escolhida no Explorar vira a capa (sempre salva).
+bool videoDefinirCapa(const char* video, const char* imagem) {
+    const char* nome = strrchr(video, '/'); nome = nome ? nome + 1 : video;
+    struct stat st;
+    bool pasta = stat(video, &st) == 0 && S_ISDIR(st.st_mode);
+    char destino[600]; videoCaminhoEm(CAPA_VIDEO_PASTA, nome, !pasta, destino, sizeof(destino));
+    remotoCriarPastas(CAPA_VIDEO_PASTA);
+    FILE* a = fopen(imagem, "rb");
+    if (!a) return false;
+    FILE* b = fopen(destino, "wb");
+    if (!b) { fclose(a); return false; }
+    char buf[65536]; size_t n;
+    while ((n = fread(buf, 1, sizeof(buf), a)) > 0) fwrite(buf, 1, n, b);
+    fclose(a); fclose(b);
+    char temp[600]; videoCaminhoEm(CAPA_VIDEO_TEMP, nome, !pasta, temp, sizeof(temp));
+    remove(temp);
+    musicaCapaVersao++;
+    return true;
+}
+
 // Põe um pedido na fila das capas (o último pedido sai primeiro).
 static void capaPedir(const char* pedido, const char* nome) {
     pthread_mutex_lock(&capaTrava);
@@ -2623,9 +2664,14 @@ bool videoCapaCaminho(const char* caminho, char* saida, int tam) {
     struct stat st;
     bool pasta = stat(caminho, &st) == 0 && S_ISDIR(st.st_mode);
     if (!pasta && !videoExtensao(nome)) return false;
-    char cache[600]; videoCaminhoCache(nome, !pasta, cache, sizeof(cache));
-    FILE* f = fopen(cache, "rb");
-    if (f) { fclose(f); snprintf(saida, tam, "%s", cache); return true; }
+    // A capa escolhida pelo usuário (e as salvas) fica na pasta fixa; as temporárias, no cache.
+    const char* pastas[2] = { CAPA_VIDEO_PASTA, CAPA_VIDEO_TEMP };
+    for (int k = 0; k < 2; k++) {
+        char cache[600]; videoCaminhoEm(pastas[k], nome, !pasta, cache, sizeof(cache));
+        FILE* f = fopen(cache, "rb");
+        if (f) { fclose(f); snprintf(saida, tam, "%s", cache); return true; }
+    }
+    if (!videoCapaAuto()) return false;
     char chave[128];
     if (!tmdbChave(chave, sizeof(chave))) return false;
     char pedido[520]; snprintf(pedido, sizeof(pedido), "V|%s", caminho);
@@ -3125,6 +3171,9 @@ static const ChaveDef CHAVES[] = {
     { "dropbox_appkey", "App key", "opcional", CH_ROTULO, CH_DROPBOX, "Appkey:", 0 },
     { "dropbox_secret", "App secret", "opcional", CH_ROTULO, CH_DROPBOX, "App secret:", 0 },
     { "google", "Chave", "", CH_NOMEVALOR, CH_API, "google", 0 },
+    { "gdrive_id", "Client ID", "", CH_NOMEVALOR, CH_API, "gdrive_client_id", 0 },
+    { "gdrive_secret", "Client secret", "", CH_NOMEVALOR, CH_API, "gdrive_client_secret", 0 },
+    { "gdrive_refresh", "Refresh token", "", CH_NOMEVALOR, CH_API, "gdrive_refresh_token", 0 },
 };
 #define CHAVES_FIXAS ((int)(sizeof(CHAVES) / sizeof(CHAVES[0])))
 struct ChaveServico { const char* id; const char* nome; const char* categoria; const char* uso; const char* campos[4]; };
@@ -3137,6 +3186,7 @@ static const ChaveServico SERVICOS[] = {
     { "telegram", "Telegram", "servicos", "Entrar no Telegram (my.telegram.org)", { "telegram_id", "telegram_hash", NULL } },
     { "dropbox", "Dropbox", "servicos", "Baixar e enviar pelo Dropbox", { "dropbox_token", "dropbox_appkey", "dropbox_secret", NULL } },
     { "google", "Google", "servicos", "Chave genérica do Google (como no Hyper Neiva de PC)", { "google", NULL } },
+    { "gdrive", "Google Drive", "servicos", "Arquivos do Google Drive (credenciais do OAuth Playground)", { "gdrive_id", "gdrive_secret", "gdrive_refresh", NULL } },
 };
 #define N_SERVICOS ((int)(sizeof(SERVICOS) / sizeof(SERVICOS[0])))
 static const char* CATEGORIAS[][2] = { { "ia", "Inteligência Artificial" }, { "imagens", "Bancos de imagens" }, { "servicos", "Serviços" }, { "outras", "Outras chaves" } };
@@ -3799,6 +3849,7 @@ void remotoIniciar() {
     if (remotoLigado) return;
     remotoLigado = true;
     mkdir(REMOTO_PASTA, 0777);
+    remotoApagarTudo(CAPA_VIDEO_TEMP);   // capas temporárias duram uma abertura do app
     remotoIniciarDlna();
     pthread_t t;
     if (pthread_create(&t, NULL, remotoThreadServidor, NULL) == 0) pthread_detach(t);
@@ -4007,6 +4058,7 @@ static void remotoEntregarTexto(const char* texto) {
 // ---- Controle: botões do celular somados aos do controle físico ----
 // ---- QR do link na tela (canto de baixo): nas telas de FTP ou com L3+R3 ----
 #include "remoto_qr.h"
+struct DlLinha { char origem[16]; char nome[160]; float progresso; char info[96]; };   // gerenciador de downloads (network.cpp)
 static int remotoQrModo = 1;      // 1 = automático (telas de FTP), 2 = sempre, 0 = escondido
 
 // O QR aparece nas telas de FTP (onde o celular e o PC entram em jogo); L3 + R3 esconde ou mostra.
@@ -5149,7 +5201,15 @@ static uint64_t espelhoUltimo = 0;
 static bool espelhoRecusar = false;      // o usuário fechou com a Bolinha
 static bool espelhoPedirParada = false;
 
+static int espelhoQuadros = 0, espelhoMaiorGap = 0;
+static uint64_t espelhoQuadroAntes = 0, espelhoLogEm = 0;
 static bool remotoEspelhoQuadro(const uint8_t* jpeg, int tam) {
+    {
+        uint64_t agora = remotoAgoraMs();
+        if (espelhoQuadroAntes && (int)(agora - espelhoQuadroAntes) > espelhoMaiorGap) espelhoMaiorGap = (int)(agora - espelhoQuadroAntes);
+        espelhoQuadroAntes = agora;
+        espelhoQuadros++;
+    }
     pthread_mutex_lock(&remotoTrava);
     // Depois de fechar, recusa até o PC parar de mandar por uns segundos.
     if (espelhoRecusar && remotoAgoraMs() - espelhoUltimo > 3000) espelhoRecusar = false;
@@ -5213,9 +5273,75 @@ static void remotoAtenderEspelho() {
         remotoAviso("TELA DO PC NO PS4 - [O] FECHA");
         remotoLog("ESPELHO comecou %dx%d", w, h);
     }
+    if (remotoAgoraMs() - espelhoLogEm >= 5000) {
+        // Para achar travadas: quadros que chegaram e o maior intervalo entre dois.
+        if (espelhoLogEm) remotoLog("ESPELHO %d quadros em 5 s, maior intervalo %d ms, %dx%d", espelhoQuadros, espelhoMaiorGap, w, h);
+        espelhoLogEm = remotoAgoraMs(); espelhoQuadros = 0; espelhoMaiorGap = 0;
+    }
     if (imgMidia) stbi_image_free(imgMidia);
     imgMidia = novo; wM = w; hM = h;
     visualizandoMidiaImagem = true; fullscreenMidia = true; zoomMidia = 1.0f; panMidiaX = 0; panMidiaY = 0;
+}
+
+// ---- Capa das pastas de categoria (Filmes, Séries, Animes...): desenhada aqui, sem internet ----
+static void capaGravarArquivo(void* ctx, void* d, int n) { fwrite(d, 1, n, (FILE*)ctx); }
+bool videoCapaCategoria(const char* nome, char* saida, int tam) {
+    snprintf(saida, tam, CAPA_VIDEO_PASTA "/_categoria_%s.jpg", nome);
+    FILE* f = fopen(saida, "rb");
+    if (f) { fclose(f); return true; }
+    const int W = 600, H = 900;
+    uint32_t* tela = (uint32_t*)malloc(1920 * 1080 * 4);
+    uint8_t* rgb = (uint8_t*)malloc(W * H * 3);
+    if (!tela || !rgb) { free(tela); free(rgb); saida[0] = 0; return false; }
+    char minusculo[64]; snprintf(minusculo, sizeof(minusculo), "%s", nome);
+    for (char* c = minusculo; *c; c++) *c = (char)tolower((unsigned char)*c);
+    struct { const char* nome; const char* titulo; uint32_t a, b; } conhecidas[] = {
+        { "filmes", "Filmes", 0xFF8E0E00, 0xFF1F1C18 }, { "series", "Séries", 0xFF1D2B64, 0xFF4B6CB7 }, { "séries", "Séries", 0xFF1D2B64, 0xFF4B6CB7 },
+        { "animes", "Animes", 0xFFE96443, 0xFF904E95 }, { "outros", "Outros", 0xFF134E5E, 0xFF71B280 }, { "video", "Jogos", 0xFF0F2027, 0xFF2C5364 },
+        { "games", "Games", 0xFF42275A, 0xFF734B6D }, { "sistemas", "Sistemas", 0xFF3A1C71, 0xFFD76D77 } };
+    char titulo[64]; snprintf(titulo, sizeof(titulo), "%s", nome);
+    if (titulo[0]) titulo[0] = (char)toupper((unsigned char)titulo[0]);
+    unsigned h = 2166136261u; for (const char* c = minusculo; *c; c++) h = (h ^ (unsigned char)*c) * 16777619u;
+    static const uint32_t paletas[6][2] = { { 0xFF3A1C71, 0xFFD76D77 }, { 0xFF0F2027, 0xFF2C5364 }, { 0xFF42275A, 0xFF734B6D }, { 0xFF134E5E, 0xFF71B280 }, { 0xFF8E0E00, 0xFF1F1C18 }, { 0xFF1D2B64, 0xFF4B6CB7 } };
+    uint32_t ca = paletas[h % 6][0], cb = paletas[h % 6][1];
+    for (unsigned i = 0; i < sizeof(conhecidas) / sizeof(conhecidas[0]); i++)
+        if (!strcmp(minusculo, conhecidas[i].nome)) { snprintf(titulo, sizeof(titulo), "%s", conhecidas[i].titulo); ca = conhecidas[i].a; cb = conhecidas[i].b; }
+    // Degradê diagonal, faixas de filme em cima e embaixo, título grande no meio.
+    for (int y = 0; y < H; y++) {
+        uint32_t* l = tela + y * 1920;
+        for (int x = 0; x < W; x++) {
+            int t = (y * 3 + x) * 256 / (H * 3 + W);
+            uint32_t r = (((ca >> 16) & 255) * (256 - t) + ((cb >> 16) & 255) * t) >> 8;
+            uint32_t g = (((ca >> 8) & 255) * (256 - t) + ((cb >> 8) & 255) * t) >> 8;
+            uint32_t b = ((ca & 255) * (256 - t) + (cb & 255) * t) >> 8;
+            l[x] = 0xFF000000 | (r << 16) | (g << 8) | b;
+        }
+    }
+    for (int faixa = 0; faixa < 2; faixa++) {
+        int y0 = faixa ? H - 70 : 0;
+        for (int y = y0; y < y0 + 70; y++) for (int x = 0; x < W; x++) tela[y * 1920 + x] = 0xFF0C0C10;
+        for (int x = 14; x < W; x += 52) for (int y = y0 + 22; y < y0 + 48; y++) for (int k = 0; k < 30; k++) tela[y * 1920 + x + k] = 0xFFE8E8E8;
+    }
+    int fonte = 110;
+    while (fonte > 36 && medirLarguraTexto(titulo, fonte) > W - 60) fonte -= 6;
+    int lx = (W - medirLarguraTexto(titulo, fonte)) / 2, ly = H / 2 - fonte / 2 - 20;
+    desenharTexto(tela, titulo, fonte, lx + 4, ly + 5, 0xFF000000);
+    desenharTexto(tela, titulo, fonte, lx, ly, 0xFFFFFFFF);
+    for (int x = W / 2 - 90; x < W / 2 + 90; x++) for (int y = ly + fonte + 30; y < ly + fonte + 36; y++) tela[y * 1920 + x] = 0xFFFFFFFF;
+    desenharTexto(tela, "HYPER NEIVA", 30, (W - medirLarguraTexto("HYPER NEIVA", 30)) / 2, H - 150, 0xFFE0E0E0);
+    for (int y = 0; y < H; y++) for (int x = 0; x < W; x++) {
+        uint32_t px = tela[y * 1920 + x];
+        uint8_t* d = rgb + (y * W + x) * 3;
+        d[0] = (uint8_t)(px >> 16); d[1] = (uint8_t)(px >> 8); d[2] = (uint8_t)px;
+    }
+    free(tela);
+    remotoCriarPastas(CAPA_VIDEO_PASTA);
+    FILE* o = fopen(saida, "wb");
+    bool ok = o && stbi_write_jpg_to_func(capaGravarArquivo, o, W, H, 3, rgb, 88);
+    if (o) fclose(o);
+    free(rgb);
+    if (!ok) { remove(saida); saida[0] = 0; }
+    return ok;
 }
 
 // ---- FTP > [PC] Tela do PC: pede a tela ao HyperNeivaPC.exe e liga o controle ----
@@ -5400,6 +5526,824 @@ void pcArquivosRenderizar(uint32_t* p) {
     if (estado[0]) { snprintf(t, sizeof(t), "PC: %s", estado); desenharTexto(p, t, 24, 60, 966, 0xFFFFE08A); }
     else if (pcAvisoTela[0]) desenharTexto(p, pcAvisoTela, 24, 60, 966, 0xFFFFE08A);
     desenharTexto(p, "X abre a pasta / copia o arquivo   Quadrado copia (pasta inteira tambem)   Triangulo atualiza   L1/R1 pagina   O volta", 22, 60, 1020, 0xFF8A96A3);
+}
+
+// =========================================================================
+// FERRAMENTAS DAS TELAS NOVAS (tempo, downloads, Google Drive, 3D)
+// =========================================================================
+extern void conquistaGanhar(const char* chave);
+
+// nome=valor em configuracao/chaves_api.txt
+static bool chaveApi(const char* nome, char* saida, int tam) {
+    saida[0] = 0;
+    FILE* f = fopen(REMOTO_RAIZ "/configuracao/chaves_api.txt", "r");
+    if (!f) return false;
+    char l[2048]; size_t n = strlen(nome);
+    while (fgets(l, sizeof(l), f)) {
+        if (strncasecmp(l, nome, n) || l[n] != '=') continue;
+        char* v = l + n + 1; while (*v == ' ') v++;
+        snprintf(saida, tam, "%s", v); saida[strcspn(saida, "\r\n")] = 0;
+        break;
+    }
+    fclose(f);
+    return saida[0] != 0;
+}
+
+// GET com cabeçalhos ("Nome: valor" por linha). Com 'arquivo', grava direto no disco
+// (arquivos grandes) e soma o progresso em 'feito'.
+static int httpGetCompleto(const char* url, const char* cabecalhos, const char* arquivo, char** resp, size_t* tamResp, volatile long long* feito) {
+    if (resp) *resp = NULL;
+    if (tamResp) *tamResp = 0;
+    int tpl = sceHttpCreateTemplate(httpCtxId, "HyperNeiva/1.0 (PS4)", ORBIS_HTTP_VERSION_1_1, 1);
+    if (tpl < 0) return tpl;
+    sceHttpsSetSslCallback(tpl, skipSslCallback, NULL);
+    int conn = sceHttpCreateConnectionWithURL(tpl, url, 1);
+    int req = conn >= 0 ? sceHttpCreateRequestWithURL(conn, ORBIS_METHOD_GET, url, 0) : -1;
+    int status = req < 0 ? (conn < 0 ? conn : req) : -1;
+    if (req >= 0) {
+        ((int (*)(int, unsigned int))sceHttpSetRecvTimeOut)(req, 60u * 1000000u);
+        sceHttpSetConnectTimeOut(req, 20u * 1000000u);
+        for (const char* p = cabecalhos; p && *p; ) {
+            const char* fim = strchr(p, '\n'); size_t n = fim ? (size_t)(fim - p) : strlen(p);
+            const char* dois = (const char*)memchr(p, ':', n);
+            if (dois) {
+                char nome[64], valor[2200];
+                snprintf(nome, sizeof(nome), "%.*s", (int)(dois - p), p);
+                const char* v = dois + 1; while (*v == ' ') v++;
+                snprintf(valor, sizeof(valor), "%.*s", (int)(p + n - v), v);
+                sceHttpAddRequestHeader(req, nome, valor, 1);
+            }
+            p = fim ? fim + 1 : NULL;
+        }
+        int rc = sceHttpSendRequest(req, NULL, 0);
+        if (rc >= 0) {
+            sceHttpGetStatusCode(req, &status);
+            static char bloco[65536];
+            int n;
+            if (arquivo && status == 200) {
+                FILE* f = fopen(arquivo, "wb");
+                bool ok = f != NULL;
+                while (ok && (n = sceHttpReadData(req, bloco, sizeof(bloco))) > 0) { ok = fwrite(bloco, 1, n, f) == (size_t)n; if (feito) *feito += n; }
+                if (f) fclose(f);
+                if (!ok || n < 0) { remove(arquivo); status = -2; }
+            }
+            else if (resp) {
+                IaBuf r = { NULL, 0, 0 };
+                while ((n = sceHttpReadData(req, bloco, sizeof(bloco))) > 0 && r.n < 16u * 1024 * 1024) if (!iaMais(&r, bloco, n)) break;
+                *resp = r.d; if (tamResp) *tamResp = r.n;
+            }
+        }
+        else status = rc;
+        sceHttpDeleteRequest(req);
+    }
+    if (conn >= 0) sceHttpDeleteConnection(conn);
+    sceHttpDeleteTemplate(tpl);
+    return status;
+}
+
+// Valor de "chave": "..." ou número, dentro de [ini, fim) (aceita espaços do JSON bonito).
+static bool jsonCampo(const char* ini, const char* fim, const char* chave, char* saida, int tam) {
+    saida[0] = 0;
+    char k[64]; snprintf(k, sizeof(k), "\"%s\"", chave);
+    const char* p = ini;
+    size_t kn = strlen(k);
+    while (p && p < fim) {
+        p = strstr(p, k);
+        if (!p || p >= fim) return false;
+        const char* v = p + kn;
+        while (v < fim && (*v == ' ' || *v == '\n' || *v == '\r' || *v == '\t')) v++;
+        if (v >= fim || *v != ':') { p = v; continue; }
+        v++;
+        while (v < fim && (*v == ' ' || *v == '\n' || *v == '\r' || *v == '\t')) v++;
+        if (*v == '"') {
+            char* s2 = iaJsonString(v, NULL);
+            if (s2) { snprintf(saida, tam, "%s", s2); free(s2); }
+            return true;
+        }
+        int k2 = 0;
+        while (v < fim && *v != ',' && *v != '}' && *v != ']' && *v != '\n' && k2 < tam - 1) saida[k2++] = *v++;
+        saida[k2] = 0;
+        return true;
+    }
+    return false;
+}
+
+static void telaFundo(uint32_t* p, uint32_t cor) { for (int i = 0; i < 1920 * 1080; i++) p[i] = cor; }
+static void telaRet(uint32_t* p, int x, int y, int w, int h, uint32_t cor) {
+    for (int yy = y < 0 ? 0 : y; yy < y + h && yy < 1080; yy++) for (int xx = x < 0 ? 0 : x; xx < x + w && xx < 1920; xx++) p[yy * 1920 + xx] = cor;
+}
+
+// QR em qualquer tela (Informações: link de doação).
+void remotoDesenharQrTexto(uint32_t* p, const char* texto, int x, int y, int modulo) {
+    static uint8_t mod[QR_MAX_LADO * QR_MAX_LADO];
+    int lado = qrGerar(texto, mod);
+    if (!lado) return;
+    int borda = 4 * modulo, total = lado * modulo + 2 * borda;
+    for (int yy = 0; yy < total; yy++) for (int xx = 0; xx < total; xx++) {
+        int px = x + xx, py = y + yy;
+        if (px < 0 || py < 0 || px >= 1920 || py >= 1080) continue;
+        int mx = (xx - borda) / modulo, my = (yy - borda) / modulo;
+        bool preto = xx >= borda && yy >= borda && mx < lado && my < lado && mod[my * lado + mx];
+        p[py * 1920 + px] = preto ? 0xFF000000 : 0xFFFFFFFF;
+    }
+}
+
+// =========================================================================
+// PREVISÃO DO TEMPO (EXTRA > Previsão do tempo). Open-Meteo: pública, sem chave.
+// =========================================================================
+#define TEMPO_ARQ REMOTO_RAIZ "/configuracao/tempo_cidades.txt"
+struct TempoCidade { char nome[96]; double lat, lon; };
+struct TempoDados { bool ok; char erro[96]; double temp, vento; int umid, codigo, dias; char data[7][12]; double tmax[7], tmin[7]; int cod[7], chuva[7]; uint64_t quando; };
+static TempoCidade tempoCidades[20];
+static TempoDados tempoDados[20];
+static int tempoTotal = 0, tempoSel = 0, tempoImeModo = 0;
+static volatile bool tempoBaixando = false;
+static char tempoAviso[160] = "";
+static bool tempoConfirmarApagar = false;
+
+static void tempoSalvar() {
+    remotoCriarPastas(REMOTO_RAIZ "/configuracao");
+    FILE* f = fopen(TEMPO_ARQ, "w");
+    if (!f) return;
+    for (int i = 0; i < tempoTotal; i++) fprintf(f, "%s|%.4f|%.4f\n", tempoCidades[i].nome, tempoCidades[i].lat, tempoCidades[i].lon);
+    fclose(f);
+}
+static void tempoCarregar() {
+    tempoTotal = 0;
+    FILE* f = fopen(TEMPO_ARQ, "r");
+    if (f) {
+        char l[256];
+        while (fgets(l, sizeof(l), f) && tempoTotal < 20) {
+            char* a = strchr(l, '|'); if (!a) continue; *a = 0;
+            char* b = strchr(a + 1, '|'); if (!b) continue; *b = 0;
+            snprintf(tempoCidades[tempoTotal].nome, sizeof(tempoCidades[0].nome), "%s", l);
+            tempoCidades[tempoTotal].lat = atof(a + 1); tempoCidades[tempoTotal].lon = atof(b + 1);
+            tempoTotal++;
+        }
+        fclose(f);
+    }
+    if (!tempoTotal) { snprintf(tempoCidades[0].nome, sizeof(tempoCidades[0].nome), "São Paulo, SP"); tempoCidades[0].lat = -23.5475; tempoCidades[0].lon = -46.6361; tempoTotal = 1; tempoSalvar(); }
+}
+static const char* tempoTexto(int c) {
+    if (c == 0) return "Céu limpo";
+    if (c == 1) return "Predomínio de sol";
+    if (c == 2) return "Parcialmente nublado";
+    if (c == 3) return "Nublado";
+    if (c == 45 || c == 48) return "Neblina";
+    if (c >= 51 && c <= 57) return "Garoa";
+    if (c >= 61 && c <= 67) return "Chuva";
+    if (c >= 71 && c <= 77) return "Neve";
+    if (c >= 80 && c <= 82) return "Pancadas de chuva";
+    if (c == 85 || c == 86) return "Neve";
+    if (c >= 95) return "Tempestade";
+    return "";
+}
+static uint32_t tempoCor(int c) { return c <= 1 ? 0xFFFFC94A : c <= 3 ? 0xFFB8C2CC : (c >= 95 ? 0xFFB388FF : (c >= 51 ? 0xFF4FC3F7 : 0xFFDDDDDD)); }
+static int tempoLista(const char* r, const char* chave, double* v, int max) {
+    const char* p = strstr(r, chave);
+    if (!p) return 0;
+    p = strchr(p, '['); if (!p) return 0; p++;
+    int n = 0;
+    while (*p && *p != ']' && n < max) {
+        while (*p == ' ' || *p == ',') p++;
+        if (!strncmp(p, "null", 4)) { v[n++] = 0; p += 4; continue; }
+        char* d; double x = strtod(p, &d);
+        if (d == p) break;
+        v[n++] = x; p = d;
+    }
+    return n;
+}
+static void* tempoThread(void* arg) {
+    int i = (int)(intptr_t)arg;
+    char url[512];
+    snprintf(url, sizeof(url), "https://api.open-meteo.com/v1/forecast?latitude=%.4f&longitude=%.4f&current=temperature_2m,relative_humidity_2m,weather_code,wind_speed_10m"
+        "&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max&timezone=auto&forecast_days=7", tempoCidades[i].lat, tempoCidades[i].lon);
+    char* r = NULL; size_t tam = 0;
+    int st = iaHttpGet(url, &r, &tam);
+    TempoDados d; memset(&d, 0, sizeof(d));
+    if (st == 200 && r) {
+        const char* atual = strstr(r, "\"current\":{");
+        if (atual) {
+            const char* fim = strchr(atual, '}');
+            char v[32];
+            if (jsonCampo(atual, fim, "temperature_2m", v, sizeof(v))) d.temp = atof(v);
+            if (jsonCampo(atual, fim, "relative_humidity_2m", v, sizeof(v))) d.umid = atoi(v);
+            if (jsonCampo(atual, fim, "weather_code", v, sizeof(v))) d.codigo = atoi(v);
+            if (jsonCampo(atual, fim, "wind_speed_10m", v, sizeof(v))) d.vento = atof(v);
+        }
+        const char* diario = strstr(r, "\"daily\":{");
+        if (diario) {
+            double cod[7], chuva[7];
+            d.dias = tempoLista(diario, "\"temperature_2m_max\"", d.tmax, 7);
+            tempoLista(diario, "\"temperature_2m_min\"", d.tmin, 7);
+            int nc = tempoLista(diario, "\"weather_code\"", cod, 7);
+            int nh = tempoLista(diario, "\"precipitation_probability_max\"", chuva, 7);
+            for (int k = 0; k < 7; k++) { d.cod[k] = k < nc ? (int)cod[k] : 0; d.chuva[k] = k < nh ? (int)chuva[k] : 0; }
+            const char* t = strstr(diario, "\"time\":[");
+            for (int k = 0; t && k < d.dias; k++) {
+                t = strchr(t + 1, '"'); if (!t) break;
+                if (k == 0) t = strchr(t + 1, '"');   // pula o nome "time"
+                if (!t) break;
+                const char* q = t + 1;
+                if (*q == '[' || *q == ':') { k--; continue; }
+                snprintf(d.data[k], sizeof(d.data[k]), "%.10s", q);
+                t = strchr(q, '"');
+            }
+        }
+        d.ok = true;
+    }
+    else snprintf(d.erro, sizeof(d.erro), "Sem resposta do Open-Meteo (HTTP %d).", st);
+    free(r);
+    d.quando = remotoAgoraMs();
+    tempoDados[i] = d;
+    tempoBaixando = false;
+    return NULL;
+}
+static void tempoAtualizar(int i) {
+    if (tempoBaixando || i < 0 || i >= tempoTotal) return;
+    tempoBaixando = true;
+    if (!remotoCriarThread(tempoThread, (void*)(intptr_t)i)) tempoBaixando = false;
+}
+static void* tempoThreadBuscar(void* arg) {
+    char* nome = (char*)arg;
+    char q[300]; capaUrlCodificar(nome, q, sizeof(q));
+    char url[512]; snprintf(url, sizeof(url), "https://geocoding-api.open-meteo.com/v1/search?name=%s&count=1&language=pt&format=json", q);
+    char* r = NULL; size_t tam = 0;
+    int st = iaHttpGet(url, &r, &tam);
+    const char* res = r ? strstr(r, "\"results\"") : NULL;
+    if (st == 200 && res && tempoTotal < 20) {
+        const char* fim = strchr(res, '}');
+        char n[96] = "", lat[32] = "", lon[32] = "", estado[64] = "", pais[64] = "";
+        jsonCampo(res, fim, "name", n, sizeof(n));
+        jsonCampo(res, fim, "latitude", lat, sizeof(lat));
+        jsonCampo(res, fim, "longitude", lon, sizeof(lon));
+        jsonCampo(res, fim, "admin1", estado, sizeof(estado));
+        jsonCampo(res, fim, "country", pais, sizeof(pais));
+        TempoCidade* c = &tempoCidades[tempoTotal];
+        snprintf(c->nome, sizeof(c->nome), "%s%s%s", n, estado[0] ? ", " : "", estado[0] ? estado : pais);
+        c->lat = atof(lat); c->lon = atof(lon);
+        memset(&tempoDados[tempoTotal], 0, sizeof(TempoDados));
+        tempoTotal++;
+        tempoSel = tempoTotal - 1;
+        tempoSalvar();
+        snprintf(tempoAviso, sizeof(tempoAviso), "Cidade adicionada: %.100s", c->nome);
+        tempoBaixando = false;
+        tempoAtualizar(tempoSel);
+    }
+    else { snprintf(tempoAviso, sizeof(tempoAviso), "Não achei \"%.80s\".", nome); tempoBaixando = false; }
+    free(r);
+    free(nome);
+    return NULL;
+}
+
+void tempoAbrir() {
+    extern MenuLevel menuAtual;
+    tempoCarregar();
+    if (tempoSel >= tempoTotal) tempoSel = 0;
+    menuAtual = MENU_TEMPO;
+    tempoAviso[0] = 0;
+    conquistaGanhar("tempo");
+    if (!tempoDados[tempoSel].ok) tempoAtualizar(tempoSel);
+}
+
+bool tempoControles(uint32_t botoes, uint32_t antigos, int32_t usuario) {
+    if (tempoImeModo) {
+        char t[200];
+        int r = iaTecladoResultado(t, sizeof(t));
+        if (r >= 0) {
+            tempoImeModo = 0;
+            if (r == 1 && !tempoBaixando) { tempoBaixando = true; char* c = strdup(t); if (!c || !remotoCriarThread(tempoThreadBuscar, c)) { free(c); tempoBaixando = false; } }
+        }
+        return false;
+    }
+    uint32_t n = botoes & ~antigos;
+    if (n & ORBIS_PAD_BUTTON_CIRCLE) return true;
+    if (n & (ORBIS_PAD_BUTTON_UP | ORBIS_PAD_BUTTON_DOWN)) {
+        tempoSel = (tempoSel + ((n & ORBIS_PAD_BUTTON_UP) ? tempoTotal - 1 : 1)) % tempoTotal;
+        tempoConfirmarApagar = false;
+        if (!tempoDados[tempoSel].ok || remotoAgoraMs() - tempoDados[tempoSel].quando > 600000) tempoAtualizar(tempoSel);
+    }
+    if (n & ORBIS_PAD_BUTTON_CROSS) tempoAtualizar(tempoSel);
+    if (n & ORBIS_PAD_BUTTON_SQUARE) { if (iaAbrirTecladoBase(usuario, "Nome da cidade", 80, NULL)) tempoImeModo = 1; }
+    if (n & ORBIS_PAD_BUTTON_TRIANGLE) {
+        if (tempoTotal <= 1) snprintf(tempoAviso, sizeof(tempoAviso), "Deixe pelo menos uma cidade.");
+        else if (!tempoConfirmarApagar) { tempoConfirmarApagar = true; snprintf(tempoAviso, sizeof(tempoAviso), "Triângulo de novo tira %.80s da lista.", tempoCidades[tempoSel].nome); }
+        else {
+            for (int i = tempoSel; i < tempoTotal - 1; i++) { tempoCidades[i] = tempoCidades[i + 1]; tempoDados[i] = tempoDados[i + 1]; }
+            tempoTotal--; if (tempoSel >= tempoTotal) tempoSel = tempoTotal - 1;
+            tempoSalvar(); tempoConfirmarApagar = false; tempoAviso[0] = 0;
+        }
+    }
+    return false;
+}
+
+void tempoRenderizar(uint32_t* p) {
+    telaFundo(p, 0xFF0E1A2B);
+    desenharTexto(p, "Previsão do tempo", 44, 60, 40, 0xFFFFFFFF);
+    desenharTexto(p, "Open-Meteo (open-meteo.com), sem chave", 22, 60, 100, 0xFF8FA6BF);
+    telaRet(p, 40, 150, 560, 800, 0xFF13243A);
+    for (int i = 0; i < tempoTotal; i++) {
+        int y = 170 + i * 50;
+        if (i == tempoSel) telaRet(p, 50, y - 6, 540, 46, 0xFF24456B);
+        desenharTexto(p, tempoCidades[i].nome, 26, 70, y, i == tempoSel ? 0xFFFFFFFF : 0xFFC0CCD8);
+    }
+    TempoDados* d = &tempoDados[tempoSel];
+    int x0 = 660;
+    desenharTexto(p, tempoCidades[tempoSel].nome, 40, x0, 160, 0xFFFFFFFF);
+    if (tempoBaixando && !d->ok) desenharTexto(p, "Buscando a previsão...", 30, x0, 240, 0xFFB8C2CC);
+    else if (!d->ok) desenharTexto(p, d->erro[0] ? d->erro : "Aperte X para buscar a previsão.", 28, x0, 240, 0xFFFFB0A0);
+    else {
+        char t[96];
+        snprintf(t, sizeof(t), "%.0f°C", d->temp);
+        desenharTexto(p, t, 120, x0, 220, tempoCor(d->codigo));
+        desenharTexto(p, tempoTexto(d->codigo), 40, x0 + 330, 250, 0xFFFFFFFF);
+        snprintf(t, sizeof(t), "Umidade %d%%   Vento %.0f km/h", d->umid, d->vento);
+        desenharTexto(p, t, 28, x0 + 330, 310, 0xFFC0CCD8);
+        static const char* semana[] = { "Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb" };
+        for (int k = 0; k < d->dias; k++) {
+            int x = x0 + k * 170, y = 430;
+            telaRet(p, x, y, 158, 300, k == 0 ? 0xFF24456B : 0xFF16304F);
+            int a = 0, m = 0, dd = 0;
+            sscanf(d->data[k], "%d-%d-%d", &a, &m, &dd);
+            // Dia da semana (Zeller simplificado / Sakamoto).
+            static const int tabela[] = { 0, 3, 2, 5, 0, 3, 5, 1, 4, 6, 2, 4 };
+            int aa = m < 3 ? a - 1 : a;
+            int ds = a ? (aa + aa / 4 - aa / 100 + aa / 400 + tabela[(m + 11) % 12] + dd) % 7 : 0;
+            snprintf(t, sizeof(t), "%s %02d/%02d", k == 0 ? "Hoje" : semana[ds], dd, m);
+            desenharTexto(p, t, 22, x + 12, y + 14, 0xFFFFFFFF);
+            snprintf(t, sizeof(t), "%.0f°", d->tmax[k]);
+            desenharTexto(p, t, 52, x + 12, y + 60, tempoCor(d->cod[k]));
+            snprintf(t, sizeof(t), "min %.0f°", d->tmin[k]);
+            desenharTexto(p, t, 24, x + 12, y + 130, 0xFFC0CCD8);
+            char curto[40]; snprintf(curto, sizeof(curto), "%s", tempoTexto(d->cod[k]));
+            desenharTexto(p, curto, 18, x + 12, y + 180, 0xFFDDE6EE);
+            snprintf(t, sizeof(t), "chuva %d%%", d->chuva[k]);
+            desenharTexto(p, t, 22, x + 12, y + 240, 0xFF4FC3F7);
+        }
+    }
+    if (tempoAviso[0]) desenharTexto(p, tempoAviso, 24, x0, 790, 0xFFFFE08A);
+    desenharTexto(p, "Cima/Baixo cidade   X atualiza   Quadrado adiciona cidade   Triângulo tira cidade   O volta", 22, 60, 1010, 0xFF8FA6BF);
+}
+
+// =========================================================================
+// GOOGLE DRIVE (BAIXAR > Google Drive): credenciais do OAuth Playground em Chaves de API.
+// =========================================================================
+struct GdItem { char id[96]; char nome[200]; bool pasta, google; long long tam; };
+#define GD_MAX 1000
+static GdItem* gdItens = NULL;
+static volatile int gdTotal = 0;
+static int gdSel = 0, gdOff = 0, gdNivel = 0;
+static char gdPilhaId[32][96], gdPilhaNome[32][120];
+static volatile bool gdCarregando = false, gdBaixando = false;
+static char gdAviso[240] = "", gdToken[2200] = "", gdBaixandoNome[200] = "";
+static uint64_t gdTokenAte = 0;
+static volatile long long gdFeito = 0, gdTamanho = 0;
+
+static bool gdPegarToken() {
+    if (gdToken[0] && remotoAgoraMs() < gdTokenAte) return true;
+    char id[300], segredo[300], refresh[600];
+    if (!chaveApi("gdrive_client_id", id, sizeof(id)) || !chaveApi("gdrive_client_secret", segredo, sizeof(segredo)) || !chaveApi("gdrive_refresh_token", refresh, sizeof(refresh))) {
+        snprintf(gdAviso, sizeof(gdAviso), "Faltam as credenciais: Extra > Chaves de API > Serviços > Google Drive (passo a passo nas Conquistas, BAIXAR).");
+        return false;
+    }
+    char a[600], b[600], c[1400];
+    capaUrlCodificar(id, a, sizeof(a)); capaUrlCodificar(segredo, b, sizeof(b)); capaUrlCodificar(refresh, c, sizeof(c));
+    char corpo[3000]; snprintf(corpo, sizeof(corpo), "client_id=%s&client_secret=%s&refresh_token=%s&grant_type=refresh_token", a, b, c);
+    char* r = NULL; size_t tam = 0;
+    int st = iaHttpPost("https://oauth2.googleapis.com/token", "", "application/x-www-form-urlencoded", corpo, strlen(corpo), &r, &tam);
+    char tok[2100] = "", expira[32] = "";
+    if (r) { jsonCampo(r, r + tam, "access_token", tok, sizeof(tok)); jsonCampo(r, r + tam, "expires_in", expira, sizeof(expira)); }
+    if (st != 200 || !tok[0]) {
+        char err[160] = ""; if (r) jsonCampo(r, r + tam, "error_description", err, sizeof(err));
+        snprintf(gdAviso, sizeof(gdAviso), "Google recusou as credenciais (HTTP %d) %.120s", st, err);
+        free(r);
+        return false;
+    }
+    free(r);
+    snprintf(gdToken, sizeof(gdToken), "%s", tok);
+    gdTokenAte = remotoAgoraMs() + (uint64_t)(atoi(expira) > 120 ? atoi(expira) - 60 : 3000) * 1000;
+    return true;
+}
+
+static void* gdThreadListar(void*) {
+    int total = 0;
+    if (gdPegarToken()) {
+        const char* pasta = gdNivel ? gdPilhaId[gdNivel - 1] : "root";
+        char url[900];
+        snprintf(url, sizeof(url), "https://www.googleapis.com/drive/v3/files?q=%%27%s%%27+in+parents+and+trashed%%3Dfalse&fields=files(id%%2Cname%%2CmimeType%%2Csize)"
+            "&pageSize=1000&orderBy=folder%%2Cname&supportsAllDrives=true&includeItemsFromAllDrives=true", pasta);
+        char cab[2300]; snprintf(cab, sizeof(cab), "Authorization: Bearer %s", gdToken);
+        char* r = NULL; size_t tam = 0;
+        int st = httpGetCompleto(url, cab, NULL, &r, &tam, NULL);
+        if (st == 200 && r) {
+            const char* p = strstr(r, "\"files\"");
+            while (p && total < GD_MAX) {
+                const char* o = strchr(p, '{'); if (!o) break;
+                const char* e = strchr(o, '}'); if (!e) break;
+                GdItem* it = &gdItens[total];
+                char mime[120] = "", tamanho[32] = "";
+                jsonCampo(o, e, "id", it->id, sizeof(it->id));
+                jsonCampo(o, e, "name", it->nome, sizeof(it->nome));
+                jsonCampo(o, e, "mimeType", mime, sizeof(mime));
+                jsonCampo(o, e, "size", tamanho, sizeof(tamanho));
+                it->pasta = !strcmp(mime, "application/vnd.google-apps.folder");
+                it->google = !it->pasta && !strncmp(mime, "application/vnd.google-apps.", 28);
+                it->tam = atoll(tamanho);
+                if (it->id[0]) total++;
+                p = e + 1;
+            }
+            gdAviso[0] = 0;
+        }
+        else snprintf(gdAviso, sizeof(gdAviso), "Não consegui listar a pasta (HTTP %d).", st);
+        free(r);
+    }
+    gdTotal = total;
+    gdCarregando = false;
+    return NULL;
+}
+static void gdListar() {
+    if (gdCarregando) return;
+    gdCarregando = true; gdTotal = 0; gdSel = 0; gdOff = 0;
+    if (!remotoCriarThread(gdThreadListar, NULL)) gdCarregando = false;
+}
+static GdItem gdItemBaixar;
+static void* gdThreadBaixar(void*) {
+    GdItem it = gdItemBaixar;
+    if (gdPegarToken()) {
+        char url[400]; snprintf(url, sizeof(url), "https://www.googleapis.com/drive/v3/files/%s?alt=media&supportsAllDrives=true", it.id);
+        char cab[2300]; snprintf(cab, sizeof(cab), "Authorization: Bearer %s", gdToken);
+        remotoCriarPastas(REMOTO_RAIZ "/baixado/gdrive");
+        char nome[200]; snprintf(nome, sizeof(nome), "%s", it.nome);
+        for (char* c = nome; *c; c++) if (*c == '/' || *c == '\\' || *c == ':') *c = '_';
+        char destino[400]; snprintf(destino, sizeof(destino), REMOTO_RAIZ "/baixado/gdrive/%s", nome);
+        int st = httpGetCompleto(url, cab, destino, NULL, NULL, &gdFeito);
+        if (st == 200) snprintf(gdAviso, sizeof(gdAviso), "Baixado em baixado/gdrive/%.150s", nome);
+        else snprintf(gdAviso, sizeof(gdAviso), "O download falhou (HTTP %d).", st);
+        remotoLog("GDRIVE %s -> %d", nome, st);
+    }
+    gdBaixando = false;
+    return NULL;
+}
+
+void gdriveAbrir() {
+    extern MenuLevel menuAtual;
+    if (!gdItens) gdItens = (GdItem*)malloc(sizeof(GdItem) * GD_MAX);
+    if (!gdItens) return;
+    menuAtual = MENU_GDRIVE;
+    gdNivel = 0; gdAviso[0] = 0;
+    conquistaGanhar("gdrive");
+    gdListar();
+}
+
+bool gdriveControles(uint32_t botoes, uint32_t antigos, int32_t usuario) {
+    (void)usuario;
+    uint32_t n = botoes & ~antigos;
+    if (n & ORBIS_PAD_BUTTON_CIRCLE) {
+        if (gdNivel == 0) return true;
+        gdNivel--; gdListar();
+        return false;
+    }
+    if (n & ORBIS_PAD_BUTTON_TRIANGLE) { gdToken[0] = 0; gdListar(); return false; }
+    int total = gdTotal;
+    if (gdCarregando || total == 0) return false;
+    if (n & ORBIS_PAD_BUTTON_UP) gdSel = (gdSel + total - 1) % total;
+    if (n & ORBIS_PAD_BUTTON_DOWN) gdSel = (gdSel + 1) % total;
+    if (n & ORBIS_PAD_BUTTON_L1) { gdSel -= 15; if (gdSel < 0) gdSel = 0; }
+    if (n & ORBIS_PAD_BUTTON_R1) { gdSel += 15; if (gdSel >= total) gdSel = total - 1; }
+    if (n & ORBIS_PAD_BUTTON_CROSS) {
+        GdItem* it = &gdItens[gdSel];
+        if (it->pasta) {
+            if (gdNivel < 32) { snprintf(gdPilhaId[gdNivel], 96, "%s", it->id); snprintf(gdPilhaNome[gdNivel], 120, "%s", it->nome); gdNivel++; gdListar(); }
+        }
+        else if (it->google) snprintf(gdAviso, sizeof(gdAviso), "Documento do Google (Docs/Planilhas): baixe pelo navegador como arquivo.");
+        else if (gdBaixando) snprintf(gdAviso, sizeof(gdAviso), "Espere o download atual terminar.");
+        else {
+            gdItemBaixar = *it;
+            snprintf(gdBaixandoNome, sizeof(gdBaixandoNome), "%s", it->nome);
+            gdFeito = 0; gdTamanho = it->tam; gdBaixando = true;
+            if (!remotoCriarThread(gdThreadBaixar, NULL)) gdBaixando = false;
+            else snprintf(gdAviso, sizeof(gdAviso), "Baixando %.150s...", it->nome);
+        }
+    }
+    return false;
+}
+
+void gdriveRenderizar(uint32_t* p) {
+    telaFundo(p, 0xFF10161D);
+    desenharTexto(p, "Google Drive", 44, 60, 40, 0xFFFFFFFF);
+    char t[600] = "Meu Drive";
+    for (int i = 0; i < gdNivel; i++) { size_t k = strlen(t); snprintf(t + k, sizeof(t) - k, " / %s", gdPilhaNome[i]); }
+    desenharTexto(p, t, 24, 60, 100, 0xFF4FC3F7);
+    const int y0 = 160, passo = 44, vis = 17;
+    int total = gdTotal;
+    if (gdCarregando) desenharTexto(p, "Carregando...", 28, 60, y0 + 10, 0xFFB8C2CC);
+    else if (!total && !gdAviso[0]) desenharTexto(p, "Pasta vazia", 28, 60, y0 + 10, 0xFFB8C2CC);
+    if (gdSel < gdOff) gdOff = gdSel;
+    if (gdSel >= gdOff + vis) gdOff = gdSel - vis + 1;
+    for (int k = 0; k < vis && gdOff + k < total && !gdCarregando; k++) {
+        int i = gdOff + k, y = y0 + k * passo;
+        GdItem* it = &gdItens[i];
+        if (i == gdSel) telaRet(p, 50, y - 4, 1820, passo - 6, 0xFF243040);
+        telaRet(p, 64, y + 6, 24, 20, it->pasta ? 0xFFE8B931 : (it->google ? 0xFF4CAF50 : 0xFF8A96A3));
+        desenharTexto(p, it->nome, 28, 104, y, i == gdSel ? 0xFFFFFFFF : 0xFFD0D6DC);
+        if (!it->pasta && it->tam > 0) {
+            char tam[32];
+            if (it->tam >= 1073741824LL) snprintf(tam, sizeof(tam), "%.1f GB", it->tam / 1073741824.0);
+            else if (it->tam >= 1048576) snprintf(tam, sizeof(tam), "%.1f MB", it->tam / 1048576.0);
+            else snprintf(tam, sizeof(tam), "%lld KB", it->tam / 1024);
+            desenharTexto(p, tam, 24, 1700, y + 2, 0xFF8A96A3);
+        }
+    }
+    if (gdBaixando) {
+        char b[300]; long long tot = gdTamanho;
+        snprintf(b, sizeof(b), "Baixando %.120s  %.1f / %.1f MB", gdBaixandoNome, gdFeito / 1048576.0, tot / 1048576.0);
+        desenharTexto(p, b, 24, 60, 930, 0xFFFFE08A);
+        if (tot > 0) { telaRet(p, 60, 966, 1000, 10, 0xFF333A44); telaRet(p, 60, 966, (int)(1000 * (gdFeito > tot ? tot : gdFeito) / tot), 10, 0xFF4FC3F7); }
+    }
+    else if (gdAviso[0]) desenharTexto(p, gdAviso, 24, 60, 940, 0xFFFFE08A);
+    desenharTexto(p, "X abre a pasta / baixa o arquivo (vai para baixado/gdrive)   Triângulo atualiza   L1/R1 página   O volta", 22, 60, 1020, 0xFF8A96A3);
+}
+
+static int dlDrive(DlLinha* l, int max) {
+    if (!gdBaixando || max <= 0) return 0;
+    snprintf(l->origem, sizeof(l->origem), "Drive");
+    snprintf(l->nome, sizeof(l->nome), "%s", gdBaixandoNome);
+    l->progresso = gdTamanho > 0 ? (float)gdFeito / (float)gdTamanho : -1.0f;
+    snprintf(l->info, sizeof(l->info), "%.1f / %.1f MB", gdFeito / 1048576.0, gdTamanho / 1048576.0);
+    return 1;
+}
+
+// =========================================================================
+// GERENCIADOR DE DOWNLOADS (BAIXAR > Gerenciador de downloads): tudo que está chegando
+// ao PS4, com a origem de cada um.
+// =========================================================================
+extern int dlInternos(DlLinha* l, int max);    // baixar_dropbox_download.cpp: links, GitHub, Dropbox e o PS4
+extern int dlTorrents(DlLinha* l, int max);    // baixar.cpp
+extern int dlTelegram(DlLinha* l, int max);    // extra.cpp
+static int dlRolagem = 0;
+void downloadsAbrir() { extern MenuLevel menuAtual; menuAtual = MENU_DOWNLOADS; dlRolagem = 0; conquistaGanhar("gerenciador"); }
+bool downloadsControles(uint32_t botoes, uint32_t antigos, int32_t usuario) {
+    (void)usuario;
+    uint32_t n = botoes & ~antigos;
+    if (n & ORBIS_PAD_BUTTON_CIRCLE) return true;
+    if (n & ORBIS_PAD_BUTTON_UP) { if (dlRolagem > 0) dlRolagem--; }
+    if (n & ORBIS_PAD_BUTTON_DOWN) dlRolagem++;
+    return false;
+}
+static uint32_t dlCorOrigem(const char* o) {
+    if (!strcmp(o, "Telegram")) return 0xFF2AABEE;
+    if (!strcmp(o, "GitHub")) return 0xFF6E7681;
+    if (!strcmp(o, "Dropbox")) return 0xFF0061FE;
+    if (!strcmp(o, "Torrent")) return 0xFF43A047;
+    if (!strcmp(o, "PS4")) return 0xFF7B4FD6;
+    if (!strcmp(o, "Drive")) return 0xFFF4B400;
+    if (!strcmp(o, "PC")) return 0xFF00897B;
+    if (!strcmp(o, "Fila")) return 0xFF5C6B7A;
+    return 0xFFEF6C00;
+}
+void downloadsRenderizar(uint32_t* p) {
+    static DlLinha linhas[240];
+    int n = 0;
+    n += dlInternos(linhas + n, 240 - n);
+    n += dlTelegram(linhas + n, 240 - n);
+    n += dlTorrents(linhas + n, 240 - n);
+    n += dlDrive(linhas + n, 240 - n);
+    char pcNome2[64], pcEst[160];
+    pcInfo(pcNome2, sizeof(pcNome2), pcEst, sizeof(pcEst));
+    if (pcEst[0] && n < 240) { DlLinha* l = &linhas[n++]; snprintf(l->origem, sizeof(l->origem), "PC"); snprintf(l->nome, sizeof(l->nome), "%s", pcEst); l->progresso = -1; snprintf(l->info, sizeof(l->info), "HyperNeivaPC %s", pcNome2); }
+    telaFundo(p, 0xFF0F1216);
+    desenharTexto(p, "Gerenciador de downloads", 44, 60, 40, 0xFFFFFFFF);
+    char t[96]; snprintf(t, sizeof(t), "%d item(ns)", n);
+    desenharTexto(p, t, 24, 60, 100, 0xFF8A96A3);
+    if (!n) desenharTexto(p, "Nada baixando agora. Downloads de links, GitHub, Dropbox, Telegram, torrent, Google Drive e do PC aparecem aqui.", 26, 60, 200, 0xFFB8C2CC);
+    const int vis = 9;
+    if (dlRolagem > n - vis) dlRolagem = n - vis;
+    if (dlRolagem < 0) dlRolagem = 0;
+    for (int k = 0; k < vis && dlRolagem + k < n; k++) {
+        DlLinha* l = &linhas[dlRolagem + k];
+        int y = 160 + k * 92;
+        telaRet(p, 50, y, 1820, 84, 0xFF171C22);
+        int w = medirLarguraTexto(l->origem, 22) + 28;
+        telaRet(p, 66, y + 12, w, 32, dlCorOrigem(l->origem));
+        desenharTexto(p, l->origem, 22, 80, y + 16, 0xFFFFFFFF);
+        char nome[170]; snprintf(nome, sizeof(nome), "%.90s", l->nome);
+        desenharTexto(p, nome, 26, 66 + w + 18, y + 12, 0xFFFFFFFF);
+        desenharTexto(p, l->info, 22, 1300, y + 16, 0xFFB8C2CC);
+        telaRet(p, 66, y + 58, 1780, 10, 0xFF2A313A);
+        if (l->progresso >= 0) { float f = l->progresso > 1 ? 1 : l->progresso; telaRet(p, 66, y + 58, (int)(1780 * f), 10, dlCorOrigem(l->origem)); }
+    }
+    desenharTexto(p, "Cima/Baixo rola a lista   O volta.  Para cancelar, use a tela de cada um (Telegram: Options; Torrent: Triângulo).", 22, 60, 1020, 0xFF8A96A3);
+}
+
+// =========================================================================
+// VISUALIZADOR 3D (EXPLORAR > X em .obj ou .stl): rasterizador próprio, com profundidade.
+// =========================================================================
+bool modelo3dAberto = false;
+static float* m3dTri = NULL;
+static int m3dN = 0, m3dCap = 0;
+static float m3dRotX = -0.45f, m3dRotY = 0.65f, m3dZoom = 1.0f;
+static bool m3dArame = false;
+static char m3dNome[160] = "";
+static uint32_t* m3dTela = NULL;
+static float* m3dZ = NULL;
+#define M3D_W 960
+#define M3D_H 540
+
+static void m3dAdd(const float* a, const float* b, const float* c) {
+    if (m3dN >= m3dCap) {
+        int nova = m3dCap ? m3dCap * 2 : 65536;
+        if (nova > 4000000) return;
+        float* t = (float*)realloc(m3dTri, sizeof(float) * 9 * (size_t)nova);
+        if (!t) return;
+        m3dTri = t; m3dCap = nova;
+    }
+    float* d = m3dTri + (size_t)m3dN * 9;
+    memcpy(d, a, 12); memcpy(d + 3, b, 12); memcpy(d + 6, c, 12);
+    m3dN++;
+}
+static bool m3dLerObj(const char* caminho) {
+    FILE* f = fopen(caminho, "r");
+    if (!f) return false;
+    float* v = NULL; int nv = 0, cap = 0;
+    char l[2048];
+    while (fgets(l, sizeof(l), f)) {
+        if (l[0] == 'v' && l[1] == ' ') {
+            if (nv >= cap) { int nova = cap ? cap * 2 : 65536; float* t = (float*)realloc(v, sizeof(float) * 3 * (size_t)nova); if (!t) break; v = t; cap = nova; }
+            v[nv * 3] = 0; v[nv * 3 + 1] = 0; v[nv * 3 + 2] = 0;
+            sscanf(l + 2, "%f %f %f", &v[nv * 3], &v[nv * 3 + 1], &v[nv * 3 + 2]);
+            nv++;
+        }
+        else if (l[0] == 'f' && l[1] == ' ') {
+            int idx[64], k = 0;
+            char* p = l + 2;
+            while (*p && k < 64) {
+                while (*p == ' ' || *p == '\t') p++;
+                if (!*p || *p == '\n' || *p == '\r') break;
+                int i = atoi(p);
+                if (i < 0) i = nv + i + 1;
+                idx[k++] = i - 1;
+                while (*p && *p != ' ' && *p != '\t') p++;
+            }
+            for (int t = 1; t + 1 < k; t++) {
+                if (idx[0] < 0 || idx[t] < 0 || idx[t + 1] < 0 || idx[0] >= nv || idx[t] >= nv || idx[t + 1] >= nv) continue;
+                m3dAdd(&v[idx[0] * 3], &v[idx[t] * 3], &v[idx[t + 1] * 3]);
+            }
+        }
+    }
+    fclose(f);
+    free(v);
+    return m3dN > 0;
+}
+static bool m3dLerStl(const char* caminho) {
+    FILE* f = fopen(caminho, "rb");
+    if (!f) return false;
+    fseek(f, 0, SEEK_END); long tam = ftell(f); fseek(f, 0, SEEK_SET);
+    unsigned char cab[84];
+    bool binario = false;
+    if (tam >= 84 && fread(cab, 1, 84, f) == 84) {
+        uint32_t n; memcpy(&n, cab + 80, 4);
+        binario = (long)(84 + (long)n * 50) == tam;
+        if (binario) {
+            unsigned char t[50];
+            for (uint32_t i = 0; i < n && fread(t, 1, 50, f) == 50; i++) {
+                float a[3], b[3], c[3];
+                memcpy(a, t + 12, 12); memcpy(b, t + 24, 12); memcpy(c, t + 36, 12);
+                m3dAdd(a, b, c);
+            }
+        }
+    }
+    if (!binario) {
+        fseek(f, 0, SEEK_SET);
+        char l[512]; float vv[3][3]; int k = 0;
+        while (fgets(l, sizeof(l), f)) {
+            char* p = strstr(l, "vertex");
+            if (!p) continue;
+            sscanf(p + 6, "%f %f %f", &vv[k][0], &vv[k][1], &vv[k][2]);
+            if (++k == 3) { m3dAdd(vv[0], vv[1], vv[2]); k = 0; }
+        }
+    }
+    fclose(f);
+    return m3dN > 0;
+}
+
+bool modelo3dAbrir(const char* caminho) {
+    m3dN = 0;
+    const char* ext = strrchr(caminho, '.');
+    bool ok = ext && !strcasecmp(ext, ".stl") ? m3dLerStl(caminho) : m3dLerObj(caminho);
+    if (!ok) { remotoAviso("NAO CONSEGUI LER ESTE MODELO 3D"); return false; }
+    // Centraliza e põe no tamanho da tela.
+    float mn[3] = { 1e30f, 1e30f, 1e30f }, mx[3] = { -1e30f, -1e30f, -1e30f };
+    for (int i = 0; i < m3dN * 3; i++) for (int c = 0; c < 3; c++) { float v = m3dTri[i * 3 + c]; if (v < mn[c]) mn[c] = v; if (v > mx[c]) mx[c] = v; }
+    float centro[3], maior = 0;
+    for (int c = 0; c < 3; c++) { centro[c] = (mn[c] + mx[c]) / 2; if (mx[c] - mn[c] > maior) maior = mx[c] - mn[c]; }
+    float escala = maior > 0 ? 2.0f / maior : 1;
+    for (int i = 0; i < m3dN * 3; i++) for (int c = 0; c < 3; c++) m3dTri[i * 3 + c] = (m3dTri[i * 3 + c] - centro[c]) * escala;
+    const char* nome = strrchr(caminho, '/');
+    snprintf(m3dNome, sizeof(m3dNome), "%s", nome ? nome + 1 : caminho);
+    m3dRotX = -0.45f; m3dRotY = 0.65f; m3dZoom = 1.0f; m3dArame = false;
+    if (!m3dTela) m3dTela = (uint32_t*)malloc(M3D_W * M3D_H * 4);
+    if (!m3dZ) m3dZ = (float*)malloc(M3D_W * M3D_H * sizeof(float));
+    modelo3dAberto = m3dTela && m3dZ;
+    conquistaGanhar("modelo3d");
+    return modelo3dAberto;
+}
+
+static void m3dLinha(int x0, int y0, int x1, int y1, uint32_t cor) {
+    int dx = abs(x1 - x0), dy = -abs(y1 - y0), sx = x0 < x1 ? 1 : -1, sy = y0 < y1 ? 1 : -1, e = dx + dy;
+    for (int g = 0; g < 4000; g++) {
+        if (x0 >= 0 && y0 >= 0 && x0 < M3D_W && y0 < M3D_H) m3dTela[y0 * M3D_W + x0] = cor;
+        if (x0 == x1 && y0 == y1) break;
+        int e2 = 2 * e;
+        if (e2 >= dy) { e += dy; x0 += sx; }
+        if (e2 <= dx) { e += dx; y0 += sy; }
+    }
+}
+
+static void m3dDesenhar() {
+    for (int y = 0; y < M3D_H; y++) {
+        uint32_t c = 0xFF000000 | ((uint32_t)(18 + y * 20 / M3D_H) << 16) | ((uint32_t)(22 + y * 24 / M3D_H) << 8) | (uint32_t)(32 + y * 30 / M3D_H);
+        for (int x = 0; x < M3D_W; x++) { m3dTela[y * M3D_W + x] = c; m3dZ[y * M3D_W + x] = 1e30f; }
+    }
+    float cx = cosf(m3dRotX), sx = sinf(m3dRotX), cy = cosf(m3dRotY), sy = sinf(m3dRotY);
+    float dist = 3.4f / m3dZoom, foco = M3D_H * 1.25f;
+    for (int t = 0; t < m3dN; t++) {
+        float px[3], py[3], pz[3], rx[3], ry[3], rz[3];
+        for (int k = 0; k < 3; k++) {
+            const float* v = m3dTri + (size_t)t * 9 + k * 3;
+            float x1 = v[0] * cy + v[2] * sy, z1 = -v[0] * sy + v[2] * cy;
+            float y2 = v[1] * cx - z1 * sx, z2 = v[1] * sx + z1 * cx;
+            rx[k] = x1; ry[k] = y2; rz[k] = z2 + dist;
+            if (rz[k] < 0.05f) rz[k] = 0.05f;
+            px[k] = M3D_W / 2 + x1 * foco / rz[k];
+            py[k] = M3D_H / 2 - y2 * foco / rz[k];
+            pz[k] = rz[k];
+        }
+        float ux = rx[1] - rx[0], uy = ry[1] - ry[0], uz = rz[1] - rz[0], vx = rx[2] - rx[0], vy = ry[2] - ry[0], vz = rz[2] - rz[0];
+        float nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
+        float nl = sqrtf(nx * nx + ny * ny + nz * nz);
+        float luz = nl > 0 ? fabsf(nz * 0.8f + ny * 0.45f + nx * 0.2f) / nl : 0.5f;
+        if (luz > 1) luz = 1;
+        int lum = (int)(60 + 195 * luz);
+        uint32_t cor = 0xFF000000 | ((uint32_t)(lum * 176 / 255) << 16) | ((uint32_t)(lum * 196 / 255) << 8) | (uint32_t)(lum * 222 / 255);
+        if (m3dArame) {
+            uint32_t c2 = 0xFF7FD3FF;
+            m3dLinha((int)px[0], (int)py[0], (int)px[1], (int)py[1], c2);
+            m3dLinha((int)px[1], (int)py[1], (int)px[2], (int)py[2], c2);
+            m3dLinha((int)px[2], (int)py[2], (int)px[0], (int)py[0], c2);
+            continue;
+        }
+        int x0 = (int)floorf(fminf(px[0], fminf(px[1], px[2]))), x1 = (int)ceilf(fmaxf(px[0], fmaxf(px[1], px[2])));
+        int y0 = (int)floorf(fminf(py[0], fminf(py[1], py[2]))), y1 = (int)ceilf(fmaxf(py[0], fmaxf(py[1], py[2])));
+        if (x0 < 0) x0 = 0; if (y0 < 0) y0 = 0; if (x1 >= M3D_W) x1 = M3D_W - 1; if (y1 >= M3D_H) y1 = M3D_H - 1;
+        float area = (px[1] - px[0]) * (py[2] - py[0]) - (px[2] - px[0]) * (py[1] - py[0]);
+        if (fabsf(area) < 1e-6f) continue;
+        for (int y = y0; y <= y1; y++) for (int x = x0; x <= x1; x++) {
+            float fx = x + 0.5f, fy = y + 0.5f;
+            float w0 = ((px[1] - fx) * (py[2] - fy) - (px[2] - fx) * (py[1] - fy)) / area;
+            float w1 = ((px[2] - fx) * (py[0] - fy) - (px[0] - fx) * (py[2] - fy)) / area;
+            float w2 = 1 - w0 - w1;
+            if (w0 < 0 || w1 < 0 || w2 < 0) continue;
+            float z = w0 * pz[0] + w1 * pz[1] + w2 * pz[2];
+            int i = y * M3D_W + x;
+            if (z < m3dZ[i]) { m3dZ[i] = z; m3dTela[i] = cor; }
+        }
+    }
+}
+
+void modelo3dControles(uint32_t botoes, uint32_t antigos) {
+    extern uint8_t gEmuAnaLX, gEmuAnaLY, gEmuAnaRX, gEmuAnaRY;
+    uint32_t n = botoes & ~antigos;
+    if (n & ORBIS_PAD_BUTTON_CIRCLE) { modelo3dAberto = false; return; }
+    if (n & ORBIS_PAD_BUTTON_CROSS) m3dArame = !m3dArame;
+    if (n & ORBIS_PAD_BUTTON_SQUARE) { m3dRotX = -0.45f; m3dRotY = 0.65f; m3dZoom = 1.0f; }
+    if (botoes & ORBIS_PAD_BUTTON_R1) m3dZoom *= 1.03f;
+    if (botoes & ORBIS_PAD_BUTTON_L1) m3dZoom /= 1.03f;
+    if (botoes & ORBIS_PAD_BUTTON_LEFT) m3dRotY -= 0.04f;
+    if (botoes & ORBIS_PAD_BUTTON_RIGHT) m3dRotY += 0.04f;
+    if (botoes & ORBIS_PAD_BUTTON_UP) m3dRotX -= 0.04f;
+    if (botoes & ORBIS_PAD_BUTTON_DOWN) m3dRotX += 0.04f;
+    int lx = (int)gEmuAnaLX - 128, ly = (int)gEmuAnaLY - 128, ry = (int)gEmuAnaRY - 128;
+    bool semLeitura = !gEmuAnaLX && !gEmuAnaLY && !gEmuAnaRX && !gEmuAnaRY;
+    if (!semLeitura) {
+        if (abs(lx) > 20) m3dRotY += lx / 128.0f * 0.06f;
+        if (abs(ly) > 20) m3dRotX += ly / 128.0f * 0.06f;
+        if (abs(ry) > 30) m3dZoom *= 1.0f - ry / 128.0f * 0.03f;
+    }
+    if (m3dZoom < 0.2f) m3dZoom = 0.2f;
+    if (m3dZoom > 12) m3dZoom = 12;
+}
+
+void modelo3dRenderizar(uint32_t* p) {
+    m3dDesenhar();
+    for (int y = 0; y < 1080; y++) {
+        const uint32_t* o = m3dTela + (y / 2) * M3D_W;
+        uint32_t* d = p + y * 1920;
+        for (int x = 0; x < 1920; x++) d[x] = o[x >> 1];
+    }
+    char t[240];
+    snprintf(t, sizeof(t), "%s   (%d triângulos)", m3dNome, m3dN);
+    desenharTexto(p, t, 30, 40, 30, 0xFFFFFFFF);
+    desenharTexto(p, "Analógico ou setas giram   L1/R1 ou analógico direito zoom   X arame   Quadrado volta ao início   O fecha", 22, 40, 1030, 0xFFB8C2CC);
 }
 
 // ---- Thread principal: abre o que chegou do celular ----

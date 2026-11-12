@@ -523,13 +523,14 @@ static const char* tmAcao(const TemaCena* c) { return c->aba == 2 ? "X  Abrir" :
 static const char* tmBotoesRodape(const TemaCena* c, bool curto) {
     if (c->aba == 3) return "X  Tocar     Triângulo  Opções     Quadrado  Letra     O  Voltar";
     if (c->aba == 4) return "X  Tocar     Triângulo  Opções     O  Voltar";
+    if (c->aba == 5) return "X  Tocar     Triângulo  Player e opções     O  Voltar";
     if (c->aba == 2) return "X  Abrir     Triângulo  Opções     Quadrado  Jogos XML     O  Voltar";
     return curto ? "Cima / Baixo  Navegar     X  Jogar     Triângulo  Opções     L2  Favorito     R2  Pesquisar"
                  : "X  Jogar     Triângulo  Opções     L2  Favorito     R2  Pesquisar     Options  Ordenar     L1/R1  Favoritos";
 }
 static void tmNomeVazio(const TemaCena* c, char* nome, size_t tam) {
     if (c->total == 1 && (strncmp(nome, "Nenhuma", 7) == 0 || strcmp(nome, "Pasta vazia") == 0))
-        snprintf(nome, tam, "%s", c->aba == 3 ? "Nenhuma música" : c->aba == 4 ? "Nenhum vídeo" : "Nenhum jogo encontrado");
+        snprintf(nome, tam, "%s", c->aba == 3 ? "Nenhuma música" : c->aba == 4 ? "Nenhum vídeo" : c->aba == 5 ? "Nenhuma rádio" : "Nenhum jogo encontrado");
 }
 static const char* tmSemImagem(const TemaCena* c) { return c->aba >= 3 ? "Sem capa" : "Imagem do jogo"; }
 
@@ -652,14 +653,14 @@ static void tmDesenharCarrossel(uint32_t* p, const TemaCena* c) {
     uint32_t branco = tmRgb(255, 255, 255), suave = tmRgb(164, 156, 230);
     desenharTexto(p, "HYPER NEIVA", 34, 90, 54, branco);
     tmCaixa(p, 600, 36, 560, 72, 16, tmAlfa(0xFFFFFF, 14));
-    if (c->aba >= 3) tmAba(p, c->aba == 3 ? "Músicas" : "Vídeos", 630, true);
+    if (c->aba >= 3) tmAba(p, c->aba == 3 ? "Músicas" : c->aba == 5 ? "Rádios" : "Vídeos", 630, true);
     else {
         tmAba(p, c->aba == 2 ? "Sistemas" : "Biblioteca", 630, c->aba != 1);
         tmAba(p, "Favoritos", 880, c->aba == 1);
         desenharTexto(p, "L1", 22, 556, 62, tmRgb(170, 170, 196));
         desenharTexto(p, "R1", 22, 1176, 62, tmRgb(170, 170, 196));
     }
-    desenharTexto(p, c->aba == 4 ? "Seus vídeos" : c->aba == 3 ? "Suas músicas" : c->aba == 2 ? "Seus sistemas" : c->aba ? "Seus favoritos" : "Seus jogos", 42, 90, 138, branco);
+    desenharTexto(p, c->aba == 5 ? "Rádios" : c->aba == 4 ? "Seus vídeos" : c->aba == 3 ? "Suas músicas" : c->aba == 2 ? "Seus sistemas" : c->aba ? "Seus favoritos" : "Seus jogos", 42, 90, 138, branco);
     tmTexto(p, c->subtitulo, 26, 90, 192, 900, suave);
     char posicao[32];
     snprintf(posicao, sizeof(posicao), "%d / %d", c->total > 0 ? c->sel + 1 : 0, c->total);

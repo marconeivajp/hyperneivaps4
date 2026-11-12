@@ -147,12 +147,19 @@ void desenharInterface(uint32_t* p) {
     }
     {
         extern bool musicaPlayerCheio();
-        if (musicaPlayerCheio() && menuAtual == MENU_MUSICAS && !showOpcoes) {
+        if (musicaPlayerCheio() && !showOpcoes) {
             extern void musicaPlayerRenderizar(uint32_t* p);
             musicaPlayerRenderizar(p);
             return;
         }
     }
+    {
+        extern bool modelo3dAberto;
+        if (modelo3dAberto) { extern void modelo3dRenderizar(uint32_t* p); modelo3dRenderizar(p); return; }
+    }
+    if (menuAtual == MENU_TEMPO) { extern void tempoRenderizar(uint32_t* p); tempoRenderizar(p); return; }
+    if (menuAtual == MENU_DOWNLOADS) { extern void downloadsRenderizar(uint32_t* p); downloadsRenderizar(p); return; }
+    if (menuAtual == MENU_GDRIVE) { extern void gdriveRenderizar(uint32_t* p); gdriveRenderizar(p); return; }
     if (menuAtual == MENU_PC_ARQUIVOS) {
         extern void pcArquivosRenderizar(uint32_t* p);
         pcArquivosRenderizar(p);
@@ -396,6 +403,7 @@ void desenharInterface(uint32_t* p) {
 
     { extern void letraDesenhar(uint32_t* p); letraDesenhar(p); }   // letra da música (network.cpp)
     { extern void musicaPlayerMiniDesenhar(uint32_t* p); musicaPlayerMiniDesenhar(p); }   // player em tela pequena (menu_audio.cpp)
+    { extern void escolhaPkgDesenhar(uint32_t* p); escolhaPkgDesenhar(p); }   // pelo PS4 ou pelo Hyper Neiva (baixar_dropbox_download.cpp)
 
     // --- OVERLAYS DE UI (Path e IP) ---
     if (menuAtual == MENU_EXPLORAR || menuAtual == MENU_EXPLORAR_HOME) {

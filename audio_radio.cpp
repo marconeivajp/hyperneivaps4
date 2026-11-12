@@ -39,6 +39,7 @@ static pthread_t radioNetThreadId;
 static bool radioNetThreadCreated = false;
 static volatile bool radioNetRodando = false;
 static volatile bool radioPreBuffering = false;
+static volatile bool radioAbrindo = false;
 
 // FFmpeg Contexts
 static AVFormatContext* pRadioFormatCtx = NULL;
@@ -112,7 +113,8 @@ static void* radioNetThreadFunc(void* arg) {
             radioRingWrite = (radioRingWrite + n) % RADIO_RING_SIZE;
             radioRingCount += n;
 
-            if (radioPreBuffering && radioRingCount > 262144) {
+            // Pré-buffer curto: 256 KB levava ~16 s numa rádio de 128 kbps.
+            if (radioPreBuffering && radioRingCount >= 49152) {
                 radioPreBuffering = false;
             }
             pthread_mutex_unlock(&radioRingMutex);
@@ -143,7 +145,9 @@ static int read_http_stream(void* opaque, uint8_t* buf, int buf_size) {
     // Deliver short reads immediately. Waiting for the whole 64 KB AVIO
     // request starves low-bitrate stations and makes a brief network pause
     // look like a permanent end of stream.
-    for (int wait = 0; wait < 5; wait++) {
+    // Enquanto abre (detecção do formato), espera mais: o buffer começa pequeno.
+    int limite = radioAbrindo ? 150 : 5;
+    for (int wait = 0; wait < limite; wait++) {
         pthread_mutex_lock(&radioRingMutex);
         int available = radioRingCount;
         if (available > 0) {
@@ -227,7 +231,9 @@ bool iniciarRadio(const char* url) {
 
     if (radioHttpStream->tmpl >= 0) {
         sceHttpsSetSslCallback(radioHttpStream->tmpl, skipSslCallback, NULL);
-        sceHttpSetAutoRedirect();
+        // O protótipo do OpenOrbis não tem argumentos: chamar direto passava lixo.
+        typedef int (*DefinirRedirecionamento)(int, int);
+        ((DefinirRedirecionamento)(void*)sceHttpSetAutoRedirect)(radioHttpStream->tmpl, 1);
     }
     if (radioHttpStream->tmpl < 0) {
         radioHttpStream->tmpl = httpCtxId;
@@ -274,25 +280,44 @@ bool iniciarRadio(const char* url) {
         }
         radioNetThreadCreated = true;
 
-        strcpy(msgStatus, "Conectado! Aguarde 2 segundos...");
-        msgTimer = 200;
+        strcpy(msgStatus, "Conectado! Carregando a radio...");
+        msgTimer = 120;
         msgStatusColor = 0xFF00FF00;
 
+        // Começa com 48 KB, ou com 12 KB depois de 1,2 s (rádio de bitrate baixo).
+        uint64_t inicio = sceKernelGetProcessTime();
         int timeout = 0;
-        while (radioPreBuffering && radioNetRodando && timeout < 1000) {
+        while (radioPreBuffering && radioNetRodando && timeout < 800) {
+            if (radioRingCount >= 12288 && timeout >= 120) break;
             sceKernelUsleep(10000);
             timeout++;
         }
+        radioPreBuffering = false;
 
-        uint8_t* avio_buf = (uint8_t*)av_malloc(65536);
-        radioAvioCtx = avio_alloc_context(avio_buf, 65536, 0, radioHttpStream, &read_http_stream, NULL, NULL);
+        uint8_t* avio_buf = (uint8_t*)av_malloc(32768);
+        radioAvioCtx = avio_alloc_context(avio_buf, 32768, 0, radioHttpStream, &read_http_stream, NULL, NULL);
 
         pRadioFormatCtx = avformat_alloc_context();
         pRadioFormatCtx->pb = radioAvioCtx;
+        // Sem isso o FFmpeg lê até 5 MB / 5 s de áudio só para analisar o stream.
+        pRadioFormatCtx->probesize = 32768;
+        pRadioFormatCtx->format_probesize = 32768;
+        pRadioFormatCtx->max_analyze_duration = 500000;   // 0,5 s
 
+        radioAbrindo = true;
         int ret = avformat_open_input(&pRadioFormatCtx, NULL, NULL, NULL);
+        int info = ret == 0 ? avformat_find_stream_info(pRadioFormatCtx, NULL) : -1;
+        radioAbrindo = false;
+        {
+            FILE* lg = fopen("/data/HyperNeiva/radio_log.txt", "a");
+            if (lg) {
+                fprintf(lg, "RADIO abriu em %d ms (pre-buffer %d ms, buffer %d KB, open %d, info %d) %.200s\n", (int)((sceKernelGetProcessTime() - inicio) / 1000), timeout * 10,
+                    radioRingCount / 1024, ret, info, url);
+                fclose(lg);
+            }
+        }
         if (ret == 0) {
-            if (avformat_find_stream_info(pRadioFormatCtx, NULL) >= 0) {
+            if (info >= 0) {
                 for (int i = 0; i < pRadioFormatCtx->nb_streams; i++) {
                     if (pRadioFormatCtx->streams[i]->codecpar->codec_type == AVMEDIA_TYPE_AUDIO) {
                         radioStreamIdx = i; break;

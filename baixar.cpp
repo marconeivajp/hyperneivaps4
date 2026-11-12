@@ -626,7 +626,9 @@ void preencherMenuBaixar() {
     strcpy(nomes[5], "GitHub");
     strcpy(nomes[6], "Torrent");
     strcpy(nomes[7], "RetroArch (assets, trapaças, banco...)");
-    totalItens = 8;
+    strcpy(nomes[8], "Gerenciador de downloads");
+    strcpy(nomes[9], "Google Drive");
+    totalItens = 10;
     menuAtual = MENU_BAIXAR;
     sel = 0;
     off = 0;
@@ -727,4 +729,21 @@ void processarFilaDownloads() {
         int totalRestante = contarLinksFila();
         removerPrimeiroLinkFila();
     }
+}
+struct DlLinha { char origem[16]; char nome[160]; float progresso; char info[96]; };   // gerenciador de downloads (network.cpp)
+int dlTorrents(DlLinha* l, int max) {
+    if (!torrentLigado) return 0;
+    int n = 0, total = hn_torrent_total();
+    for (int i = 0; i < total && n < max; i++) {
+        HnTorrentInfo t;
+        if (hn_torrent_info(i, &t) != 0) continue;
+        snprintf(l[n].origem, sizeof(l[n].origem), "Torrent");
+        snprintf(l[n].nome, sizeof(l[n].nome), "%s", t.nome);
+        l[n].progresso = t.progresso;
+        if (t.concluido) snprintf(l[n].info, sizeof(l[n].info), "Concluído");
+        else if (t.pausado) snprintf(l[n].info, sizeof(l[n].info), "Pausado  %.0f%%", t.progresso * 100);
+        else snprintf(l[n].info, sizeof(l[n].info), "%.0f%%  %d KB/s  %d fontes", t.progresso * 100, t.taxa / 1024, t.fontes);
+        n++;
+    }
+    return n;
 }

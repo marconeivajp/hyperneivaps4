@@ -17,6 +17,7 @@
 
 #include <orbis/AppInstUtil.h>
 #include <orbis/Bgft.h>
+#include <orbis/Pad.h>
 #include <orbis/UserService.h>
 
 #include "baixar_dropbox_download.h"
@@ -876,6 +877,7 @@ void acessarDropbox(const char* path) {
     menuAtual = MENU_BAIXAR_DROPBOX_LISTA; sel = 0; off = 0;
 }
 
+void dlRegistrarTarefaPs4(int id, const char* nome);
 bool tentarBgft(const char* urlFinal, const char* nomeExibicao) {
     sprintf(msgStatus, "TENTANDO BGFT DO PS4..."); atualizarBarra(0.2f);
     uint64_t fileSize = 0; char contentId[40] = { 0 };
@@ -907,14 +909,71 @@ bool tentarBgft(const char* urlFinal, const char* nomeExibicao) {
     int32_t userId = 0; sceUserServiceGetInitialUser(&userId);
 
     OrbisBgftDownloadParam params; memset(&params, 0, sizeof(OrbisBgftDownloadParam));
-    params.userId = userId; params.entitlementType = 5; params.id = contentId; params.contentUrl = urlFinal; params.contentName = nomeExibicao; params.playgoScenarioId = "0"; params.packageSize = fileSize;
+    params.userId = userId; params.entitlementType = 5; params.id = contentId; params.contentUrl = urlFinal; params.contentName = nomeExibicao; params.playgoScenarioId = "0"; memcpy(&params.packageSize, &fileSize, sizeof(fileSize));   // 64 bits: o header do OpenOrbis corta acima de 4 GB
     OrbisBgftTaskId taskId = -1;
-    if (sceBgftServiceIntDebugDownloadRegisterPkg(&params, &taskId) == 0 && taskId >= 0) { sceBgftServiceDownloadStartTask(taskId); sprintf(msgStatus, "DOWNLOAD DA WEB INICIADO!"); atualizarBarra(1.0f); msgTimer = 400; return true; }
+    if (sceBgftServiceIntDebugDownloadRegisterPkg(&params, &taskId) == 0 && taskId >= 0) { dlRegistrarTarefaPs4((int)taskId, nomeExibicao); sceBgftServiceDownloadStartTask(taskId); sprintf(msgStatus, "DOWNLOAD DA WEB INICIADO!"); atualizarBarra(1.0f); msgTimer = 400; return true; }
     return false;
 }
 
+struct DlLinha { char origem[16]; char nome[160]; float progresso; char info[96]; };   // gerenciador de downloads (network.cpp)
+// Tarefas registradas no download do sistema (para o gerenciador de downloads).
+static int dlTarefas[16];
+static char dlTarefasNome[16][120];
+static int dlTotalTarefas = 0;
+void dlRegistrarTarefaPs4(int id, const char* nome) {
+    for (int i = 0; i < dlTotalTarefas; i++) if (dlTarefas[i] == id) { snprintf(dlTarefasNome[i], 120, "%s", nome); return; }
+    if (dlTotalTarefas == 16) { memmove(dlTarefas, dlTarefas + 1, sizeof(int) * 15); memmove(dlTarefasNome, dlTarefasNome + 1, 120 * 15); dlTotalTarefas = 15; }
+    dlTarefas[dlTotalTarefas] = id; snprintf(dlTarefasNome[dlTotalTarefas], 120, "%s", nome); dlTotalTarefas++;
+}
+static const char* dlOrigemDaUrl(const char* u) {
+    if (u[0] == '/' || strstr(u, "dropbox")) return "Dropbox";
+    if (strstr(u, "github")) return "GitHub";
+    return "Link";
+}
+int dlInternos(DlLinha* l, int max);
+
 static int ultimoErroDownload = 0;
 static char urlAtualDownload[4096];
+int dlInternos(DlLinha* l, int max) {
+    int n = 0;
+    if (downloadEmSegundoPlano && n < max) {
+        snprintf(l[n].origem, sizeof(l[n].origem), "%s", dlOrigemDaUrl(urlAtualDownload));
+        snprintf(l[n].nome, sizeof(l[n].nome), "%s", msgDownloadBg);
+        l[n].progresso = progressoAtualDownload;
+        snprintf(l[n].info, sizeof(l[n].info), "%.0f%%", progressoAtualDownload * 100);
+        n++;
+    }
+    // O que ainda espera na fila do downloader do app.
+    FILE* f = fopen(caminhoFila, "r");
+    if (f) {
+        char linha[1500];
+        while (fgets(linha, sizeof(linha), f) && n < max) {
+            char* bar = strchr(linha, '|'); if (bar) *bar = 0;
+            linha[strcspn(linha, "\r\n")] = 0;
+            if (!linha[0]) continue;
+            const char* nome = strrchr(linha, '/');
+            snprintf(l[n].origem, sizeof(l[n].origem), "Fila");
+            snprintf(l[n].nome, sizeof(l[n].nome), "%s", nome && nome[1] ? nome + 1 : linha);
+            l[n].progresso = -1;
+            snprintf(l[n].info, sizeof(l[n].info), "esperando (%s)", dlOrigemDaUrl(linha));
+            n++;
+        }
+        fclose(f);
+    }
+    // Downloads entregues ao PS4 (Notificações > Downloads).
+    for (int i = 0; i < dlTotalTarefas && n < max; i++) {
+        OrbisBgftTaskProgress pr; memset(&pr, 0, sizeof(pr));
+        if (sceBgftServiceDownloadGetProgress(dlTarefas[i], &pr) != 0) continue;
+        snprintf(l[n].origem, sizeof(l[n].origem), "PS4");
+        snprintf(l[n].nome, sizeof(l[n].nome), "%s", dlTarefasNome[i]);
+        l[n].progresso = pr.length ? (float)pr.transferred / (float)pr.length : -1;
+        if (pr.errorResult) snprintf(l[n].info, sizeof(l[n].info), "erro 0x%08X", (unsigned int)pr.errorResult);
+        else if (pr.length && pr.transferred >= pr.length) snprintf(l[n].info, sizeof(l[n].info), "baixado, instalando");
+        else snprintf(l[n].info, sizeof(l[n].info), "%.0f / %.0f MB", pr.transferred / 1048576.0, pr.length / 1048576.0);
+        n++;
+    }
+    return n;
+}
 
 // Registro de cada etapa: sem ele, uma falha de rede no console não deixa pista nenhuma.
 #define logDownload(...) do { FILE* logF = fopen("/data/HyperNeiva/download_debug_log.txt", "a"); if (logF) { fprintf(logF, __VA_ARGS__); fprintf(logF, "\n"); fclose(logF); } } while (0)
@@ -1117,7 +1176,135 @@ void* threadDownloadBackground(void* arg) {
     totalFilaSessao = 0; baixadosFilaSessao = 0; downloadEmSegundoPlano = false; return NULL;
 }
 
+// ---- Escolha ao baixar um PKG: pelo PS4 (fila de downloads do sistema) ou pelo Hyper Neiva ----
+bool escolhaPkgAberta = false;
+static int escolhaPkgSel = 0;
+static char escolhaPkgUrl[4096] = "", escolhaPkgNome[128] = "";
+static void iniciarDownloadFila(const char* url);
+
+// Segue os redirecionamentos (GitHub, Dropbox) até o endereço que entrega o arquivo: o
+// download do sistema não segue o salto sozinho. Tira o "#" do fim (o Dropbox manda).
+static bool resolverLinkFinal(const char* url, char* saida, size_t tam) {
+    char atual[4096]; snprintf(atual, sizeof(atual), "%s", url);
+    char* dbox = strstr(atual, "dropbox.com");
+    if (dbox) { char* dl0 = strstr(atual, "?dl=0"); if (!dl0) dl0 = strstr(atual, "&dl=0"); if (dl0) dl0[4] = '1'; }
+    int tpl = sceHttpCreateTemplate(httpCtxId, "HyperNeiva/1.0", ORBIS_HTTP_VERSION_1_1, 1);
+    if (tpl < 0) return false;
+    sceHttpsSetSslCallback(tpl, skipSslCallback, NULL);
+    definirLimiteCabecalho(tpl, 65536);
+    definirRedirecionamento(tpl, 0);
+    bool ok = false;
+    for (int salto = 0; salto < 6 && !ok; salto++) {
+        int conn = sceHttpCreateConnectionWithURL(tpl, atual, 0);
+        int req = conn >= 0 ? sceHttpCreateRequestWithURL(conn, ORBIS_METHOD_GET, atual, 0) : -1;
+        if (req < 0) { if (conn >= 0) sceHttpDeleteConnection(conn); break; }
+        if (strstr(atual, "api.github.com")) sceHttpAddRequestHeader(req, "Accept", "application/octet-stream", 1);
+        sceHttpAddRequestHeader(req, "Range", "bytes=0-0", 1);
+        int32_t codigo = 0;
+        bool enviado = sceHttpSendRequest(req, NULL, 0) >= 0 && sceHttpGetStatusCode(req, &codigo) >= 0;
+        logDownload("RESOLVER %d: status %d %.80s", salto, (int)codigo, atual);
+        if (enviado && (codigo == 200 || codigo == 206)) { snprintf(saida, tam, "%s", atual); ok = true; }
+        else if (enviado && (codigo == 301 || codigo == 302 || codigo == 303 || codigo == 307 || codigo == 308)) {
+            char* cab = NULL; size_t n = 0;
+            char destino[4096] = "";
+            if (sceHttpGetAllResponseHeaders(req, &cab, &n) >= 0 && cab) {
+                for (size_t i = 0; i + 9 < n; i++) {
+                    if ((i == 0 || cab[i - 1] == '\n') && strncasecmp(cab + i, "location:", 9) == 0) {
+                        size_t j = i + 9, k = 0;
+                        while (j < n && cab[j] == ' ') j++;
+                        while (j < n && cab[j] != '\r' && cab[j] != '\n' && k < sizeof(destino) - 1) destino[k++] = cab[j++];
+                        destino[k] = '\0';
+                        break;
+                    }
+                }
+            }
+            char* fragmento = strchr(destino, '#'); if (fragmento) *fragmento = '\0';
+            if (destino[0] == '/') {
+                const char* resto = strstr(atual, "://");
+                int servidor = 0;
+                if (resto) { const char* barra = strchr(resto + 3, '/'); servidor = barra ? (int)(barra - atual) : (int)strlen(atual); }
+                char rel[4096]; snprintf(rel, sizeof(rel), "%.*s%s", servidor, atual, destino);
+                snprintf(atual, sizeof(atual), "%s", rel);
+            }
+            else if (destino[0]) snprintf(atual, sizeof(atual), "%s", destino);
+            else salto = 99;
+        }
+        else salto = 99;
+        sceHttpDeleteRequest(req);
+        sceHttpDeleteConnection(conn);
+    }
+    sceHttpDeleteTemplate(tpl);
+    return ok;
+}
+
+static void baixarPkgPeloPs4(const char* url, const char* nome) {
+    char final_[4096];
+    if (!resolverLinkFinal(url, final_, sizeof(final_))) snprintf(final_, sizeof(final_), "%s", url);
+    // O sistema aceita até 2047 letras de endereço.
+    if (strlen(final_) < 2048 && tentarBgft(final_, nome)) {
+        snprintf(msgStatus, sizeof(msgStatus), "BAIXANDO PELO PS4: VEJA EM NOTIFICACOES > DOWNLOADS");
+        msgTimer = 400;
+        return;
+    }
+    snprintf(msgStatus, sizeof(msgStatus), "O PS4 NAO ACEITOU ESTE LINK. BAIXANDO PELO HYPER NEIVA...");
+    msgTimer = 300;
+    iniciarDownloadFila(url);
+}
+
+void escolhaPkgDesenhar(uint32_t* p) {
+    if (!escolhaPkgAberta) return;
+    extern void desenharTexto(uint32_t* pixels, const char* texto, int tam, int x, int y, uint32_t cor);
+    const int w = 1100, h = 380, x0 = (1920 - w) / 2, y0 = (1080 - h) / 2;
+    for (int y = y0; y < y0 + h; y++) for (int x = x0; x < x0 + w; x++) p[y * 1920 + x] = 0xFF15181E;
+    for (int x = x0; x < x0 + w; x++) for (int y = y0; y < y0 + 4; y++) p[y * 1920 + x] = 0xFF29B6F6;
+    char t[200]; snprintf(t, sizeof(t), "Baixar %.70s", escolhaPkgNome);
+    desenharTexto(p, t, 32, x0 + 40, y0 + 30, 0xFFFFFFFF);
+    const char* op[2] = { "Pelo PS4: fila de downloads do sistema, instala sozinho", "Pelo Hyper Neiva: barra de progresso no app, salva em /data/pkg" };
+    for (int i = 0; i < 2; i++) {
+        int y = y0 + 110 + i * 90;
+        if (i == escolhaPkgSel) for (int yy = y - 10; yy < y + 60; yy++) for (int xx = x0 + 24; xx < x0 + w - 24; xx++) p[yy * 1920 + xx] = 0xFF2C3440;
+        desenharTexto(p, op[i], 28, x0 + 50, y + 6, i == escolhaPkgSel ? 0xFF29B6F6 : 0xFFE0E0E0);
+    }
+    desenharTexto(p, "X escolhe     O cancela", 24, x0 + 40, y0 + h - 50, 0xFF9AA4B0);
+}
+
+void escolhaPkgControles(uint32_t botoes, uint32_t antigos) {
+    uint32_t n = botoes & ~antigos;
+    if (n & (ORBIS_PAD_BUTTON_UP | ORBIS_PAD_BUTTON_DOWN)) escolhaPkgSel ^= 1;
+    if (n & ORBIS_PAD_BUTTON_CIRCLE) { escolhaPkgAberta = false; snprintf(msgStatus, sizeof(msgStatus), "DOWNLOAD CANCELADO"); msgTimer = 120; return; }
+    if (n & ORBIS_PAD_BUTTON_CROSS) {
+        escolhaPkgAberta = false;
+        if (escolhaPkgSel == 0) baixarPkgPeloPs4(escolhaPkgUrl, escolhaPkgNome);
+        else iniciarDownloadFila(escolhaPkgUrl);
+    }
+}
+
 void iniciarDownload(const char* url) {
+    if (!url || strlen(url) < 2) return;
+    // PKG por link (http/https): pergunta se baixa pelo PS4 ou pelo Hyper Neiva. O nome dos
+    // arquivos do GitHub não está no link (api.github.com/.../assets/123): vem à parte.
+    if (!strncasecmp(url, "http://", 7) || !strncasecmp(url, "https://", 8)) {
+        extern char githubNomeDownload[128];
+        char nome[128];
+        if (menuAtual == MENU_BAIXAR_GITHUB_ARQUIVOS && githubNomeDownload[0]) snprintf(nome, sizeof(nome), "%s", githubNomeDownload);
+        else {
+            const char* barra = strrchr(url, '/');
+            snprintf(nome, sizeof(nome), "%s", barra ? barra + 1 : url);
+            char* corte = strpbrk(nome, "?#"); if (corte) *corte = '\0';
+        }
+        const char* ext = strrchr(nome, '.');
+        if (ext && !strcasecmp(ext, ".pkg")) {
+            snprintf(escolhaPkgUrl, sizeof(escolhaPkgUrl), "%s", url);
+            snprintf(escolhaPkgNome, sizeof(escolhaPkgNome), "%s", nome);
+            escolhaPkgSel = 0;
+            escolhaPkgAberta = true;
+            return;
+        }
+    }
+    iniciarDownloadFila(url);
+}
+
+static void iniciarDownloadFila(const char* url) {
     if (!url || strlen(url) < 2) return;
     char nomeArquivo[128] = "arquivo.bin"; char* ref = strrchr(url, '/'); if (ref) { strncpy(nomeArquivo, ref + 1, 127); nomeArquivo[127] = '\0'; }
     char* ptrInterrogacao = strchr(nomeArquivo, '?'); if (ptrInterrogacao) *ptrInterrogacao = '\0';
@@ -1125,14 +1312,7 @@ void iniciarDownload(const char* url) {
     char nomeLimpo[128] = { 0 }; int j = 0;
     for (int i = 0; nomeArquivo[i] != '\0' && j < 127; i++) { if (nomeArquivo[i] == '%' && nomeArquivo[i + 1] == '2' && nomeArquivo[i + 2] == '0') { nomeLimpo[j++] = ' '; i += 2; } else { nomeLimpo[j++] = nomeArquivo[i]; } }
     strcpy(nomeArquivo, nomeLimpo);
-    char* ext = strrchr(nomeArquivo, '.');
-    if (ext && (strcasecmp(ext, ".pkg") == 0 || strcasecmp(ext, ".PKG") == 0)) {
-        // O GitHub redireciona para outro servidor: o downloader interno trata isso e mostra a barra.
-        bool ehGithub = menuAtual == MENU_BAIXAR_GITHUB_ARQUIVOS;
-        bool usarBgft = true; if (url[0] == '/' || strstr(url, "dropbox.com") != NULL || ehGithub) { usarBgft = false; }
-        if (usarBgft) { if (tentarBgft(url, nomeArquivo)) return; sprintf(msgStatus, "BGFT FALHOU. USANDO DOWNLOADER INTERNO..."); msgTimer = 180; sceKernelUsleep(1000 * 1000); }
-        else if (!ehGithub) { sprintf(msgStatus, "LINK DROPBOX: USANDO DOWNLOADER INTERNO..."); msgTimer = 180; }
-    }
+    (void)nomeArquivo;
     int antes = obterTamanhoFila();
     if (!downloadEmSegundoPlano) { totalFilaSessao = antes; baixadosFilaSessao = 0; }
     extern char githubNomeDownload[128];

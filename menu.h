@@ -62,7 +62,10 @@ enum MenuLevel {
     MENU_SISTEMAS,
     MENU_IA,           // Inteligência Artificial (Gemini), em network.cpp
     MENU_CHAVES,       // Chaves de API, em network.cpp
-    MENU_PC_ARQUIVOS   // FTP > [PC] Arquivos do PC, em network.cpp
+    MENU_PC_ARQUIVOS,  // FTP > [PC] Arquivos do PC, em network.cpp
+    MENU_TEMPO,        // EXTRA > Previsão do tempo (network.cpp)
+    MENU_DOWNLOADS,    // BAIXAR > Gerenciador de downloads (network.cpp)
+    MENU_GDRIVE        // BAIXAR > Google Drive (network.cpp)
 };
 
 extern MenuLevel menuAtual;

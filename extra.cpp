@@ -70,7 +70,8 @@ void preencherMenuExtra() {
     strcpy(nomes[3], "Ventoinha e temperatura");
     strcpy(nomes[4], "Inteligencia Artificial (Gemini)");
     strcpy(nomes[5], "Chaves de API");
-    totalItens = 6;
+    strcpy(nomes[6], "Previsao do tempo");
+    totalItens = 7;
     menuAtual = MENU_EXTRA;
     sel = 0;
 }
@@ -168,7 +169,7 @@ enum TgModoIme { TG_IME_TELEFONE, TG_IME_CODIGO, TG_IME_SENHA, TG_IME_MENSAGEM, 
 enum TgMidia { TG_M_NADA, TG_M_FOTO, TG_M_VIDEO, TG_M_AUDIO };
 
 // ordens: 0 lista principal, 1 arquivadas, 2 em diante as pastas.
-struct TgConversa { long long id, data, lidoAte; long long ordens[TG_MAX_PASTAS + 2]; int naoLidas, foto; char titulo[160]; char ultima[260]; int mudo, tipo; };   // tipo: 0 pessoa, 1 grupo, 2 canal
+struct TgConversa { long long id, data, lidoAte; long long ordens[TG_MAX_PASTAS + 2]; int naoLidas, foto; char titulo[160]; char ultima[260]; int mudo, tipo; long long grupoId; };   // tipo: 0 pessoa, 1 grupo, 2 canal
 struct TgMensagem { long long id, autor, data; bool minha, figurinha; int arquivo, imgL, imgA, grande, midia, totalLinks, alturaCache[2]; char rotulo[32]; char resumo[48]; char arquivoNome[100]; char links[12][200]; char texto[1024]; };
 struct TgPasta { int id; char nome[64]; };
 enum TgEstadoDownload { TG_D_BAIXANDO, TG_D_COPIAR, TG_D_COPIANDO, TG_D_PRONTO, TG_D_ERRO };
@@ -596,6 +597,20 @@ static bool tgConfirmar = false;
 static long long tgChatDaPasta = 0;
 static char tgConviteLink[220] = "";
 static volatile bool tgAudioFluxo = false;
+static bool tgAcoesSub = false;          // Quadrado na conversa: submenu "Opções do grupo/canal"
+static int tgListaModo = 0;              // Quadrado na lista: 0 principal, 1 escolher pasta, 2 opções da conversa, 3 marcar conversas da pasta nova
+static char tgNovaPastaNome[64] = "";
+static long long tgNovaPastaIds[100];
+static int tgNovaPastaTotal = 0;
+static long long tgEditarMsg = 0;        // mensagem sendo editada (segure X > Editar)
+// Membro ou não de cada grupo/canal (updateSupergroup / updateBasicGroup).
+struct TgGrupoStatus { long long id; bool membro; };
+static TgGrupoStatus tgGrupos[4000];
+static int tgTotalGrupos = 0;
+static void tgGuardarStatusGrupo(long long id, bool membro) {
+    for (int i = 0; i < tgTotalGrupos; i++) if (tgGrupos[i].id == id) { tgGrupos[i].membro = membro; return; }
+    if (tgTotalGrupos < 4000) { tgGrupos[tgTotalGrupos].id = id; tgGrupos[tgTotalGrupos].membro = membro; tgTotalGrupos++; }
+}
 #define TG_TOTAL_FILTROS 7
 static const char* tgNomesFiltro[TG_TOTAL_FILTROS] = { "Tudo", "Só mensagens", "Só arquivos", "Só vídeos", "Só áudios", "Só fotos", "Só links" };
 static const char* tgFiltroTdlib[TG_TOTAL_FILTROS] = { "", "", "searchMessagesFilterDocument", "searchMessagesFilterVideo", "searchMessagesFilterAudio", "searchMessagesFilterPhoto", "searchMessagesFilterUrl" };
@@ -1468,6 +1483,7 @@ static void tgDesenharMenu(uint32_t* p) {
         const char* nome = op >= 0 ? (op < tgMenuTotalUrls ? tgMenuUrls[op] : "") :
             op == -2 ? tgIcone("↩️ Responder", "Responder") : op == -3 ? tgIcone("➡️ Encaminhar", "Encaminhar") :
             op == -4 ? tgIcone("☑️ Selecionar", "Selecionar") : op == -5 ? tgIcone("📋 Copiar texto", "Copiar texto") :
+            op == -6 ? tgIcone("✏️ Editar", "Editar") :
             tgIcone("⬇️ Baixar e salvar", "Baixar e salvar");
         tgEscreverCortado(p, nome, 24, x + 30, linha + 12, largura - 60, TG_COR(245, 245, 245));
     }
@@ -1606,14 +1622,26 @@ static void tgDesenharEntrada(uint32_t* p) {
 static const char* tgIcone(const char* comEmoji, const char* semEmoji) { return tgEmojis ? comEmoji : semEmoji; }
 
 // Itens do Quadrado na conversa: enviar e as opções do grupo/canal.
-enum { TG_A_ESCREVER, TG_A_ARQUIVO, TG_A_GRAVAR, TG_A_COLAR, TG_A_FILTRO, TG_A_MUDO, TG_A_LIDO, TG_A_ARQUIVAR, TG_A_ENTRAR, TG_A_SAIR };
+enum { TG_A_ESCREVER, TG_A_ARQUIVO, TG_A_GRAVAR, TG_A_COLAR, TG_A_FILTRO, TG_A_MUDO, TG_A_LIDO, TG_A_ARQUIVAR, TG_A_ENTRAR, TG_A_SAIR, TG_A_OPCOES };
+// 1 membro, 0 fora, -1 ainda não sabe.
+static int tgMembro(const TgConversa* c) {
+    if (!c || !c->tipo || !c->grupoId) return -1;
+    for (int i = 0; i < tgTotalGrupos; i++) if (tgGrupos[i].id == c->grupoId) return tgGrupos[i].membro ? 1 : 0;
+    return -1;
+}
 static int tgAcoesItens(int* itens) {
     int n = 0;
-    itens[n++] = TG_A_ESCREVER; itens[n++] = TG_A_ARQUIVO; itens[n++] = TG_A_GRAVAR;
-    if (tgCopiado[0]) itens[n++] = TG_A_COLAR;
-    itens[n++] = TG_A_FILTRO; itens[n++] = TG_A_MUDO; itens[n++] = TG_A_LIDO; itens[n++] = TG_A_ARQUIVAR;
     const TgConversa* c = tgConversaPorId(tgAberta);
-    if (c && c->tipo) { itens[n++] = TG_A_ENTRAR; itens[n++] = TG_A_SAIR; }
+    if (!tgAcoesSub) {
+        itens[n++] = TG_A_ESCREVER; itens[n++] = TG_A_ARQUIVO; itens[n++] = TG_A_GRAVAR;
+        if (tgCopiado[0]) itens[n++] = TG_A_COLAR;
+        itens[n++] = TG_A_OPCOES;
+        return n;
+    }
+    itens[n++] = TG_A_FILTRO; itens[n++] = TG_A_MUDO; itens[n++] = TG_A_LIDO; itens[n++] = TG_A_ARQUIVAR;
+    int membro = tgMembro(c);
+    if (c && c->tipo && membro != 1) itens[n++] = TG_A_ENTRAR;
+    if (c && c->tipo && membro != 0) itens[n++] = TG_A_SAIR;
     return n;
 }
 static void tgRotuloConversa(int item, const TgConversa* c, char* s, int t) {
@@ -1629,6 +1657,7 @@ static void tgRotuloConversa(int item, const TgConversa* c, char* s, int t) {
     case TG_A_ARQUIVAR: snprintf(s, t, "%s", c && c->ordens[1] ? tgIcone("📤 Desarquivar", "Desarquivar") : tgIcone("🗄 Arquivar", "Arquivar")); break;
     case TG_A_ENTRAR: snprintf(s, t, "%s %s", tgIcone("➕ Entrar no", "Entrar no"), tipo); break;
     case TG_A_SAIR: if (tgConfirmar) snprintf(s, t, "Aperte X de novo para sair do %s", tipo); else snprintf(s, t, "%s %s", tgIcone("🚪 Sair do", "Sair do"), tipo); break;
+    case TG_A_OPCOES: snprintf(s, t, "%s %s  ›", tgIcone("⚙️ Opções", "Opções"), c && c->tipo == 2 ? "do canal" : c && c->tipo == 1 ? "do grupo" : "da conversa"); break;
     }
 }
 static void tgDesenharMenuGenerico(uint32_t* p, const char* titulo, const char (*rotulos)[160], int total, int sel) {
@@ -1651,42 +1680,72 @@ static void tgDesenharAcoes(uint32_t* p) {
     static char rotulos[16][160];
     for (int i = 0; i < total; i++) tgRotuloConversa(itens[i], c, rotulos[i], sizeof(rotulos[i]));
     if (tgAcoesSel >= total) tgAcoesSel = total - 1;
-    tgDesenharMenuGenerico(p, c && c->tipo == 2 ? "Canal" : c && c->tipo == 1 ? "Grupo" : "Conversa", rotulos, total, tgAcoesSel);
+    const char* titulo = !tgAcoesSub ? "Enviar" : c && c->tipo == 2 ? "Opções do canal" : c && c->tipo == 1 ? "Opções do grupo" : "Opções da conversa";
+    tgDesenharMenuGenerico(p, titulo, rotulos, total, tgAcoesSel);
 }
 
-// Itens do Quadrado na lista de conversas: pastas, criar grupo/canal e a conversa marcada.
-enum { TG_L_NOVA_PASTA = 1000, TG_L_APAGAR_PASTA, TG_L_GRUPO, TG_L_CANAL, TG_L_MUDO, TG_L_ARQUIVAR, TG_L_SAIR, TG_L_PASTA = 0 };
+// Itens do Quadrado na lista de conversas. Modos: 0 principal, 1 escolher a pasta, 2 opções da
+// conversa marcada, 3 marcar as conversas da pasta nova.
+enum { TG_L_PASTA = 0, TG_L_NOVA_PASTA = 1000, TG_L_ADD_PASTA, TG_L_OPCOES, TG_L_APAGAR_PASTA, TG_L_GRUPO, TG_L_CANAL, TG_L_MUDO, TG_L_ARQUIVAR, TG_L_SAIR, TG_L_CRIAR_OK, TG_L_MARCAR = 2000 };
+#define TG_L_MAX_ITENS 330
 static TgConversa* tgConversaMarcadaNaLista() { return tgVisiveis > 0 ? &tgConversas[tgIndice[tgSelecao]] : NULL; }
+static bool tgNaNovaPasta(long long id) { for (int i = 0; i < tgNovaPastaTotal; i++) if (tgNovaPastaIds[i] == id) return true; return false; }
 static int tgListaItens(int* itens) {
     int n = 0;
     TgConversa* c = tgConversaMarcadaNaLista();
-    if (c) { itens[n++] = TG_L_NOVA_PASTA; for (int i = 0; i < tgTotalPastas && i < 10; i++) itens[n++] = TG_L_PASTA + i; }
+    if (tgListaModo == 1) { for (int i = 0; i < tgTotalPastas; i++) itens[n++] = TG_L_PASTA + i; return n; }
+    if (tgListaModo == 2) {
+        if (c) { itens[n++] = TG_L_MUDO; itens[n++] = TG_L_ARQUIVAR; if (c->tipo && tgMembro(c) != 0) itens[n++] = TG_L_SAIR; }
+        return n;
+    }
+    if (tgListaModo == 3) {
+        itens[n++] = TG_L_CRIAR_OK;
+        for (int j = 0; j < tgVisiveis && n < TG_L_MAX_ITENS; j++) itens[n++] = TG_L_MARCAR + j;
+        return n;
+    }
+    itens[n++] = TG_L_NOVA_PASTA;
+    if (c && tgTotalPastas > 0) itens[n++] = TG_L_ADD_PASTA;
     if (tgAba >= 1 && tgAba <= tgTotalPastas) itens[n++] = TG_L_APAGAR_PASTA;
     itens[n++] = TG_L_GRUPO; itens[n++] = TG_L_CANAL;
-    if (c) { itens[n++] = TG_L_MUDO; itens[n++] = TG_L_ARQUIVAR; if (c->tipo) itens[n++] = TG_L_SAIR; }
+    if (c) itens[n++] = TG_L_OPCOES;
     return n;
 }
 static void tgRotuloLista(int item, const TgConversa* c, char* s, int t) {
     const char* titulo = c ? c->titulo : "";
-    if (item >= TG_L_PASTA && item < TG_L_NOVA_PASTA) { snprintf(s, t, "%s \"%.40s\" na pasta %s", tgIcone("➕ Pôr", "Pôr"), titulo, tgPastas[item].nome); return; }
+    if (item >= TG_L_MARCAR) {
+        const TgConversa* k = &tgConversas[tgIndice[item - TG_L_MARCAR]];
+        snprintf(s, t, "%s  %s", tgNaNovaPasta(k->id) ? "[x]" : "[  ]", k->titulo);
+        return;
+    }
+    if (item >= TG_L_PASTA && item < TG_L_NOVA_PASTA) { snprintf(s, t, "%s %s", tgIcone("📁", ">"), tgPastas[item].nome); return; }
     switch (item) {
-    case TG_L_NOVA_PASTA: snprintf(s, t, "%s \"%.40s\"", tgIcone("📁 Nova pasta com", "Nova pasta com"), titulo); break;
+    case TG_L_NOVA_PASTA: snprintf(s, t, "%s", tgIcone("📁 Criar pasta", "Criar pasta")); break;
+    case TG_L_ADD_PASTA: snprintf(s, t, "%s \"%.40s\" a uma pasta  ›", tgIcone("➕ Adicionar", "Adicionar"), titulo); break;
+    case TG_L_OPCOES: snprintf(s, t, "%s \"%.40s\"  ›", tgIcone("⚙️ Opções de", "Opções de"), titulo); break;
     case TG_L_APAGAR_PASTA: if (tgConfirmar) snprintf(s, t, "Aperte X de novo para apagar a pasta %s", tgNomeDaAba(tgAba)); else snprintf(s, t, "%s %s", tgIcone("🗑 Apagar a pasta", "Apagar a pasta"), tgNomeDaAba(tgAba)); break;
     case TG_L_GRUPO: snprintf(s, t, "%s", tgIcone("👥 Criar grupo", "Criar grupo")); break;
     case TG_L_CANAL: snprintf(s, t, "%s", tgIcone("📢 Criar canal", "Criar canal")); break;
-    case TG_L_MUDO: snprintf(s, t, "%s \"%.40s\"", c && c->mudo ? tgIcone("🔔 Ativar notificações de", "Ativar notificações de") : tgIcone("🔕 Silenciar", "Silenciar"), titulo); break;
-    case TG_L_ARQUIVAR: snprintf(s, t, "%s \"%.40s\"", c && c->ordens[1] ? tgIcone("📤 Desarquivar", "Desarquivar") : tgIcone("🗄 Arquivar", "Arquivar"), titulo); break;
+    case TG_L_MUDO: snprintf(s, t, "%s", c && c->mudo ? tgIcone("🔔 Ativar notificações", "Ativar notificações") : tgIcone("🔕 Silenciar", "Silenciar")); break;
+    case TG_L_ARQUIVAR: snprintf(s, t, "%s", c && c->ordens[1] ? tgIcone("📤 Desarquivar", "Desarquivar") : tgIcone("🗄 Arquivar", "Arquivar")); break;
     case TG_L_SAIR: if (tgConfirmar) snprintf(s, t, "Aperte X de novo para sair de \"%.40s\"", titulo); else snprintf(s, t, "%s \"%.40s\"", tgIcone("🚪 Sair de", "Sair de"), titulo); break;
+    case TG_L_CRIAR_OK: snprintf(s, t, "%s \"%s\" com %d conversa(s)", tgIcone("✅ Criar a pasta", "Criar a pasta"), tgNovaPastaNome, tgNovaPastaTotal); break;
     }
 }
 static void tgDesenharListaMenu(uint32_t* p) {
-    int itens[32], total = tgListaItens(itens);
+    static int itens[TG_L_MAX_ITENS];
+    int total = tgListaItens(itens);
     const TgConversa* c = tgConversaMarcadaNaLista();
-    static char rotulos[32][160];
+    static char rotulos[TG_L_MAX_ITENS][160];
     for (int i = 0; i < total; i++) tgRotuloLista(itens[i], c, rotulos[i], sizeof(rotulos[i]));
-    if (tgListaMenuSel >= total) tgListaMenuSel = total - 1;
-    tgDesenharMenuGenerico(p, "Conversas e pastas", rotulos, total, tgListaMenuSel);
+    if (tgListaMenuSel >= total) tgListaMenuSel = total > 0 ? total - 1 : 0;
+    char titulo[160];
+    if (tgListaModo == 1) snprintf(titulo, sizeof(titulo), "Adicionar \"%.40s\" à pasta", c ? c->titulo : "");
+    else if (tgListaModo == 2) snprintf(titulo, sizeof(titulo), "Opções de \"%.40s\"", c ? c->titulo : "");
+    else if (tgListaModo == 3) snprintf(titulo, sizeof(titulo), "Pasta \"%s\": X marca as conversas", tgNovaPastaNome);
+    else snprintf(titulo, sizeof(titulo), "Conversas e pastas");
+    tgDesenharMenuGenerico(p, titulo, rotulos, total, tgListaMenuSel);
 }
+
 
 static void tgDesenharSelMenu(uint32_t* p) {
     char apagar[64];
@@ -1806,6 +1865,20 @@ static void tgGuardarMensagem(const TgMensagem* m) {
     memmove(&tgMensagens[i + 1], &tgMensagens[i], sizeof(TgMensagem) * (tgTotalMensagens - i));
     tgMensagens[i] = *m;
     tgTotalMensagens++;
+}
+
+// Mensagens apagadas (aqui ou em outro aparelho) saem da tela.
+static void tgRemoverMensagens(const long long* ids, int n) {
+    for (int k = 0; k < n; k++) {
+        for (int i = 0; i < tgTotalMensagens; i++) {
+            if (tgMensagens[i].id != ids[k]) continue;
+            if (tgSelId == ids[k]) tgSelId = i + 1 < tgTotalMensagens ? tgMensagens[i + 1].id : (i > 0 ? tgMensagens[i - 1].id : 0);
+            memmove(&tgMensagens[i], &tgMensagens[i + 1], sizeof(TgMensagem) * (tgTotalMensagens - i - 1));
+            tgTotalMensagens--;
+            break;
+        }
+    }
+    tgSujo = true;
 }
 
 static long long tgPosicaoDe(long long conversa) {
@@ -2270,6 +2343,48 @@ static void tgProcessar(const char* r) {
         long long mudo = 0;
         if (tgNumero(r, NULL, "\"mute_for\":", &mudo)) c->mudo = mudo > 0;
         c->tipo = strstr(r, "\"is_channel\":true") ? 2 : (strstr(r, "chatTypeSupergroup") || strstr(r, "chatTypeBasicGroup")) ? 1 : 0;
+        long long g = 0;
+        if (tgNumero(r, NULL, "\"supergroup_id\":", &g)) c->grupoId = g;
+        else if (tgNumero(r, NULL, "\"basic_group_id\":", &g)) c->grupoId = -g;
+    }
+    else if (tgTipo(r, "updateDeleteMessages")) {
+        long long chat = 0;
+        tgNumero(r, NULL, "\"chat_id\":", &chat);
+        if (chat == tgAberta && strstr(r, "\"is_permanent\":true")) {
+            static long long ids[300];
+            int n = tgLerIds(r, "\"message_ids\":[", ids, 300);
+            tgRemoverMensagens(ids, n);
+        }
+    }
+    else if (tgTipo(r, "updateMessageContent")) {
+        // Mensagem editada: relê só o conteúdo e guarda o resto (autor, data...).
+        long long chat = 0, msg = 0;
+        tgNumero(r, NULL, "\"chat_id\":", &chat);
+        tgNumero(r, NULL, "\"message_id\":", &msg);
+        const char* chave = "\"new_content\":{\"@type\":\"";
+        const char* c = strstr(r, chave);
+        if (chat == tgAberta && c) {
+            for (int i = 0; i < tgTotalMensagens; i++) {
+                if (tgMensagens[i].id != msg) continue;
+                TgMensagem n = tgMensagens[i];
+                n.texto[0] = 0; n.rotulo[0] = 0; n.resumo[0] = 0; n.totalLinks = 0;
+                n.alturaCache[0] = n.alturaCache[1] = 0;
+                tgLerConteudo(c + strlen(chave), r + strlen(r), &n);
+                tgLerLinks(c, r + strlen(r), &n);
+                tgMensagens[i] = n;
+                tgSujo = true;
+                break;
+            }
+        }
+    }
+    else if (tgTipo(r, "updateSupergroup") || tgTipo(r, "updateBasicGroup")) {
+        long long g = 0;
+        bool super = tgTipo(r, "updateSupergroup");
+        if (super ? tgNumero(r, NULL, "\"supergroup\":{\"@type\":\"supergroup\",\"id\":", &g) : tgNumero(r, NULL, "\"basic_group\":{\"@type\":\"basicGroup\",\"id\":", &g)) {
+            bool fora = strstr(r, "chatMemberStatusLeft") || strstr(r, "chatMemberStatusBanned") || (strstr(r, "chatMemberStatusRestricted") && strstr(r, "\"is_member\":false"));
+            tgGuardarStatusGrupo(super ? g : -g, !fora);
+            tgSujo = true;
+        }
     }
     else if (tgTipo(r, "updateChatNotificationSettings")) {
         if (!tgNumero(r, NULL, "\"chat_id\":", &id)) return;
@@ -3035,6 +3150,7 @@ static void tgMontarMenu(const TgMensagem* m) {
     tgMenuItem(-3);
     tgMenuItem(-4);
     if (m->texto[0]) tgMenuItem(-5);
+    if (m->minha && m->texto[0] && !m->midia && !m->grande && !m->figurinha) tgMenuItem(-6);
     for (int i = 0; i < tgMenuTotalUrls; i++) tgMenuItem(i);
     if (m->grande) tgMenuItem(-1);
     if (tgMenuSel >= tgMenuTotal) tgMenuSel = tgMenuTotal - 1;
@@ -3127,7 +3243,11 @@ static void tgAtualizarTeclado() {
 
     if (botao == 0 && texto[0]) {
         pthread_mutex_lock(&tgTrava);
-        if (tgModoIme == TG_IME_MENSAGEM) {
+        if (tgModoIme == TG_IME_MENSAGEM && tgEditarMsg) {
+            tgEnviar("{\"@type\":\"editMessageText\",\"chat_id\":%lld,\"message_id\":%lld,\"input_message_content\":{\"@type\":\"inputMessageText\",\"text\":{\"@type\":\"formattedText\",\"text\":\"%s\"}}}", tgAberta, tgEditarMsg, texto);
+            strcpy(tgAviso, "Mensagem editada.");
+        }
+        else if (tgModoIme == TG_IME_MENSAGEM) {
             if (tgResponderA) tgEnviar("{\"@type\":\"sendMessage\",\"chat_id\":%lld,\"reply_to\":{\"@type\":\"inputMessageReplyToMessage\",\"message_id\":%lld},\"input_message_content\":{\"@type\":\"inputMessageText\",\"text\":{\"@type\":\"formattedText\",\"text\":\"%s\"}}}", tgAberta, tgResponderA, texto);
             else tgEnviar("{\"@type\":\"sendMessage\",\"chat_id\":%lld,\"input_message_content\":{\"@type\":\"inputMessageText\",\"text\":{\"@type\":\"formattedText\",\"text\":\"%s\"}}}", tgAberta, texto);
             tgSelId = 0;
@@ -3137,6 +3257,13 @@ static void tgAtualizarTeclado() {
             tgIniciarBusca(texto);
         }
         else if (tgModoIme == TG_IME_PASTA) {
+            // Agora escolhe as conversas que entram nela (a marcada na lista já vem marcada).
+            snprintf(tgNovaPastaNome, sizeof(tgNovaPastaNome), "%s", texto);
+            tgNovaPastaTotal = 0;
+            if (tgChatDaPasta) tgNovaPastaIds[tgNovaPastaTotal++] = tgChatDaPasta;
+            tgListaModo = 3; tgListaMenuSel = 0; tgListaMenuAberto = true;
+        }
+        else if (false) {
             tgEnviar("{\"@type\":\"createChatFolder\",\"folder\":{\"@type\":\"chatFolder\",\"name\":{\"@type\":\"chatFolderName\",\"text\":{\"@type\":\"formattedText\",\"text\":\"%s\",\"entities\":[]},\"animate_custom_emoji\":false},"
                 "\"icon\":null,\"color_id\":-1,\"is_shareable\":false,\"pinned_chat_ids\":[],\"included_chat_ids\":[%lld],\"excluded_chat_ids\":[],\"exclude_muted\":false,\"exclude_read\":false,"
                 "\"exclude_archived\":false,\"include_contacts\":false,\"include_non_contacts\":false,\"include_bots\":false,\"include_groups\":false,\"include_channels\":false}}", texto, tgChatDaPasta);
@@ -3157,6 +3284,7 @@ static void tgAtualizarTeclado() {
         pthread_mutex_unlock(&tgTrava);
     }
     tgResponderA = 0;
+    tgEditarMsg = 0;
     memset(texto, 0, sizeof(texto));
     memset(tgTextoIme, 0, sizeof(tgTextoIme));
     tgSujo = true;
@@ -3337,6 +3465,7 @@ static void tgControlesSelMenu(bool xis, bool bolinha, int passo) {
         tgListaMarcadas(lista, sizeof(lista));
         tgEnviar("{\"@type\":\"deleteMessages\",\"chat_id\":%lld,\"message_ids\":%s,\"revoke\":true}", tgAberta, lista);
         snprintf(tgAviso, sizeof(tgAviso), "%d mensagem(ns) apagada(s).", tgTotalMarcadas);
+        tgRemoverMensagens(tgMarcadas, tgTotalMarcadas);
         tgSairSelecao();
     }
     else {
@@ -3598,6 +3727,7 @@ static void tgExecutarAcao(int item, int32_t usuario) {
         strcpy(tgAviso, "Marcada como lida.");
         break;
     case TG_A_ARQUIVAR: tgArquivar(c); break;
+    case TG_A_OPCOES: tgAcoesSub = true; tgAcoesSel = 0; break;
     case TG_A_ENTRAR: tgEnviar("{\"@type\":\"joinChat\",\"chat_id\":%lld}", tgAberta); strcpy(tgAviso, "Entrando..."); tgAcoesAberto = false; break;
     case TG_A_SAIR:
         if (!tgConfirmar) { tgConfirmar = true; break; }
@@ -3612,6 +3742,14 @@ static void tgExecutarAcao(int item, int32_t usuario) {
 static void tgExecutarLista(int item, int32_t usuario) {
     TgConversa* c = tgConversaMarcadaNaLista();
     if (item != TG_L_SAIR && item != TG_L_APAGAR_PASTA) tgConfirmar = false;
+    if (item >= TG_L_MARCAR) {
+        long long id = tgConversas[tgIndice[item - TG_L_MARCAR]].id;
+        int achou = -1;
+        for (int i = 0; i < tgNovaPastaTotal; i++) if (tgNovaPastaIds[i] == id) achou = i;
+        if (achou >= 0) { tgNovaPastaIds[achou] = tgNovaPastaIds[--tgNovaPastaTotal]; }
+        else if (tgNovaPastaTotal < 100) tgNovaPastaIds[tgNovaPastaTotal++] = id;
+        return;
+    }
     if (item >= TG_L_PASTA && item < TG_L_NOVA_PASTA) {
         if (c) {
             tgEnviar("{\"@type\":\"addChatToList\",\"chat_id\":%lld,\"chat_list\":{\"@type\":\"chatListFolder\",\"chat_folder_id\":%d}}", c->id, tgPastas[item].id);
@@ -3622,6 +3760,21 @@ static void tgExecutarLista(int item, int32_t usuario) {
     }
     switch (item) {
     case TG_L_NOVA_PASTA: tgListaMenuAberto = false; tgChatDaPasta = c ? c->id : 0; tgAbrirTeclado(usuario, TG_IME_PASTA, L"Nome da pasta", 12); break;
+    case TG_L_ADD_PASTA: tgListaModo = 1; tgListaMenuSel = 0; break;
+    case TG_L_OPCOES: tgListaModo = 2; tgListaMenuSel = 0; break;
+    case TG_L_CRIAR_OK: {
+        if (!tgNovaPastaTotal) { strcpy(tgAviso, "Marque pelo menos uma conversa."); break; }
+        static char ids[2200];
+        int n = snprintf(ids, sizeof(ids), "[");
+        for (int i = 0; i < tgNovaPastaTotal && n < (int)sizeof(ids) - 24; i++) n += snprintf(ids + n, sizeof(ids) - n, "%s%lld", i ? "," : "", tgNovaPastaIds[i]);
+        snprintf(ids + n, sizeof(ids) - n, "]");
+        tgEnviar("{\"@type\":\"createChatFolder\",\"folder\":{\"@type\":\"chatFolder\",\"name\":{\"@type\":\"chatFolderName\",\"text\":{\"@type\":\"formattedText\",\"text\":\"%s\",\"entities\":[]},\"animate_custom_emoji\":false},"
+            "\"icon\":null,\"color_id\":-1,\"is_shareable\":false,\"pinned_chat_ids\":[],\"included_chat_ids\":%s,\"excluded_chat_ids\":[],\"exclude_muted\":false,\"exclude_read\":false,"
+            "\"exclude_archived\":false,\"include_contacts\":false,\"include_non_contacts\":false,\"include_bots\":false,\"include_groups\":false,\"include_channels\":false}}", tgNovaPastaNome, ids);
+        snprintf(tgAviso, sizeof(tgAviso), "Pasta \"%.40s\" criada com %d conversa(s).", tgNovaPastaNome, tgNovaPastaTotal);
+        tgListaMenuAberto = false; tgListaModo = 0;
+        break;
+    }
     case TG_L_APAGAR_PASTA:
         if (!tgConfirmar) { tgConfirmar = true; break; }
         tgConfirmar = false;
@@ -3771,6 +3924,12 @@ bool telegramControles(uint32_t botoes, uint32_t antigos, int32_t usuario) {
             if (opcao == -2) { tgResponderA = m->id; tgAbrirTeclado(usuario, TG_IME_MENSAGEM, L"Responder", 500); }
             else if (opcao == -3) { tgEncaminharMsg = m->id; tgEncaminharDe = tgAberta; }
             else if (opcao == -4) { tgSelecionando = true; tgTotalMarcadas = 0; tgMarcar(m->id); }
+            else if (opcao == -6) {
+                // Abre o teclado já com o texto; o resultado vira editMessageText.
+                tgEditarMsg = m->id;
+                snprintf(tgColarNoTeclado, sizeof(tgColarNoTeclado), "%s", m->texto);
+                tgAbrirTeclado(usuario, TG_IME_MENSAGEM, L"Editar mensagem", 500);
+            }
             else if (opcao == -5) {
                 snprintf(tgCopiado, sizeof(tgCopiado), "%s", m->texto);
                 strcpy(tgAviso, "Texto copiado. Quadrado > Colar texto copiado");
@@ -3781,14 +3940,17 @@ bool telegramControles(uint32_t botoes, uint32_t antigos, int32_t usuario) {
     }
     else if (tgAcoesAberto) {
         int itens[16], total = tgAcoesItens(itens);
-        if (bolinha || quadrado) { tgAcoesAberto = false; tgConfirmar = false; }
+        if (bolinha && tgAcoesSub) { tgAcoesSub = false; tgAcoesSel = 0; tgConfirmar = false; }
+        else if (bolinha || quadrado) { tgAcoesAberto = false; tgConfirmar = false; }
         else if (passo) { tgAcoesSel = (tgAcoesSel + passo + total) % total; tgConfirmar = false; }
         else if (xis && tgAcoesSel < total) tgExecutarAcao(itens[tgAcoesSel], usuario);
     }
     else if (tgListaMenuAberto) {
         tgOrdenarConversas();
-        int itens[32], total = tgListaItens(itens);
-        if (bolinha || quadrado) { tgListaMenuAberto = false; tgConfirmar = false; }
+        static int itens[TG_L_MAX_ITENS];
+        int total = tgListaItens(itens);
+        if (bolinha && tgListaModo != 0) { tgListaModo = 0; tgListaMenuSel = 0; tgConfirmar = false; }
+        else if (bolinha || quadrado) { tgListaMenuAberto = false; tgListaModo = 0; tgConfirmar = false; }
         else if (passo) { tgListaMenuSel = (tgListaMenuSel + passo + total) % total; tgConfirmar = false; }
         else if (xis && tgListaMenuSel < total) tgExecutarLista(itens[tgListaMenuSel], usuario);
     }
@@ -3823,7 +3985,7 @@ bool telegramControles(uint32_t botoes, uint32_t antigos, int32_t usuario) {
     else if (tgEmBusca) tgControlesBusca(passo, xis, bolinha, triangulo, usuario);
     else if (tgTela == TG_MENSAGENS) {
         if (bolinha) { tgSairSelecao(); tgFecharConversa(); }
-        else if (quadrado) { tgAcoesAberto = true; tgAcoesSel = 0; tgConfirmar = false; }
+        else if (quadrado) { tgAcoesAberto = true; tgAcoesSub = false; tgAcoesSel = 0; tgConfirmar = false; }
         else if (triangulo) tgAbrirTeclado(usuario, TG_IME_BUSCA, L"Pesquisar nesta conversa", 100);
         else if (passo) tgMoverSelecao(passo);
         else if (aba < 0) tgCarregarInicio();
@@ -3842,7 +4004,7 @@ bool telegramControles(uint32_t botoes, uint32_t antigos, int32_t usuario) {
     else if (tgTela == TG_CONVERSAS) {
         tgOrdenarConversas();
         if (bolinha) sair = true;
-        else if (quadrado) { tgListaMenuAberto = true; tgListaMenuSel = 0; tgConfirmar = false; }
+        else if (quadrado) { tgListaMenuAberto = true; tgListaModo = 0; tgListaMenuSel = 0; tgConfirmar = false; }
         else if (triangulo) tgAbrirTeclado(usuario, TG_IME_BUSCA, L"Pesquisar", 100);
         else if (aba) {
             // Depois da primeira e da última aba fica a fila de downloads.
@@ -3991,6 +4153,7 @@ void acaoCross_Extra() {
     else if (sel == 3) menuAtual = MENU_VENTOINHA;
     else if (sel == 4) { extern void iaAbrir(); iaAbrir(); }
     else if (sel == 5) { extern void chavesAbrir(); chavesAbrir(); }
+    else if (sel == 6) { extern void tempoAbrir(); tempoAbrir(); }
 }
 
 // =======================================================
@@ -4473,4 +4636,24 @@ void renderizarControleTeste(uint32_t* p) {
         for (int y = 0; y < 40; y++) p[(r2Y + y) * 1920 + (r2X + i)] = c;
     }
     sprintf(txt, "%d / 255", r2); desenharTexto(p, txt, 25, r2X + 270, r2Y + 5, 0xFFFFFFFF);
+}
+
+struct DlLinha { char origem[16]; char nome[160]; float progresso; char info[96]; };   // gerenciador de downloads (network.cpp)
+int dlTelegram(DlLinha* l, int max) {
+    int n = 0;
+    pthread_mutex_lock(&tgTrava);
+    for (int i = 0; i < tgTotalDownloads && n < max; i++) {
+        const TgDownload* d = &tgDownloads[i];
+        snprintf(l[n].origem, sizeof(l[n].origem), "Telegram");
+        snprintf(l[n].nome, sizeof(l[n].nome), "%s", d->nome);
+        l[n].progresso = d->total > 0 ? (float)d->baixado / (float)d->total : -1;
+        if (d->estado == TG_D_BAIXANDO && !d->iniciado) snprintf(l[n].info, sizeof(l[n].info), "na fila");
+        else if (d->estado == TG_D_BAIXANDO) tgInfoDownload(d, l[n].info, sizeof(l[n].info));
+        else if (d->estado == TG_D_COPIANDO || d->estado == TG_D_COPIAR) snprintf(l[n].info, sizeof(l[n].info), "salvando");
+        else if (d->estado == TG_D_ERRO) snprintf(l[n].info, sizeof(l[n].info), "erro");
+        else snprintf(l[n].info, sizeof(l[n].info), "concluído");
+        n++;
+    }
+    pthread_mutex_unlock(&tgTrava);
+    return n;
 }

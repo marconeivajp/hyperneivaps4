@@ -11,6 +11,8 @@
 #include <math.h>
 #include <ctype.h>
 #include "temas.h"
+#include <sys/stat.h>
+#include <strings.h>
 
 int cursX = 0, cursY = 0, cursW = 0, cursH = 0;
 
@@ -629,12 +631,46 @@ static bool temaMenuJogos(MenuLevel m) { return m == MENU_JOGAR_PS4 || m == JOGA
 // 3 = músicas, 4 = vídeos (vira o "aba" da cena: muda textos e botões do tema).
 int temaMidiaBiblioteca() {
     if (menuAtual == MENU_MUSICAS) return 3;
+    if (menuAtual == MENU_RADIO_LISTA || menuAtual == MENU_RADIO_FAVORITOS) return 5;
     if (menuAtual == MENU_MIDIA) {
         extern char caminhoMidiaAtual[512];
         if (strncasecmp(caminhoMidiaAtual, "/data/HyperNeiva/midia/videos", 29) == 0 && (caminhoMidiaAtual[29] == 0 || caminhoMidiaAtual[29] == '/')) return 4;
     }
     return 0;
 }
+
+// Tema da lista de Músicas e de Vídeos (Carrossel, Grade, Detalhes, Roda, Clássico), separado do
+// dos jogos. Fica em configuracao/tema_midia.txt ("<músicas> <vídeos>").
+#define TEMA_MIDIA_ARQ "/data/HyperNeiva/configuracao/tema_midia.txt"
+void temaLimparExtras(bool soVazias);
+void temaForcarRedesenho();
+static int temaMidiaValor[3] = { -1, -1, -1 };
+static int temaMidiaPos(int midia) { return midia == 4 ? 1 : midia == 5 ? 2 : 0; }
+int temaMidiaTema(int midia) {
+    if (temaMidiaValor[0] < 0) {
+        extern int bibliotecaTemaJogos();
+        temaMidiaValor[0] = temaMidiaValor[1] = temaMidiaValor[2] = bibliotecaTemaJogos();
+        FILE* f = fopen(TEMA_MIDIA_ARQ, "r");
+        if (f) {
+            int a = 0, v = 0, r = 0;
+            int lidos = fscanf(f, "%d %d %d", &a, &v, &r);
+            if (lidos >= 2) { if (a >= 0 && a < 5) temaMidiaValor[0] = a; if (v >= 0 && v < 5) temaMidiaValor[1] = v; }
+            if (lidos == 3 && r >= 0 && r < 5) temaMidiaValor[2] = r;
+            fclose(f);
+        }
+    }
+    return temaMidiaValor[temaMidiaPos(midia)];
+}
+void temaMidiaDefinir(int midia, int tema) {
+    temaMidiaTema(midia);
+    temaMidiaValor[temaMidiaPos(midia)] = tema;
+    FILE* f = fopen(TEMA_MIDIA_ARQ, "w");
+    if (f) { fprintf(f, "%d %d %d\n", temaMidiaValor[0], temaMidiaValor[1], temaMidiaValor[2]); fclose(f); }
+    clearCoverCache();
+    temaLimparExtras(false);
+    temaForcarRedesenho();
+}
+int temaMidiaColunas(int midia) { int t = temaMidiaTema(midia); return t == 1 ? 6 : t == 2 ? 4 : 0; }
 
 // Só telas que são uma lista simples: o resto segue com o desenho próprio.
 bool temaCobreMenu() {
@@ -644,7 +680,7 @@ bool temaCobreMenu() {
         extern int bibliotecaTemaJogos();
         return bibliotecaTemaJogos() != 4;
     }
-    if (temaMidiaBiblioteca()) { extern int bibliotecaTemaJogos(); return bibliotecaTemaJogos() != 4; }
+    if (temaMidiaBiblioteca()) return temaMidiaTema(temaMidiaBiblioteca()) != 4;
     if (temaAtual() == TEMA_PADRAO) return false;
     switch (menuAtual) {
     case ROOT: case MENU_TIPO_JOGO: case MENU_JOGAR_PS4: case JOGAR_XML: case SCRAPER_LIST:
@@ -661,7 +697,8 @@ bool temaCobreMenu() {
 // Nestes menus as setas esquerda e direita andam na fila, como nos cartões do tema.
 bool temaHorizontal() {
     if (!temaCobreMenu()) return false;
-    if (menuAtual == MENU_EMULADOR || menuAtual == MENU_SISTEMAS || temaMidiaBiblioteca()) { extern int bibliotecaTemaJogos(); return bibliotecaTemaJogos() == 0; }
+    if (temaMidiaBiblioteca()) return temaMidiaTema(temaMidiaBiblioteca()) == 0;
+    if (menuAtual == MENU_EMULADOR || menuAtual == MENU_SISTEMAS) { extern int bibliotecaTemaJogos(); return bibliotecaTemaJogos() == 0; }
     int tema = temaAtual();
     if (temaMenuInicio(menuAtual)) return tema != TEMA_OPL;
     return temaMenuJogos(menuAtual) && (tema == TEMA_PS4 || tema == TEMA_PS5 || tema == TEMA_NETFLIX);
@@ -759,6 +796,10 @@ bool temaCapa(int indice, const char* nome, unsigned char** img, int* w, int* h)
             int n = (int)strlen(m);
             if (n > 4 && (!strcasecmp(m + n - 4, ".mp3") || !strcasecmp(m + n - 4, ".wav"))) musicaCapaCaminho(m, caminho, sizeof(caminho));
         }
+        else if (menuAtual == MENU_RADIO_LISTA || menuAtual == MENU_RADIO_FAVORITOS) {
+            extern bool radioCapaCaminho(int indice, char* saida, int tam);
+            radioCapaCaminho(indice, caminho, sizeof(caminho));
+        }
         else if (menuAtual == MENU_MIDIA) {
             // Vídeo: imagem com o mesmo nome ao lado (filme.mp4 -> filme.jpg / .png / .jpeg).
             extern char caminhoMidiaAtual[512];
@@ -771,11 +812,21 @@ bool temaCapa(int indice, const char* nome, unsigned char** img, int* w, int* h)
                 if (f) { fclose(f); break; }
                 caminho[0] = 0;
             }
-            // Sem imagem ao lado: pôster do filme ou da série pelo TMDB (network.cpp).
+            // Sem imagem ao lado: as pastas de categoria (Filmes, Séries...) ganham capa desenhada
+            // aqui; filmes e séries dentro delas, o pôster do TMDB (network.cpp). A árvore
+            // midia/videos/video é de vídeos de jogos: nada de TMDB lá.
             if (!caminho[0] && temaMidiaBiblioteca() == 4 && strcmp(nome, "Pasta vazia") != 0) {
                 extern bool videoCapaCaminho(const char* caminho, char* saida, int tam);
+                extern bool videoCapaCategoria(const char* nome, char* saida, int tam);
                 char completo[600]; snprintf(completo, sizeof(completo), "%s/%s", caminhoMidiaAtual, nome);
-                videoCapaCaminho(completo, caminho, sizeof(caminho));
+                const char* raizVideos = "/data/HyperNeiva/midia/videos";
+                size_t nr = strlen(raizVideos);
+                bool raiz = strcasecmp(caminhoMidiaAtual, raizVideos) == 0;
+                bool jogos = strncasecmp(caminhoMidiaAtual, "/data/HyperNeiva/midia/videos/video", nr + 6) == 0 && (caminhoMidiaAtual[nr + 6] == 0 || caminhoMidiaAtual[nr + 6] == '/');
+                struct stat st;
+                bool pasta = stat(completo, &st) == 0 && S_ISDIR(st.st_mode);
+                if (pasta && (raiz || jogos)) videoCapaCategoria(nome, caminho, sizeof(caminho));
+                else if (!jogos) videoCapaCaminho(completo, caminho, sizeof(caminho));
             }
         }
         else {
@@ -836,7 +887,9 @@ void temaDesenharAtual(uint32_t* p) {
         extern char caminhoMidiaAtual[512];
         extern char caminhoNavegacaoMusicas[512];
         static char pastaVista[512] = "";
-        const char* pasta = midia == 3 ? caminhoNavegacaoMusicas : caminhoMidiaAtual;
+        static char chaveRadio[48];
+        if (midia == 5) { extern unsigned radioVersaoCapas(); snprintf(chaveRadio, sizeof(chaveRadio), "radio:%u:%d", radioVersaoCapas(), (int)menuAtual); }
+        const char* pasta = midia == 3 ? caminhoNavegacaoMusicas : midia == 5 ? chaveRadio : caminhoMidiaAtual;
         if (capasVistas != musicaCapaVersao || strcmp(pastaVista, pasta) != 0) {
             capasVistas = musicaCapaVersao;
             snprintf(pastaVista, sizeof(pastaVista), "%s", pasta);
@@ -846,8 +899,8 @@ void temaDesenharAtual(uint32_t* p) {
         tema = TEMA_BIBLIOTECA;
         cena.tipo = CENA_BIBLIOTECA;
         cena.aba = midia;
-        cena.temaJogos = bibliotecaTemaJogos();
-        cena.sistema = midia == 3 ? "Músicas" : "Vídeos";
+        cena.temaJogos = temaMidiaTema(midia);
+        cena.sistema = midia == 3 ? "Músicas" : midia == 5 ? "Rádios" : "Vídeos";
         snprintf(sub, sizeof(sub), "%d %s", totalItens, totalItens == 1 ? "item" : "itens");
         cena.subtitulo = sub;
     }

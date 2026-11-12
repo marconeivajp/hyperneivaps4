@@ -11,6 +11,8 @@
 #include <windows.h>
 #include <shlobj.h>
 #include <shellapi.h>
+#include <tlhelp32.h>
+#include <winhttp.h>
 #include <wincrypt.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -27,7 +29,7 @@
 #include "../../remoto_qr.h"
 
 #define PORTA 8001
-#define VERSAO 2
+#define VERSAO 4
 
 static CRITICAL_SECTION trava;
 struct Trava { Trava() { EnterCriticalSection(&trava); } ~Trava() { LeaveCriticalSection(&trava); } };
@@ -595,14 +597,25 @@ static void executarPedido(const std::string& linha) {
     }
 }
 
+static std::string acharPs4();
 static DWORD WINAPI threadPedidosPs4(LPVOID) {
     wchar_t nome[64] = L"PC"; DWORD tn = 63; GetComputerNameW(nome, &tn);
     std::string meuNome = urlCodificar(utf8(nome));
     bool avisado = false;
+    int falhas = 0;
     for (;;) {
         std::string corpo; int st = 0;
         std::string caminho = "/pc/pedidos?pc=" + meuNome + "&v=" + std::to_string(VERSAO) + "&estado=" + urlCodificar(estadoParaPs4());
-        if (!ps4Get(ps4Endereco, caminho, corpo, &st)) { Sleep(2000); continue; }
+        if (ps4Endereco.empty() || !ps4Get(ps4Endereco, caminho, corpo, &st)) {
+            // PS4 desligado ou com IP novo: de tempos em tempos procura de novo pela rede.
+            if (++falhas % 5 == 0 || ps4Endereco.empty()) {
+                std::string achado = acharPs4();
+                if (!achado.empty()) { Trava x; ps4Endereco = achado + ":8000"; }
+            }
+            Sleep(2000);
+            continue;
+        }
+        falhas = 0;
         if (st == 404) { Sleep(10000); continue; }          // Hyper Neiva antigo no PS4
         if (st != 200) { Sleep(1000); continue; }
         if (!avisado) { printf("Ligado ao PS4: a tela de FTP do PS4 pode controlar este PC.\n"); avisado = true; }
@@ -873,6 +886,168 @@ static std::string acharPs4() {
     return achado;
 }
 
+// ---------------------------------------------------------------- iniciar com o Windows
+// Como o AnyDesk: fica rodando escondido desde que o Windows liga, e o PS4 controla o PC sem
+// ninguém abrir o programa. Fica na pasta do usuário e na chave Run do usuário (sem admin).
+static const wchar_t* CHAVE_RUN = L"Software\\Microsoft\\Windows\\CurrentVersion\\Run";
+static std::wstring pastaInstalada() {
+    wchar_t local[MAX_PATH] = L"";
+    GetEnvironmentVariableW(L"LOCALAPPDATA", local, MAX_PATH);
+    return std::wstring(local) + L"\\HyperNeivaPC";
+}
+static void fecharOutrasCopias() {
+    DWORD eu = GetCurrentProcessId();
+    HANDLE h = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+    if (h == INVALID_HANDLE_VALUE) return;
+    PROCESSENTRY32W e = {}; e.dwSize = sizeof(e);
+    for (BOOL ok = Process32FirstW(h, &e); ok; ok = Process32NextW(h, &e)) {
+        if (e.th32ProcessID == eu || _wcsicmp(e.szExeFile, L"HyperNeivaPC.exe") != 0) continue;
+        HANDLE p = OpenProcess(PROCESS_TERMINATE, FALSE, e.th32ProcessID);
+        if (p) { TerminateProcess(p, 0); CloseHandle(p); }
+    }
+    CloseHandle(h);
+}
+static int instalar(const std::string& ps4) {
+    wchar_t meu[MAX_PATH]; GetModuleFileNameW(NULL, meu, MAX_PATH);
+    std::wstring pasta = pastaInstalada(), destino = pasta + L"\\HyperNeivaPC.exe";
+    CreateDirectoryW(pasta.c_str(), NULL);
+    fecharOutrasCopias();
+    Sleep(500);
+    if (_wcsicmp(meu, destino.c_str()) != 0 && !CopyFileW(meu, destino.c_str(), FALSE)) { printf("Nao consegui copiar para %s\n", utf8(destino).c_str()); return 1; }
+    std::wstring argumentos = L"--oculto" + (ps4.empty() ? std::wstring() : L" " + largo(ps4));
+    std::wstring comando = L"\"" + destino + L"\" " + argumentos;
+    LONG r = RegSetKeyValueW(HKEY_CURRENT_USER, CHAVE_RUN, L"HyperNeivaPC", REG_SZ, comando.c_str(), (DWORD)((comando.size() + 1) * sizeof(wchar_t)));
+    if (r != ERROR_SUCCESS) { printf("Nao consegui registrar no inicio do Windows (erro %ld)\n", r); return 1; }
+    ShellExecuteW(NULL, L"open", destino.c_str(), argumentos.c_str(), pasta.c_str(), SW_HIDE);
+    printf("Pronto: o Hyper Neiva PC agora inicia com o Windows, sem janela.\n"
+           "A tela de FTP do PS4 ja pode ver e controlar este PC com o programa fechado.\n"
+           "Para desfazer: HyperNeivaPC.exe --desinstalar\n");
+    return 0;
+}
+static int desinstalar() {
+    RegDeleteKeyValueW(HKEY_CURRENT_USER, CHAVE_RUN, L"HyperNeivaPC");
+    fecharOutrasCopias();
+    printf("O Hyper Neiva PC nao inicia mais com o Windows, e a copia escondida foi fechada.\n");
+    return 0;
+}
+
+// ---------------------------------------------------------------- tokens permanentes
+// HyperNeivaPC.exe --token dropbox   (ou google): abre a autorização no navegador, troca o
+// código pelo refresh token (não expira) e grava direto em Chaves de API no PS4.
+static int httpsPost(const wchar_t* host, const wchar_t* caminho, const std::string& corpo, std::string& resp) {
+    resp.clear();
+    HINTERNET ses = WinHttpOpen(L"HyperNeivaPC", WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY, WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
+    if (!ses) return -1;
+    HINTERNET con = WinHttpConnect(ses, host, INTERNET_DEFAULT_HTTPS_PORT, 0);
+    HINTERNET req = con ? WinHttpOpenRequest(con, L"POST", caminho, NULL, WINHTTP_NO_REFERER, WINHTTP_DEFAULT_ACCEPT_TYPES, WINHTTP_FLAG_SECURE) : NULL;
+    DWORD st = 0, tam = sizeof(st);
+    if (req && WinHttpSendRequest(req, L"Content-Type: application/x-www-form-urlencoded\r\n", (DWORD)-1L, (LPVOID)corpo.data(), (DWORD)corpo.size(), (DWORD)corpo.size(), 0) &&
+        WinHttpReceiveResponse(req, NULL)) {
+        WinHttpQueryHeaders(req, WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER, WINHTTP_HEADER_NAME_BY_INDEX, &st, &tam, WINHTTP_NO_HEADER_INDEX);
+        char b[8192]; DWORD n = 0;
+        while (WinHttpReadData(req, b, sizeof(b), &n) && n) resp.append(b, n);
+    }
+    if (req) WinHttpCloseHandle(req);
+    if (con) WinHttpCloseHandle(con);
+    WinHttpCloseHandle(ses);
+    return (int)st;
+}
+static std::string jsonValor(const std::string& j, const char* chave) {
+    size_t i = j.find(std::string("\"") + chave + "\"");
+    if (i == std::string::npos) return "";
+    i = j.find(':', i); if (i == std::string::npos) return "";
+    i = j.find('"', i); if (i == std::string::npos) return "";
+    size_t f = j.find('"', i + 1);
+    return f == std::string::npos ? "" : j.substr(i + 1, f - i - 1);
+}
+static std::string perguntar(const char* texto) {
+    printf("%s", texto); fflush(stdout);
+    char l[1024] = ""; if (!fgets(l, sizeof(l), stdin)) return "";
+    std::string r = l;
+    while (!r.empty() && (r.back() == '\n' || r.back() == '\r' || r.back() == ' ')) r.pop_back();
+    while (!r.empty() && r[0] == ' ') r.erase(0, 1);
+    return r;
+}
+// Google com cliente "App para computador": o código volta sozinho para 127.0.0.1.
+static std::string esperarCodigoGoogle(SOCKET srv) {
+    for (;;) {
+        SOCKET c = accept(srv, NULL, NULL);
+        if (c == INVALID_SOCKET) return "";
+        char b[4096]; int n = recv(c, b, sizeof(b) - 1, 0);
+        std::string ped = n > 0 ? std::string(b, n) : "";
+        size_t i = ped.find("code=");
+        std::string codigo;
+        if (i != std::string::npos) { size_t f = ped.find_first_of("& ", i); codigo = ped.substr(i + 5, f - i - 5); }
+        const char* html = codigo.empty() ? "Nao veio o codigo. Volte para a janela do Hyper Neiva PC." : "Pronto! Pode fechar esta aba e voltar para a janela do Hyper Neiva PC.";
+        std::string r = std::string("HTTP/1.1 200 OK\r\nContent-Type: text/plain; charset=utf-8\r\nConnection: close\r\nContent-Length: ") + std::to_string(strlen(html)) + "\r\n\r\n" + html;
+        send(c, r.data(), (int)r.size(), 0);
+        closesocket(c);
+        if (!codigo.empty()) {
+            std::string d; for (size_t k = 0; k < codigo.size(); k++) { if (codigo[k] == '%' && k + 2 < codigo.size()) { d += (char)strtol(codigo.substr(k + 1, 2).c_str(), NULL, 16); k += 2; } else d += codigo[k]; }
+            return d;
+        }
+    }
+}
+static int gerarToken(const std::string& servico, std::string ps4) {
+    printf("\n== Token permanente: %s ==\n", servico.c_str());
+    std::string refresh, idCampo, segredoCampo, refreshCampo, id, segredo;
+    if (servico == "dropbox") {
+        printf("1. Em dropbox.com/developers/apps abra o seu app (Scoped access, Full Dropbox,\n   permissoes files.content.read e files.content.write marcadas).\n");
+        id = perguntar("2. Cole o App key: ");
+        segredo = perguntar("3. Cole o App secret: ");
+        if (id.empty() || segredo.empty()) return 1;
+        std::string url = "https://www.dropbox.com/oauth2/authorize?client_id=" + urlCodificar(id) + "&token_access_type=offline&response_type=code";
+        ShellExecuteA(NULL, "open", url.c_str(), NULL, NULL, SW_SHOWNORMAL);
+        printf("4. Abri o navegador. Clique em Continuar e Permitir.\n   (Se nao abriu: %s )\n", url.c_str());
+        std::string codigo = perguntar("5. Cole aqui o codigo que o Dropbox mostrou: ");
+        std::string resp;
+        int st = httpsPost(L"api.dropboxapi.com", L"/oauth2/token", "code=" + urlCodificar(codigo) + "&grant_type=authorization_code&client_id=" + urlCodificar(id) + "&client_secret=" + urlCodificar(segredo), resp);
+        refresh = jsonValor(resp, "refresh_token");
+        if (refresh.empty()) { printf("O Dropbox recusou (HTTP %d): %s\n", st, resp.c_str()); return 1; }
+        idCampo = "dropbox_appkey"; segredoCampo = "dropbox_secret"; refreshCampo = "dropbox_token";
+    }
+    else if (servico == "google") {
+        printf("1. No console.cloud.google.com: crie um projeto, ative a Google Drive API e, em\n   Credenciais, crie um ID do cliente OAuth do tipo \"App para computador\".\n"
+               "   Na tela de consentimento, publique o app (em producao) para o token nao vencer em 7 dias.\n");
+        id = perguntar("2. Cole o ID do cliente: ");
+        segredo = perguntar("3. Cole a Chave secreta do cliente: ");
+        if (id.empty() || segredo.empty()) return 1;
+        SOCKET srv = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+        sockaddr_in a = {}; a.sin_family = AF_INET; a.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+        if (bind(srv, (sockaddr*)&a, sizeof(a)) != 0 || listen(srv, 4) != 0) { printf("Nao consegui abrir uma porta local.\n"); return 1; }
+        int tl = sizeof(a); getsockname(srv, (sockaddr*)&a, &tl);
+        std::string volta = "http://127.0.0.1:" + std::to_string(ntohs(a.sin_port));
+        std::string url = "https://accounts.google.com/o/oauth2/v2/auth?client_id=" + urlCodificar(id) + "&redirect_uri=" + urlCodificar(volta) +
+            "&response_type=code&scope=" + urlCodificar("https://www.googleapis.com/auth/drive") + "&access_type=offline&prompt=consent";
+        ShellExecuteA(NULL, "open", url.c_str(), NULL, NULL, SW_SHOWNORMAL);
+        printf("4. Abri o navegador: entre na sua conta e permita o acesso (em app de teste, clique em Continuar).\n   Esperando a resposta do Google...\n");
+        std::string codigo = esperarCodigoGoogle(srv);
+        closesocket(srv);
+        std::string resp;
+        int st = httpsPost(L"oauth2.googleapis.com", L"/token", "code=" + urlCodificar(codigo) + "&client_id=" + urlCodificar(id) + "&client_secret=" + urlCodificar(segredo) +
+            "&redirect_uri=" + urlCodificar(volta) + "&grant_type=authorization_code", resp);
+        refresh = jsonValor(resp, "refresh_token");
+        if (refresh.empty()) { printf("O Google recusou (HTTP %d): %s\n", st, resp.c_str()); return 1; }
+        idCampo = "gdrive_id"; segredoCampo = "gdrive_secret"; refreshCampo = "gdrive_refresh";
+    }
+    else { printf("Use: HyperNeivaPC.exe --token dropbox   ou   --token google\n"); return 1; }
+
+    printf("Token permanente gerado.\n");
+    if (ps4.empty()) { printf("Procurando o PS4 na rede...\n"); ps4 = acharPs4(); }
+    if (ps4.empty()) ps4 = perguntar("IP do PS4 (com o Hyper Neiva aberto): ");
+    std::string end = ps4.find(':') == std::string::npos ? ps4 + ":8000" : ps4;
+    bool ok = ps4Post(end, "/chaves/salvar?id=" + idCampo, id) && ps4Post(end, "/chaves/salvar?id=" + segredoCampo, segredo) && ps4Post(end, "/chaves/salvar?id=" + refreshCampo, refresh);
+    if (ok) printf("Gravado no PS4 (Extra > Chaves de API). Nao precisa fazer mais nada.\n");
+    else {
+        // Sem PS4: grava num txt para importar depois.
+        FILE* f = fopen("tokens_hyperneiva.txt", "a");
+        if (f) { fprintf(f, "%s=%s\n%s=%s\n%s=%s\n", idCampo.c_str(), id.c_str(), segredoCampo.c_str(), segredo.c_str(), refreshCampo.c_str(), refresh.c_str()); fclose(f); }
+        printf("Nao achei o PS4. Salvei em tokens_hyperneiva.txt nesta pasta: copie os valores para Extra > Chaves de API.\n");
+    }
+    perguntar("Aperte Enter para sair.");
+    return ok ? 0 : 1;
+}
+
 int main(int argc, char** argv) {
     SetProcessDPIAware();
     setvbuf(stdout, NULL, _IONBF, 0);
@@ -883,8 +1058,24 @@ int main(int argc, char** argv) {
     avisoTarefa = CreateEvent(NULL, FALSE, FALSE, NULL);
     printf("Hyper Neiva PC %d\n", VERSAO);
 
-    bool semBusca = false, semNavegador = false; std::string ps4;
-    for (int i = 1; i < argc; i++) { if (!strcmp(argv[i], "--sem-busca")) semBusca = true; else if (!strcmp(argv[i], "--sem-navegador")) semNavegador = true; else ps4 = argv[i]; }
+    bool semBusca = false, semNavegador = false, oculto = false, querInstalar = false, querDesinstalar = false; std::string ps4, tokenServico;
+    for (int i = 1; i < argc; i++) {
+        if (!strcmp(argv[i], "--sem-busca")) semBusca = true;
+        else if (!strcmp(argv[i], "--sem-navegador")) semNavegador = true;
+        else if (!strcmp(argv[i], "--oculto")) oculto = true;
+        else if (!strcmp(argv[i], "--instalar")) querInstalar = true;
+        else if (!strcmp(argv[i], "--desinstalar")) querDesinstalar = true;
+        else if (!strcmp(argv[i], "--token") && i + 1 < argc) tokenServico = argv[++i];
+        else ps4 = argv[i];
+    }
+    if (querInstalar) return instalar(ps4);
+    if (querDesinstalar) return desinstalar();
+    if (!tokenServico.empty()) return gerarToken(tokenServico, ps4);
+    if (oculto) {
+        // Sem janela e sem perguntas: acha o PS4 sozinho (e de novo, se o IP mudar).
+        FreeConsole();
+        semNavegador = true;
+    }
 
     SOCKET srv = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
     sockaddr_in a = {}; a.sin_family = AF_INET; a.sin_port = htons(PORTA); a.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
@@ -896,7 +1087,10 @@ int main(int argc, char** argv) {
         printf("Pronto. Deixe esta janela aberta enquanto usa a pagina do PS4.\n");
     }
 
-    if (!semBusca) {
+    if (oculto) {
+        if (ps4.empty()) ps4 = acharPs4();
+    }
+    else if (!semBusca) {
         if (ps4.empty()) { printf("Procurando o PS4 na rede...\n"); ps4 = acharPs4(); if (!ps4.empty()) printf("PS4 encontrado.\n"); }
         if (ps4.empty()) {
             // Quase sempre é 192.168.1.101: Enter aceita, ou digita só o final (ex.: 102).
@@ -931,10 +1125,11 @@ int main(int argc, char** argv) {
         }
     }
     if (!ouvindo) { Sleep(5000); return 1; }
-    if (!ps4.empty()) {
-        ps4Endereco = ps4.find(':') == std::string::npos ? ps4 + ":8000" : ps4;
+    if (!ps4.empty() || oculto) {
+        if (!ps4.empty()) ps4Endereco = ps4.find(':') == std::string::npos ? ps4 + ":8000" : ps4;
         CreateThread(NULL, 0, threadPedidosPs4, NULL, 0, NULL);
     }
+    if (!oculto) printf("Dica: para o PS4 controlar este PC mesmo com esta janela fechada, rode HyperNeivaPC.exe --instalar\n");
 
     for (;;) {
         SOCKET c = accept(srv, NULL, NULL);

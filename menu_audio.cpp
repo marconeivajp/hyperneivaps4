@@ -213,11 +213,24 @@ static char mpAviso[64] = "";
 static int mpAvisoQuadros = 0;
 static bool mpMenuAberto = false;
 static int mpMenuSel = 0;
-#define MP_MENU_ITENS 5
+#define MP_MENU_MAX 8
+// Rádio: o que toca é um link (http/https). O player muda ícones, textos e menu.
+static bool mpRadio = false;
+static bool mpEhRadio(const char* c) { return !strncmp(c, "http://", 7) || !strncmp(c, "https://", 8); }
+extern bool radioInfo(const char* url, char* nome, int tamNome, char* capa, int tamCapa);
+extern unsigned radioVersaoCapas();
+extern void radioTrocarEstacao(int passo);
+extern bool radioFavoritaAtual();
+extern void radioFavoritarAtual();
+static int mpMenuItens() { return mpRadio ? 8 : 6; }
+static const int mpIconesRadioCheio[] = { MP_ANTERIOR, MP_PLAY, MP_PROXIMO, MP_VOLUME, MP_MUDO, MP_TAMANHO, MP_MENU };
+static const int mpIconesRadioPequeno[] = { MP_ANTERIOR, MP_PLAY, MP_PROXIMO, MP_MUDO, MP_TAMANHO, MP_MENU };
 
 static void mpAvisar(const char* t) { snprintf(mpAviso, sizeof(mpAviso), "%s", t); mpAvisoQuadros = 90; }
 
 static int mpListaIcones(const int** lista) {
+    if (mpRadio && mpCheio) { *lista = mpIconesRadioCheio; return (int)(sizeof(mpIconesRadioCheio) / sizeof(int)); }
+    if (mpRadio) { *lista = mpIconesRadioPequeno; return (int)(sizeof(mpIconesRadioPequeno) / sizeof(int)); }
     if (mpCheio) { *lista = mpIconesCheio; return (int)(sizeof(mpIconesCheio) / sizeof(int)); }
     *lista = mpIconesPequeno; return (int)(sizeof(mpIconesPequeno) / sizeof(int));
 }
@@ -278,10 +291,21 @@ static uint32_t* mpFundo = NULL;
 
 static void mpPreparar(const char* c) {
     bool mesma = !strcmp(c, mpDe);
-    if (mesma && mpCapaVista == musicaCapaVersao && mpFundo) return;
+    mpRadio = mpEhRadio(c);
+    unsigned versao = musicaCapaVersao + radioVersaoCapas() * 7919u;
+    if (mesma && mpCapaVista == versao && mpFundo) return;
     snprintf(mpDe, sizeof(mpDe), "%s", c);
-    mpCapaVista = musicaCapaVersao;
-    if (!mesma) {
+    mpCapaVista = versao;
+    char capaRadio[300] = "";
+    if (mpRadio) {
+        char nome[200];
+        if (!radioInfo(c, nome, sizeof(nome), capaRadio, sizeof(capaRadio))) snprintf(nome, sizeof(nome), "Radio");
+        snprintf(mpTitulo, sizeof(mpTitulo), "%s", nome);
+        snprintf(mpArtista, sizeof(mpArtista), "Radio ao vivo");
+        const char* host = c + (c[4] == 's' ? 8 : 7);
+        snprintf(mpPasta, sizeof(mpPasta), "%.*s", (int)strcspn(host, "/:?"), host);
+    }
+    else if (!mesma) {
         char t[200] = "", a[200] = "";
         musicaInfo(c, t, sizeof(t), a, sizeof(a));
         const char* nome = strrchr(c, '/'); nome = nome ? nome + 1 : c;
@@ -297,7 +321,8 @@ static void mpPreparar(const char* c) {
     if (mpCapa) { stbi_image_free(mpCapa); mpCapa = NULL; }
     char cp[600];
     int comp = 0;
-    if (c[0] && strcmp(c, "PARADO") != 0 && musicaCapaCaminho(c, cp, sizeof(cp))) mpCapa = stbi_load(cp, &mpCapaW, &mpCapaH, &comp, 4);
+    if (mpRadio) { if (capaRadio[0]) mpCapa = stbi_load(capaRadio, &mpCapaW, &mpCapaH, &comp, 4); }
+    else if (c[0] && strcmp(c, "PARADO") != 0 && musicaCapaCaminho(c, cp, sizeof(cp))) mpCapa = stbi_load(cp, &mpCapaW, &mpCapaH, &comp, 4);
     // Fundo: a capa ampliada e escurecida (mais escura embaixo, onde fica a barra). Montado em RAM
     // uma vez; a cada quadro só é copiado para a tela.
     if (!mpFundo) mpFundo = (uint32_t*)malloc(1920 * 1080 * 4);
@@ -363,20 +388,35 @@ static void mpBarraEIcones(uint32_t* p, int x, int largura, int barraY, int icon
     const uint32_t destaque = 0xFF29B6F6;
     bool parado = !strcmp(musicaAtual, "PARADO");
     double tempo = parado ? 0.0 : audioTempoAtual;
-    double total = mpDuracao(c);
+    if (mpRadio) {
+        // Ao vivo: sem duração nem busca.
+        int espessura = mpCheio ? 8 : 6;
+        mpRetangulo(p, x, barraY - espessura / 2, largura, espessura, parado ? 0xFF5A5A5A : 0xFFE53935);
+        int tamAo = mpCheio ? 26 : tamTexto;
+        int wAo = medirLarguraTexto("AO VIVO", tamAo) + 28;
+        int xAo = mpCheio ? 60 : x;
+        mpRetangulo(p, xAo, barraY - tamAo, wAo, tamAo + 18, parado ? 0xFF444444 : 0xFFE53935);
+        desenharTexto(p, "AO VIVO", tamAo, xAo + 14, barraY - tamAo + 6, 0xFFFFFFFF);
+        char tt[24]; mpTempo(tempo, tt, sizeof(tt));
+        if (mpCheio) desenharTexto(p, tt, 28, 1735, barraY - 16, 0xFFCCCCCC);
+        else desenharTexto(p, tt, tamTexto, x + largura - medirLarguraTexto(tt, tamTexto), barraY + 12, 0xFFCCCCCC);
+    }
+    double total = mpRadio ? 0 : mpDuracao(c);
     double fracao = total > 0 ? tempo / total : 0.0;
     if (fracao < 0) fracao = 0;
     if (fracao > 1) fracao = 1;
-    int espessura = mpCheio ? 8 : 6;
-    int preenchido = (int)(largura * fracao);
-    mpRetangulo(p, x, barraY - espessura / 2, largura, espessura, 0xFF5A5A5A);
-    mpRetangulo(p, x, barraY - espessura / 2, preenchido, espessura, destaque);
-    mpCirculo(p, x + preenchido, barraY, mpCheio ? 11 : 8, 0xFFFFFFFF);
-    char tt[24], tot[24];
-    mpTempo(tempo, tt, sizeof(tt));
-    if (total > 0) mpTempo(total, tot, sizeof(tot)); else snprintf(tot, sizeof(tot), "--:--");
-    if (mpCheio) { desenharTexto(p, tt, 28, 60, barraY - 16, 0xFFFFFFFF); desenharTexto(p, tot, 28, 1735, barraY - 16, 0xFFCCCCCC); }
-    else { desenharTexto(p, tt, tamTexto, x, barraY + 12, 0xFFFFFFFF); desenharTexto(p, tot, tamTexto, x + largura - medirLarguraTexto(tot, tamTexto), barraY + 12, 0xFFCCCCCC); }
+    if (!mpRadio) {
+        int espessura = mpCheio ? 8 : 6;
+        int preenchido = (int)(largura * fracao);
+        mpRetangulo(p, x, barraY - espessura / 2, largura, espessura, 0xFF5A5A5A);
+        mpRetangulo(p, x, barraY - espessura / 2, preenchido, espessura, destaque);
+        mpCirculo(p, x + preenchido, barraY, mpCheio ? 11 : 8, 0xFFFFFFFF);
+        char tt[24], tot[24];
+        mpTempo(tempo, tt, sizeof(tt));
+        if (total > 0) mpTempo(total, tot, sizeof(tot)); else snprintf(tot, sizeof(tot), "--:--");
+        if (mpCheio) { desenharTexto(p, tt, 28, 60, barraY - 16, 0xFFFFFFFF); desenharTexto(p, tot, 28, 1735, barraY - 16, 0xFFCCCCCC); }
+        else { desenharTexto(p, tt, tamTexto, x, barraY + 12, 0xFFFFFFFF); desenharTexto(p, tot, tamTexto, x + largura - medirLarguraTexto(tot, tamTexto), barraY + 12, 0xFFCCCCCC); }
+    }
 
     const int* lista; int n = mpListaIcones(&lista);
     int inicioX = (mpCheio ? (1920 - n * passo) / 2 : x + (largura - n * passo) / 2);
@@ -398,6 +438,8 @@ static void mpBarraEIcones(uint32_t* p, int x, int largura, int barraY, int icon
     if (mpFoco == MP_VOLUME) snprintf(rotulo, sizeof(rotulo), "Volume %d%%%s", volumeGeral, mpEditVolume ? "  < >" : "");
     else if (mpFoco == MP_PLAY) snprintf(rotulo, sizeof(rotulo), "%s", (parado || comandoPausar) ? "Reproduzir" : "Pausar");
     else if (mpFoco == MP_TAMANHO) snprintf(rotulo, sizeof(rotulo), "%s", mpCheio ? "Tela pequena" : "Tela cheia");
+    else if (mpRadio && mpFoco == MP_ANTERIOR) snprintf(rotulo, sizeof(rotulo), "Estacao anterior");
+    else if (mpRadio && mpFoco == MP_PROXIMO) snprintf(rotulo, sizeof(rotulo), "Proxima estacao");
     else snprintf(rotulo, sizeof(rotulo), "%s", mpRotulos[mpFoco]);
     int rx = inicioX + focoPos * passo + passo / 2 - medirLarguraTexto(rotulo, tamTexto) / 2;
     desenharTexto(p, rotulo, tamTexto, rx, iconeY + tamIcone + 16, 0xFFFFFFFF);
@@ -406,17 +448,35 @@ static void mpBarraEIcones(uint32_t* p, int x, int largura, int barraY, int icon
 // Menu dos três pontinhos.
 static void mpDesenharMenu(uint32_t* p, int x, int yBase) {
     if (!mpMenuAberto) return;
-    const int w = 420, passo = 46, h = MP_MENU_ITENS * passo + 24;
+    const int w = 420, passo = 46, h = mpMenuItens() * passo + 24;
     int y = yBase - h;
     mpRetangulo(p, x, y, w, h, 0xFF16161F);
     mpRetangulo(p, x, y, w, 3, 0xFF29B6F6);
-    char itens[MP_MENU_ITENS][64];
+    char itens[MP_MENU_MAX][64];
     snprintf(itens[0], 64, "%s", mpCheio ? "Tela pequena" : "Tela cheia");
+    if (mpRadio) {
+        extern int temaMidiaTema(int midia);
+        extern const char* bibliotecaNomeTema(int tema);
+        snprintf(itens[1], 64, "Pesquisar radio");
+        snprintf(itens[2], 64, "%s", radioFavoritaAtual() ? "Remover dos favoritos" : "Favoritar esta radio");
+        snprintf(itens[3], 64, "Tema do player: %s", mpNomesTema[mpTemaAtual()]);
+        snprintf(itens[4], 64, "Tema da lista: %s", bibliotecaNomeTema(temaMidiaTema(5)));
+        snprintf(itens[5], 64, "Opcoes antigas da radio");
+        snprintf(itens[6], 64, "Parar radio");
+        snprintf(itens[7], 64, "Fechar player");
+    }
+    else {
     snprintf(itens[1], 64, "Modo: %s", mpNomesModo[mpModo()]);
-    snprintf(itens[2], 64, "Tema: %s", mpNomesTema[mpTemaAtual()]);
-    snprintf(itens[3], 64, "Parar musica");
-    snprintf(itens[4], 64, "Fechar player");
-    for (int i = 0; i < MP_MENU_ITENS; i++) {
+    snprintf(itens[2], 64, "Tema do player: %s", mpNomesTema[mpTemaAtual()]);
+    {
+        extern int temaMidiaTema(int midia);
+        extern const char* bibliotecaNomeTema(int tema);
+        snprintf(itens[3], 64, "Tema da lista: %s", bibliotecaNomeTema(temaMidiaTema(3)));
+    }
+    snprintf(itens[4], 64, "Parar musica");
+    snprintf(itens[5], 64, "Fechar player");
+    }
+    for (int i = 0; i < mpMenuItens(); i++) {
         int iy = y + 12 + i * passo;
         if (i == mpMenuSel) mpRetangulo(p, x + 8, iy - 2, w - 16, passo - 4, 0xFF2C3440);
         desenharTexto(p, itens[i], 26, x + 24, iy + 6, i == mpMenuSel ? 0xFF29B6F6 : 0xFFFFFFFF);
@@ -440,9 +500,11 @@ static void mpRenderizarCheio(uint32_t* p, const char* c) {
         else { mpRetangulo(p, cx, cy, ct, ct, 0xFF1C1C28); desenharIcone(p, idIcone("p_volume"), 120, cx + (ct - 120) / 2, cy + (ct - 120) / 2); }
         mpTextoCentro(p, estado, 24, 960, 528, 1600, destaque);
         mpTextoCentro(p, mpTitulo, 50, 960, 562, 1600, 0xFFFFFFFF);
-        char a[260]; snprintf(a, sizeof(a), "%s  -  Modo: %s", mpArtista, mpNomesModo[mpModo()]);
+        char a[260];
+        if (mpRadio) snprintf(a, sizeof(a), "%s  -  %s", mpArtista, mpPasta);
+        else snprintf(a, sizeof(a), "%s  -  Modo: %s", mpArtista, mpNomesModo[mpModo()]);
         mpTextoCentro(p, a, 30, 960, 630, 1600, 0xFFDDDDDD);
-        if (c[0] && letraVisivel(c)) letraDesenharPainel(p, c, 460, 660, 1000, 250, false);
+        if (!mpRadio && c[0] && letraVisivel(c)) letraDesenharPainel(p, c, 460, 660, 1000, 250, false);
     }
     else {
         // Capa (quadrada) ou Disco (redondo, como um vinil), com os textos e a letra à direita.
@@ -463,14 +525,16 @@ static void mpRenderizarCheio(uint32_t* p, const char* c) {
         mpCortar(mpTitulo, 56, 1020, t, sizeof(t)); desenharTexto(p, t, 56, 820, 195, 0xFFFFFFFF);
         mpCortar(mpArtista, 36, 1020, t, sizeof(t)); desenharTexto(p, t, 36, 820, 275, 0xFFDDDDDD);
         mpCortar(mpPasta, 24, 1020, t, sizeof(t)); desenharTexto(p, t, 24, 820, 330, 0xFF9A9AB0);
-        snprintf(t, sizeof(t), "Modo: %s", mpNomesModo[mpModo()]);
+        if (mpRadio) snprintf(t, sizeof(t), "Transmissao ao vivo  -  L1/R1 trocam de estacao");
+        else snprintf(t, sizeof(t), "Modo: %s", mpNomesModo[mpModo()]);
         desenharTexto(p, t, 24, 820, 365, 0xFF9A9AB0);
-        if (c[0] && letraVisivel(c)) letraDesenharPainel(p, c, 796, 405, 1060, 440, false);
+        if (mpRadio) {}
+        else if (c[0] && letraVisivel(c)) letraDesenharPainel(p, c, 796, 405, 1060, 440, false);
         else desenharTexto(p, "Sem letra: ponha um .lrc com o mesmo nome da musica  (Quadrado mostra/esconde)", 22, 820, 430, 0xFF8C8CA6);
     }
     mpBarraEIcones(p, 210, 1500, 930, 968, 52, 104, 20, c);
     if (mpAvisoQuadros > 0) { mpAvisoQuadros--; desenharTexto(p, mpAviso, 30, 1560, 866, destaque); }
-    desenharTexto(p, "L1/R1 faixa    L2/R2 -10s/+10s    Quadrado letra    Triangulo fecha    O volta para a tela pequena", 22, 60, 40, 0xFFB0B0C8);
+    desenharTexto(p, mpRadio ? "L1/R1 estacao    Triangulo fecha    O volta para a tela pequena" : "L1/R1 faixa    L2/R2 -10s/+10s    Quadrado letra    Triangulo fecha    O volta para a tela pequena", 22, 60, 40, 0xFFB0B0C8);
     mpDesenharMenu(p, 1440, 900);
 }
 
@@ -483,7 +547,7 @@ void musicaPlayerRenderizar(uint32_t* p) {
 
 // ---- tela pequena: um cartão no canto, por cima da lista de músicas ----
 void musicaPlayerMiniDesenhar(uint32_t* p) {
-    if (!musicaPlayerAberto || mpCheio || menuAtual != MENU_MUSICAS || showOpcoes) return;
+    if (!musicaPlayerAberto || mpCheio || showOpcoes) return;
     const uint32_t destaque = 0xFF29B6F6;
     bool parado = !strcmp(musicaAtual, "PARADO");
     const char* c = parado ? ultimaMusicaTocada : musicaAtual;
@@ -499,7 +563,8 @@ void musicaPlayerMiniDesenhar(uint32_t* p) {
     if (mpAvisoQuadros > 0) { mpAvisoQuadros--; desenharTexto(p, mpAviso, 18, x + w - 20 - medirLarguraTexto(mpAviso, 18), y + 24, destaque); }
     mpCortar(mpTitulo, 32, w - 210, t, sizeof(t)); desenharTexto(p, t, 32, x + 190, y + 52, 0xFFFFFFFF);
     mpCortar(mpArtista, 24, w - 210, t, sizeof(t)); desenharTexto(p, t, 24, x + 190, y + 98, 0xFFDDDDDD);
-    snprintf(t, sizeof(t), "Modo: %s", mpNomesModo[mpModo()]);
+    if (mpRadio) snprintf(t, sizeof(t), "%s", mpPasta);
+    else snprintf(t, sizeof(t), "Modo: %s", mpNomesModo[mpModo()]);
     desenharTexto(p, t, 20, x + 190, y + 136, 0xFF9A9AB0);
     mpBarraEIcones(p, x + 20, w - 40, y + 196, y + 252, 40, 96, 18, c);
     mpDesenharMenu(p, x + w - 420, y - 6);
@@ -516,12 +581,26 @@ static void mpAlternarPausa() {
 }
 
 static void mpAtivarMenu(int i) {
+    if (mpRadio) {
+        switch (i) {
+        case 0: mpCheio = !mpCheio; mpMenuAberto = false; break;
+        case 1: { mpMenuAberto = false; musicaPlayerAberto = false; extern void exibirTecladoVirtual(int tipo); exibirTecladoVirtual(10); break; }
+        case 2: radioFavoritarAtual(); mpAvisar(radioFavoritaAtual() ? "Favoritada" : "Fora dos favoritos"); break;
+        case 3: mpSalvarTema((mpTemaAtual() + 1) % MP_TEMAS); if (!mpCheio) { mpCheio = true; } break;
+        case 4: { extern int temaMidiaTema(int midia); extern void temaMidiaDefinir(int midia, int tema); temaMidiaDefinir(5, (temaMidiaTema(5) + 1) % 5); break; }
+        case 5: { mpMenuAberto = false; musicaPlayerAberto = false; extern void preencherMenuOpcoesRadio(); preencherMenuOpcoesRadio(); break; }
+        case 6: tocarMusicaNova("PARADO"); mpMenuAberto = false; mpAvisar("Parado"); break;
+        case 7: mpMenuAberto = false; musicaPlayerAberto = false; break;
+        }
+        return;
+    }
     switch (i) {
     case 0: mpCheio = !mpCheio; mpMenuAberto = false; break;
     case 1: modoReproducao = (mpModo() + 1) % 5; salvarConfiguracaoAudio(); break;
     case 2: mpSalvarTema((mpTemaAtual() + 1) % MP_TEMAS); if (!mpCheio) { mpCheio = true; } break;
-    case 3: tocarMusicaNova("PARADO"); mpMenuAberto = false; mpAvisar("Parado"); break;
-    case 4: mpMenuAberto = false; musicaPlayerAberto = false; break;
+    case 3: { extern int temaMidiaTema(int midia); extern void temaMidiaDefinir(int midia, int tema); temaMidiaDefinir(3, (temaMidiaTema(3) + 1) % 5); break; }
+    case 4: tocarMusicaNova("PARADO"); mpMenuAberto = false; mpAvisar("Parado"); break;
+    case 5: mpMenuAberto = false; musicaPlayerAberto = false; break;
     }
 }
 
@@ -529,8 +608,8 @@ static void mpAtivarMenu(int i) {
 bool musicaPlayerControles(uint32_t botoes, uint32_t antigos) {
     uint32_t n = botoes & ~antigos;
     if (mpMenuAberto) {
-        if (n & ORBIS_PAD_BUTTON_UP) mpMenuSel = (mpMenuSel + MP_MENU_ITENS - 1) % MP_MENU_ITENS;
-        if (n & ORBIS_PAD_BUTTON_DOWN) mpMenuSel = (mpMenuSel + 1) % MP_MENU_ITENS;
+        if (n & ORBIS_PAD_BUTTON_UP) mpMenuSel = (mpMenuSel + mpMenuItens() - 1) % mpMenuItens();
+        if (n & ORBIS_PAD_BUTTON_DOWN) mpMenuSel = (mpMenuSel + 1) % mpMenuItens();
         if (n & ORBIS_PAD_BUTTON_CROSS) mpAtivarMenu(mpMenuSel);
         if (n & (ORBIS_PAD_BUTTON_CIRCLE | ORBIS_PAD_BUTTON_TRIANGLE)) mpMenuAberto = false;
         return !musicaPlayerAberto;
@@ -542,11 +621,17 @@ bool musicaPlayerControles(uint32_t botoes, uint32_t antigos) {
         return true;
     }
     if (n & ORBIS_PAD_BUTTON_TRIANGLE) { musicaPlayerAberto = false; return true; }
-    if (n & ORBIS_PAD_BUTTON_L1) { tocarMusicaAnterior(); mpAvisar("Faixa anterior"); }
-    if (n & ORBIS_PAD_BUTTON_R1) { tocarProximaMusica(); mpAvisar("Proxima faixa"); }
-    if (n & ORBIS_PAD_BUTTON_L2) { retrocederAudio(); mpAvisar("-10s"); }
-    if (n & ORBIS_PAD_BUTTON_R2) { adiantarAudio(); mpAvisar("+10s"); }
-    if (n & ORBIS_PAD_BUTTON_SQUARE) letraAlternar();
+    if (mpRadio) {
+        if (n & ORBIS_PAD_BUTTON_L1) { radioTrocarEstacao(-1); mpAvisar("Estacao anterior"); }
+        if (n & ORBIS_PAD_BUTTON_R1) { radioTrocarEstacao(1); mpAvisar("Proxima estacao"); }
+    }
+    else {
+        if (n & ORBIS_PAD_BUTTON_L1) { tocarMusicaAnterior(); mpAvisar("Faixa anterior"); }
+        if (n & ORBIS_PAD_BUTTON_R1) { tocarProximaMusica(); mpAvisar("Proxima faixa"); }
+        if (n & ORBIS_PAD_BUTTON_L2) { retrocederAudio(); mpAvisar("-10s"); }
+        if (n & ORBIS_PAD_BUTTON_R2) { adiantarAudio(); mpAvisar("+10s"); }
+        if (n & ORBIS_PAD_BUTTON_SQUARE) letraAlternar();
+    }
     if (mpEditVolume) {
         if (n & ORBIS_PAD_BUTTON_RIGHT) aumentarVolume();
         if (n & ORBIS_PAD_BUTTON_LEFT) diminuirVolume();
@@ -561,11 +646,11 @@ bool musicaPlayerControles(uint32_t botoes, uint32_t antigos) {
     if ((n & ORBIS_PAD_BUTTON_RIGHT) && pos < total - 1) mpFoco = lista[pos + 1];
     if (n & ORBIS_PAD_BUTTON_CROSS) {
         switch (mpFoco) {
-        case MP_ANTERIOR: tocarMusicaAnterior(); mpAvisar("Faixa anterior"); break;
+        case MP_ANTERIOR: if (mpRadio) { radioTrocarEstacao(-1); mpAvisar("Estacao anterior"); } else { tocarMusicaAnterior(); mpAvisar("Faixa anterior"); } break;
         case MP_VOLTAR: retrocederAudio(); mpAvisar("-10s"); break;
         case MP_PLAY: mpAlternarPausa(); break;
         case MP_AVANCAR: adiantarAudio(); mpAvisar("+10s"); break;
-        case MP_PROXIMO: tocarProximaMusica(); mpAvisar("Proxima faixa"); break;
+        case MP_PROXIMO: if (mpRadio) { radioTrocarEstacao(1); mpAvisar("Proxima estacao"); } else { tocarProximaMusica(); mpAvisar("Proxima faixa"); } break;
         case MP_VOLUME: mpEditVolume = true; break;
         case MP_MUDO:
             if (volumeGeral > 0) { mpVolumeAntesMudo = volumeGeral; volumeGeral = 0; mpAvisar("Mudo"); }

@@ -214,17 +214,22 @@ static const Conquista conquistas[] = {
     { "pip", 1, "Tela pequena", "Com um vídeo aberto, desça até os ícones do player e escolha a tela pequena. O vídeo continua enquanto você usa o app." },
     { "musica", 1, "Minhas músicas", "Em MIDIA, abra a pasta de músicas. Os arquivos ficam em /data/HyperNeiva/Musicas." },
     { "radio", 1, "No ar", "Em MIDIA, abra Radio & Podcast." },
+    { "radio_player", 1, "Locutor", "Toque uma rádio com X. Triângulo abre o player com a capa da estação; nos três pontinhos dá para favoritar, trocar o tema da lista e abrir as opções antigas. L1 e R1 trocam de estação." },
 
     { "baixar", 2, "Central de downloads", "No menu inicial, escolha BAIXAR e aperte X." },
     { "ftp", 2, "FTP: conhecendo", "Em BAIXAR, escolha FTP (PC / Android). Download traz arquivos do PC ou do celular para o PS4. Upload leva do PS4 para lá. O PC ou celular precisa de um programa servidor de FTP ligado, na mesma rede do PS4. O IP do próprio PS4 aparece embaixo, à direita, em BAIXAR." },
     { "ftp_servidor", 2, "FTP: cadastrar servidor", "Ver o IP: no Windows, abra o Prompt de Comando, digite ipconfig e copie o Endereço IPv4, como 192.168.1.10. No celular, o app de FTP mostra o IP. Porta: use a que aparece no seu servidor, normalmente 21 no PC e 2121 no celular. Usuario e Senha: os mesmos criados no servidor. Depois, em Download, escolha [+] Adicionar Novo Servidor, preencha cada campo e escolha [ SALVAR SERVIDOR ]." },
     { "ftp_lista", 2, "FTP: conectado", "Em FTP, escolha Download e aperte X no servidor salvo. A lista de arquivos do seu PC ou celular aparece na tela." },
-    { "dropbox_app", 2, "Dropbox: criar o app no PC", "No PC, abra dropbox.com/developers/apps e clique em Create app. Escolha Scoped access e Full Dropbox e dê um nome. Na aba Permissions, marque files.content.read e files.content.write e clique em Submit. Na aba Settings, em Generated access token, clique em Generate e copie o texto. Esta conquista é ganha junto com a próxima." },
-    { "dropbox_chave", 2, "Dropbox: substituir o txt", "No PS4 já existe /data/HyperNeiva/configuracao/dropbox_token.txt. Você precisa SUBSTITUIR esse arquivo: pelo FTP do GoldHEN, baixe-o, apague tudo que há dentro, cole só o seu token, salve e envie de volta por cima do antigo. Esse token dura poucas horas. Para não expirar, use três linhas: App key:, App secret: e Token refresh:." },
+    { "dropbox_app", 2, "Dropbox: criar o app no PC", "No PC, abra dropbox.com/developers/apps e clique em Create app. Escolha Scoped access e Full Dropbox e dê um nome. Na aba Permissions, marque files.content.read e files.content.write e clique em Submit. Na aba Settings, copie o App key e o App secret." },
+    { "dropbox_chave", 2, "Dropbox: token que não expira", "Jeito fácil: no PC, rode HyperNeivaPC.exe --token dropbox, cole App key e App secret, permita no navegador e cole o código. Ele gera o refresh token e grava sozinho no PS4. À mão: abra dropbox.com/oauth2/authorize?client_id=APPKEY&token_access_type=offline&response_type=code, troque o código pelo refresh token e preencha Extra > Chaves de API > Dropbox." },
     { "dropbox", 2, "Dropbox: abrir", "Em BAIXAR, escolha Dropbox. Download traz arquivos, Upload envia, e Menu Backup guarda seus dados." },
     { "dropbox_lista", 2, "Dropbox: conectado", "Depois de configurar, escolha Dropbox e Download. Seus arquivos da nuvem aparecem na lista." },
     { "github", 2, "Direto do GitHub", "Em BAIXAR, escolha GitHub para ver repositórios e baixar arquivos das releases." },
     { "torrent", 2, "Torrent: abrir", "Em BAIXAR, escolha Torrent. A lista mostra progresso, velocidade e fontes." },
+    { "gerenciador", 2, "Tudo num lugar só", "Em BAIXAR, abra Gerenciador de downloads. Ele mostra o que está chegando do Telegram, GitHub, Dropbox, Google Drive, torrent, links, PC e dos downloads do PS4." },
+    { "gdrive_app", 2, "Google Drive: credenciais", "No PC, em console.cloud.google.com, crie um projeto e ative a Google Drive API. Em Tela de consentimento OAuth, preencha o nome, adicione seu e-mail como usuário de teste e depois publique o app (em produção), senão o token vence em 7 dias. Em Credenciais, crie um ID do cliente OAuth do tipo Aplicativo da Web com o URI de redirecionamento https://developers.google.com/oauthplayground." },
+    { "gdrive_chave", 2, "Google Drive: OAuth Playground", "Abra developers.google.com/oauthplayground, clique na engrenagem e marque Use your own OAuth credentials com seu ID e chave secreta. No passo 1, digite https://www.googleapis.com/auth/drive e clique em Authorize APIs. No passo 2, Exchange authorization code for tokens e copie o Refresh token. Preencha Extra > Chaves de API > Google Drive. Ou rode HyperNeivaPC.exe --token google (cliente do tipo App para computador)." },
+    { "gdrive", 2, "Google Drive: abrir", "Em BAIXAR, escolha Google Drive. X abre pastas e baixa arquivos para /data/HyperNeiva/baixado/gdrive. Triângulo atualiza." },
     { "torrent_novo", 2, "Torrent: primeiro download", "Aperte X em um arquivo .torrent no EXPLORAR, ou escolha ADICIONAR LINK MAGNET em Baixar > Torrent. Triângulo remove da lista." },
 
     { "editar", 3, "Do seu jeito", "No menu inicial, escolha EDITAR e aperte X." },
@@ -237,6 +242,7 @@ static const Conquista conquistas[] = {
     { "colar", 4, "Copiar e colar", "Copie um arquivo pelo Triângulo, vá até outra pasta e cole. A cópia roda na fila, com barra de progresso." },
     { "extrair", 4, "Descompactar", "No Triângulo de um .zip, .7z ou .rar, escolha extrair. O arquivo entra na fila." },
     { "pkg", 4, "Instalador", "Aperte X em um arquivo .pkg no EXPLORAR. Os PKGs ficam em /data/pkg." },
+    { "modelo3d", 4, "Em três dimensões", "No EXPLORAR, aperte X em um arquivo .obj ou .stl. O analógico gira, L1 e R1 dão zoom e X mostra a malha de arame." },
     { "avatar", 4, "Foto de perfil", "No EXPLORAR, aperte X em uma imagem .png ou .jpg e escolha definir imagem de perfil. A foto entra no seu usuário do PS4." },
     { "fundo_ps4", 4, "Fundo do PS4", "No EXPLORAR, aperte X em uma imagem e escolha plano de fundo do ps4." },
     { "fundo_hn", 4, "Fundo do Hyper Neiva", "No EXPLORAR, aperte X em uma imagem e escolha plano de fundo hyper neiva. Vale para o tema padrão: os outros temas têm fundo próprio." },
@@ -246,6 +252,7 @@ static const Conquista conquistas[] = {
     { "controle", 5, "Controle em dia", "Em EXTRA, abra o Teste de Controle para ver os botões e o desvio dos analógicos." },
     { "piano", 5, "Músico", "Em EXTRA, abra o Piano Virtual." },
     { "ventoinha", 5, "Ventoinha", "Em EXTRA, abra Ventoinha e temperatura. Esquerda e direita escolhem a temperatura em que a ventoinha acelera, e X aplica. Valor baixo deixa o PS4 mais frio e mais barulhento." },
+    { "tempo", 5, "Meteorologista", "Em EXTRA, abra Previsão do tempo. Quadrado adiciona uma cidade pelo nome, Triângulo tira, cima e baixo trocam de cidade." },
     { "tg_chave", 5, "Telegram: criar a chave", "No PC, entre em my.telegram.org, abra API development tools e crie um app. Grave /data/HyperNeivaTelegram/api.txt no PS4 pelo FTP: api_id na primeira linha e api_hash na segunda." },
     { "tg_abrir", 5, "Telegram: abrir", "Em EXTRA, escolha Telegram. Sem o arquivo api.txt, o app avisa que falta a chave." },
     { "tg_login", 5, "Telegram: entrar", "Aperte X, digite o telefone com DDI, como +5511999998888, e depois o código que chega no seu Telegram." },
@@ -328,6 +335,12 @@ void conquistasAtualizar() {
         arquivos = 0;
         if (conquistaArquivoExiste("/data/HyperNeiva/configuracao/dropbox_token.txt")) { conquistaGanhar("dropbox_app"); conquistaGanhar("dropbox_chave"); }
         if (conquistaArquivoExiste("/data/HyperNeivaTelegram/api.txt")) conquistaGanhar("tg_chave");
+        FILE* ch = fopen("/data/HyperNeiva/configuracao/chaves_api.txt", "r");
+        if (ch) {
+            char l[512];
+            while (fgets(l, sizeof(l), ch)) if (!strncmp(l, "gdrive_refresh_token=", 21) && l[21] > ' ') { conquistaGanhar("gdrive_app"); conquistaGanhar("gdrive_chave"); }
+            fclose(ch);
+        }
     }
     if (espera > 0) { espera--; return; }
     if (emuladorAtivo || (videoRodando && !video_minimizado)) return;

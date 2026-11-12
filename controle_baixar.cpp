@@ -137,6 +137,8 @@ void acaoCross_Baixar(int32_t uId, OrbisImeDialogSetting* imeSetting, uint16_t* 
             else if (sel == 5) { extern void abrirMenuGithub(); abrirMenuGithub(); }
             else if (sel == 6) { extern void abrirMenuTorrent(); abrirMenuTorrent(); }
             else if (sel == 7) { extern void abrirMenuRetroArch(); abrirMenuRetroArch(); }
+            else if (sel == 8) { extern void downloadsAbrir(); downloadsAbrir(); }
+            else if (sel == 9) { extern void gdriveAbrir(); gdriveAbrir(); }
         }
         else if (emSubmenuFTP) {
             if (sel == 0) { preencherMenuFTPServidores(false); }

@@ -175,6 +175,7 @@ void listarDiretorioEsq(const char* path) {
 }
 
 // Menu do X em imagem e avatar. O .xavatar é um pacote pronto de perfil, então não vira fundo.
+static char capaAlvoVideo[512] = "";   // vídeo que espera a imagem da capa (Triângulo > trocar a capa)
 void abrirOpcoesImagem(const char* caminho, bool permitirExtrair) {
     char minusculo[512]; snprintf(minusculo, sizeof(minusculo), "%s", caminho);
     for (int i = 0; minusculo[i]; i++) minusculo[i] = tolower(minusculo[i]);
@@ -183,6 +184,7 @@ void abrirOpcoesImagem(const char* caminho, bool permitirExtrair) {
     snprintf(caminhoImagemAberta, sizeof(caminhoImagemAberta), "%s", caminho);
     for (int k = 0; k < 150; k++) { listaOpcoes[k] = ""; mapOpcoes[k] = -1; }
     totalOpcoes = 0;
+    if (capaAlvoVideo[0] && !avatar) { listaOpcoes[totalOpcoes] = "usar como capa do video"; mapOpcoes[totalOpcoes++] = 195; }
     listaOpcoes[totalOpcoes] = "visualizar"; mapOpcoes[totalOpcoes++] = avatar ? 13 : 14;
     listaOpcoes[totalOpcoes] = "definir imagem de perfil"; mapOpcoes[totalOpcoes++] = 12;
     if (avatar) {
@@ -193,6 +195,28 @@ void abrirOpcoesImagem(const char* caminho, bool permitirExtrair) {
         listaOpcoes[totalOpcoes] = "plano de fundo hyper neiva"; mapOpcoes[totalOpcoes++] = 10;
         listaOpcoes[totalOpcoes] = "personalizar jogo (appmeta)"; mapOpcoes[totalOpcoes++] = 30;
     }
+    showOpcoes = true; selOpcao = 0;
+}
+
+// Triângulo em Mídia > videos: tema da lista e capas. "Trocar capa" abre o Explorar nas imagens;
+// lá o X numa imagem oferece "usar como capa".
+void abrirOpcoesVideos() {
+    extern int temaMidiaTema(int midia);
+    extern const char* bibliotecaNomeTema(int tema);
+    extern bool videoCapaAuto(), videoCapaSalvas();
+    static char rotTema[96], rotCapa[200], rotAuto[80], rotSalvas[80];
+    for (int k = 0; k < 150; k++) { listaOpcoes[k] = ""; mapOpcoes[k] = -1; }
+    totalOpcoes = 0;
+    snprintf(rotTema, sizeof(rotTema), "tema da lista: %s", bibliotecaNomeTema(temaMidiaTema(4)));
+    listaOpcoes[totalOpcoes] = rotTema; mapOpcoes[totalOpcoes++] = 190;
+    if (sel >= 0 && sel < totalItens && strcmp(nomes[sel], "Pasta vazia") != 0) {
+        snprintf(rotCapa, sizeof(rotCapa), "trocar a capa de %.150s", nomes[sel]);
+        listaOpcoes[totalOpcoes] = rotCapa; mapOpcoes[totalOpcoes++] = 191;
+    }
+    snprintf(rotAuto, sizeof(rotAuto), "baixar capas da internet: %s", videoCapaAuto() ? "sim" : "nao");
+    listaOpcoes[totalOpcoes] = rotAuto; mapOpcoes[totalOpcoes++] = 192;
+    snprintf(rotSalvas, sizeof(rotSalvas), "capas baixadas: %s", videoCapaSalvas() ? "ficam salvas" : "temporarias");
+    listaOpcoes[totalOpcoes] = rotSalvas; mapOpcoes[totalOpcoes++] = 193;
     showOpcoes = true; selOpcao = 0;
 }
 
@@ -456,6 +480,35 @@ void acaoArquivo(int idxOpcao) {
         break;
     }
 
+    case 190: {
+        extern int temaMidiaTema(int midia);
+        extern void temaMidiaDefinir(int midia, int tema);
+        temaMidiaDefinir(4, (temaMidiaTema(4) + 1) % 5);
+        int volta = selOpcao; abrirOpcoesVideos(); selOpcao = volta;
+        break;
+    }
+    case 191: {
+        extern void listarDiretorio(const char* path);
+        snprintf(capaAlvoVideo, sizeof(capaAlvoVideo), "%s/%s", caminhoMidiaAtual, nomes[sel]);
+        showOpcoes = false;
+        listarDiretorio("/data/HyperNeiva/midia/imagens");
+        snprintf(msgStatus, sizeof(msgStatus), "ESCOLHA A IMAGEM DA CAPA (X > USAR COMO CAPA)");
+        msgTimer = 240;
+        break;
+    }
+    case 192: { extern void videoCapaAlternarAuto(); videoCapaAlternarAuto(); int volta = selOpcao; abrirOpcoesVideos(); selOpcao = volta; break; }
+    case 193: { extern void videoCapaAlternarSalvas(); videoCapaAlternarSalvas(); int volta = selOpcao; abrirOpcoesVideos(); selOpcao = volta; break; }
+    case 195: {
+        extern bool videoDefinirCapa(const char* video, const char* imagem);
+        extern void voltarNavegacao();
+        bool ok = videoDefinirCapa(capaAlvoVideo, caminhoImagemAberta);
+        capaAlvoVideo[0] = 0;
+        showOpcoes = false;
+        snprintf(msgStatus, sizeof(msgStatus), ok ? "CAPA TROCADA" : "NAO CONSEGUI GRAVAR A CAPA");
+        msgTimer = 150;
+        voltarNavegacao();
+        break;
+    }
     case 180: {
         extern void explorarTocarAudio(const char* caminhoArquivo);
         explorarTocarAudio(caminhoAudioAberto);

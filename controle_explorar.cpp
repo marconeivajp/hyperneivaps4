@@ -199,7 +199,7 @@ void instalarPkgLocal(const char* caminhoAbsoluto) {
     char urlPkg[1024]; sprintf(urlPkg, "http://127.0.0.1:8080/%s.pkg", contentId);
     OrbisBgftDownloadParam params; memset(&params, 0, sizeof(OrbisBgftDownloadParam)); params.userId = userId; params.entitlementType = 5; params.id = contentId; params.contentUrl = urlPkg; params.contentName = pkgsServidor[vaga].titulo; params.playgoScenarioId = "0"; memcpy(&params.packageSize, &fileSize, sizeof(fileSize));
     OrbisBgftTaskId taskId = -1; int res = sceBgftServiceIntDebugDownloadRegisterPkg(&params, &taskId);
-    if (res == 0 && taskId >= 0) { extern volatile int hnTarefaPkg; hnTarefaPkg = (int)taskId; sceBgftServiceDownloadStartTask(taskId); sprintf(msgStatus, "DOWNLOAD INICIADO! Verifique as Notificacoes."); atualizarBarra(1.0f); }
+    if (res == 0 && taskId >= 0) { extern volatile int hnTarefaPkg; hnTarefaPkg = (int)taskId; extern void dlRegistrarTarefaPs4(int id, const char* nome); dlRegistrarTarefaPs4((int)taskId, pkgsServidor[vaga].titulo); sceBgftServiceDownloadStartTask(taskId); sprintf(msgStatus, "DOWNLOAD INICIADO! Verifique as Notificacoes."); atualizarBarra(1.0f); }
     else { sprintf(msgStatus, "ERRO: 0x%08X", res); atualizarBarra(0.0f); }
     FILE* registro = fopen("/data/HyperNeiva/zip_debug_log.txt", "a");
     if (registro) { fprintf(registro, "INSTALAR res=0x%08X tarefa=%d tamanho=%llu %s\n", (unsigned int)res, (int)taskId, (unsigned long long)fileSize, caminhoAbsoluto); fclose(registro); }
@@ -276,6 +276,10 @@ void acaoCross_Explorar() {
                 if (selecionandoMidiaElemento) return;
 
                 extern void abrirOpcoesImagem(const char*, bool); abrirOpcoesImagem(caminhoArquivo, true);
+            }
+            else if (strstr(nomeBlindado, ".obj") || strstr(nomeBlindado, ".stl")) {
+                extern bool modelo3dAbrir(const char* caminho);
+                modelo3dAbrir(caminhoArquivo);
             }
             else if (strstr(nomeBlindado, ".mp3") || strstr(nomeBlindado, ".wav") || strstr(nomeBlindado, ".m4a") || strstr(nomeBlindado, ".ogg") ||
                      strstr(nomeBlindado, ".flac") || strstr(nomeBlindado, ".aac") || strstr(nomeBlindado, ".opus") || strstr(nomeBlindado, ".oga")) {
