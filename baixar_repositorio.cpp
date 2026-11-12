@@ -11,6 +11,7 @@
 #include "ImeDialog.h"
 #include "CommonDialog.h"
 #include <orbis/UserService.h>
+#include "remoto_ime.h"   // teclado do PS4 recebe texto do celular
 
 extern char nomes[3000][256];
 extern int totalItens;

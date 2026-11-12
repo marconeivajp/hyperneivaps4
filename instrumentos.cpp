@@ -553,7 +553,8 @@ void misturarAudioPiano(int16_t* bufferAudio, size_t frames) {
 
     if (globalPadHandle >= 0) {
         OrbisPadData data;
-        if (scePadReadState(globalPadHandle, &data) == 0) {
+        extern int hnPadLer(int handle, OrbisPadData* dados);
+        if (hnPadLer(globalPadHandle, &data) == 0) {
             uint32_t b = data.buttons;
 
             uint32_t btnPressed = b & ~padBotoesAnteriores;

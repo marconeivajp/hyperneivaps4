@@ -21,6 +21,7 @@
 #include "ImeDialog.h"
 #include "CommonDialog.h"
 #include "stb_image.h"
+#include "remoto_ime.h"   // teclado do PS4 recebe texto do celular
 
 // DECLARAÇÕES PARA O COMPILADOR LER DE CIMA PARA BAIXO E NÃO DAR ERRO
 void acessarFTPDir(int index, const char* path);
@@ -483,6 +484,9 @@ void preencherMenuFTPServidores(bool isUpload) {
     memset(nomes, 0, sizeof(nomes)); memset(linksAtuais, 0, sizeof(linksAtuais));
     strcpy(nomes[0], "[+] Adicionar Novo Servidor"); totalItens = 1;
     for (int i = 0; i < totalServidoresFTP; i++) { sprintf(nomes[totalItens], "%s (%s:%d)", listaServidoresFTP[i].name, listaServidoresFTP[i].ip, listaServidoresFTP[i].port); totalItens++; }
+    // O computador com o HyperNeivaPC.exe aberto (network.cpp): ver/controlar a tela e copiar arquivos.
+    strcpy(nomes[totalItens++], "[PC] Tela do PC (ver e controlar)");
+    strcpy(nomes[totalItens++], "[PC] Arquivos do PC (copiar para o PS4)");
     menuAtual = MENU_BAIXAR_FTP_SERVIDORES; sel = 0; off = 0;
 }
 

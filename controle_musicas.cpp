@@ -37,9 +37,10 @@ void acaoCross_Musicas() {
             off = 0;
         }
         else {
-            // SE CLICOU NUMA MÚSICA, TOCA!
-            tocarMusicaNova(caminhosMusicasMenu[sel]);
-            sprintf(msgStatus, "A TOCAR MUSICA...");
+            // SE CLICOU NUMA MÚSICA, TOCA! O player abre só pelo Triângulo.
+            if (strcmp(caminhosMusicasMenu[sel], musicaAtual) != 0) tocarMusicaNova(caminhosMusicasMenu[sel]);
+            else if (comandoPausar) { comandoPausar = false; salvarConfiguracaoAudio(); }
+            sprintf(msgStatus, "A TOCAR MUSICA...  (TRIANGULO ABRE O PLAYER)");
             msgTimer = 120;
         }
     }
@@ -63,9 +64,8 @@ bool acaoCircle_Musicas() {
     return false;
 }
 
+// O Triângulo abre o player novo, em tela pequena (ele substitui o antigo menu de opções).
 void acaoTriangle_Musicas() {
-    abrirMenuAudioOpcoes();
-    menuAtual = MENU_AUDIO_OPCOES;
-    showOpcoes = true;
-    selAudioOpcao = 0;
+    extern void musicaPlayerAbrir(bool cheio);
+    musicaPlayerAbrir(false);
 }

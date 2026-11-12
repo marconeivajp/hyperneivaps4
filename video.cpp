@@ -52,6 +52,15 @@ volatile int video_legenda_altura = 0;
 volatile bool video_legenda_visivel = false;
 static volatile bool video_terminou = false;
 char ultimo_video_tocado[512] = "";
+
+// Legendas (menu_video.cpp).
+void legendaAbrirVideo(AVFormatContext* fc, const char* caminho, double base, bool remoto);
+void legendaFecharVideo();
+bool legendaQuerStream(int indice);
+void legendaPacote(AVStream* st, AVPacket* pkt);
+unsigned legendaIdEm(double t);
+void legendaDesenhar(uint32_t* tela, double t, bool controles);
+static unsigned ultimaLegenda = 0;
 char path_pasta_video[512] = "";
 double video_time_current = 0;
 double audio_time_current = 0;
@@ -539,6 +548,8 @@ static void* threadDemux(void*) {
         if (resultado < 0) { sceKernelUsleep(5000); continue; }
         errosSeguidos = 0;
 
+        if (legendaQuerStream(pkt->stream_index)) { legendaPacote(pFormatCtx->streams[pkt->stream_index], pkt); av_packet_unref(pkt); continue; }
+
         FilaPacotes* destino = NULL;
         if (pkt->stream_index == videoStream) destino = &filaVideo;
         else if (temAudio && pkt->stream_index == audioStream) destino = &filaAudio;
@@ -931,6 +942,7 @@ static void adiantarConversao() {
 // ==========================================
 static uint32_t* faixaControles = NULL;
 
+
 // Os buffers de saída são write-combining: a escrita em bloco que não passa pelo cache é a rápida.
 static inline void copiarPixels(uint32_t* destino, const uint32_t* origem, int pixels) {
     while (pixels > 0 && ((uintptr_t)destino & 15)) { *destino++ = *origem++; pixels--; }
@@ -1136,8 +1148,11 @@ static void passoApresentador() {
         lerCompartilhado(exibir_botao_pular) || (pip && lerCompartilhado(pip_selecionado));
     bool geometriaMudou = dw != ultimoDw || dh != ultimoDh || dx != ultimoDx || dy != ultimoDy;
     apresentadorTick++;
+    double tempoLegenda = video_time_current;
+    unsigned legenda = pip ? 0 : legendaIdEm(tempoLegenda);
+    bool legendaMudou = legenda != ultimaLegenda;
 
-    bool redesenhar = frameNovo || camadaNova || geometriaMudou || pip != ultimoPip ||
+    bool redesenhar = frameNovo || camadaNova || geometriaMudou || pip != ultimoPip || legendaMudou ||
         overlay != ultimoOverlay || (overlay && (apresentadorTick & 1) == 0);
     if (!redesenhar) {
         bool repetiu = graficosRepetirFlip();
@@ -1155,7 +1170,8 @@ static void passoApresentador() {
     // Cada um dos dois buffers lembra qual fundo já tem, para não recopiar a tela inteira à toa.
     uint64_t retangulo = (uint64_t)(uint16_t)dw | ((uint64_t)(uint16_t)dh << 16) |
         ((uint64_t)(uint16_t)dx << 32) | ((uint64_t)(uint16_t)dy << 48);
-    uint64_t carimbo = (pip ? (versaoCamada + 1) * 0x9E3779B97F4A7C15ULL : 0x51ED270B9A1F3C55ULL) ^ retangulo;
+    // A fala entra no carimbo: quando muda, o fundo é refeito e o texto antigo não fica nas tarjas.
+    uint64_t carimbo = (pip ? (versaoCamada + 1) * 0x9E3779B97F4A7C15ULL : 0x51ED270B9A1F3C55ULL) ^ retangulo ^ ((uint64_t)legenda * 0x2545F4914F6CDD1DULL);
     bool cobreTudo = !pip && temImagem && dx <= 0 && dy <= 0 && dx + dw >= 1920 && dy + dh >= 1080;
     if (!cobreTudo && (overlay || carimboFundo[indice] != carimbo)) {
         if (pip) copiarPixels(tela, camadaAtual, 1920 * 1080);
@@ -1164,6 +1180,8 @@ static void passoApresentador() {
     carimboFundo[indice] = (overlay || cobreTudo) ? 0 : carimbo;
 
     if (temImagem) desenharImagemVideo(tela, dw, dh, dx, dy);
+    if (legenda) legendaDesenhar(tela, tempoLegenda, controles);
+    ultimaLegenda = legenda;
 
     if (controles) desenharFaixaControles(tela, temImagem, dw, dh, dx, dy);
     else if (overlay) {
@@ -1272,6 +1290,7 @@ void pararVideo() {
     telegramPararFluxo();   // a leitura pode estar esperando a rede: solta antes de encerrar as threads
     reiniciarControlesPlayer();
     encerrarThreads();
+    legendaFecharVideo();
     liberarRecursosVideo();
     telegramFecharFluxo();
 
@@ -1453,6 +1472,8 @@ void iniciarVideoMP4(const char* caminho) {
     if (temAudio) tbAudio = pFormatCtx->streams[audioStream]->time_base;
     tempoBaseArquivo = pFormatCtx->start_time != AV_NOPTS_VALUE ? (double)pFormatCtx->start_time / AV_TIME_BASE : 0.0;
     video_time_total = pFormatCtx->duration > 0 ? (double)pFormatCtx->duration / AV_TIME_BASE : 0.0;
+    legendaAbrirVideo(pFormatCtx, ultimo_video_tocado, tempoBaseArquivo, fluxoTelegram != NULL || strstr(ultimo_video_tocado, "://") != NULL);
+    ultimaLegenda = 0;
 
     AVRational taxa = streamVideo->avg_frame_rate;
     if (taxa.num <= 0 || taxa.den <= 0) taxa = streamVideo->r_frame_rate;

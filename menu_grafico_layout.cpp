@@ -625,6 +625,17 @@ void definirTema(int tema) {
 static bool temaMenuInicio(MenuLevel m) { return m == ROOT || m == MENU_TIPO_JOGO; }
 static bool temaMenuJogos(MenuLevel m) { return m == MENU_JOGAR_PS4 || m == JOGAR_XML || m == SCRAPER_LIST; }
 
+// Músicas e a pasta de vídeos da Mídia usam os temas da biblioteca de jogos.
+// 3 = músicas, 4 = vídeos (vira o "aba" da cena: muda textos e botões do tema).
+int temaMidiaBiblioteca() {
+    if (menuAtual == MENU_MUSICAS) return 3;
+    if (menuAtual == MENU_MIDIA) {
+        extern char caminhoMidiaAtual[512];
+        if (strncasecmp(caminhoMidiaAtual, "/data/HyperNeiva/midia/videos", 29) == 0 && (caminhoMidiaAtual[29] == 0 || caminhoMidiaAtual[29] == '/')) return 4;
+    }
+    return 0;
+}
+
 // Só telas que são uma lista simples: o resto segue com o desenho próprio.
 bool temaCobreMenu() {
     extern bool visualizandoMidiaImagem, visualizandoMidiaTexto, visualizandoPDF, editMode;
@@ -633,6 +644,7 @@ bool temaCobreMenu() {
         extern int bibliotecaTemaJogos();
         return bibliotecaTemaJogos() != 4;
     }
+    if (temaMidiaBiblioteca()) { extern int bibliotecaTemaJogos(); return bibliotecaTemaJogos() != 4; }
     if (temaAtual() == TEMA_PADRAO) return false;
     switch (menuAtual) {
     case ROOT: case MENU_TIPO_JOGO: case MENU_JOGAR_PS4: case JOGAR_XML: case SCRAPER_LIST:
@@ -649,7 +661,7 @@ bool temaCobreMenu() {
 // Nestes menus as setas esquerda e direita andam na fila, como nos cartões do tema.
 bool temaHorizontal() {
     if (!temaCobreMenu()) return false;
-    if (menuAtual == MENU_EMULADOR || menuAtual == MENU_SISTEMAS) { extern int bibliotecaTemaJogos(); return bibliotecaTemaJogos() == 0; }
+    if (menuAtual == MENU_EMULADOR || menuAtual == MENU_SISTEMAS || temaMidiaBiblioteca()) { extern int bibliotecaTemaJogos(); return bibliotecaTemaJogos() == 0; }
     int tema = temaAtual();
     if (temaMenuInicio(menuAtual)) return tema != TEMA_OPL;
     return temaMenuJogos(menuAtual) && (tema == TEMA_PS4 || tema == TEMA_PS5 || tema == TEMA_NETFLIX);
@@ -682,6 +694,7 @@ bool temaCapa(int indice, const char* nome, unsigned char** img, int* w, int* h)
 
 bool temaImagemJogo(int indice, const char* nome, int tipo, unsigned char** img, int* w, int* h) {
     if (tipo == 0) return temaCapa(indice, nome, img, w, h);
+    if (temaMidiaBiblioteca()) return tipo == 1 && temaCapa(indice, nome, img, w, h);   // a capa no lugar da tela do jogo
     if (menuAtual != MENU_EMULADOR) return false;
     if (!temaExtrasProntos) temaLimparExtras(false);
     int livre = -1, longe = 0, maisLonge = -1;
@@ -738,6 +751,33 @@ bool temaCapa(int indice, const char* nome, unsigned char** img, int* w, int* h)
             bibliotecaIconeSistema(indice, caminho, sizeof(caminho));
         }
         else if (menuAtual == MENU_JOGAR_PS4) snprintf(caminho, sizeof(caminho), "/user/appmeta/%s/icon0.png", linksAtuais[indice]);
+        else if (menuAtual == MENU_MUSICAS) {
+            // Capa da música: cache, imagem do MP3 ou busca na internet em segundo plano (network.cpp).
+            extern char caminhosMusicasMenu[3000][256];
+            extern bool musicaCapaCaminho(const char* caminhoMusica, char* saida, int tam);
+            const char* m = (indice >= 0 && indice < 3000) ? caminhosMusicasMenu[indice] : "";
+            int n = (int)strlen(m);
+            if (n > 4 && (!strcasecmp(m + n - 4, ".mp3") || !strcasecmp(m + n - 4, ".wav"))) musicaCapaCaminho(m, caminho, sizeof(caminho));
+        }
+        else if (menuAtual == MENU_MIDIA) {
+            // Vídeo: imagem com o mesmo nome ao lado (filme.mp4 -> filme.jpg / .png / .jpeg).
+            extern char caminhoMidiaAtual[512];
+            char base[300]; snprintf(base, sizeof(base), "%s", nome);
+            char* ponto = strrchr(base, '.'); if (ponto) *ponto = 0;
+            const char* exts[] = { ".jpg", ".png", ".jpeg", ".JPG", ".PNG" };
+            for (int e = 0; e < 5; e++) {
+                snprintf(caminho, sizeof(caminho), "%s/%s%s", caminhoMidiaAtual, base, exts[e]);
+                FILE* f = fopen(caminho, "rb");
+                if (f) { fclose(f); break; }
+                caminho[0] = 0;
+            }
+            // Sem imagem ao lado: pôster do filme ou da série pelo TMDB (network.cpp).
+            if (!caminho[0] && temaMidiaBiblioteca() == 4 && strcmp(nome, "Pasta vazia") != 0) {
+                extern bool videoCapaCaminho(const char* caminho, char* saida, int tam);
+                char completo[600]; snprintf(completo, sizeof(completo), "%s/%s", caminhoMidiaAtual, nome);
+                videoCapaCaminho(completo, caminho, sizeof(caminho));
+            }
+        }
         else {
             const char* console = (consoleAtual >= 0 && consoleAtual < 5) ? listaConsoles[consoleAtual].nome : "Unknown";
             snprintf(caminho, sizeof(caminho), "/data/HyperNeiva/baixado/capas/%s/Named_Boxarts/%s.png", console, nome);
@@ -787,7 +827,31 @@ void temaDesenharAtual(uint32_t* p) {
         temaLimparExtras(false);
     }
     int tema = temaAtual();
-    if (menuAtual == MENU_EMULADOR || menuAtual == MENU_SISTEMAS) {
+    int midia = temaMidiaBiblioteca();
+    if (midia) {
+        extern int bibliotecaTemaJogos();
+        extern volatile unsigned musicaCapaVersao;
+        static unsigned capasVistas = 0;
+        // A capa fica guardada pela posição: outra pasta ou capa nova da internet limpa tudo.
+        extern char caminhoMidiaAtual[512];
+        extern char caminhoNavegacaoMusicas[512];
+        static char pastaVista[512] = "";
+        const char* pasta = midia == 3 ? caminhoNavegacaoMusicas : caminhoMidiaAtual;
+        if (capasVistas != musicaCapaVersao || strcmp(pastaVista, pasta) != 0) {
+            capasVistas = musicaCapaVersao;
+            snprintf(pastaVista, sizeof(pastaVista), "%s", pasta);
+            initCoverCache(); clearCoverCache(); temaLimparExtras(false);
+        }
+        static char sub[160];
+        tema = TEMA_BIBLIOTECA;
+        cena.tipo = CENA_BIBLIOTECA;
+        cena.aba = midia;
+        cena.temaJogos = bibliotecaTemaJogos();
+        cena.sistema = midia == 3 ? "Músicas" : "Vídeos";
+        snprintf(sub, sizeof(sub), "%d %s", totalItens, totalItens == 1 ? "item" : "itens");
+        cena.subtitulo = sub;
+    }
+    else if (menuAtual == MENU_EMULADOR || menuAtual == MENU_SISTEMAS) {
         extern const char* bibliotecaSubtitulo();
         extern const char* bibliotecaTituloPainel();
         extern int bibliotecaAba();

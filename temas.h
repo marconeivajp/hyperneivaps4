@@ -518,21 +518,36 @@ static void tmRefazerFaixa(uint32_t* p, int de, int ate) {
     if (ate > de) memcpy(p + de * 1920, tmFundoPronto + de * 1920, (size_t)(ate - de) * 1920 * 4);
 }
 
+// Músicas (aba 3) e vídeos (aba 4) usam as mesmas telas da biblioteca de jogos.
+static const char* tmAcao(const TemaCena* c) { return c->aba == 2 ? "X  Abrir" : c->aba >= 3 ? "X  Tocar" : "X  Jogar"; }
+static const char* tmBotoesRodape(const TemaCena* c, bool curto) {
+    if (c->aba == 3) return "X  Tocar     Triângulo  Opções     Quadrado  Letra     O  Voltar";
+    if (c->aba == 4) return "X  Tocar     Triângulo  Opções     O  Voltar";
+    if (c->aba == 2) return "X  Abrir     Triângulo  Opções     Quadrado  Jogos XML     O  Voltar";
+    return curto ? "Cima / Baixo  Navegar     X  Jogar     Triângulo  Opções     L2  Favorito     R2  Pesquisar"
+                 : "X  Jogar     Triângulo  Opções     L2  Favorito     R2  Pesquisar     Options  Ordenar     L1/R1  Favoritos";
+}
+static void tmNomeVazio(const TemaCena* c, char* nome, size_t tam) {
+    if (c->total == 1 && (strncmp(nome, "Nenhuma", 7) == 0 || strcmp(nome, "Pasta vazia") == 0))
+        snprintf(nome, tam, "%s", c->aba == 3 ? "Nenhuma música" : c->aba == 4 ? "Nenhum vídeo" : "Nenhum jogo encontrado");
+}
+static const char* tmSemImagem(const TemaCena* c) { return c->aba >= 3 ? "Sem capa" : "Imagem do jogo"; }
+
 static void tmCabecalhoJogos(uint32_t* p, const TemaCena* c, int x) {
     char texto[160];
     desenharTexto(p, "HYPER NEIVA", 30, x, 34, tmRgb(255, 255, 255));
     tmTexto(p, c->sistema, 30, x + 300, 34, 700, tmRgb(164, 156, 230));
-    snprintf(texto, sizeof(texto), "%s%s", c->aba ? "Favoritos  -  " : "", c->subtitulo);
+    snprintf(texto, sizeof(texto), "%s%s", c->aba == 1 ? "Favoritos  -  " : "", c->subtitulo);
     tmTexto(p, texto, 24, x, 84, 1100, tmRgb(205, 205, 228));
 }
 
 static void tmRodapeJogos(uint32_t* p, const TemaCena* c, int x, int largura) {
     char nome[256] = "";
     if (c->total > 0) tmSemExtensao(c->nomes[c->sel], nome, sizeof(nome));
-    if (c->total == 1 && strncmp(nome, "Nenhuma", 7) == 0) snprintf(nome, sizeof(nome), "Nenhum jogo encontrado");
+    tmNomeVazio(c, nome, sizeof(nome));
     tmCaixa(p, 0, 960, 1920, 120, 0, tmAlfa(0x000000, 170));
     tmTexto(p, nome, 36, x, 972, largura, tmRgb(255, 255, 255));
-    desenharTexto(p, c->aba == 2 ? "X  Abrir     Triângulo  Opções     Quadrado  Jogos XML     O  Voltar" : "X  Jogar     Triângulo  Opções     L2  Favorito     R2  Pesquisar     Options  Ordenar     L1/R1  Favoritos", 24, x, 1030, tmRgb(205, 205, 228));
+    desenharTexto(p, tmBotoesRodape(c, false), 24, x, 1030, tmRgb(205, 205, 228));
 }
 
 static void tmPainelOpcoes(uint32_t* p, const TemaCena* c) {
@@ -574,7 +589,7 @@ static void tmJogosDetalhes(uint32_t* p, const TemaCena* c) {
         tmCaixa(p, 56, 386, 588, 448, 8, tmRgb(70, 58, 170));
         tmCaixa(p, 60, 390, 580, 440, 6, tmRgb(10, 10, 16));
         if (!parado || !tmImagemDoJogo(p, c, c->sel, 1, 60, 390, 580, 440))
-            tmCentro(p, "Imagem do jogo", 26, 350, 596, 560, tmRgb(120, 120, 150));
+            tmCentro(p, tmSemImagem(c), 26, 350, 596, 560, tmRgb(120, 120, 150));
         tmTexto(p, nome, 30, 60, 860, 600, tmRgb(255, 255, 255));
         tmTexto(p, c->sistema, 24, 60, 906, 600, tmRgb(164, 156, 230));
     }
@@ -606,16 +621,16 @@ static void tmJogosRoda(uint32_t* p, const TemaCena* c) {
     if (c->total > 0) {
         bool parado = tmSuave == (float)c->sel;
         if (!parado || !tmImagemDoJogo(p, c, c->sel, 1, 70, 130, 1020, 640))
-            tmCentro(p, "Imagem do jogo", 28, 580, 430, 900, tmRgb(120, 120, 150));
+            tmCentro(p, tmSemImagem(c), 28, 580, 430, 900, tmRgb(120, 120, 150));
         tmImagemDoJogo(p, c, c->sel, 0, 860, 520, 320, 420);
         char nome[256];
         tmSemExtensao(c->nomes[c->sel], nome, sizeof(nome));
-        if (c->total == 1 && strncmp(nome, "Nenhuma", 7) == 0) snprintf(nome, sizeof(nome), "Nenhum jogo encontrado");
+        tmNomeVazio(c, nome, sizeof(nome));
         tmTexto(p, nome, 40, 70, 800, 780, tmRgb(255, 255, 255));
         tmTexto(p, c->subtitulo, 24, 70, 860, 780, tmRgb(205, 205, 228));
     }
     tmCaixa(p, 0, 1000, 1200, 80, 0, tmAlfa(0x000000, 160));
-    desenharTexto(p, "Cima / Baixo  Navegar     X  Jogar     Triângulo  Opções     L2  Favorito     R2  Pesquisar", 24, 70, 1026, tmRgb(205, 205, 228));
+    desenharTexto(p, tmBotoesRodape(c, true), 24, 70, 1026, tmRgb(205, 205, 228));
 }
 
 static void tmDesenharCarrossel(uint32_t* p, const TemaCena* c);
@@ -637,11 +652,14 @@ static void tmDesenharCarrossel(uint32_t* p, const TemaCena* c) {
     uint32_t branco = tmRgb(255, 255, 255), suave = tmRgb(164, 156, 230);
     desenharTexto(p, "HYPER NEIVA", 34, 90, 54, branco);
     tmCaixa(p, 600, 36, 560, 72, 16, tmAlfa(0xFFFFFF, 14));
-    tmAba(p, c->aba == 2 ? "Sistemas" : "Biblioteca", 630, c->aba != 1);
-    tmAba(p, "Favoritos", 880, c->aba == 1);
-    desenharTexto(p, "L1", 22, 556, 62, tmRgb(170, 170, 196));
-    desenharTexto(p, "R1", 22, 1176, 62, tmRgb(170, 170, 196));
-    desenharTexto(p, c->aba == 2 ? "Seus sistemas" : c->aba ? "Seus favoritos" : "Seus jogos", 42, 90, 138, branco);
+    if (c->aba >= 3) tmAba(p, c->aba == 3 ? "Músicas" : "Vídeos", 630, true);
+    else {
+        tmAba(p, c->aba == 2 ? "Sistemas" : "Biblioteca", 630, c->aba != 1);
+        tmAba(p, "Favoritos", 880, c->aba == 1);
+        desenharTexto(p, "L1", 22, 556, 62, tmRgb(170, 170, 196));
+        desenharTexto(p, "R1", 22, 1176, 62, tmRgb(170, 170, 196));
+    }
+    desenharTexto(p, c->aba == 4 ? "Seus vídeos" : c->aba == 3 ? "Suas músicas" : c->aba == 2 ? "Seus sistemas" : c->aba ? "Seus favoritos" : "Seus jogos", 42, 90, 138, branco);
     tmTexto(p, c->subtitulo, 26, 90, 192, 900, suave);
     char posicao[32];
     snprintf(posicao, sizeof(posicao), "%d / %d", c->total > 0 ? c->sel + 1 : 0, c->total);
@@ -663,14 +681,14 @@ static void tmDesenharCarrossel(uint32_t* p, const TemaCena* c) {
     if (c->total > 0) {
         char nome[256];
         tmSemExtensao(c->nomes[c->sel], nome, sizeof(nome));
-        if (c->total == 1 && strncmp(nome, "Nenhuma", 7) == 0) snprintf(nome, sizeof(nome), "Nenhum jogo encontrado");
+        tmNomeVazio(c, nome, sizeof(nome));
         tmCentro(p, nome, 44, 960, 760, 1300, branco);
         tmCentro(p, c->sistema, 26, 960, 820, 800, tmRgb(205, 205, 228));
         tmCaixa(p, 840, 866, 240, 68, 12, tmRgb(70, 58, 170));
-        tmCentro(p, c->aba == 2 ? "X  Abrir" : "X  Jogar", 30, 960, 884, 220, branco);
+        tmCentro(p, tmAcao(c), 30, 960, 884, 220, branco);
     }
     tmCaixa(p, 60, 972, 1800, 2, 0, tmAlfa(0xFFFFFF, 40));
-    desenharTexto(p, c->aba == 2 ? "X  Abrir      Triângulo  Opções      Quadrado  Jogos XML      O  Voltar" : "X  Jogar      Triângulo  Opções      L2  Favorito      R2  Pesquisar      Options  Ordenar      O  Voltar", 26, 90, 1000, tmRgb(205, 205, 228));
+    desenharTexto(p, c->aba >= 2 ? tmBotoesRodape(c, false) : "X  Jogar      Triângulo  Opções      L2  Favorito      R2  Pesquisar      Options  Ordenar      O  Voltar", 26, 90, 1000, tmRgb(205, 205, 228));
 
     if (c->totalOpcoes > 0) {
         tmCaixa(p, 1270, 0, 650, 1080, 0, tmAlfa(0x05060F, 252));

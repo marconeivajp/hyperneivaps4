@@ -59,7 +59,10 @@ enum MenuLevel {
     MENU_VENTOINHA,
     MENU_TABELA_JOGOS,
     MENU_BAIXAR_RETROARCH,
-    MENU_SISTEMAS
+    MENU_SISTEMAS,
+    MENU_IA,           // Inteligência Artificial (Gemini), em network.cpp
+    MENU_CHAVES,       // Chaves de API, em network.cpp
+    MENU_PC_ARQUIVOS   // FTP > [PC] Arquivos do PC, em network.cpp
 };
 
 extern MenuLevel menuAtual;

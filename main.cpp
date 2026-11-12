@@ -256,6 +256,7 @@ int main(void) {
 
     registrarInicio("video e fonte", inicioApp);
     inicializarPastas(); registrarInicio("pastas", inicioApp);
+    extern void remotoIniciar(); remotoIniciar();   // controle remoto e envio de mídia pelo navegador (porta 8000)
     carregarConfiguracao(); inicializarElementosSonoros(); registrarInicio("configuracao", inicioApp);
 
     // Configurações já salvas tinham o elemento desligado: liga uma vez e depois respeita a escolha.
@@ -312,7 +313,8 @@ int main(void) {
             quadroAnterior = agora;
         }
         OrbisPadData pData;
-        if (scePadReadState(pad, &pData) == 0) {
+        extern int hnPadLer(int handle, OrbisPadData* dados);
+        if (hnPadLer(pad, &pData) == 0) {
             // --- LÓGICA DE CONTROLE DO EMULADOR (V33) ---
             if (emuladorAtivo) {
                 gEmuPadButtons = pData.buttons; // Centraliza leitura para o nucleo
@@ -470,6 +472,12 @@ int main(void) {
                 processarControlesLeitor(pData.buttons, ultimos_botoes);
                 circle_consumido = true;  // Bolinha ja tratada no processarControlesLeitor
             }
+            // Triângulo no PDF (página atual) ou no texto aberto: a IA lê em voz alta (network.cpp).
+            if ((btn & ORBIS_PAD_BUTTON_TRIANGLE) && (visualizandoPDF || visualizandoMidiaTexto)) {
+                extern void iaLerTelaAberta();
+                iaLerTelaAberta();
+                pData.buttons &= ~ORBIS_PAD_BUTTON_TRIANGLE;
+            }
             // Pan da imagem com o analogico esquerdo (apenas quando ampliada)
             if (visualizandoMidiaImagem && !fullscreenMidia) {
                 int lx = (int)pData.leftStick.x - 128, ly = (int)pData.leftStick.y - 128;
@@ -536,7 +544,8 @@ int main(void) {
             ultimos_botoes = botoesFisicos;
         }
 
-        extern void atenderFimDeVideo(), conquistasAtualizar();
+        extern void atenderFimDeVideo(), conquistasAtualizar(), remotoAtender();
+        remotoAtender();
         atenderFimDeVideo();
         conquistasAtualizar();
 
@@ -613,7 +622,7 @@ int main(void) {
 
             // HUD do leitor
             char hudPdf[128];
-            sprintf(hudPdf, "Pag %d/%d  |  Zoom:%.0f%%  |  O=Fechar  L1/R1=Paginar  L2/R2=Zoom  Setas=Mover",
+            sprintf(hudPdf, "Pag %d/%d  |  Zoom:%.0f%%  |  O=Fechar  L1/R1=Paginar  L2/R2=Zoom  Setas=Mover  Triangulo=Ler em voz",
                 pdfPaginaAtual, pdfTotalPaginas, pdfZoom * 100.0f);
             // Barra de status na parte de baixo
             for (int hx = 0; hx < 1920; hx++) p[1058 * 1920 + hx] = 0xCC222222;
@@ -622,6 +631,10 @@ int main(void) {
             desenharTexto(p, hudPdf, 17, 20, 1063, 0xFFFFFFFF);
         }
         // ==========================================
+
+        // QR com o link do controle pelo celular (network.cpp): no começo ou com L3 + R3.
+        extern void remotoDesenharQr(uint32_t* p);
+        remotoDesenharQr(p);
 
         submeterTela();
     }

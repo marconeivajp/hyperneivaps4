@@ -450,6 +450,367 @@ void desenharControlesPlayer(uint32_t* tela) {
 }
 
 
+// =========================================================================
+// LEGENDAS
+// Fontes: arquivo .srt/.ass/.vtt com o mesmo nome do vídeo (lido inteiro pelo FFmpeg, na abertura)
+// ou faixa de texto dentro do vídeo. Os pacotes da faixa chegam pela thread de leitura do
+// video.cpp (legendaPacote), sem reler o arquivo. Legenda em imagem (PGS, DVD) não é suportada.
+// =========================================================================
+extern "C" {
+#include <libavcodec/avcodec.h>
+#include <libavformat/avformat.h>
+}
+#include <pthread.h>
+
+struct LegendaFala { double ini, fim; char texto[300]; };
+#define LEG_MAX_FALAS 6000
+#define LEG_MAX_OPCOES 12
+struct LegendaOpcao { char nome[96]; int stream; char arquivo[600]; bool suportada; };   // stream: -2 desligada, -1 arquivo
+static LegendaOpcao legOpcoes[LEG_MAX_OPCOES];
+static int legTotalOpcoes = 0, legEscolhida = 0;
+static LegendaFala* legFalas = NULL;
+static int legTotalFalas = 0;
+static pthread_mutex_t legTrava = PTHREAD_MUTEX_INITIALIZER;      // falas
+static pthread_mutex_t legTravaDec = PTHREAD_MUTEX_INITIALIZER;   // decodificador da faixa interna
+static AVCodecContext* legDecoder = NULL;
+static AVFormatContext* legFormato = NULL;
+static volatile int legStreamAtiva = -1;
+static double legBaseTempo = 0.0;
+static volatile double legAtraso = 0.0;
+static volatile unsigned legVersao = 1;
+
+static bool legUtf8Valido(const char* s) {
+    const unsigned char* p = (const unsigned char*)s;
+    while (*p) {
+        int n = *p < 0x80 ? 0 : (*p >> 5) == 6 ? 1 : (*p >> 4) == 14 ? 2 : (*p >> 3) == 30 ? 3 : -1;
+        if (n < 0) return false;
+        p++;
+        for (int k = 0; k < n; k++, p++) if ((*p >> 6) != 2) return false;
+    }
+    return true;
+}
+
+// Texto do FFmpeg -> linhas simples: tira os campos do ASS, {\tags}, <i> e afins.
+static void legLimpar(const char* bruto, bool ass, char* saida, int cap) {
+    const char* p = bruto;
+    if (ass) {   // ReadOrder,Layer,Style,Name,MarginL,MarginR,MarginV,Effect,Text
+        int virgulas = 0; const char* q = p;
+        while (*q && virgulas < 8) { if (*q == ',') virgulas++; q++; }
+        if (virgulas == 8) p = q;
+    }
+    char tmp[600]; int o = 0;
+    while (*p && o < (int)sizeof(tmp) - 2) {
+        if (*p == '{') { const char* f = strchr(p, '}'); if (f) { p = f + 1; continue; } }
+        if (*p == '<') { const char* f = strchr(p, '>'); if (f && f - p < 60) { p = f + 1; continue; } }
+        if (*p == '\\' && (p[1] == 'N' || p[1] == 'n')) { tmp[o++] = '\n'; p += 2; continue; }
+        if (*p == '\\' && p[1] == 'h') { tmp[o++] = ' '; p += 2; continue; }
+        if (*p == '\r') { p++; continue; }
+        tmp[o++] = *p++;
+    }
+    tmp[o] = 0;
+    while (o > 0 && (tmp[o - 1] == '\n' || tmp[o - 1] == ' ')) tmp[--o] = 0;
+    const char* ini = tmp; while (*ini == '\n' || *ini == ' ') ini++;
+    if (legUtf8Valido(ini)) { snprintf(saida, cap, "%s", ini); return; }
+    // Arquivo em Latin-1 (comum em .srt brasileiro): converte para UTF-8.
+    int k = 0;
+    for (const unsigned char* c = (const unsigned char*)ini; *c && k < cap - 3; c++) {
+        if (*c < 0x80) saida[k++] = (char)*c;
+        else { saida[k++] = (char)(0xC0 | (*c >> 6)); saida[k++] = (char)(0x80 | (*c & 0x3F)); }
+    }
+    saida[k] = 0;
+}
+
+static void legAdicionar(double ini, double fim, const char* texto) {
+    if (!texto[0] || fim <= ini) return;
+    pthread_mutex_lock(&legTrava);
+    if (!legFalas) legFalas = (LegendaFala*)malloc(sizeof(LegendaFala) * LEG_MAX_FALAS);
+    if (!legFalas || legTotalFalas >= LEG_MAX_FALAS) { pthread_mutex_unlock(&legTrava); return; }
+    int pos = legTotalFalas;
+    while (pos > 0 && legFalas[pos - 1].ini > ini) pos--;
+    // Depois de uma busca a leitura passa de novo pelas mesmas falas: não repete.
+    for (int k = pos - 1; k >= 0 && legFalas[k].ini > ini - 0.02; k--)
+        if (!strcmp(legFalas[k].texto, texto)) { pthread_mutex_unlock(&legTrava); return; }
+    memmove(&legFalas[pos + 1], &legFalas[pos], sizeof(LegendaFala) * (legTotalFalas - pos));
+    legFalas[pos].ini = ini; legFalas[pos].fim = fim;
+    snprintf(legFalas[pos].texto, sizeof(legFalas[pos].texto), "%s", texto);
+    legTotalFalas++;
+    pthread_mutex_unlock(&legTrava);
+}
+
+static AVCodecContext* legAbrirDecoder(AVStream* st) {
+    const AVCodec* codec = avcodec_find_decoder(st->codecpar->codec_id);
+    if (!codec) return NULL;
+    AVCodecContext* dec = avcodec_alloc_context3(codec);
+    if (!dec) return NULL;
+    if (avcodec_parameters_to_context(dec, st->codecpar) < 0) { avcodec_free_context(&dec); return NULL; }
+    dec->pkt_timebase = st->time_base;
+    // Sem isto o FFmpeg recusa fala que não é UTF-8 (.srt em Latin-1); o legLimpar converte.
+    dec->sub_charenc_mode = FF_SUB_CHARENC_MODE_IGNORE;
+    if (avcodec_open2(dec, codec, NULL) < 0) { avcodec_free_context(&dec); return NULL; }
+    return dec;
+}
+
+static void legDecodificar(AVCodecContext* dec, AVStream* st, AVPacket* pkt, double base) {
+    AVSubtitle sub; int tem = 0;
+    memset(&sub, 0, sizeof(sub));
+    if (avcodec_decode_subtitle2(dec, &sub, &tem, pkt) < 0 || !tem) return;
+    double tb = av_q2d(st->time_base);
+    double pts = pkt->pts != AV_NOPTS_VALUE ? pkt->pts * tb : (sub.pts != AV_NOPTS_VALUE ? sub.pts / (double)AV_TIME_BASE : 0.0);
+    pts -= base;
+    double ini = pts + sub.start_display_time / 1000.0, fim;
+    if (sub.end_display_time > sub.start_display_time && sub.end_display_time != UINT32_MAX) fim = pts + sub.end_display_time / 1000.0;
+    else if (pkt->duration > 0) fim = pts + pkt->duration * tb;
+    else fim = ini + 4.0;
+    char texto[300] = "";
+    for (unsigned i = 0; i < sub.num_rects; i++) {
+        AVSubtitleRect* r = sub.rects[i];
+        char limpo[300] = "";
+        if (r->type == SUBTITLE_ASS && r->ass) legLimpar(r->ass, true, limpo, sizeof(limpo));
+        else if (r->type == SUBTITLE_TEXT && r->text) legLimpar(r->text, false, limpo, sizeof(limpo));
+        if (!limpo[0]) continue;
+        size_t n = strlen(texto);
+        snprintf(texto + n, sizeof(texto) - n, "%s%s", n ? "\n" : "", limpo);
+    }
+    avsubtitle_free(&sub);
+    legAdicionar(ini, fim, texto);
+}
+
+static bool legCarregarArquivo(const char* caminho) {
+    AVFormatContext* fc = NULL;
+    if (avformat_open_input(&fc, caminho, NULL, NULL) != 0) return false;
+    avformat_find_stream_info(fc, NULL);
+    int s = av_find_best_stream(fc, AVMEDIA_TYPE_SUBTITLE, -1, -1, NULL, 0);
+    AVCodecContext* dec = s >= 0 ? legAbrirDecoder(fc->streams[s]) : NULL;
+    if (dec) {
+        AVPacket* pkt = av_packet_alloc();
+        while (pkt && av_read_frame(fc, pkt) >= 0) {
+            if (pkt->stream_index == s) legDecodificar(dec, fc->streams[s], pkt, 0.0);
+            av_packet_unref(pkt);
+        }
+        av_packet_free(&pkt);
+        avcodec_free_context(&dec);
+    }
+    avformat_close_input(&fc);
+    return legTotalFalas > 0;
+}
+
+// Troca a legenda. Faixa interna: volta a leitura ao ponto atual para pegar as falas de agora
+// (a leitura anda uns 40 s à frente da imagem).
+static void legEscolher(int i, bool buscar) {
+    if (i < 0 || i >= legTotalOpcoes || !legOpcoes[i].suportada) return;
+    pthread_mutex_lock(&legTravaDec);
+    legStreamAtiva = -1;
+    if (legDecoder) avcodec_free_context(&legDecoder);
+    pthread_mutex_unlock(&legTravaDec);
+    pthread_mutex_lock(&legTrava);
+    legTotalFalas = 0;
+    legEscolhida = i;
+    legVersao++;
+    pthread_mutex_unlock(&legTrava);
+    LegendaOpcao* o = &legOpcoes[i];
+    if (o->stream == -1) {
+        if (!legCarregarArquivo(o->arquivo)) avisarPlayer("Legenda: arquivo sem falas");
+    }
+    else if (o->stream >= 0 && legFormato && o->stream < (int)legFormato->nb_streams) {
+        pthread_mutex_lock(&legTravaDec);
+        legDecoder = legAbrirDecoder(legFormato->streams[o->stream]);
+        if (legDecoder) legStreamAtiva = o->stream;
+        pthread_mutex_unlock(&legTravaDec);
+        if (!legDecoder) avisarPlayer("Legenda: sem decodificador");
+        else if (buscar) pularParaTempo(video_time_current);
+    }
+}
+
+void legendaFecharVideo() {
+    pthread_mutex_lock(&legTravaDec);
+    legStreamAtiva = -1;
+    if (legDecoder) avcodec_free_context(&legDecoder);
+    legFormato = NULL;
+    pthread_mutex_unlock(&legTravaDec);
+    pthread_mutex_lock(&legTrava);
+    legTotalFalas = 0; legTotalOpcoes = 0; legEscolhida = 0; legVersao++;
+    pthread_mutex_unlock(&legTrava);
+    total_legendas = 0;
+}
+
+static bool legIdiomaPortugues(const char* l) { return l && (!strncasecmp(l, "por", 3) || !strncasecmp(l, "pt", 2) || !strcasecmp(l, "pob")); }
+
+// Chamada pelo video.cpp na abertura, antes das threads: monta as opções e escolhe a padrão.
+void legendaAbrirVideo(AVFormatContext* fc, const char* caminho, double base, bool remoto) {
+    legendaFecharVideo();
+    legFormato = fc;
+    legBaseTempo = base;
+    legAtraso = 0.0;
+    LegendaOpcao* o = &legOpcoes[legTotalOpcoes++];
+    memset(o, 0, sizeof(*o)); snprintf(o->nome, sizeof(o->nome), "Desligada"); o->stream = -2; o->suportada = true;
+    int padrao = 0;
+    if (!remoto && caminho && caminho[0]) {
+        static const char* sufixos[] = { ".srt", ".pt-BR.srt", ".pt.srt", ".por.srt", ".ptbr.srt", ".SRT", ".ass", ".ssa", ".vtt" };
+        char base2[600]; snprintf(base2, sizeof(base2), "%s", caminho);
+        char* ponto = strrchr(base2, '.'); char* barra = strrchr(base2, '/');
+        if (ponto && (!barra || ponto > barra)) *ponto = 0;
+        for (unsigned k = 0; k < sizeof(sufixos) / sizeof(sufixos[0]) && legTotalOpcoes < LEG_MAX_OPCOES; k++) {
+            char arq[640]; snprintf(arq, sizeof(arq), "%s%s", base2, sufixos[k]);
+            FILE* f = fopen(arq, "rb");
+            if (!f) continue;
+            fclose(f);
+            o = &legOpcoes[legTotalOpcoes++];
+            memset(o, 0, sizeof(*o));
+            const char* nome = strrchr(arq, '/');
+            snprintf(o->nome, sizeof(o->nome), "Arquivo %s", nome ? nome + 1 : arq);
+            snprintf(o->arquivo, sizeof(o->arquivo), "%s", arq);
+            o->stream = -1; o->suportada = true;
+            if (!padrao) padrao = legTotalOpcoes - 1;
+        }
+    }
+    int portugues = 0;
+    for (unsigned i = 0; fc && i < fc->nb_streams && legTotalOpcoes < LEG_MAX_OPCOES; i++) {
+        AVStream* st = fc->streams[i];
+        if (st->codecpar->codec_type != AVMEDIA_TYPE_SUBTITLE) continue;
+        AVDictionaryEntry* lang = av_dict_get(st->metadata, "language", NULL, 0);
+        AVDictionaryEntry* titulo = av_dict_get(st->metadata, "title", NULL, 0);
+        enum AVCodecID id = st->codecpar->codec_id;
+        bool imagem = id == AV_CODEC_ID_HDMV_PGS_SUBTITLE || id == AV_CODEC_ID_DVD_SUBTITLE || id == AV_CODEC_ID_DVB_SUBTITLE || id == AV_CODEC_ID_XSUB;
+        bool temDecoder = avcodec_find_decoder(id) != NULL;
+        o = &legOpcoes[legTotalOpcoes++];
+        memset(o, 0, sizeof(*o));
+        snprintf(o->nome, sizeof(o->nome), "Faixa %d: %s%s%s%s", legTotalOpcoes - 1, lang ? lang->value : "?", titulo ? " - " : "", titulo ? titulo->value : "",
+            imagem ? " (imagem, sem suporte)" : (!temDecoder ? " (sem suporte)" : ""));
+        o->stream = (int)i; o->suportada = !imagem && temDecoder;
+        if (o->suportada && !portugues && legIdiomaPortugues(lang ? lang->value : NULL)) portugues = legTotalOpcoes - 1;
+        if (total_legendas < 10) { snprintf(legendas_encontradas[total_legendas].nome, sizeof(legendas_encontradas[0].nome), "%s", o->nome); total_legendas++; }
+    }
+    if (!padrao) padrao = portugues;
+    legEscolhida = 0;
+    if (padrao) legEscolher(padrao, false);
+}
+
+// Thread de leitura do video.cpp.
+bool legendaQuerStream(int indice) { return indice >= 0 && indice == legStreamAtiva; }
+void legendaPacote(AVStream* st, AVPacket* pkt) {
+    pthread_mutex_lock(&legTravaDec);
+    if (legDecoder && st->index == legStreamAtiva) legDecodificar(legDecoder, st, pkt, legBaseTempo);
+    pthread_mutex_unlock(&legTravaDec);
+}
+
+// Fala do momento: índice + 1, ou 0 sem fala.
+static int legFalaEm(double t) {
+    int lo = 0, hi = legTotalFalas - 1, ult = -1;
+    while (lo <= hi) { int m = (lo + hi) / 2; if (legFalas[m].ini <= t) { ult = m; lo = m + 1; } else hi = m - 1; }
+    for (int k = ult; k >= 0 && k > ult - 30; k--) if (legFalas[k].fim > t) return k + 1;
+    return 0;
+}
+
+// Identifica o que o apresentador deve mostrar agora (muda quando a fala muda).
+unsigned legendaIdEm(double t) {
+    if (legEscolhida == 0 || !legFalas) return 0;
+    pthread_mutex_lock(&legTrava);
+    int f = legFalas ? legFalaEm(t + legAtraso) : 0;
+    unsigned id = f ? (unsigned)f * 2654435761u ^ legVersao : 0;
+    pthread_mutex_unlock(&legTrava);
+    return id;
+}
+
+// Desenha a fala por cima do vídeo no buffer de saída. Só escreve (ler a tela é lento): o texto
+// com contorno é montado numa máscara em RAM quando muda.
+void legendaDesenhar(uint32_t* tela, double t, bool controles) {
+    extern void desenharTexto(uint32_t* buffer, const char* texto, int tamanho, int x, int y, uint32_t corCorpo);
+    extern int medirLarguraTexto(const char* texto, int tam);
+    static char atual[300] = "";
+    static uint32_t* mascara = NULL;
+    static int altura = 0;
+    char texto[300] = "";
+    if (legEscolhida != 0 && legFalas) {
+        pthread_mutex_lock(&legTrava);
+        int f = legFalaEm(t + legAtraso);
+        if (f) snprintf(texto, sizeof(texto), "%s", legFalas[f - 1].texto);
+        pthread_mutex_unlock(&legTrava);
+    }
+    const int TAM = 46, PASSO = 60, MAXL = 4;
+    if (strcmp(texto, atual) != 0) {
+        snprintf(atual, sizeof(atual), "%s", texto);
+        if (!mascara) mascara = (uint32_t*)malloc((size_t)1920 * (MAXL * PASSO + 20) * 4);
+        if (!mascara) return;
+        // Quebra em linhas que caibam em 1700 px.
+        char linhas[MAXL][160]; int n = 0;
+        const char* p = atual;
+        while (*p && n < MAXL) {
+            const char* fim = strchr(p, '\n'); if (!fim) fim = p + strlen(p);
+            char linha[300]; int len = (int)(fim - p); if (len > 299) len = 299;
+            memcpy(linha, p, len); linha[len] = 0;
+            char* resto = linha;
+            while (*resto && n < MAXL) {
+                int corte = (int)strlen(resto);
+                char tmp[300]; snprintf(tmp, sizeof(tmp), "%s", resto);
+                while (corte > 0 && medirLarguraTexto(tmp, TAM) > 1700) {
+                    int k = corte - 1; while (k > 0 && resto[k] != ' ') k--;
+                    if (k <= 0) break;
+                    corte = k; tmp[corte] = 0;
+                }
+                snprintf(linhas[n++], sizeof(linhas[0]), "%s", tmp);
+                resto += corte; while (*resto == ' ') resto++;
+            }
+            p = *fim ? fim + 1 : fim;
+        }
+        altura = n ? n * PASSO + 20 : 0;
+        memset(mascara, 0, (size_t)1920 * (MAXL * PASSO + 20) * 4);
+        for (int i = 0; i < n; i++) {
+            int x = (1920 - medirLarguraTexto(linhas[i], TAM)) / 2, y = 8 + i * PASSO;
+            for (int dy = -3; dy <= 3; dy += 3) for (int dx = -3; dx <= 3; dx += 3)
+                if (dx || dy) desenharTexto(mascara, linhas[i], TAM, x + dx, y + dy, 0xFF000000);
+            desenharTexto(mascara, linhas[i], TAM, x, y, 0xFFFFFFFF);
+        }
+    }
+    if (!atual[0] || !altura || !mascara) return;
+    int base = controles ? PLAYER_FAIXA_Y - 12 : 1080 - 50;
+    int topo = base - altura;
+    if (topo < 0) topo = 0;
+    for (int y = 0; y < altura && topo + y < 1080; y++) {
+        const uint32_t* m = mascara + (size_t)y * 1920;
+        uint32_t* d = tela + (size_t)(topo + y) * 1920;
+        for (int x = 0; x < 1920; x++) if (m[x]) d[x] = m[x];
+    }
+}
+
+static void legDesenharMenu(uint32_t* p, int mx, int my, int mw) {
+    extern void desenharTexto(uint32_t* buffer, const char* texto, int tamanho, int x, int y, uint32_t corCorpo);
+    (void)mw;
+    desenharTexto(p, "LEGENDAS", 18, mx + 8, my + 70, 0xFF00FFAA);
+    int yy = my + 102;
+    for (int i = 0; i < legTotalOpcoes && i < 10; i++) {
+        char b[120];
+        snprintf(b, sizeof(b), "%c%s %s", menu_video_sel == i ? '>' : ' ', legEscolhida == i ? "*" : " ", legOpcoes[i].nome);
+        uint32_t cor = !legOpcoes[i].suportada ? 0xFF777777 : (menu_video_sel == i ? 0xFF00FFFF : 0xFFFFFFFF);
+        desenharTexto(p, b, 15, mx + 8, yy, cor); yy += 30;
+    }
+    char b[64]; snprintf(b, sizeof(b), "%c Atraso: %+.2fs  < >", menu_video_sel == legTotalOpcoes ? '>' : ' ', (double)legAtraso);
+    desenharTexto(p, b, 16, mx + 8, yy + 8, menu_video_sel == legTotalOpcoes ? 0xFF00FFFF : 0xFFFFFFFF);
+    if (legEscolhida > 0) {
+        snprintf(b, sizeof(b), "%d falas carregadas", legTotalFalas);
+        desenharTexto(p, b, 14, mx + 8, yy + 44, 0xFF999999);
+    }
+}
+
+static void legProcessarMenu(unsigned int btn, bool& cross_consumido, bool& circle_consumido) {
+    int total = legTotalOpcoes + 1;
+    if (menu_video_sel < 0) menu_video_sel = total - 1;
+    if (menu_video_sel >= total) menu_video_sel = 0;
+    if (menu_video_sel == legTotalOpcoes) {
+        if (btn & ORBIS_PAD_BUTTON_RIGHT) legAtraso = legAtraso + 0.25;
+        if (btn & ORBIS_PAD_BUTTON_LEFT) legAtraso = legAtraso - 0.25;
+    }
+    if (btn & ORBIS_PAD_BUTTON_CROSS) {
+        cross_consumido = true;
+        if (menu_video_sel < legTotalOpcoes) {
+            if (!legOpcoes[menu_video_sel].suportada) avisarPlayer("Legenda em imagem: sem suporte");
+            else { legEscolher(menu_video_sel, true); menu_video_aberto = false; avisarPlayer(menu_video_sel == 0 ? "Legenda desligada" : "Legenda ligada"); }
+        }
+    }
+    if (btn & ORBIS_PAD_BUTTON_CIRCLE) { vState = V_MAIN; menu_video_sel = 9; circle_consumido = true; }
+}
+
+static const char* legNomeCurto() { return legEscolhida > 0 && legEscolhida < legTotalOpcoes ? "Ligada" : (legTotalOpcoes > 1 ? "Desligada" : "Nenhuma"); }
+
 void processarControlesMenuVideo(unsigned int btn, OrbisPadData* pData, bool& cross_consumido, bool& circle_consumido) {
     if (!videoRodando) return;
 
@@ -537,7 +898,7 @@ void processarControlesMenuVideo(unsigned int btn, OrbisPadData* pData, bool& cr
                     }
                     vState = V_SKIP_VIDEOS; menu_video_sel = 0;
                 }
-                if (menu_video_sel == 9) { vState = V_TRACKS; menu_video_sel = 0; }
+                if (menu_video_sel == 9) { vState = V_TRACKS; menu_video_sel = legEscolhida; }
                 if (menu_video_sel == 10) { mostrar_timeline = !mostrar_timeline; menu_video_aberto = false; } // NOVA OPÇÃO TIMELINE!
                 if (menu_video_sel == 11) {
                     extern bool video_repetir, video_telegram, video_repetir_telegram;
@@ -637,6 +998,7 @@ void processarControlesMenuVideo(unsigned int btn, OrbisPadData* pData, bool& cr
                 if (btn & ORBIS_PAD_BUTTON_CROSS) { editando_opcao = false; cross_consumido = true; }
             }
         }
+        else if (vState == V_TRACKS) legProcessarMenu(btn, cross_consumido, circle_consumido);
         else if (btn & (ORBIS_PAD_BUTTON_CIRCLE | ORBIS_PAD_BUTTON_CROSS)) { vState = V_MAIN; circle_consumido = true; cross_consumido = true; }
     }
 
@@ -717,7 +1079,7 @@ void desenharMenuPlayerVideo(uint32_t* p) {
             sprintf(opts[6],  "%c %s PiP",     (menu_video_sel == 6  ? '>' : ' '), video_minimizado ? "Restaurar" : "Minimizar");
             sprintf(opts[7],  "%c Editar PIP",    (menu_video_sel == 7  ? '>' : ' '));
             sprintf(opts[8],  "%c Abertura",      (menu_video_sel == 8  ? '>' : ' '));
-            sprintf(opts[9],  "%c Faixas",        (menu_video_sel == 9  ? '>' : ' '));
+            sprintf(opts[9],  "%c Legendas: %s",  (menu_video_sel == 9  ? '>' : ' '), legNomeCurto());
             sprintf(opts[10], "%c %s Timeline",   (menu_video_sel == 10 ? '>' : ' '), mostrar_timeline ? "Ocultar" : "Mostrar"); // TIMELINE AQUI!
             sprintf(opts[11], "%c Repetir: %s",   (menu_video_sel == 11 ? '>' : ' '), video_repetir ? "Ligado" : "Desligado");
             sprintf(opts[12], "%c Fechar Video",  (menu_video_sel == 12 ? '>' : ' '));
@@ -783,15 +1145,6 @@ void desenharMenuPlayerVideo(uint32_t* p) {
             sprintf(b, "FPS:  %.2f", fps_video); desenharTexto(p, b, 14, mx+8, my+150, 0xFFFFFFFF);
             sprintf(b, "Dur:  %02d:%02d", (int)video_time_total/60, (int)video_time_total%60); desenharTexto(p, b, 14, mx+8, my+175, 0xFFFFFFFF);
         }
-        else if (vState == V_TRACKS) {
-            extern void desenharTexto(uint32_t* buffer, const char* texto, int tamanho, int x, int y, uint32_t corCorpo);
-            desenharTexto(p, "FAIXAS", 18, mx+8, my+70, 0xFF00FFAA);
-            int yy = my+100;
-            desenharTexto(p, "Audios:", 16, mx+8, yy, 0xFFFFFFFF); yy += 24;
-            for (int i = 0; i < total_audios; i++) { desenharTexto(p, audios_encontrados[i].nome, 15, mx+16, yy, 0xFF00FFFF); yy += 22; }
-            yy += 10;
-            desenharTexto(p, "Legendas:", 16, mx+8, yy, 0xFFFFFFFF); yy += 24;
-            for (int i = 0; i < total_legendas; i++) { desenharTexto(p, legendas_encontradas[i].nome, 15, mx+16, yy, 0xFF00FFFF); yy += 22; }
-        }
+        else if (vState == V_TRACKS) legDesenharMenu(p, mx, my, mw);
     }
 }

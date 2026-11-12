@@ -31,7 +31,7 @@ bool renderizarLeitorMidia(uint32_t* p) {
             }
         }
         for (int by = 0; by < 60; by++) for (int bx = 0; bx < 1920; bx++) p[(1020 + by) * 1920 + bx] = 0xFF222222;
-        char rodape[128]; sprintf(rodape, "[Setas] Rolar   |   [O] Voltar   |   Linha: %d / %d", textoMidiaScroll, totalLinhasTexto);
+        char rodape[128]; sprintf(rodape, "[Setas] Rolar   |   [Triangulo] Ler em voz   |   [O] Voltar   |   Linha: %d / %d", textoMidiaScroll, totalLinhasTexto);
         desenharTexto(p, rodape, 25, 50, 1035, 0xFF00AAFF);
         return true;
     }
@@ -72,6 +72,9 @@ bool renderizarLeitorMidia(uint32_t* p) {
                 if (a > 0) p[py * 1920 + px] = ((unsigned int)a << 24) | ((unsigned int)imgMidia[idx] << 16) | ((unsigned int)imgMidia[idx + 1] << 8) | (unsigned int)imgMidia[idx + 2];
             }
         }
+        // Tela do PC espelhada (network.cpp): sem a caixa de ajuda por cima.
+        extern volatile bool remotoEspelhando;
+        if (remotoEspelhando) return true;
         for (int by = 0; by < 130; by++) for (int bx = 0; bx < 400; bx++) { int pxX = 1480 + bx, pyY = 930 + by; if (pxX >= 0 && pxX < 1920 && pyY >= 0 && pyY < 1080) p[pyY * 1920 + pxX] = 0xAA000000; }
         desenharTexto(p, "[X] Tela Cheia", 25, 1500, 920, 0xFFFFFFFF); desenharTexto(p, "[Cima/Baixo] Zoom", 25, 1500, 960, 0xFFFFFFFF); desenharTexto(p, "[Analogico] Mover", 25, 1500, 1000, 0xFFFFFFFF); desenharTexto(p, "[O] Voltar", 25, 1500, 1040, 0xFFFFFFFF);
         return true;

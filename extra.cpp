@@ -68,7 +68,9 @@ void preencherMenuExtra() {
     strcpy(nomes[1], "Piano Virtual (Instrumento)");
     strcpy(nomes[2], "Telegram");
     strcpy(nomes[3], "Ventoinha e temperatura");
-    totalItens = 4;
+    strcpy(nomes[4], "Inteligencia Artificial (Gemini)");
+    strcpy(nomes[5], "Chaves de API");
+    totalItens = 6;
     menuAtual = MENU_EXTRA;
     sel = 0;
 }
@@ -109,11 +111,22 @@ const char* td_execute(const char* request);
 #include "stb_image.h"
 #include <math.h>
 #include <orbis/SystemService.h>
+#include <dirent.h>
+#include <strings.h>
+#include <sys/types.h>
+extern "C" {
+typedef struct OpusEncoder OpusEncoder;
+OpusEncoder* opus_encoder_create(int32_t fs, int canais, int aplicacao, int* erro);
+int32_t opus_encode(OpusEncoder* e, const int16_t* pcm, int amostras, unsigned char* saida, int32_t maximo);
+int opus_encoder_ctl(OpusEncoder* e, int pedido, ...);
+void opus_encoder_destroy(OpusEncoder* e);
+}
 extern "C" {
 #include <libavcodec/avcodec.h>
 #include <libavformat/avformat.h>
 #include <libswresample/swresample.h>
 #include <libswscale/swscale.h>
+#include "remoto_ime.h"   // teclado do PS4 recebe texto do celular
 }
 
 extern "C" int sysctl(const int* nome, unsigned int tamanhoNome, void* saida, size_t* tamanhoSaida, const void* novo, size_t tamanhoNovo);
@@ -151,15 +164,15 @@ extern "C" int getentropy(void* destino, size_t tamanho) {
 #define TG_COR(r, g, b) (0xFF000000u | ((uint32_t)(b) << 16) | ((uint32_t)(g) << 8) | (uint32_t)(r))
 
 enum TgTela { TG_INICIANDO, TG_TELEFONE, TG_CODIGO, TG_SENHA, TG_SEM_SUPORTE, TG_CONVERSAS, TG_MENSAGENS };
-enum TgModoIme { TG_IME_TELEFONE, TG_IME_CODIGO, TG_IME_SENHA, TG_IME_MENSAGEM, TG_IME_BUSCA };
+enum TgModoIme { TG_IME_TELEFONE, TG_IME_CODIGO, TG_IME_SENHA, TG_IME_MENSAGEM, TG_IME_BUSCA, TG_IME_PASTA, TG_IME_GRUPO, TG_IME_CANAL };
 enum TgMidia { TG_M_NADA, TG_M_FOTO, TG_M_VIDEO, TG_M_AUDIO };
 
 // ordens: 0 lista principal, 1 arquivadas, 2 em diante as pastas.
-struct TgConversa { long long id, data, lidoAte; long long ordens[TG_MAX_PASTAS + 2]; int naoLidas, foto; char titulo[160]; char ultima[260]; };
-struct TgMensagem { long long id, autor, data; bool minha, figurinha; int arquivo, imgL, imgA, grande, midia, totalLinks, alturaCache[2]; char rotulo[32]; char resumo[48]; char arquivoNome[100]; char links[4][200]; char texto[1024]; };
+struct TgConversa { long long id, data, lidoAte; long long ordens[TG_MAX_PASTAS + 2]; int naoLidas, foto; char titulo[160]; char ultima[260]; int mudo, tipo; };   // tipo: 0 pessoa, 1 grupo, 2 canal
+struct TgMensagem { long long id, autor, data; bool minha, figurinha; int arquivo, imgL, imgA, grande, midia, totalLinks, alturaCache[2]; char rotulo[32]; char resumo[48]; char arquivoNome[100]; char links[12][200]; char texto[1024]; };
 struct TgPasta { int id; char nome[64]; };
 enum TgEstadoDownload { TG_D_BAIXANDO, TG_D_COPIAR, TG_D_COPIANDO, TG_D_PRONTO, TG_D_ERRO };
-struct TgDownload { int arquivo, estado; bool salvar, pkg; long long total, baixado, mensagem; char nome[120]; };
+struct TgDownload { int arquivo, estado; bool salvar, pkg, iniciado; long long total, baixado, mensagem, conversa, proxima; int tentativas; char nome[120]; long long inicioMs, marcaMs, marcaBytes; double velocidade; };
 struct TgResultado { long long conversa, mensagem, data; char texto[200]; };
 struct TgUsuario { long long id; char nome[64]; };
 
@@ -345,9 +358,14 @@ static void tgLerConteudo(const char* c, const char* fim, TgMensagem* m) {
         strcpy(m->resumo, "🎤 Áudio");
     }
     else if (tgConteudoE(c, "messageAudio")) {
+        char artista[120] = "";
         tgTexto(c, fim, "\"title\":\"", nome, sizeof(nome));
+        tgTexto(c, fim, "\"performer\":\"", artista, sizeof(artista));
         tgLerAbrir(c, fim, "\"audio\":{\"@type\":\"file\",\"id\":", TG_M_AUDIO, m);
-        snprintf(m->texto, sizeof(m->texto), "🎵 %s", nome[0] ? nome : "Música");
+        // Título e artista quando houver, e sempre o nome do arquivo (com a extensão).
+        if (nome[0]) snprintf(m->texto, sizeof(m->texto), "🎵 %s%s%s%s%s%s", artista, artista[0] ? " - " : "", nome,
+            m->arquivoNome[0] ? "  (" : "", m->arquivoNome, m->arquivoNome[0] ? ")" : "");
+        else snprintf(m->texto, sizeof(m->texto), "🎵 %s", m->arquivoNome[0] ? m->arquivoNome : "Música");
         strcpy(m->resumo, "🎵 Música");
     }
     else if (tgConteudoE(c, "messageDocument")) {
@@ -383,8 +401,11 @@ static bool tgELink(const char* t) {
     return n >= 5;
 }
 
+static bool tgColetando = false;   // o menu do X está juntando todos os links
+static void tgMenuGuardarUrl(const char* url);
 static void tgAdicionarLink(TgMensagem* m, const char* url) {
-    if (!url[0] || m->totalLinks >= 4) return;
+    if (tgColetando) { if (url[0]) tgMenuGuardarUrl(url); return; }
+    if (!url[0] || m->totalLinks >= 12) return;
     for (int i = 0; i < m->totalLinks; i++) if (strcmp(m->links[i], url) == 0) return;
     snprintf(m->links[m->totalLinks++], sizeof(m->links[0]), "%s", url);
 }
@@ -398,9 +419,8 @@ static void tgLerLinksMarcados(const char* inicio, const char* fim, const char* 
 }
 
 // Junta links do texto, links escondidos em palavras e botões. @nome e t.me viram endereço completo.
-static void tgLerLinks(const char* conteudo, const char* fim, TgMensagem* m) {
+static void tgLerLinksTexto(const char* conteudo, const char* fim, const char* t, TgMensagem* m) {
     tgLerLinksMarcados(conteudo, fim, "\"@type\":\"textEntityTypeTextUrl\",\"url\":\"", m);
-    const char* t = m->texto;
     for (int i = 0; t[i]; i++) {
         bool inicioDePalavra = i == 0 || strchr(" \n\t([<\"'", t[i - 1]);
         if (!inicioDePalavra || !tgELink(t + i)) continue;
@@ -416,6 +436,7 @@ static void tgLerLinks(const char* conteudo, const char* fim, TgMensagem* m) {
     }
     tgLerLinksMarcados(conteudo, fim, "\"@type\":\"inlineKeyboardButtonTypeUrl\",\"url\":\"", m);
 }
+static void tgLerLinks(const char* conteudo, const char* fim, TgMensagem* m) { tgLerLinksTexto(conteudo, fim, m->texto, m); }
 
 static bool tgLerMensagem(const char* inicio, const char* fim, TgMensagem* m, long long* conversa) {
     memset(m, 0, sizeof(*m));
@@ -546,7 +567,49 @@ static struct {
 } tgFluxo;
 static bool tgMenuAberto = false;
 static int tgMenuSel = 0, tgMenuTotal = 0;
-static int tgMenuLinks[6];   // índice do link, -1 baixa o arquivo, -2 responde
+// Itens do menu do X: índice em tgMenuUrls, -1 baixa, -2 responde, -3 encaminha, -4 seleciona, -5 copia.
+// Sem limite: o menu busca a mensagem inteira e lista todos os links dela.
+static int* tgMenuLinks = NULL;
+static int tgMenuCap = 0;
+static char (*tgMenuUrls)[200] = NULL;
+static int tgMenuTotalUrls = 0, tgMenuCapUrls = 0;
+static void tgMenuItem(int valor);
+static void tgMenuGuardarUrl(const char* url);
+// Selecionar várias mensagens para encaminhar, apagar ou copiar.
+static bool tgSelecionando = false;
+static long long tgMarcadas[100];
+static int tgTotalMarcadas = 0;
+static bool tgSelMenuAberto = false, tgConfirmarApagar = false;
+static int tgSelMenuSel = 0;
+// Texto copiado: o Quadrado oferece colar no teclado.
+static char tgCopiado[1800] = "";
+// Quadrado na conversa: escrever, enviar arquivo ou gravar áudio.
+static bool tgAcoesAberto = false;
+static int tgAcoesSel = 0;
+// Filtro da conversa (Quadrado > Filtro), menu do Quadrado na lista de conversas e confirmação
+// com dois X para sair de grupo ou apagar pasta.
+static int tgFiltro = 0;
+static long long tgMaisAntiga = 0;
+static bool tgListaMenuAberto = false;
+static int tgListaMenuSel = 0;
+static bool tgConfirmar = false;
+static long long tgChatDaPasta = 0;
+static char tgConviteLink[220] = "";
+static volatile bool tgAudioFluxo = false;
+#define TG_TOTAL_FILTROS 7
+static const char* tgNomesFiltro[TG_TOTAL_FILTROS] = { "Tudo", "Só mensagens", "Só arquivos", "Só vídeos", "Só áudios", "Só fotos", "Só links" };
+static const char* tgFiltroTdlib[TG_TOTAL_FILTROS] = { "", "", "searchMessagesFilterDocument", "searchMessagesFilterVideo", "searchMessagesFilterAudio", "searchMessagesFilterPhoto", "searchMessagesFilterUrl" };
+// Encaminhar: a mensagem escolhida vai para a conversa marcada na lista da esquerda.
+static long long tgEncaminharMsg = 0, tgEncaminharDe = 0;
+// Escolha de arquivo para enviar.
+struct TgEntrada { char nome[100]; bool pasta; };
+static bool tgSeletorAberto = false;
+static char tgSeletorPasta[300] = "/data";
+static TgEntrada tgSeletorItens[300];
+static int tgSeletorTotal = 0, tgSeletorSel = 0;
+// Gravação de áudio pelo microfone do fone ligado no controle.
+static volatile bool tgGravando = false, tgGravacaoParar = false, tgGravacaoCancelar = false;
+static volatile int tgGravacaoSegundos = 0;
 static long long tgResponderA = 0;
 static long long tgMenuMensagem = 0;
 static char tgLinkAtual[200] = "";
@@ -579,7 +642,7 @@ static void tgEnviar(const char* formato, ...) {
 }
 
 static void tgBaixarArquivo(int id) {
-    tgEnviar("{\"@type\":\"downloadFile\",\"file_id\":%d,\"priority\":8,\"offset\":0,\"limit\":0,\"synchronous\":false}", id);
+    tgEnviar("{\"@type\":\"downloadFile\",\"file_id\":%d,\"priority\":24,\"offset\":0,\"limit\":0,\"synchronous\":false}", id);
 }
 
 static const char* tgNomeAutor(const TgMensagem* m) {
@@ -618,6 +681,8 @@ static TgGlifo tgGlifos[TG_MAX_GLIFOS];
 static TgEmojiIndice* tgEmojis = NULL;
 static int tgTotalEmojis = 0;
 static FILE* tgPacoteEmoji = NULL;
+static int tgPacoteFd = -1;
+static char tgEmojiMotivo[96] = "nao aberto";
 static uint32_t tgPacoteBase = 0;
 static TgEmojiImagem tgEmojiImagens[TG_MAX_EMOJIS];
 static int tgFusoMinutos = -180;
@@ -647,7 +712,7 @@ static void tgCarregarFontes() {
     for (int i = 0; i < TG_MAX_GLIFOS; i++) { free(tgGlifos[i].alfa); memset(&tgGlifos[i], 0, sizeof(tgGlifos[i])); }
     pthread_mutex_unlock(&tgTrava);
     FILE* d = fopen("/data/HyperNeivaTelegram/diagnostico.txt", "w");
-    if (d) { fprintf(d, "emojis=%d fontes=%d\n", tgTotalEmojis, tgTotalFontes); fclose(d); }
+    if (d) { fprintf(d, "emojis=%d (%s) fontes=%d\n", tgTotalEmojis, tgEmojiMotivo, tgTotalFontes); fclose(d); }
     tgSujo = true;
 }
 
@@ -688,17 +753,40 @@ static void tgAnotarFaltando(uint32_t cp) {
     if (f) { fprintf(f, "faltou %x\n", cp); fclose(f); }
 }
 
+// Os ícones e emojis vêm deste pacote: lido aos pedaços, com o motivo anotado se falhar.
+static bool tgLerEm(int fd, void* destino, size_t tamanho, off_t posicao) {
+    size_t feito = 0;
+    while (feito < tamanho) {
+        // pread da libc dava EBADF no /app0: usa a leitura do próprio kernel do PS4.
+        ssize_t n = (ssize_t)sceKernelPread(fd, (char*)destino + feito, tamanho - feito, posicao + (off_t)feito);
+        if (n <= 0 || (size_t)n > tamanho - feito) return false;
+        feito += (size_t)n;
+    }
+    return true;
+}
 static void tgAbrirEmojis(const char* caminho) {
-    tgPacoteEmoji = fopen(caminho, "rb");
-    if (!tgPacoteEmoji) return;
+    (void)tgPacoteEmoji;
+    int fd = sceKernelOpen(caminho, 0 /* leitura */, 0);
+    if (fd < 0) { snprintf(tgEmojiMotivo, sizeof(tgEmojiMotivo), "open %s erro=%x", caminho, (unsigned)fd); return; }
     uint32_t total = 0;
-    if (fread(&total, 4, 1, tgPacoteEmoji) != 1 || total == 0 || total > 20000) return;
+    if (!tgLerEm(fd, &total, 4, 0) || total == 0 || total > 20000) {
+        snprintf(tgEmojiMotivo, sizeof(tgEmojiMotivo), "cabecalho total=%u", total);
+        sceKernelClose(fd);
+        return;
+    }
     TgEmojiIndice* lista = (TgEmojiIndice*)malloc(sizeof(TgEmojiIndice) * total);
-    if (!lista) return;
-    if (fread(lista, sizeof(TgEmojiIndice), total, tgPacoteEmoji) != total) { free(lista); return; }
-    tgEmojis = lista;
-    tgTotalEmojis = (int)total;
+    if (!lista) { snprintf(tgEmojiMotivo, sizeof(tgEmojiMotivo), "sem memoria"); sceKernelClose(fd); return; }
+    if (!tgLerEm(fd, lista, sizeof(TgEmojiIndice) * total, 4)) {
+        snprintf(tgEmojiMotivo, sizeof(tgEmojiMotivo), "indice");
+        free(lista);
+        sceKernelClose(fd);
+        return;
+    }
+    tgPacoteFd = fd;
     tgPacoteBase = 4 + total * (uint32_t)sizeof(TgEmojiIndice);
+    tgTotalEmojis = (int)total;
+    tgEmojis = lista;
+    snprintf(tgEmojiMotivo, sizeof(tgEmojiMotivo), "ok");
 }
 
 static int tgBuscarEmoji(const char* nome) {
@@ -764,8 +852,7 @@ static uint32_t* tgImagemEmoji(int indice) {
     unsigned char* dados = (unsigned char*)malloc(tamanho);
     if (!dados) return NULL;
     uint32_t* pixels = NULL;
-    fseek(tgPacoteEmoji, (long)(tgPacoteBase + tgEmojis[indice].inicio), SEEK_SET);
-    if (fread(dados, 1, tamanho, tgPacoteEmoji) == tamanho) {
+    if (tgLerEm(tgPacoteFd, dados, tamanho, (off_t)(tgPacoteBase + tgEmojis[indice].inicio))) {
         int w, h, c;
         pixels = (uint32_t*)stbi_load_from_memory(dados, (int)tamanho, &w, &h, &c, 4);
         if (pixels && (w != 72 || h != 72)) { stbi_image_free(pixels); pixels = NULL; }
@@ -824,7 +911,10 @@ static TgGlifo* tgGlifo(uint32_t cp, int tam) {
                 else {
                     fonte = NULL;
                     for (int f = 0; f < tgTotalFontes && !fonte; f++) if (stbtt_FindGlyphIndex(&tgFontes[f], (int)cp)) fonte = &tgFontes[f];
-                    if (!fonte) { fonte = &font; usado = '?'; tgAnotarFaltando(cp); }
+                    if (!fonte) {
+                        bool emoji = cp >= 0x1F000 || (cp >= 0x2190 && cp <= 0x2BFF) || cp == 0x3030 || cp == 0x303D;
+                        fonte = &font; usado = emoji ? ' ' : '?'; tgAnotarFaltando(cp);
+                    }
                 }
             }
             float s = stbtt_ScaleForPixelHeight(fonte, (float)tam);
@@ -1293,7 +1383,7 @@ static void tgDesenharConversa(uint32_t* p) {
         int w = tgLargura(dica, 24) + 44;
         tgArredondado(p, x + (l - w) / 2, 510, w, 50, 25, TG_COR(30, 44, 58), 0, 1080);
         tgEscrever(p, dica, 0, 1 << 30, 24, x + (l - w) / 2 + 22, 521, TG_COR(225, 232, 240));
-        tgEscrever(p, tgEmBusca ? "X  Abrir     Triângulo  Nova pesquisa     O  Fechar" : "X  Abrir     Triângulo  Pesquisar     L1 / R1  Pastas     Options  Downloads     O  Sair", 0, 1 << 30, 22, x + 40, 1034, TG_COR(125, 139, 153));
+        tgEscrever(p, tgEmBusca ? "X  Abrir     Triângulo  Nova pesquisa     O  Fechar" : "X  Abrir     Quadrado  Pastas e grupos     Triângulo  Pesquisar     L1 / R1  Pastas     Options  Downloads     O  Sair", 0, 1 << 30, 22, x + 40, 1034, TG_COR(125, 139, 153));
         return;
     }
     // Mede tudo primeiro: a rolagem segue a mensagem selecionada.
@@ -1316,9 +1406,12 @@ static void tgDesenharConversa(uint32_t* p) {
     for (int i = tgTotalMensagens - 1; i >= 0; i--) {
         y -= alturas[i];
         if (y < base && y + alturas[i] > topo) {
-            if (i == selecionada) {
+            bool marcada = false;
+            for (int k = 0; k < tgTotalMarcadas && !marcada; k++) marcada = tgMarcadas[k] == tgMensagens[i].id;
+            if (i == selecionada || marcada) {
                 int y0 = y - 4 < topo ? topo : y - 4, y1 = y + alturas[i] + 4 > base ? base : y + alturas[i] + 4;
-                tgRetangulo(p, x, y0, l, y1 - y0, TG_COR(26, 40, 56));
+                tgRetangulo(p, x, y0, l, y1 - y0, marcada ? (i == selecionada ? TG_COR(45, 90, 135) : TG_COR(33, 68, 104)) : TG_COR(26, 40, 56));
+                if (marcada) tgRetangulo(p, x, y0, 8, y1 - y0, TG_COR(100, 180, 240));
             }
             tgBalao(p, &tgMensagens[i], y, nomes[i], topo, base);
         }
@@ -1330,7 +1423,13 @@ static void tgDesenharConversa(uint32_t* p) {
     tgRetangulo(p, x, 0, l, TG_TOPO_H, TG_COR(23, 33, 43));
     tgRetangulo(p, x, TG_TOPO_H - 2, l, 2, TG_COR(16, 24, 32));
     tgAvatar(p, c->id, c->foto, c->titulo, x + 22, 14, 56, 0, 1080);
-    tgEscreverCortado(p, c->titulo, 28, x + 94, 25, l - 130, TG_COR(255, 255, 255));
+    tgEscreverCortado(p, c->titulo, 28, x + 94, 25, l - 130 - (tgFiltro ? 330 : 0), TG_COR(255, 255, 255));
+    if (tgFiltro) {
+        char f[64]; snprintf(f, sizeof(f), "Filtro: %s", tgNomesFiltro[tgFiltro]);
+        int w = tgLargura(f, 22) + 32;
+        tgArredondado(p, x + l - w - 24, 22, w, 40, 20, TG_COR(46, 112, 165), 0, 1080);
+        tgEscrever(p, f, 0, 1 << 30, 22, x + l - w - 8, 30, TG_COR(255, 255, 255));
+    }
 
     const TgMensagem* m = tgTotalMensagens > 0 ? &tgMensagens[selecionada] : NULL;
     const char* acao = "X  Escrever";
@@ -1341,26 +1440,60 @@ static void tgDesenharConversa(uint32_t* p) {
     else if (m && m->totalLinks > 0) acao = "X  Abrir link";
     else if (m && m->grande) acao = "X  Baixar";
     char dica[140];
-    snprintf(dica, sizeof(dica), "%s     Segure X  Opções     Quadrado  Escrever     Triângulo  Pesquisar     O  Voltar", acao);
+    snprintf(dica, sizeof(dica), "%s     Segure X  Opções     Quadrado  Enviar e opções do grupo     Triângulo  Pesquisar     O  Voltar", acao);
     if (tgEmBusca) snprintf(dica, sizeof(dica), "X  Abrir resultado     Triângulo  Nova pesquisa     O  Fechar");
+    if (tgSelecionando) snprintf(dica, sizeof(dica), "%d selecionada(s)     X  Marcar / desmarcar     Quadrado  Encaminhar, apagar, copiar     O  Sair da seleção", tgTotalMarcadas);
     tgRetangulo(p, x, base, l, TG_BASE_H, TG_COR(23, 33, 43));
     tgArredondado(p, x + 24, base + 14, l - 48, 48, 24, TG_COR(36, 47, 61), 0, 1080);
     tgEscrever(p, dica, 0, 1 << 30, 22, x + 50, base + 26, TG_COR(150, 165, 180));
 }
 
+static const char* tgIcone(const char* comEmoji, const char* semEmoji);
 static void tgDesenharMenu(uint32_t* p) {
     const TgMensagem* m = NULL;
     for (int i = 0; i < tgTotalMensagens; i++) if (tgMensagens[i].id == tgMenuMensagem) m = &tgMensagens[i];
     if (!m) return;
-    int largura = 900, altura = 70 + tgMenuTotal * 58 + 16;
+    const int maximo = 13;
+    int linhas = tgMenuTotal < maximo ? tgMenuTotal : maximo;
+    int topo = tgMenuSel >= linhas ? tgMenuSel - linhas + 1 : 0;
+    int largura = 1000, altura = 70 + linhas * 58 + (tgMenuTotal > linhas ? 50 : 16);
     int x = TG_LISTA_L + 2 + (1920 - TG_LISTA_L - largura) / 2, y = (1080 - altura) / 2;
     tgArredondado(p, x, y, largura, altura, 18, TG_COR(30, 44, 58), 0, 1080);
     tgEscrever(p, "Opções", 0, 1 << 30, 28, x + 28, y + 18, TG_COR(255, 255, 255));
-    for (int i = 0; i < tgMenuTotal; i++) {
-        int linha = y + 70 + i * 58;
+    for (int j = 0; j < linhas; j++) {
+        int i = topo + j;
+        int linha = y + 70 + j * 58;
         if (i == tgMenuSel) tgArredondado(p, x + 12, linha, largura - 24, 54, 12, TG_COR(46, 112, 165), 0, 1080);
-        tgEscreverCortado(p, tgMenuLinks[i] == -2 ? "↩️ Responder" : tgMenuLinks[i] < 0 ? "⬇️ Baixar e salvar" : m->links[tgMenuLinks[i]], 24, x + 30, linha + 12, largura - 60, TG_COR(245, 245, 245));
+        int op = tgMenuLinks[i];
+        const char* nome = op >= 0 ? (op < tgMenuTotalUrls ? tgMenuUrls[op] : "") :
+            op == -2 ? tgIcone("↩️ Responder", "Responder") : op == -3 ? tgIcone("➡️ Encaminhar", "Encaminhar") :
+            op == -4 ? tgIcone("☑️ Selecionar", "Selecionar") : op == -5 ? tgIcone("📋 Copiar texto", "Copiar texto") :
+            tgIcone("⬇️ Baixar e salvar", "Baixar e salvar");
+        tgEscreverCortado(p, nome, 24, x + 30, linha + 12, largura - 60, TG_COR(245, 245, 245));
     }
+    if (tgMenuTotal > linhas) {
+        char mais[48];
+        snprintf(mais, sizeof(mais), "%d de %d", tgMenuSel + 1, tgMenuTotal);
+        tgEscrever(p, mais, 0, 1 << 30, 20, x + largura - 30 - tgLargura(mais, 20), y + altura - 38, TG_COR(150, 165, 180));
+    }
+}
+
+static uint64_t tgAgoraMs() { return sceKernelGetProcessTime() / 1000; }
+static void tgFormatarTempo(long long s, char* o, int t) {
+    if (s < 0) s = 0;
+    if (s >= 3600) snprintf(o, t, "%lld:%02lld:%02lld", s / 3600, (s / 60) % 60, s % 60);
+    else snprintf(o, t, "%lld:%02lld", s / 60, s % 60);
+}
+// "45%  2.3 MB/s  1:12  faltam 0:35"
+static void tgInfoDownload(const TgDownload* d, char* o, int t) {
+    int porcento = d->total > 0 ? (int)(d->baixado * 100 / d->total) : 0;
+    if (!d->inicioMs || d->velocidade <= 1.0) { snprintf(o, t, "%d%%", porcento); return; }
+    char vel[24], dec[16], resta[16];
+    if (d->velocidade >= 1048576.0) snprintf(vel, sizeof(vel), "%.1f MB/s", d->velocidade / 1048576.0);
+    else snprintf(vel, sizeof(vel), "%.0f KB/s", d->velocidade / 1024.0);
+    tgFormatarTempo((long long)((tgAgoraMs() - d->inicioMs) / 1000), dec, sizeof(dec));
+    if (d->total > 0) { tgFormatarTempo((long long)((d->total - d->baixado) / d->velocidade), resta, sizeof(resta)); snprintf(o, t, "%d%%  %s  %s  faltam %s", porcento, vel, dec, resta); }
+    else snprintf(o, t, "%d%%  %s  %s", porcento, vel, dec);
 }
 
 static void tgDesenharFila(uint32_t* p) {
@@ -1375,9 +1508,10 @@ static void tgDesenharFila(uint32_t* p) {
         const TgDownload* d = &tgDownloads[topo + i];
         int yl = y + 76 + i * 84;
         if (topo + i == tgFilaSel) tgArredondado(p, x + 12, yl, largura - 24, 78, 12, TG_COR(43, 82, 120), 0, 1080);
-        char estado[48];
+        char estado[96];
         int porcento = d->total > 0 ? (int)(d->baixado * 100 / d->total) : 0;
-        if (d->estado == TG_D_BAIXANDO) snprintf(estado, sizeof(estado), "%d%%", porcento);
+        if (d->estado == TG_D_BAIXANDO && !d->iniciado) strcpy(estado, "Na fila");
+        else if (d->estado == TG_D_BAIXANDO) tgInfoDownload(d, estado, sizeof(estado));
         else if (d->estado == TG_D_COPIAR) strcpy(estado, "Na fila");
         else if (d->estado == TG_D_COPIANDO) strcpy(estado, "Salvando...");
         else if (d->estado == TG_D_ERRO) strcpy(estado, "Erro");
@@ -1469,6 +1603,148 @@ static void tgDesenharEntrada(uint32_t* p) {
     tgEscrever(p, rodape, 0, 1 << 30, 24, (1920 - tgLargura(rodape, 24)) / 2, 1020, TG_COR(125, 139, 153));
 }
 
+static const char* tgIcone(const char* comEmoji, const char* semEmoji) { return tgEmojis ? comEmoji : semEmoji; }
+
+// Itens do Quadrado na conversa: enviar e as opções do grupo/canal.
+enum { TG_A_ESCREVER, TG_A_ARQUIVO, TG_A_GRAVAR, TG_A_COLAR, TG_A_FILTRO, TG_A_MUDO, TG_A_LIDO, TG_A_ARQUIVAR, TG_A_ENTRAR, TG_A_SAIR };
+static int tgAcoesItens(int* itens) {
+    int n = 0;
+    itens[n++] = TG_A_ESCREVER; itens[n++] = TG_A_ARQUIVO; itens[n++] = TG_A_GRAVAR;
+    if (tgCopiado[0]) itens[n++] = TG_A_COLAR;
+    itens[n++] = TG_A_FILTRO; itens[n++] = TG_A_MUDO; itens[n++] = TG_A_LIDO; itens[n++] = TG_A_ARQUIVAR;
+    const TgConversa* c = tgConversaPorId(tgAberta);
+    if (c && c->tipo) { itens[n++] = TG_A_ENTRAR; itens[n++] = TG_A_SAIR; }
+    return n;
+}
+static void tgRotuloConversa(int item, const TgConversa* c, char* s, int t) {
+    const char* tipo = c && c->tipo == 2 ? "canal" : "grupo";
+    switch (item) {
+    case TG_A_ESCREVER: snprintf(s, t, "%s", tgIcone("✏️ Escrever mensagem", "Escrever mensagem")); break;
+    case TG_A_ARQUIVO: snprintf(s, t, "%s", tgIcone("📎 Enviar arquivo", "Enviar arquivo")); break;
+    case TG_A_GRAVAR: snprintf(s, t, "%s", tgIcone("🎤 Gravar áudio", "Gravar áudio")); break;
+    case TG_A_COLAR: snprintf(s, t, "%s", tgIcone("📋 Colar texto copiado", "Colar texto copiado")); break;
+    case TG_A_FILTRO: snprintf(s, t, "%s: %s   (X troca)", tgIcone("🔎 Mostrar", "Mostrar"), tgNomesFiltro[tgFiltro]); break;
+    case TG_A_MUDO: snprintf(s, t, "%s", c && c->mudo ? tgIcone("🔔 Ativar notificações", "Ativar notificações") : tgIcone("🔕 Silenciar", "Silenciar")); break;
+    case TG_A_LIDO: snprintf(s, t, "%s", tgIcone("✅ Marcar tudo como lido", "Marcar tudo como lido")); break;
+    case TG_A_ARQUIVAR: snprintf(s, t, "%s", c && c->ordens[1] ? tgIcone("📤 Desarquivar", "Desarquivar") : tgIcone("🗄 Arquivar", "Arquivar")); break;
+    case TG_A_ENTRAR: snprintf(s, t, "%s %s", tgIcone("➕ Entrar no", "Entrar no"), tipo); break;
+    case TG_A_SAIR: if (tgConfirmar) snprintf(s, t, "Aperte X de novo para sair do %s", tipo); else snprintf(s, t, "%s %s", tgIcone("🚪 Sair do", "Sair do"), tipo); break;
+    }
+}
+static void tgDesenharMenuGenerico(uint32_t* p, const char* titulo, const char (*rotulos)[160], int total, int sel) {
+    int largura = 820, visiveis = total < 13 ? total : 13;
+    int altura = 70 + visiveis * 58 + 60;
+    int x = TG_LISTA_L + 2 + (1920 - TG_LISTA_L - largura) / 2, y = (1080 - altura) / 2;
+    tgArredondado(p, x, y, largura, altura, 18, TG_COR(30, 44, 58), 0, 1080);
+    tgEscrever(p, titulo, 0, 1 << 30, 28, x + 28, y + 18, TG_COR(255, 255, 255));
+    int topo = sel >= visiveis ? sel - visiveis + 1 : 0;
+    for (int k = 0; k < visiveis && topo + k < total; k++) {
+        int i = topo + k, linha = y + 70 + k * 58;
+        if (i == sel) tgArredondado(p, x + 12, linha, largura - 24, 54, 12, TG_COR(46, 112, 165), 0, 1080);
+        tgEscreverCortado(p, rotulos[i], 24, x + 30, linha + 12, largura - 60, TG_COR(245, 245, 245));
+    }
+    tgEscrever(p, "X  Escolher     O  Fechar", 0, 1 << 30, 22, x + 28, y + altura - 42, TG_COR(150, 165, 180));
+}
+static void tgDesenharAcoes(uint32_t* p) {
+    int itens[16], total = tgAcoesItens(itens);
+    const TgConversa* c = tgConversaPorId(tgAberta);
+    static char rotulos[16][160];
+    for (int i = 0; i < total; i++) tgRotuloConversa(itens[i], c, rotulos[i], sizeof(rotulos[i]));
+    if (tgAcoesSel >= total) tgAcoesSel = total - 1;
+    tgDesenharMenuGenerico(p, c && c->tipo == 2 ? "Canal" : c && c->tipo == 1 ? "Grupo" : "Conversa", rotulos, total, tgAcoesSel);
+}
+
+// Itens do Quadrado na lista de conversas: pastas, criar grupo/canal e a conversa marcada.
+enum { TG_L_NOVA_PASTA = 1000, TG_L_APAGAR_PASTA, TG_L_GRUPO, TG_L_CANAL, TG_L_MUDO, TG_L_ARQUIVAR, TG_L_SAIR, TG_L_PASTA = 0 };
+static TgConversa* tgConversaMarcadaNaLista() { return tgVisiveis > 0 ? &tgConversas[tgIndice[tgSelecao]] : NULL; }
+static int tgListaItens(int* itens) {
+    int n = 0;
+    TgConversa* c = tgConversaMarcadaNaLista();
+    if (c) { itens[n++] = TG_L_NOVA_PASTA; for (int i = 0; i < tgTotalPastas && i < 10; i++) itens[n++] = TG_L_PASTA + i; }
+    if (tgAba >= 1 && tgAba <= tgTotalPastas) itens[n++] = TG_L_APAGAR_PASTA;
+    itens[n++] = TG_L_GRUPO; itens[n++] = TG_L_CANAL;
+    if (c) { itens[n++] = TG_L_MUDO; itens[n++] = TG_L_ARQUIVAR; if (c->tipo) itens[n++] = TG_L_SAIR; }
+    return n;
+}
+static void tgRotuloLista(int item, const TgConversa* c, char* s, int t) {
+    const char* titulo = c ? c->titulo : "";
+    if (item >= TG_L_PASTA && item < TG_L_NOVA_PASTA) { snprintf(s, t, "%s \"%.40s\" na pasta %s", tgIcone("➕ Pôr", "Pôr"), titulo, tgPastas[item].nome); return; }
+    switch (item) {
+    case TG_L_NOVA_PASTA: snprintf(s, t, "%s \"%.40s\"", tgIcone("📁 Nova pasta com", "Nova pasta com"), titulo); break;
+    case TG_L_APAGAR_PASTA: if (tgConfirmar) snprintf(s, t, "Aperte X de novo para apagar a pasta %s", tgNomeDaAba(tgAba)); else snprintf(s, t, "%s %s", tgIcone("🗑 Apagar a pasta", "Apagar a pasta"), tgNomeDaAba(tgAba)); break;
+    case TG_L_GRUPO: snprintf(s, t, "%s", tgIcone("👥 Criar grupo", "Criar grupo")); break;
+    case TG_L_CANAL: snprintf(s, t, "%s", tgIcone("📢 Criar canal", "Criar canal")); break;
+    case TG_L_MUDO: snprintf(s, t, "%s \"%.40s\"", c && c->mudo ? tgIcone("🔔 Ativar notificações de", "Ativar notificações de") : tgIcone("🔕 Silenciar", "Silenciar"), titulo); break;
+    case TG_L_ARQUIVAR: snprintf(s, t, "%s \"%.40s\"", c && c->ordens[1] ? tgIcone("📤 Desarquivar", "Desarquivar") : tgIcone("🗄 Arquivar", "Arquivar"), titulo); break;
+    case TG_L_SAIR: if (tgConfirmar) snprintf(s, t, "Aperte X de novo para sair de \"%.40s\"", titulo); else snprintf(s, t, "%s \"%.40s\"", tgIcone("🚪 Sair de", "Sair de"), titulo); break;
+    }
+}
+static void tgDesenharListaMenu(uint32_t* p) {
+    int itens[32], total = tgListaItens(itens);
+    const TgConversa* c = tgConversaMarcadaNaLista();
+    static char rotulos[32][160];
+    for (int i = 0; i < total; i++) tgRotuloLista(itens[i], c, rotulos[i], sizeof(rotulos[i]));
+    if (tgListaMenuSel >= total) tgListaMenuSel = total - 1;
+    tgDesenharMenuGenerico(p, "Conversas e pastas", rotulos, total, tgListaMenuSel);
+}
+
+static void tgDesenharSelMenu(uint32_t* p) {
+    char apagar[64];
+    if (tgConfirmarApagar) snprintf(apagar, sizeof(apagar), "Confirmar: apagar %d para todos", tgTotalMarcadas);
+    else snprintf(apagar, sizeof(apagar), "%s", tgIcone("🗑️ Apagar", "Apagar"));
+    const char* nomes[3] = { tgIcone("➡️ Encaminhar", "Encaminhar"), apagar, tgIcone("📋 Copiar texto", "Copiar texto") };
+    int largura = 760, altura = 70 + 3 * 58 + 60;
+    int x = TG_LISTA_L + 2 + (1920 - TG_LISTA_L - largura) / 2, y = (1080 - altura) / 2;
+    char titulo[48];
+    snprintf(titulo, sizeof(titulo), "%d selecionada(s)", tgTotalMarcadas);
+    tgArredondado(p, x, y, largura, altura, 18, TG_COR(30, 44, 58), 0, 1080);
+    tgEscrever(p, titulo, 0, 1 << 30, 28, x + 28, y + 18, TG_COR(255, 255, 255));
+    for (int i = 0; i < 3; i++) {
+        int linha = y + 70 + i * 58;
+        if (i == tgSelMenuSel) tgArredondado(p, x + 12, linha, largura - 24, 54, 12, i == 1 && tgConfirmarApagar ? TG_COR(160, 60, 55) : TG_COR(46, 112, 165), 0, 1080);
+        tgEscrever(p, nomes[i], 0, 1 << 30, 24, x + 30, linha + 12, TG_COR(245, 245, 245));
+    }
+    tgEscrever(p, "X  Escolher     O  Voltar", 0, 1 << 30, 22, x + 28, y + altura - 42, TG_COR(150, 165, 180));
+}
+
+static void tgDesenharSeletor(uint32_t* p) {
+    const int linhas = 11;
+    int largura = 1100, altura = 80 + linhas * 58 + 60;
+    int x = (1920 - largura) / 2, y = (1080 - altura) / 2;
+    tgArredondado(p, x, y, largura, altura, 18, TG_COR(30, 44, 58), 0, 1080);
+    tgEscreverCortado(p, tgSeletorPasta, 26, x + 28, y + 20, largura - 56, TG_COR(255, 255, 255));
+    if (tgSeletorTotal == 0) tgEscrever(p, "Pasta vazia", 0, 1 << 30, 24, x + 28, y + 90, TG_COR(150, 165, 180));
+    int topo = tgSeletorSel >= linhas ? tgSeletorSel - linhas + 1 : 0;
+    for (int i = 0; i < linhas && topo + i < tgSeletorTotal; i++) {
+        const TgEntrada* e = &tgSeletorItens[topo + i];
+        int yl = y + 76 + i * 58;
+        if (topo + i == tgSeletorSel) tgArredondado(p, x + 12, yl, largura - 24, 54, 12, TG_COR(46, 112, 165), 0, 1080);
+        char linha[140];
+        snprintf(linha, sizeof(linha), "%s%s", e->pasta ? tgIcone("📁 ", "[pasta] ") : tgIcone("📄 ", ""), e->nome);
+        tgEscreverCortado(p, linha, 24, x + 30, yl + 12, largura - 60, TG_COR(245, 245, 245));
+    }
+    tgEscrever(p, "X  Abrir pasta / Enviar arquivo     O  Voltar     Triângulo  Fechar", 0, 1 << 30, 22, x + 28, y + altura - 42, TG_COR(150, 165, 180));
+}
+
+static void tgDesenharGravacao(uint32_t* p) {
+    char texto[160];
+    int s = tgGravacaoSegundos;
+    snprintf(texto, sizeof(texto), "%sGravando áudio  %d:%02d", tgIcone("🎤 ", ""), s / 60, s % 60);
+    const char* dica = "X  Enviar     O  Cancelar";
+    int largura = 760, altura = 150;
+    int x = TG_LISTA_L + 2 + (1920 - TG_LISTA_L - largura) / 2, y = (1080 - altura) / 2;
+    tgArredondado(p, x, y, largura, altura, 18, TG_COR(120, 40, 40), 0, 1080);
+    tgEscrever(p, texto, 0, 1 << 30, 30, x + (largura - tgLargura(texto, 30)) / 2, y + 26, TG_COR(255, 255, 255));
+    tgEscrever(p, dica, 0, 1 << 30, 22, x + (largura - tgLargura(dica, 22)) / 2, y + 96, TG_COR(240, 220, 220));
+}
+
+static void tgDesenharEncaminhar(uint32_t* p) {
+    const char* texto = "Encaminhar: escolha a conversa na lista e aperte X     O  Cancelar";
+    int w = tgLargura(texto, 22) + 36;
+    tgArredondado(p, (1920 + TG_LISTA_L - w) / 2, 160, w, 42, 18, TG_COR(43, 82, 120), 0, 1080);
+    tgEscrever(p, texto, 0, 1 << 30, 22, (1920 + TG_LISTA_L - w) / 2 + 18, 169, TG_COR(255, 255, 255));
+}
+
 // Entre um vídeo e outro a conversa não aparece: fica como o player esperando o próximo.
 static bool tgTrocandoVideo = false;
 static int tgTrocaEspera = 0;
@@ -1486,6 +1762,12 @@ static void tgDesenhar(uint32_t* p) {
     tgDesenharLista(p);
     if (tgMenuAberto) tgDesenharMenu(p);
     if (tgFilaAberta) tgDesenharFila(p);
+    if (tgAcoesAberto) tgDesenharAcoes(p);
+    if (tgListaMenuAberto) tgDesenharListaMenu(p);
+    if (tgSelMenuAberto) tgDesenharSelMenu(p);
+    if (tgSeletorAberto) tgDesenharSeletor(p);
+    if (tgEncaminharMsg) tgDesenharEncaminhar(p);
+    if (tgGravando) tgDesenharGravacao(p);
     if (tgAudioRodando) {
         const char* texto = "🔊 Tocando áudio";
         int w = tgLargura(texto, 22) + 36;
@@ -1556,6 +1838,12 @@ static void tgLerPosicoes() {
 static void tgPedirHistorico(long long aPartirDe) {
     tgPedidosHistorico++;
     tgPedindoHistorico = true;
+    if (tgFiltro >= 2) {
+        tgEnviar("{\"@type\":\"searchChatMessages\",\"chat_id\":%lld,\"query\":\"\",\"from_message_id\":%lld,\"offset\":0,\"limit\":50,\"filter\":{\"@type\":\"%s\"},\"@extra\":\"historico\"}", tgAberta, aPartirDe, tgFiltroTdlib[tgFiltro]);
+        return;
+    }
+    // Só mensagens: o filtro é local, então a página seguinte parte da mais antiga lida (não da mostrada).
+    if (tgFiltro == 1 && tgMaisAntiga && (aPartirDe == 0 || aPartirDe > tgMaisAntiga) && tgTotalMensagens > 0) aPartirDe = tgMaisAntiga;
     tgEnviar("{\"@type\":\"getChatHistory\",\"chat_id\":%lld,\"from_message_id\":%lld,\"offset\":0,\"limit\":50,\"only_local\":false,\"@extra\":\"historico\"}", tgAberta, aPartirDe);
 }
 
@@ -1647,9 +1935,14 @@ static void tgProcessarEstado(const char* r) {
     else tgTela = TG_SEM_SUPORTE;
 }
 
+static bool tgPassaFiltro(const TgMensagem* m) {
+    if (tgFiltro == 1) return !m->midia && !m->grande && !m->figurinha && m->texto[0];
+    return true;
+}
+
 static void tgProcessarMensagens(const char* r, bool novas) {
     const char* chave = "{\"@type\":\"message\",\"id\":";
-    int lidas = 0;
+    int lidas = 0, lidasTodas = 0;
     long long maisNovaAntes = tgTotalMensagens > 0 ? tgMensagens[tgTotalMensagens - 1].id : 0;
     if (novas) tgPedindoNovas = false;
     else tgPedindoHistorico = false;
@@ -1657,7 +1950,11 @@ static void tgProcessarMensagens(const char* r, bool novas) {
         const char* proxima = strstr(p + 1, chave);
         TgMensagem m;
         long long conversa;
-        if (tgLerMensagem(p, proxima, &m, &conversa) && conversa == tgAberta) { tgGuardarMensagem(&m); lidas++; }
+        if (tgLerMensagem(p, proxima, &m, &conversa) && conversa == tgAberta) {
+            lidasTodas++;
+            if (!tgMaisAntiga || m.id < tgMaisAntiga) tgMaisAntiga = m.id;
+            if (tgPassaFiltro(&m)) { tgGuardarMensagem(&m); lidas++; }
+        }
         p = proxima;
     }
     if (!tgAberta || tgTotalMensagens == 0) return;
@@ -1673,7 +1970,7 @@ static void tgProcessarMensagens(const char* r, bool novas) {
         tgFaltamNovas = true;
         return;
     }
-    if (lidas == 0) tgFimDoHistorico = true;
+    if (lidasTodas == 0) tgFimDoHistorico = true;
     if (tgAlvo) {
         for (int i = 0; i < tgTotalMensagens; i++) if (tgMensagens[i].id == tgAlvo) tgSelId = tgAlvo;
         tgAlvo = 0;
@@ -1681,7 +1978,7 @@ static void tgProcessarMensagens(const char* r, bool novas) {
         return;
     }
     // A primeira resposta costuma trazer poucas mensagens, então pede mais até encher a tela.
-    if (lidas > 0 && tgTotalMensagens < 40 && tgPedidosHistorico < 6) tgPedirHistorico(tgMensagens[0].id);
+    if (lidasTodas > 0 && tgTotalMensagens < 40 && tgPedidosHistorico < (tgFiltro == 1 ? 12 : 6)) tgPedirHistorico(tgMensagens[0].id);
     else if (tgSelId == 0) tgMarcarLida(tgMensagens[tgTotalMensagens - 1].id);
 }
 
@@ -1713,6 +2010,105 @@ static TgDownload* tgNovoDownload(int arquivo, const char* nome, long long mensa
     return d;
 }
 
+// A fila baixa um arquivo por vez, na ordem em que entrou, e fica guardada para a próxima abertura.
+#define TG_FILA_ARQUIVO TELEGRAM_PASTA "/downloads.txt"
+static int tgFilaProvisorio = 0;
+
+static void tgCarregarFila() {
+    FILE* f = fopen(TG_FILA_ARQUIVO, "r");
+    if (!f) return;
+    char linha[200];
+    while (fgets(linha, sizeof(linha), f) && tgTotalDownloads < TG_MAX_DOWNLOADS) {
+        long long conversa = 0, mensagem = 0;
+        int pkg = 0;
+        char nome[120] = "";
+        if (sscanf(linha, "%lld %lld %d %119[^\n]", &conversa, &mensagem, &pkg, nome) != 4 || !conversa || !mensagem) continue;
+        TgDownload* d = &tgDownloads[tgTotalDownloads++];
+        memset(d, 0, sizeof(*d));
+        d->arquivo = -(++tgFilaProvisorio);   // o número do arquivo muda a cada abertura: pede a mensagem de novo
+        d->estado = TG_D_BAIXANDO;
+        d->salvar = true;
+        d->pkg = pkg != 0;
+        d->conversa = conversa;
+        d->mensagem = mensagem;
+        snprintf(d->nome, sizeof(d->nome), "%s", nome);
+    }
+    fclose(f);
+}
+
+static void tgSalvarFila() {
+    static unsigned long long ultimo = ~0ULL;
+    unsigned long long h = 1469598103934665603ULL;
+    for (int i = 0; i < tgTotalDownloads; i++) {
+        const TgDownload* d = &tgDownloads[i];
+        if (!d->salvar || d->estado >= TG_D_PRONTO || !d->conversa) continue;
+        h = (h ^ (unsigned long long)d->mensagem) * 1099511628211ULL;
+        h = (h ^ (unsigned long long)d->conversa) * 1099511628211ULL;
+    }
+    if (h == ultimo) return;
+    ultimo = h;
+    FILE* f = fopen(TG_FILA_ARQUIVO, "w");
+    if (!f) return;
+    for (int i = 0; i < tgTotalDownloads; i++) {
+        const TgDownload* d = &tgDownloads[i];
+        if (!d->salvar || d->estado >= TG_D_PRONTO || !d->conversa) continue;
+        char nome[120];
+        snprintf(nome, sizeof(nome), "%s", d->nome);
+        for (char* p = nome; *p; p++) if (*p == '\n' || *p == '\r') *p = ' ';
+        fprintf(f, "%lld %lld %d %s\n", d->conversa, d->mensagem, d->pkg ? 1 : 0, nome);
+    }
+    fclose(f);
+}
+
+// Chamada com a trava pega, pela thread do TDLib, a cada resposta ou segundo.
+static void tgAndarFila() {
+    static bool carregou = false;
+    if (!carregou) { carregou = true; tgCarregarFila(); }
+    bool pronto = tgTela == TG_CONVERSAS || tgTela == TG_MENSAGENS;
+    uint64_t agora = sceKernelGetProcessTime();
+    for (int i = 0; i < tgTotalDownloads; i++) {
+        TgDownload* d = &tgDownloads[i];
+        if (d->arquivo > 0 || d->estado != TG_D_BAIXANDO || !pronto || (uint64_t)d->proxima > agora) continue;
+        if (d->tentativas >= 6) { d->estado = TG_D_ERRO; tgSujo = true; continue; }
+        d->tentativas++;
+        d->proxima = (long long)(agora + 10000000ULL);
+        tgEnviar("{\"@type\":\"getMessage\",\"chat_id\":%lld,\"message_id\":%lld,\"@extra\":\"fila:%lld\"}", d->conversa, d->mensagem, d->mensagem);
+    }
+    // Só um download da fila por vez; o próximo é sempre o mais antigo que ainda não começou.
+    bool ativo = false;
+    for (int i = 0; i < tgTotalDownloads; i++) if (tgDownloads[i].estado == TG_D_BAIXANDO && tgDownloads[i].iniciado) ativo = true;
+    for (int i = 0; i < tgTotalDownloads && !ativo; i++) {
+        TgDownload* d = &tgDownloads[i];
+        if (d->estado != TG_D_BAIXANDO || d->iniciado) continue;
+        if (d->arquivo <= 0) break;   // espera a mensagem dele voltar, para não furar a ordem
+        d->iniciado = true;
+        // Prioridade mínima: um arquivo grande da fila não pode segurar as fotos da conversa.
+        tgEnviar("{\"@type\":\"downloadFile\",\"file_id\":%d,\"priority\":1,\"offset\":0,\"limit\":0,\"synchronous\":false}", d->arquivo);
+        tgSujo = true;
+        break;
+    }
+    tgSalvarFila();
+}
+
+// Resposta do getMessage de um item guardado: troca o número provisório pelo arquivo de verdade.
+static void tgFilaRestaurada(const char* r, long long mensagem) {
+    int indice = -1;
+    for (int i = 0; i < tgTotalDownloads; i++) if (tgDownloads[i].arquivo <= 0 && tgDownloads[i].mensagem == mensagem) indice = i;
+    if (indice < 0) return;
+    TgDownload* d = &tgDownloads[indice];
+    static TgMensagem m;
+    long long conversa = 0;
+    if (!tgLerMensagem(r, r + strlen(r), &m, &conversa) || !m.grande) { d->estado = TG_D_ERRO; tgSujo = true; return; }
+    if (tgDownload(m.grande)) { tgRemoverDownload(indice); return; }
+    TgArquivo* a = tgArquivo(m.grande);
+    if (!a) { d->estado = TG_D_ERRO; tgSujo = true; return; }
+    d->arquivo = a->id;
+    d->iniciado = false;
+    a->pedido = true;
+    if (a->baixado) d->estado = TG_D_COPIAR;
+    tgSujo = true;
+}
+
 static void tgProcessarArquivo(const char* r) {
     long long id = 0;
     if (!tgNumero(r, NULL, "{\"@type\":\"file\",\"id\":", &id)) return;
@@ -1726,18 +2122,35 @@ static void tgProcessarArquivo(const char* r) {
         tgNumero(r, NULL, "\"downloaded_prefix_size\":", &tgFluxo.prefixo);
         if (!tgFluxo.ativo) tgTexto(r, NULL, "\"local\":{\"@type\":\"localFile\",\"path\":\"", tgFluxo.caminho, sizeof(tgFluxo.caminho));
         if (completo) tgFluxo.completo = true;
-        // Com o começo do arquivo no disco, o player já consegue abrir.
-        if (!tgFluxo.ativo && !completo && id == tgPendente && tgFluxo.caminho[0] && tgFluxo.inicio == 0 && tgFluxo.prefixo >= 512 * 1024) tgAbrirAgora = true;
+        // O player só abre com folga de dados: com 512 KB, um vídeo 1080p começava sem nada
+        // para decodificar e o app fechava (9 de 49 vídeos 1080p no log; nenhum 720p).
+        long long folga = tgFluxo.total > 0 && tgFluxo.total < 16LL * 1024 * 1024 ? tgFluxo.total / 2 : 8LL * 1024 * 1024;
+        // Áudio toca com bem menos: uns 384 KB já são vários segundos de MP3.
+        bool audio = tgPendenteTipo == TG_M_AUDIO;
+        if (audio) folga = tgFluxo.total > 0 && tgFluxo.total < 512LL * 1024 ? tgFluxo.total : 384LL * 1024;
+        if (!tgFluxo.ativo && !completo && id == tgPendente && tgFluxo.caminho[0] && tgFluxo.inicio == 0) {
+            if (tgFluxo.prefixo >= folga) tgAbrirAgora = true;
+            else snprintf(tgAviso, sizeof(tgAviso), audio ? "Carregando áudio... %lld%%" : "Carregando vídeo... %lld%%", tgFluxo.prefixo * 100 / (folga > 0 ? folga : 1));
+        }
     }
     TgDownload* d = tgDownload((int)id);
     if (d && d->estado == TG_D_BAIXANDO) {
         tgNumero(r, NULL, "\"size\":", &d->total);
         if (d->total <= 0) tgNumero(r, NULL, "\"expected_size\":", &d->total);
         tgNumero(r, NULL, "\"downloaded_size\":", &d->baixado);
+        // Velocidade suavizada, medida a cada segundo.
+        uint64_t agora = tgAgoraMs();
+        if (!d->inicioMs) { d->inicioMs = agora; d->marcaMs = agora; d->marcaBytes = d->baixado; }
+        else if (agora - d->marcaMs >= 1000) {
+            double v = (double)(d->baixado - d->marcaBytes) * 1000.0 / (double)(agora - d->marcaMs);
+            d->velocidade = d->velocidade > 0 ? d->velocidade * 0.6 + v * 0.4 : v;
+            d->marcaMs = agora; d->marcaBytes = d->baixado;
+        }
         tgSujo = true;
     }
     if (id == tgPendente && !completo && d && id != tgFluxo.arquivo) {
-        snprintf(tgAviso, sizeof(tgAviso), "Baixando %lld%%   Options: downloads", d->total > 0 ? d->baixado * 100 / d->total : 0);
+        char info[96]; tgInfoDownload(d, info, sizeof(info));
+        snprintf(tgAviso, sizeof(tgAviso), "Baixando %s   Options: downloads", info);
     }
     if (!completo) return;
     TgArquivo* a = tgArquivo((int)id);
@@ -1770,6 +2183,7 @@ static void tgProcessarLink(const char* r) {
     }
     else if (tgTipo(r, "internalLinkTypeChatInvite")) {
         tgTexto(r, NULL, "\"invite_link\":\"", valor, sizeof(valor));
+        snprintf(tgConviteLink, sizeof(tgConviteLink), "%s", valor);
         tgEnviar("{\"@type\":\"checkChatInviteLink\",\"invite_link\":\"%s\",\"@extra\":\"link\"}", valor);
         strcpy(tgAviso, "Abrindo...");
     }
@@ -1783,7 +2197,12 @@ static void tgProcessarLink(const char* r) {
     else if (tgTipo(r, "chatInviteLinkInfo")) {
         tgNumero(r, NULL, "\"chat_id\":", &id);
         if (id) tgAbrirConversa(id, 0);
-        else strcpy(tgAviso, "Convite de grupo: entre pelo celular.");
+        else if (tgConviteLink[0]) {
+            // Ainda não é membro: entra pelo convite e abre a conversa quando o TDLib devolver o chat.
+            tgEnviar("{\"@type\":\"joinChatByInviteLink\",\"invite_link\":\"%s\",\"@extra\":\"link\"}", tgConviteLink);
+            strcpy(tgAviso, "Entrando no grupo...");
+        }
+        else strcpy(tgAviso, "Convite de grupo inválido.");
     }
     else if (tgTipo(r, "error")) {
         long long codigo = 0;
@@ -1796,9 +2215,17 @@ static void tgProcessarLink(const char* r) {
     tgLinkAtual[0] = tgAbrirExterno ? tgLinkAtual[0] : '\0';
 }
 
+static void tgMenuLinksCompletos(const char* r, long long id);
 static void tgProcessar(const char* r) {
     long long id = 0;
     if (tgTipo(r, "updateFile") || tgTipo(r, "file")) { tgProcessarArquivo(r); return; }
+    const char* menu = strstr(r, "\"@extra\":\"menulinks:");
+    if (menu) { tgMenuLinksCompletos(r, atoll(menu + 20)); return; }
+    const char* fila = strstr(r, "\"@extra\":\"fila:");
+    if (fila) {
+        if (tgTipo(r, "message")) tgFilaRestaurada(r, atoll(fila + 15));
+        return;
+    }
     if (strstr(r, "\"@extra\":\"data\"")) {
         if (tgTipo(r, "message") && tgNumero(r, NULL, "\"id\":", &id)) tgCarregarEm(id);
         tgSujo = true;
@@ -1840,6 +2267,15 @@ static void tgProcessar(const char* r) {
         if (tgNumero(r, NULL, "\"small\":{\"@type\":\"file\",\"id\":", &n)) c->foto = (int)n;
         tgNumero(r, NULL, "\"last_read_inbox_message_id\":", &c->lidoAte);
         tgAplicarPosicoes(r, c);
+        long long mudo = 0;
+        if (tgNumero(r, NULL, "\"mute_for\":", &mudo)) c->mudo = mudo > 0;
+        c->tipo = strstr(r, "\"is_channel\":true") ? 2 : (strstr(r, "chatTypeSupergroup") || strstr(r, "chatTypeBasicGroup")) ? 1 : 0;
+    }
+    else if (tgTipo(r, "updateChatNotificationSettings")) {
+        if (!tgNumero(r, NULL, "\"chat_id\":", &id)) return;
+        TgConversa* c = tgConversa(id);
+        long long mudo = 0;
+        if (c && tgNumero(r, NULL, "\"mute_for\":", &mudo)) c->mudo = mudo > 0;
     }
     else if (tgTipo(r, "updateChatTitle")) {
         if (!tgNumero(r, NULL, "\"chat_id\":", &id)) return;
@@ -1898,6 +2334,7 @@ static void tgProcessar(const char* r) {
         tgGuardarMensagem(&m);
     }
     else if (tgTipo(r, "updateMessageSendFailed")) strcpy(tgAviso, "Mensagem não enviada.");
+    else if (tgTipo(r, "foundChatMessages") && strstr(r, "\"@extra\":\"historico\"")) tgProcessarMensagens(r, false);
     else if (tgTipo(r, "messages")) {
         if (strstr(r, "\"@extra\":\"historico\"")) tgProcessarMensagens(r, false);
         else if (strstr(r, "\"@extra\":\"novas\"")) tgProcessarMensagens(r, true);
@@ -1927,6 +2364,7 @@ static void tgProcessar(const char* r) {
     tgSujo = true;
 }
 
+static void tgIniciarCopia();
 static void* threadTelegram(void*) {
     signal(SIGPIPE, SIG_IGN);
     // Acima do nível 1 o TDLib grava telefone e mensagens no arquivo.
@@ -1936,9 +2374,10 @@ static void* threadTelegram(void*) {
     td_send(tgCliente, "{\"@type\":\"getOption\",\"name\":\"version\"}");
     for (;;) {
         const char* r = td_receive(1.0);
-        if (!r) continue;
         pthread_mutex_lock(&tgTrava);
-        tgProcessar(r);
+        if (r) tgProcessar(r);
+        tgAndarFila();
+        tgIniciarCopia();
         pthread_mutex_unlock(&tgTrava);
     }
     return NULL;
@@ -2091,8 +2530,19 @@ static void* threadAudio(void* argumento) {
     AVPacket* pacote = av_packet_alloc();
     AVFrame* quadro = av_frame_alloc();
     static int16_t fila[(16384 + 1024) * 2];
-    int porta = -1, naFila = 0, faixa = -1;
-    const int passo = 1024;
+    int faixa = -1;
+    extern bool appSomEmpurrar(const int16_t* estereo, int quadros, volatile bool* parar);
+    extern void appSomEsperarFim(volatile bool* parar), appSomLimpar();
+    extern AVIOContext* telegramAbrirFluxo(const char* caminho);
+    extern void telegramFecharFluxo();
+    // Ainda baixando: lê pelo fluxo, que espera o trecho que falta chegar.
+    AVIOContext* fluxo = telegramAbrirFluxo(caminho);
+    tgAudioFluxo = fluxo != NULL;
+    if (fluxo) {
+        formato = avformat_alloc_context();
+        if (formato) { formato->pb = fluxo; formato->flags |= AVFMT_FLAG_CUSTOM_IO; }
+    }
+    (void)global_uId;
 
     if (pacote && quadro && avformat_open_input(&formato, caminho, NULL, NULL) == 0 && avformat_find_stream_info(formato, NULL) >= 0) {
         for (unsigned int i = 0; i < formato->nb_streams; i++) if (formato->streams[i]->codecpar->codec_type == AVMEDIA_TYPE_AUDIO) { faixa = (int)i; break; }
@@ -2107,29 +2557,22 @@ static void* threadAudio(void* argumento) {
             if (conversor && swr_init(conversor) < 0) swr_free(&conversor);
         }
     }
-    if (conversor) porta = sceAudioOutOpen(global_uId, ORBIS_AUDIO_OUT_PORT_TYPE_MAIN, 0, passo, 48000, ORBIS_AUDIO_OUT_PARAM_FORMAT_S16_STEREO);
     extern void pausarMusicaParaVideo(), retomarMusicaAposVideo();
-    if (porta >= 0) {
+    if (conversor) {
+        // O som vai para a mistura do app (network.cpp), sem porta própria.
         pausarMusicaParaVideo();
         while (!tgAudioParar && av_read_frame(formato, pacote) >= 0) {
             if (pacote->stream_index == faixa && avcodec_send_packet(contexto, pacote) >= 0) {
                 while (!tgAudioParar && avcodec_receive_frame(contexto, quadro) >= 0) {
-                    uint8_t* saida[1] = { (uint8_t*)(fila + naFila * 2) };
+                    uint8_t* saida[1] = { (uint8_t*)fila };
                     int feitos = swr_convert(conversor, saida, 16384, (const uint8_t**)quadro->extended_data, quadro->nb_samples);
-                    if (feitos > 0) naFila += feitos;
-                    int lidos = 0;
-                    while (naFila - lidos >= passo && !tgAudioParar) { sceAudioOutOutput(porta, fila + lidos * 2); lidos += passo; }
-                    if (lidos) { memmove(fila, fila + lidos * 2, (size_t)(naFila - lidos) * 4); naFila -= lidos; }
+                    if (feitos > 0) appSomEmpurrar(fila, feitos, &tgAudioParar);
                 }
             }
             av_packet_unref(pacote);
         }
-        if (naFila > 0 && !tgAudioParar) {
-            memset(fila + naFila * 2, 0, (size_t)(passo - naFila) * 4);
-            sceAudioOutOutput(porta, fila);
-        }
-        sceAudioOutOutput(porta, NULL);
-        sceAudioOutClose(porta);
+        if (!tgAudioParar) appSomEsperarFim(&tgAudioParar);
+        else appSomLimpar();
         retomarMusicaAposVideo();
     }
     else {
@@ -2140,6 +2583,8 @@ static void* threadAudio(void* argumento) {
     if (conversor) swr_free(&conversor);
     if (contexto) avcodec_free_context(&contexto);
     if (formato) avformat_close_input(&formato);
+    else if (fluxo) avformat_free_context(formato);
+    if (tgAudioFluxo) { tgAudioFluxo = false; telegramFecharFluxo(); }
     av_frame_free(&quadro);
     av_packet_free(&pacote);
     tgAudioMensagem = 0;
@@ -2150,6 +2595,7 @@ static void* threadAudio(void* argumento) {
 
 static void tgPararAudio() {
     tgAudioParar = true;
+    if (tgAudioFluxo) tgFluxo.parar = true;   // a leitura pode estar esperando o download
     for (int i = 0; i < 100 && tgAudioRodando; i++) sceKernelUsleep(10000);
 }
 
@@ -2244,7 +2690,9 @@ static void tgAbrirNoNavegador(const char* url) {
 // O player lê daqui enquanto o TDLib baixa. Trecho que ainda não chegou espera, e um salto
 // no vídeo pede o download a partir do ponto novo.
 static int tgFluxoLer(void*, uint8_t* destino, int tamanho) {
-    for (int espera = 0; espera < 3000; espera++) {
+    // Sem limite de espera: rede lenta não pode virar fim de vídeo. Só para quando o vídeo
+    // fecha (parar) ou quando o arquivo inteiro já foi lido.
+    for (;;) {
         if (tgFluxo.parar) return AVERROR_EOF;
         pthread_mutex_lock(&tgTrava);
         long long disponivel = 0;
@@ -2260,13 +2708,14 @@ static int tgFluxoLer(void*, uint8_t* destino, int tamanho) {
             int n = disponivel < tamanho ? (int)disponivel : tamanho;
             fseek(tgFluxo.f, (long)tgFluxo.pos, SEEK_SET);
             int lidos = (int)fread(destino, 1, n, tgFluxo.f);
-            if (lidos <= 0) return AVERROR_EOF;
-            tgFluxo.pos += lidos;
-            return lidos;
+            if (lidos > 0) {
+                tgFluxo.pos += lidos;
+                return lidos;
+            }
+            clearerr(tgFluxo.f);   // o TDLib avisou antes de o trecho chegar ao disco: tenta de novo
         }
         sceKernelUsleep(20000);
     }
-    return AVERROR_EOF;
 }
 
 static int64_t tgFluxoSaltar(void*, int64_t posicao, int origem) {
@@ -2280,6 +2729,10 @@ static int64_t tgFluxoSaltar(void*, int64_t posicao, int origem) {
 
 // Devolve a leitura própria quando o player vai abrir o vídeo em andamento; nos demais, NULL.
 AVIOContext* telegramAbrirFluxo(const char* caminho) {
+    // Vídeo vindo do celular/PC ou do DLNA (network.cpp) usa o mesmo caminho do player.
+    extern AVIOContext* remotoAbrirFluxo(const char* caminho);
+    AVIOContext* remoto = remotoAbrirFluxo(caminho);
+    if (remoto) return remoto;
     if (!tgFluxo.ativo || strcmp(caminho, tgFluxo.caminho) != 0) return NULL;
     tgFluxo.f = fopen(caminho, "rb");
     unsigned char* memoria = tgFluxo.f ? (unsigned char*)av_malloc(65536) : NULL;
@@ -2291,9 +2744,11 @@ AVIOContext* telegramAbrirFluxo(const char* caminho) {
     return tgFluxo.avio;
 }
 
-void telegramPararFluxo() { if (tgFluxo.ativo) tgFluxo.parar = true; }
+void telegramPararFluxo() { extern void remotoPararFluxo(); remotoPararFluxo(); if (tgFluxo.ativo) tgFluxo.parar = true; }
 
 void telegramFecharFluxo() {
+    extern void remotoFecharFluxo();
+    remotoFecharFluxo();
     if (!tgFluxo.ativo) return;
     tgFluxo.parar = true;
     if (tgFluxo.avio) {
@@ -2429,7 +2884,18 @@ static void tgAbrirMidia(const TgMensagem* m) {
         tgEnviar("{\"@type\":\"downloadFile\",\"file_id\":%d,\"priority\":32,\"offset\":0,\"limit\":0,\"synchronous\":false}", a->id);
         return;
     }
-    tgNovoDownload(a->id, m->arquivoNome[0] ? m->arquivoNome : "Áudio", m->id);
+    // Áudio toca enquanto baixa (mesmo caminho do vídeo); para guardar: segure X > Baixar.
+    if (m->midia == TG_M_AUDIO && !tgFluxo.ativo && !tgFluxo.arquivo) {
+        tgFluxo.arquivo = a->id;
+        tgFluxo.caminho[0] = '\0';
+        tgFluxo.prefixo = 0; tgFluxo.inicio = 0; tgFluxo.total = 0;
+        tgFluxo.completo = false;
+        strcpy(tgAviso, "Carregando áudio...");
+        tgEnviar("{\"@type\":\"downloadFile\",\"file_id\":%d,\"priority\":32,\"offset\":0,\"limit\":0,\"synchronous\":false}", a->id);
+        return;
+    }
+    TgDownload* audio = tgNovoDownload(a->id, m->arquivoNome[0] ? m->arquivoNome : "Áudio", m->id);
+    if (audio) audio->iniciado = true;   // áudio para ouvir agora não espera a fila
     strcpy(tgAviso, "Baixando 0%   Options: downloads");
     tgEnviar("{\"@type\":\"downloadFile\",\"file_id\":%d,\"priority\":32,\"offset\":0,\"limit\":0,\"synchronous\":false}", a->id);
 }
@@ -2523,11 +2989,13 @@ static void tgBaixarParaPasta(const TgMensagem* m) {
     const char* ponto = strrchr(nome, '.');
     d->pkg = ponto && strcasecmp(ponto, ".pkg") == 0;
     d->salvar = true;
+    d->conversa = tgAberta;
     a->pedido = true;
     strcpy(tgAviso, d->pkg ? "PKG na fila: instala ao terminar" : "Adicionado aos downloads");
     if (a->baixado) { d->estado = TG_D_COPIAR; return; }
     d->estado = TG_D_BAIXANDO;
-    tgEnviar("{\"@type\":\"downloadFile\",\"file_id\":%d,\"priority\":16,\"offset\":0,\"limit\":0,\"synchronous\":false}", a->id);
+    d->iniciado = false;
+    tgAndarFila();
 }
 
 static void tgAbrirLink(const char* url) {
@@ -2537,27 +3005,111 @@ static void tgAbrirLink(const char* url) {
     tgEnviar("{\"@type\":\"getInternalLinkType\",\"link\":\"%s\",\"@extra\":\"link\"}", url);
 }
 
-static void tgAbrirMenu(const TgMensagem* m) {
-    tgMenuTotal = 0;
-    tgMenuLinks[tgMenuTotal++] = -2;
-    for (int i = 0; i < m->totalLinks; i++) tgMenuLinks[tgMenuTotal++] = i;
-    if (m->grande) tgMenuLinks[tgMenuTotal++] = -1;
-    tgMenuSel = 0;
-    tgMenuMensagem = m->id;
-    tgMenuAberto = tgMenuTotal > 0;
+static void tgMenuItem(int valor) {
+    if (tgMenuTotal >= tgMenuCap) {
+        int nova = tgMenuCap ? tgMenuCap * 2 : 32;
+        int* lista = (int*)realloc(tgMenuLinks, sizeof(int) * (size_t)nova);
+        if (!lista) return;
+        tgMenuLinks = lista;
+        tgMenuCap = nova;
+    }
+    tgMenuLinks[tgMenuTotal++] = valor;
 }
 
+static void tgMenuGuardarUrl(const char* url) {
+    for (int i = 0; i < tgMenuTotalUrls; i++) if (strcmp(tgMenuUrls[i], url) == 0) return;
+    if (tgMenuTotalUrls >= tgMenuCapUrls) {
+        int nova = tgMenuCapUrls ? tgMenuCapUrls * 2 : 32;
+        char (*lista)[200] = (char (*)[200])realloc(tgMenuUrls, sizeof(tgMenuUrls[0]) * (size_t)nova);
+        if (!lista) return;
+        tgMenuUrls = lista;
+        tgMenuCapUrls = nova;
+    }
+    snprintf(tgMenuUrls[tgMenuTotalUrls++], sizeof(tgMenuUrls[0]), "%s", url);
+}
+
+// Monta os itens com os links que já estão em tgMenuUrls.
+static void tgMontarMenu(const TgMensagem* m) {
+    tgMenuTotal = 0;
+    tgMenuItem(-2);
+    tgMenuItem(-3);
+    tgMenuItem(-4);
+    if (m->texto[0]) tgMenuItem(-5);
+    for (int i = 0; i < tgMenuTotalUrls; i++) tgMenuItem(i);
+    if (m->grande) tgMenuItem(-1);
+    if (tgMenuSel >= tgMenuTotal) tgMenuSel = tgMenuTotal - 1;
+}
+
+static void tgAbrirMenu(const TgMensagem* m) {
+    tgMenuTotalUrls = 0;
+    for (int i = 0; i < m->totalLinks; i++) tgMenuGuardarUrl(m->links[i]);
+    tgMenuSel = 0;
+    tgMontarMenu(m);
+    tgMenuMensagem = m->id;
+    tgMenuAberto = tgMenuTotal > 0;
+    // A mensagem guardada tem texto e links cortados: pede a inteira para listar todos.
+    tgEnviar("{\"@type\":\"getMessage\",\"chat_id\":%lld,\"message_id\":%lld,\"@extra\":\"menulinks:%lld\"}", tgAberta, m->id, m->id);
+}
+
+// Resposta do getMessage do menu: junta todos os links do texto inteiro, das palavras com link e dos botões.
+static void tgMenuLinksCompletos(const char* r, long long id) {
+    if (!tgMenuAberto || tgMenuMensagem != id || !tgTipo(r, "message")) return;
+    const TgMensagem* m = NULL;
+    for (int i = 0; i < tgTotalMensagens; i++) if (tgMensagens[i].id == id) m = &tgMensagens[i];
+    if (!m) return;
+    const char* fim = r + strlen(r);
+    const char* chave = "\"content\":{\"@type\":\"";
+    const char* conteudo = NULL;
+    for (const char* q = r; (q = tgAcha(q, fim, chave)) != NULL; q++) conteudo = q;
+    if (!conteudo) return;
+    static char texto[65536];
+    tgTexto(conteudo, fim, "\"@type\":\"formattedText\",\"text\":\"", texto, sizeof(texto));
+    static TgMensagem descarte;
+    int antes = tgMenuTotalUrls;
+    tgColetando = true;
+    tgLerLinksTexto(conteudo, fim, texto, &descarte);
+    tgColetando = false;
+    if (tgMenuTotalUrls != antes) tgMontarMenu(m);
+    tgSujo = true;
+}
+
+static char tgColarNoTeclado[1800] = "";
 static void tgAbrirTeclado(int32_t usuario, TgModoIme modo, const wchar_t* titulo, int limite) {
+    static uint16_t titulo16[80];
     OrbisImeDialogSetting param;
     memset(&param, 0, sizeof(param));
     memset(tgTextoIme, 0, sizeof(tgTextoIme));
     if (modo == TG_IME_BUSCA) memcpy(tgTextoIme, tgUltimaBusca, sizeof(tgUltimaBusca));
+    // O IME trabalha em UTF-16; o wchar_t deste build tem 4 bytes.
+    int n = 0;
+    while (titulo[n] && n < 79) { titulo16[n] = (uint16_t)titulo[n]; n++; }
+    titulo16[n] = 0;
+    if (tgColarNoTeclado[0]) {
+        uint16_t* destino = (uint16_t*)tgTextoIme;
+        int k = 0;
+        for (const char* s = tgColarNoTeclado; *s && k < limite;) {
+            uint32_t cp;
+            s += tgLerCodigo(s, &cp);
+            if (cp >= 0x10000) {
+                if (k + 2 > limite) break;
+                cp -= 0x10000;
+                destino[k++] = (uint16_t)(0xD800 + (cp >> 10));
+                destino[k++] = (uint16_t)(0xDC00 + (cp & 0x3FF));
+            }
+            else destino[k++] = (uint16_t)cp;
+        }
+        tgColarNoTeclado[0] = '\0';
+    }
     param.userId = usuario;
     param.maxTextLength = limite;
     param.inputTextBuffer = tgTextoIme;
-    param.title = titulo;
+    param.title = (wchar_t*)titulo16;
     param.type = (OrbisImeType)0;
-    if (sceImeDialogInit(&param, NULL) >= 0) { tgImeAberto = true; tgModoIme = modo; }
+    int rc = sceImeDialogInit(&param, NULL);
+    FILE* registro = fopen("/data/HyperNeiva/zip_debug_log.txt", "a");
+    if (registro) { fprintf(registro, "TG teclado modo=%d rc=%x\n", (int)modo, (unsigned)rc); fclose(registro); }
+    if (rc >= 0) { tgImeAberto = true; tgModoIme = modo; }
+    else snprintf(tgAviso, sizeof(tgAviso), "O teclado não abriu (%x).", (unsigned)rc);
 }
 
 static void tgAtualizarTeclado() {
@@ -2584,6 +3136,18 @@ static void tgAtualizarTeclado() {
             memcpy(tgUltimaBusca, tgTextoIme, sizeof(tgUltimaBusca));
             tgIniciarBusca(texto);
         }
+        else if (tgModoIme == TG_IME_PASTA) {
+            tgEnviar("{\"@type\":\"createChatFolder\",\"folder\":{\"@type\":\"chatFolder\",\"name\":{\"@type\":\"chatFolderName\",\"text\":{\"@type\":\"formattedText\",\"text\":\"%s\",\"entities\":[]},\"animate_custom_emoji\":false},"
+                "\"icon\":null,\"color_id\":-1,\"is_shareable\":false,\"pinned_chat_ids\":[],\"included_chat_ids\":[%lld],\"excluded_chat_ids\":[],\"exclude_muted\":false,\"exclude_read\":false,"
+                "\"exclude_archived\":false,\"include_contacts\":false,\"include_non_contacts\":false,\"include_bots\":false,\"include_groups\":false,\"include_channels\":false}}", texto, tgChatDaPasta);
+            strcpy(tgAviso, "Pasta criada.");
+        }
+        else if (tgModoIme == TG_IME_GRUPO || tgModoIme == TG_IME_CANAL) {
+            // A resposta é o chat novo, que o tratamento de links abre.
+            tgEnviar("{\"@type\":\"createNewSupergroupChat\",\"title\":\"%s\",\"is_forum\":false,\"is_channel\":%s,\"description\":\"\",\"location\":null,\"message_auto_delete_time\":0,\"for_import\":false,\"@extra\":\"link\"}",
+                texto, tgModoIme == TG_IME_CANAL ? "true" : "false");
+            strcpy(tgAviso, tgModoIme == TG_IME_CANAL ? "Criando canal..." : "Criando grupo...");
+        }
         else {
             if (tgModoIme == TG_IME_TELEFONE) tgEnviar("{\"@type\":\"setAuthenticationPhoneNumber\",\"phone_number\":\"%s\"}", texto);
             else if (tgModoIme == TG_IME_CODIGO) tgEnviar("{\"@type\":\"checkAuthenticationCode\",\"code\":\"%s\"}", texto);
@@ -2608,6 +3172,7 @@ static void telegramFecharFluxoTravado() {
 // Recarrega a janela de mensagens: em volta de uma mensagem, ou a partir da mais nova.
 static void tgLimparJanela() {
     tgTotalMensagens = 0;
+    tgMaisAntiga = 0;
     tgRolagem = 0;
     tgSelId = 0;
     tgAlvo = 0;
@@ -2621,6 +3186,7 @@ static void tgLimparJanela() {
 static void tgCarregarEm(long long mensagem) {
     tgLimparJanela();
     tgAlvo = mensagem;
+    if (tgFiltro) { tgAlvo = 0; tgPedirHistorico(0); return; }   // filtrado: sempre das mais novas
     if (mensagem) {
         tgPedidosHistorico = 1;
         tgPedindoHistorico = true;
@@ -2632,6 +3198,7 @@ static void tgCarregarEm(long long mensagem) {
 // 1 << 20 é a primeira mensagem possível no servidor.
 static void tgCarregarInicio() {
     tgLimparJanela();
+    if (tgFiltro) { tgPedirHistorico(0); return; }
     tgIrPrimeira = true;
     tgPedindoHistorico = true;
     tgEnviar("{\"@type\":\"getChatHistory\",\"chat_id\":%lld,\"from_message_id\":1048576,\"offset\":-49,\"limit\":50,\"only_local\":false,\"@extra\":\"historico\"}", tgAberta);
@@ -2645,6 +3212,7 @@ static void tgAbrirConversa(long long id, long long mensagem) {
         tgEnviar("{\"@type\":\"closeChat\",\"chat_id\":%lld}", tgAberta);
     }
     tgAberta = id;
+    tgFiltro = 0;
     tgPrimeiraData = 0;
     tgBarraAtiva = false;
     tgTela = TG_MENSAGENS;
@@ -2707,11 +3275,388 @@ static void tgControlesBusca(int passo, bool xis, bool bolinha, bool triangulo, 
 }
 
 // Devolve true quando o usuário sai do Telegram.
+// ---------- Seleção de várias mensagens ----------
+static void tgMarcar(long long id) {
+    for (int k = 0; k < tgTotalMarcadas; k++) {
+        if (tgMarcadas[k] != id) continue;
+        tgMarcadas[k] = tgMarcadas[--tgTotalMarcadas];
+        return;
+    }
+    if (tgTotalMarcadas < 100) tgMarcadas[tgTotalMarcadas++] = id;
+    else strcpy(tgAviso, "Máximo de 100 mensagens.");
+}
+
+static void tgSairSelecao() {
+    tgSelecionando = false;
+    tgSelMenuAberto = false;
+    tgConfirmarApagar = false;
+    tgTotalMarcadas = 0;
+}
+
+// Lista "[1,2,3]" em ordem de envio (a ordem das mensagens na conversa).
+static void tgListaMarcadas(char* saida, size_t tamanho) {
+    size_t n = (size_t)snprintf(saida, tamanho, "[");
+    bool primeira = true;
+    for (int i = 0; i < tgTotalMensagens && n + 24 < tamanho; i++) {
+        for (int k = 0; k < tgTotalMarcadas; k++) {
+            if (tgMarcadas[k] != tgMensagens[i].id) continue;
+            n += (size_t)snprintf(saida + n, tamanho - n, primeira ? "%lld" : ",%lld", tgMensagens[i].id);
+            primeira = false;
+        }
+    }
+    snprintf(saida + n, tamanho - n, "]");
+}
+
+static void tgCopiarMarcadas() {
+    size_t n = 0;
+    tgCopiado[0] = '\0';
+    for (int i = 0; i < tgTotalMensagens; i++) {
+        bool marcada = false;
+        for (int k = 0; k < tgTotalMarcadas && !marcada; k++) marcada = tgMarcadas[k] == tgMensagens[i].id;
+        if (!marcada || !tgMensagens[i].texto[0]) continue;
+        n += (size_t)snprintf(tgCopiado + n, sizeof(tgCopiado) - n, n ? "\n%s" : "%s", tgMensagens[i].texto);
+        if (n >= sizeof(tgCopiado) - 1) break;
+    }
+    strcpy(tgAviso, tgCopiado[0] ? "Texto copiado. Quadrado > Colar texto copiado" : "As mensagens escolhidas não têm texto.");
+}
+
+static void tgControlesSelMenu(bool xis, bool bolinha, int passo) {
+    if (bolinha) { tgSelMenuAberto = false; tgConfirmarApagar = false; return; }
+    if (passo) { tgSelMenuSel = (tgSelMenuSel + passo + 3) % 3; tgConfirmarApagar = false; return; }
+    if (!xis) return;
+    if (tgTotalMarcadas == 0) { strcpy(tgAviso, "Nenhuma mensagem marcada."); tgSelMenuAberto = false; return; }
+    if (tgSelMenuSel == 0) {
+        tgEncaminharMsg = -1;   // várias: a lista sai de tgMarcadas
+        tgEncaminharDe = tgAberta;
+        tgSelMenuAberto = false;
+        tgSelecionando = false;
+    }
+    else if (tgSelMenuSel == 1) {
+        if (!tgConfirmarApagar) { tgConfirmarApagar = true; return; }
+        static char lista[2600];
+        tgListaMarcadas(lista, sizeof(lista));
+        tgEnviar("{\"@type\":\"deleteMessages\",\"chat_id\":%lld,\"message_ids\":%s,\"revoke\":true}", tgAberta, lista);
+        snprintf(tgAviso, sizeof(tgAviso), "%d mensagem(ns) apagada(s).", tgTotalMarcadas);
+        tgSairSelecao();
+    }
+    else {
+        tgCopiarMarcadas();
+        tgSairSelecao();
+    }
+}
+
+// ---------- Enviar arquivo ----------
+static void tgSeletorListar() {
+    tgSeletorTotal = 0;
+    tgSeletorSel = 0;
+    DIR* pasta = opendir(tgSeletorPasta);
+    if (!pasta) return;
+    struct dirent* e;
+    while ((e = readdir(pasta)) != NULL && tgSeletorTotal < 300) {
+        if (e->d_name[0] == '.' || strlen(e->d_name) >= sizeof(tgSeletorItens[0].nome)) continue;
+        TgEntrada* t = &tgSeletorItens[tgSeletorTotal++];
+        snprintf(t->nome, sizeof(t->nome), "%s", e->d_name);
+        t->pasta = e->d_type == DT_DIR;
+    }
+    closedir(pasta);
+    // Pastas primeiro, depois arquivos, em ordem alfabética.
+    for (int i = 1; i < tgSeletorTotal; i++) {
+        TgEntrada atual = tgSeletorItens[i];
+        int j = i - 1;
+        while (j >= 0 && (tgSeletorItens[j].pasta < atual.pasta ||
+               (tgSeletorItens[j].pasta == atual.pasta && strcasecmp(tgSeletorItens[j].nome, atual.nome) > 0))) {
+            tgSeletorItens[j + 1] = tgSeletorItens[j];
+            j--;
+        }
+        tgSeletorItens[j + 1] = atual;
+    }
+}
+
+static void tgJsonEscapar(const char* entrada, char* saida, size_t tamanho) {
+    size_t n = 0;
+    for (const char* c = entrada; *c && n + 3 < tamanho; c++) {
+        if (*c == '"' || *c == '\\') saida[n++] = '\\';
+        saida[n++] = *c;
+    }
+    saida[n] = '\0';
+}
+
+static void tgControlesSeletor(int passo, bool xis, bool bolinha, bool triangulo) {
+    if (triangulo) { tgSeletorAberto = false; return; }
+    if (bolinha) {
+        char* barra = strrchr(tgSeletorPasta, '/');
+        if (!barra || strcmp(tgSeletorPasta, "/") == 0) { tgSeletorAberto = false; return; }
+        if (barra == tgSeletorPasta) tgSeletorPasta[1] = '\0';
+        else *barra = '\0';
+        tgSeletorListar();
+        return;
+    }
+    if (passo && tgSeletorTotal > 0) { tgSeletorSel = (tgSeletorSel + passo + tgSeletorTotal) % tgSeletorTotal; return; }
+    if (!xis || tgSeletorTotal == 0) return;
+    const TgEntrada* e = &tgSeletorItens[tgSeletorSel];
+    char caminho[420];
+    snprintf(caminho, sizeof(caminho), "%s/%s", strcmp(tgSeletorPasta, "/") == 0 ? "" : tgSeletorPasta, e->nome);
+    if (e->pasta) {
+        snprintf(tgSeletorPasta, sizeof(tgSeletorPasta), "%s", caminho);
+        tgSeletorListar();
+        return;
+    }
+    char escapado[840];
+    tgJsonEscapar(caminho, escapado, sizeof(escapado));
+    tgEnviar("{\"@type\":\"sendMessage\",\"chat_id\":%lld,\"input_message_content\":{\"@type\":\"inputMessageDocument\",\"document\":{\"@type\":\"inputFileLocal\",\"path\":\"%s\"}}}", tgAberta, escapado);
+    tgSelId = 0;
+    tgSeletorAberto = false;
+    snprintf(tgAviso, sizeof(tgAviso), "Enviando %.80s...", e->nome);
+}
+
+// ---------- Gravar áudio: microfone a 16 kHz, Opus em OGG, enviado como mensagem de voz ----------
+static int32_t tgGravacaoUsuario = 0;
+static long long tgGravacaoConversa = 0;
+
+static uint32_t tgOggCrc(const unsigned char* dados, int n) {
+    static uint32_t tabela[256];
+    static bool pronta = false;
+    if (!pronta) {
+        for (uint32_t i = 0; i < 256; i++) {
+            uint32_t r = i << 24;
+            for (int k = 0; k < 8; k++) r = (r & 0x80000000u) ? (r << 1) ^ 0x04C11DB7u : (r << 1);
+            tabela[i] = r;
+        }
+        pronta = true;
+    }
+    uint32_t crc = 0;
+    for (int i = 0; i < n; i++) crc = (crc << 8) ^ tabela[((crc >> 24) & 255) ^ dados[i]];
+    return crc;
+}
+
+// Uma página OGG com um pacote. tipo: 2 primeira página, 4 última.
+static void tgOggPagina(FILE* f, const unsigned char* pacote, int tamanho, int tipo, uint64_t granulo, uint32_t sequencia) {
+    static unsigned char pagina[27 + 255 + 8192];
+    int segmentos = tamanho / 255 + 1;
+    memcpy(pagina, "OggS", 4);
+    pagina[4] = 0;
+    pagina[5] = (unsigned char)tipo;
+    for (int i = 0; i < 8; i++) pagina[6 + i] = (unsigned char)(granulo >> (8 * i));
+    const uint32_t serie = 0x484E5654u;
+    for (int i = 0; i < 4; i++) {
+        pagina[14 + i] = (unsigned char)(serie >> (8 * i));
+        pagina[18 + i] = (unsigned char)(sequencia >> (8 * i));
+        pagina[22 + i] = 0;
+    }
+    pagina[26] = (unsigned char)segmentos;
+    int resto = tamanho;
+    for (int i = 0; i < segmentos; i++) { pagina[27 + i] = (unsigned char)(resto >= 255 ? 255 : resto); resto -= 255; }
+    memcpy(pagina + 27 + segmentos, pacote, (size_t)tamanho);
+    int total = 27 + segmentos + tamanho;
+    uint32_t crc = tgOggCrc(pagina, total);
+    for (int i = 0; i < 4; i++) pagina[22 + i] = (unsigned char)(crc >> (8 * i));
+    fwrite(pagina, 1, (size_t)total, f);
+}
+
+static void* threadGravar(void*) {
+    typedef int (*AbrirMic)(int32_t, uint32_t, uint32_t, uint32_t, uint32_t, uint32_t);
+    typedef int (*LerMic)(int32_t, void*);
+    typedef int (*FecharMic)(int32_t);
+    int mic = ((AbrirMic)sceAudioInOpen)(tgGravacaoUsuario, 0, 0, 256, 16000, 0);
+    if (mic < 0) mic = ((AbrirMic)sceAudioInOpen)(255, 0, 0, 256, 16000, 0);
+    int erroMic = mic;
+    int erro = 0;
+    OpusEncoder* codificador = mic >= 0 ? opus_encoder_create(16000, 1, 2048 /* OPUS_APPLICATION_VOIP */, &erro) : NULL;
+    char caminho[160];
+    snprintf(caminho, sizeof(caminho), TELEGRAM_PASTA "/voz_%llu.ogg", (unsigned long long)sceKernelGetProcessTime());
+    FILE* f = codificador ? fopen(caminho, "wb") : NULL;
+    if (!f) {
+        if (codificador) opus_encoder_destroy(codificador);
+        if (mic >= 0) ((FecharMic)sceAudioInClose)(mic);
+        pthread_mutex_lock(&tgTrava);
+        if (mic < 0) snprintf(tgAviso, sizeof(tgAviso), "Microfone não encontrado (%x). Ligue um fone com microfone no controle.", (unsigned)erroMic);
+        else snprintf(tgAviso, sizeof(tgAviso), "Não foi possível gravar (opus %d).", erro);
+        pthread_mutex_unlock(&tgTrava);
+        tgGravando = false;
+        tgSujo = true;
+        return NULL;
+    }
+    int atraso = 0;
+    opus_encoder_ctl(codificador, 4027 /* OPUS_GET_LOOKAHEAD */, &atraso);
+    int preSalto = atraso * 3;   // em amostras de 48 kHz
+    unsigned char cabecalho[19] = { 'O', 'p', 'u', 's', 'H', 'e', 'a', 'd', 1, 1 };
+    cabecalho[10] = (unsigned char)(preSalto & 255); cabecalho[11] = (unsigned char)(preSalto >> 8);
+    cabecalho[12] = 16000 & 255; cabecalho[13] = (16000 >> 8) & 255; cabecalho[14] = 0; cabecalho[15] = 0;
+    cabecalho[16] = 0; cabecalho[17] = 0; cabecalho[18] = 0;
+    uint32_t sequencia = 0;
+    tgOggPagina(f, cabecalho, 19, 2, 0, sequencia++);
+    unsigned char etiquetas[26];
+    memcpy(etiquetas, "OpusTags", 8);
+    etiquetas[8] = 10; etiquetas[9] = etiquetas[10] = etiquetas[11] = 0;
+    memcpy(etiquetas + 12, "HyperNeiva", 10);
+    memset(etiquetas + 22, 0, 4);
+    tgOggPagina(f, etiquetas, 26, 0, 0, sequencia++);
+
+    static int16_t lido[256], quadro[320];
+    static unsigned char pacotes[2][4000];
+    int noQuadro = 0, pendente = -1, tamanhoPendente = 0, atual = 0, errosSeguidos = 0;
+    uint64_t granulo = (uint64_t)preSalto, granuloPendente = 0, amostras = 0;
+    while (!tgGravacaoParar && !tgGravacaoCancelar && amostras < 16000ULL * 600) {
+        int n = ((LerMic)sceAudioInInput)(mic, lido);
+        if (n < 0) { if (++errosSeguidos > 300) break; sceKernelUsleep(5000); continue; }
+        errosSeguidos = 0;
+        if (n == 0 || n > 256) n = 256;
+        for (int i = 0; i < n; i++) {
+            quadro[noQuadro++] = lido[i];
+            if (noQuadro < 320) continue;
+            noQuadro = 0;
+            int t = opus_encode(codificador, quadro, 320, pacotes[atual], 4000);
+            if (t <= 0) continue;
+            granulo += 960;
+            if (pendente >= 0) tgOggPagina(f, pacotes[pendente], tamanhoPendente, 0, granuloPendente, sequencia++);
+            pendente = atual; tamanhoPendente = t; granuloPendente = granulo; atual ^= 1;
+        }
+        amostras += (uint64_t)n;
+        int segundos = (int)(amostras / 16000);
+        if (segundos != tgGravacaoSegundos) { tgGravacaoSegundos = segundos; tgSujo = true; }
+    }
+    if (pendente >= 0) tgOggPagina(f, pacotes[pendente], tamanhoPendente, 4, granuloPendente, sequencia++);
+    fclose(f);
+    opus_encoder_destroy(codificador);
+    ((FecharMic)sceAudioInClose)(mic);
+    pthread_mutex_lock(&tgTrava);
+    if (tgGravacaoCancelar || amostras < 8000) {
+        remove(caminho);
+        strcpy(tgAviso, tgGravacaoCancelar ? "Gravação cancelada." : "Áudio muito curto.");
+    }
+    else {
+        tgEnviar("{\"@type\":\"sendMessage\",\"chat_id\":%lld,\"input_message_content\":{\"@type\":\"inputMessageVoiceNote\",\"voice_note\":{\"@type\":\"inputFileLocal\",\"path\":\"%s\"},\"duration\":%d,\"waveform\":\"\"}}",
+                 tgGravacaoConversa, caminho, (int)(amostras / 16000));
+        tgSelId = 0;
+        strcpy(tgAviso, "Enviando áudio...");
+    }
+    pthread_mutex_unlock(&tgTrava);
+    tgGravando = false;
+    tgSujo = true;
+    return NULL;
+}
+
+static void tgIniciarGravacao(int32_t usuario) {
+    if (tgGravando || !tgAberta) return;
+    tgGravacaoUsuario = usuario;
+    tgGravacaoConversa = tgAberta;
+    tgGravacaoParar = false;
+    tgGravacaoCancelar = false;
+    tgGravacaoSegundos = 0;
+    tgGravando = true;
+    pthread_t t;
+    pthread_attr_t atributos;
+    pthread_attr_init(&atributos);
+    pthread_attr_setstacksize(&atributos, 512 * 1024);
+    if (pthread_create(&t, &atributos, threadGravar, NULL) == 0) pthread_detach(t);
+    else { tgGravando = false; strcpy(tgAviso, "Não foi possível gravar."); }
+    pthread_attr_destroy(&atributos);
+}
+
+// ---- Ações dos menus do Quadrado (com a trava pega) ----
+static void tgSilenciar(TgConversa* c) {
+    if (!c) return;
+    bool mudo = !c->mudo;
+    tgEnviar("{\"@type\":\"setChatNotificationSettings\",\"chat_id\":%lld,\"notification_settings\":{\"@type\":\"chatNotificationSettings\",\"use_default_mute_for\":false,\"mute_for\":%d,"
+        "\"use_default_sound\":true,\"sound_id\":0,\"use_default_show_preview\":true,\"show_preview\":true,\"use_default_mute_stories\":true,\"mute_stories\":false,"
+        "\"use_default_story_sound\":true,\"story_sound_id\":0,\"use_default_show_story_poster\":true,\"show_story_poster\":true,"
+        "\"use_default_disable_pinned_message_notifications\":true,\"disable_pinned_message_notifications\":false,"
+        "\"use_default_disable_mention_notifications\":true,\"disable_mention_notifications\":false}}", c->id, mudo ? 2147483647 : 0);
+    c->mudo = mudo;
+    strcpy(tgAviso, mudo ? "Conversa silenciada." : "Notificações ativadas.");
+}
+static void tgArquivar(TgConversa* c) {
+    if (!c) return;
+    bool arquivada = c->ordens[1] != 0;
+    tgEnviar("{\"@type\":\"addChatToList\",\"chat_id\":%lld,\"chat_list\":{\"@type\":\"%s\"}}", c->id, arquivada ? "chatListMain" : "chatListArchive");
+    strcpy(tgAviso, arquivada ? "Conversa desarquivada." : "Conversa arquivada.");
+}
+static void tgAplicarFiltro() {
+    tgLimparJanela();
+    tgPedirHistorico(0);
+    snprintf(tgAviso, sizeof(tgAviso), "Mostrando: %s", tgNomesFiltro[tgFiltro]);
+}
+static void tgExecutarAcao(int item, int32_t usuario) {
+    TgConversa* c = tgConversa(tgAberta);
+    if (item != TG_A_SAIR) tgConfirmar = false;
+    switch (item) {
+    case TG_A_ESCREVER: tgAcoesAberto = false; tgAbrirTeclado(usuario, TG_IME_MENSAGEM, L"Mensagem", 500); break;
+    case TG_A_ARQUIVO: tgAcoesAberto = false; tgSeletorAberto = true; tgSeletorListar(); break;
+    case TG_A_GRAVAR: tgAcoesAberto = false; tgIniciarGravacao(usuario); break;
+    case TG_A_COLAR:
+        tgAcoesAberto = false;
+        snprintf(tgColarNoTeclado, sizeof(tgColarNoTeclado), "%s", tgCopiado);
+        tgAbrirTeclado(usuario, TG_IME_MENSAGEM, L"Mensagem", 500);
+        break;
+    case TG_A_FILTRO: tgFiltro = (tgFiltro + 1) % TG_TOTAL_FILTROS; tgAplicarFiltro(); break;
+    case TG_A_MUDO: tgSilenciar(c); break;
+    case TG_A_LIDO:
+        if (tgTotalMensagens > 0) tgMarcarLida(tgMensagens[tgTotalMensagens - 1].id);
+        tgEnviar("{\"@type\":\"readAllChatMentions\",\"chat_id\":%lld}", tgAberta);
+        tgEnviar("{\"@type\":\"toggleChatIsMarkedAsUnread\",\"chat_id\":%lld,\"is_marked_as_unread\":false}", tgAberta);
+        if (c) c->naoLidas = 0;
+        strcpy(tgAviso, "Marcada como lida.");
+        break;
+    case TG_A_ARQUIVAR: tgArquivar(c); break;
+    case TG_A_ENTRAR: tgEnviar("{\"@type\":\"joinChat\",\"chat_id\":%lld}", tgAberta); strcpy(tgAviso, "Entrando..."); tgAcoesAberto = false; break;
+    case TG_A_SAIR:
+        if (!tgConfirmar) { tgConfirmar = true; break; }
+        tgConfirmar = false;
+        tgAcoesAberto = false;
+        tgEnviar("{\"@type\":\"leaveChat\",\"chat_id\":%lld}", tgAberta);
+        tgFecharConversa();
+        strcpy(tgAviso, "Você saiu.");
+        break;
+    }
+}
+static void tgExecutarLista(int item, int32_t usuario) {
+    TgConversa* c = tgConversaMarcadaNaLista();
+    if (item != TG_L_SAIR && item != TG_L_APAGAR_PASTA) tgConfirmar = false;
+    if (item >= TG_L_PASTA && item < TG_L_NOVA_PASTA) {
+        if (c) {
+            tgEnviar("{\"@type\":\"addChatToList\",\"chat_id\":%lld,\"chat_list\":{\"@type\":\"chatListFolder\",\"chat_folder_id\":%d}}", c->id, tgPastas[item].id);
+            snprintf(tgAviso, sizeof(tgAviso), "Adicionada à pasta %.60s.", tgPastas[item].nome);
+        }
+        tgListaMenuAberto = false;
+        return;
+    }
+    switch (item) {
+    case TG_L_NOVA_PASTA: tgListaMenuAberto = false; tgChatDaPasta = c ? c->id : 0; tgAbrirTeclado(usuario, TG_IME_PASTA, L"Nome da pasta", 12); break;
+    case TG_L_APAGAR_PASTA:
+        if (!tgConfirmar) { tgConfirmar = true; break; }
+        tgConfirmar = false;
+        tgListaMenuAberto = false;
+        if (tgAba >= 1 && tgAba <= tgTotalPastas) {
+            tgEnviar("{\"@type\":\"deleteChatFolder\",\"chat_folder_id\":%d,\"leave_chat_ids\":[]}", tgPastas[tgAba - 1].id);
+            snprintf(tgAviso, sizeof(tgAviso), "Pasta %.60s apagada.", tgPastas[tgAba - 1].nome);
+            tgAba = 0;
+        }
+        break;
+    case TG_L_GRUPO: tgListaMenuAberto = false; tgAbrirTeclado(usuario, TG_IME_GRUPO, L"Nome do grupo", 128); break;
+    case TG_L_CANAL: tgListaMenuAberto = false; tgAbrirTeclado(usuario, TG_IME_CANAL, L"Nome do canal", 128); break;
+    case TG_L_MUDO: tgSilenciar(c); break;
+    case TG_L_ARQUIVAR: tgArquivar(c); tgListaMenuAberto = false; break;
+    case TG_L_SAIR:
+        if (!tgConfirmar) { tgConfirmar = true; break; }
+        tgConfirmar = false;
+        tgListaMenuAberto = false;
+        if (c) { tgEnviar("{\"@type\":\"leaveChat\",\"chat_id\":%lld}", c->id); snprintf(tgAviso, sizeof(tgAviso), "Você saiu de %.60s.", c->titulo); }
+        break;
+    }
+}
+
 bool telegramControles(uint32_t botoes, uint32_t antigos, int32_t usuario) {
     static int segurado = 0;
+    extern bool videoRodando, video_minimizado;
     tgAbrirPendente();
     if (tgImeAberto) return false;
     uint32_t novos = botoes & ~antigos;
+    if (tgGravando) {
+        if (novos & ORBIS_PAD_BUTTON_CROSS) tgGravacaoParar = true;
+        else if (novos & ORBIS_PAD_BUTTON_CIRCLE) tgGravacaoCancelar = true;
+        tgSujo = true;
+        return false;
+    }
     if (tgTrocandoVideo) {
         if ((novos & ORBIS_PAD_BUTTON_CIRCLE) || ++tgTrocaEspera > 60 * 40) tgCancelarTroca();
         return false;
@@ -2735,12 +3680,20 @@ bool telegramControles(uint32_t botoes, uint32_t antigos, int32_t usuario) {
     bool xis = novos & ORBIS_PAD_BUTTON_CROSS, bolinha = novos & ORBIS_PAD_BUTTON_CIRCLE;
     bool triangulo = novos & ORBIS_PAD_BUTTON_TRIANGLE, quadrado = novos & ORBIS_PAD_BUTTON_SQUARE;
     int aba = (novos & ORBIS_PAD_BUTTON_R1) ? 1 : (novos & ORBIS_PAD_BUTTON_L1) ? -1 : 0;
+    {
+        // L1/R1 trocam de vídeo no player (dois toques). Logo depois de o vídeo fechar ou enquanto
+        // o próximo carrega, o toque que sobrou não pode levar a conversa ao começo ou ao fim.
+        static int semVideo = 0;
+        if ((videoRodando && !video_minimizado) || tgPendente || tgAbrirAgora || tgTrocandoVideo) semVideo = 0;
+        else if (semVideo < 1000) semVideo++;
+        if (semVideo < 90) aba = 0;
+    }
 
     // Na conversa o X decide ao soltar: toque faz a ação da mensagem, segurar abre as opções.
     static int xTempo = 0;
     static bool xNaConversa = false;
     bool xCurto = false, xLongo = false;
-    if (xis && tgTela == TG_MENSAGENS && !tgVisor && !tgMenuAberto && !tgEmBusca && !tgFilaAberta) { xNaConversa = true; xTempo = 0; }
+    if (xis && tgTela == TG_MENSAGENS && !tgVisor && !tgMenuAberto && !tgEmBusca && !tgFilaAberta && !tgAcoesAberto && !tgSeletorAberto && !tgEncaminharMsg && !tgSelecionando && !tgSelMenuAberto) { xNaConversa = true; xTempo = 0; }
     if (botoes & ORBIS_PAD_BUTTON_CROSS) {
         if (xNaConversa && ++xTempo == 30) xLongo = true;
     }
@@ -2787,10 +3740,12 @@ bool telegramControles(uint32_t botoes, uint32_t antigos, int32_t usuario) {
         else if (xis && tgTotalDownloads > 0) {
             TgDownload* d = &tgDownloads[tgFilaSel];
             if (d->estado == TG_D_BAIXANDO) {
-                tgEnviar("{\"@type\":\"cancelDownloadFile\",\"file_id\":%d,\"only_if_pending\":false}", d->arquivo);
-                if (tgPendente == d->arquivo) { tgPendente = 0; tgAviso[0] = '\0'; }
-                TgArquivo* a = tgArquivo(d->arquivo);
-                if (a) a->pedido = false;
+                if (d->arquivo > 0) {
+                    tgEnviar("{\"@type\":\"cancelDownloadFile\",\"file_id\":%d,\"only_if_pending\":false}", d->arquivo);
+                    if (tgPendente == d->arquivo) { tgPendente = 0; tgAviso[0] = '\0'; }
+                    TgArquivo* a = tgArquivo(d->arquivo);
+                    if (a) a->pedido = false;
+                }
                 tgRemoverDownload(tgFilaSel);
             }
             else if (d->estado >= TG_D_PRONTO) tgRemoverDownload(tgFilaSel);
@@ -2814,14 +3769,61 @@ bool telegramControles(uint32_t botoes, uint32_t antigos, int32_t usuario) {
             int opcao = tgMenuLinks[tgMenuSel];
             tgMenuAberto = false;
             if (opcao == -2) { tgResponderA = m->id; tgAbrirTeclado(usuario, TG_IME_MENSAGEM, L"Responder", 500); }
+            else if (opcao == -3) { tgEncaminharMsg = m->id; tgEncaminharDe = tgAberta; }
+            else if (opcao == -4) { tgSelecionando = true; tgTotalMarcadas = 0; tgMarcar(m->id); }
+            else if (opcao == -5) {
+                snprintf(tgCopiado, sizeof(tgCopiado), "%s", m->texto);
+                strcpy(tgAviso, "Texto copiado. Quadrado > Colar texto copiado");
+            }
             else if (opcao < 0) tgBaixarParaPasta(m);
-            else tgAbrirLink(m->links[opcao]);
+            else if (opcao < tgMenuTotalUrls) tgAbrirLink(tgMenuUrls[opcao]);
+        }
+    }
+    else if (tgAcoesAberto) {
+        int itens[16], total = tgAcoesItens(itens);
+        if (bolinha || quadrado) { tgAcoesAberto = false; tgConfirmar = false; }
+        else if (passo) { tgAcoesSel = (tgAcoesSel + passo + total) % total; tgConfirmar = false; }
+        else if (xis && tgAcoesSel < total) tgExecutarAcao(itens[tgAcoesSel], usuario);
+    }
+    else if (tgListaMenuAberto) {
+        tgOrdenarConversas();
+        int itens[32], total = tgListaItens(itens);
+        if (bolinha || quadrado) { tgListaMenuAberto = false; tgConfirmar = false; }
+        else if (passo) { tgListaMenuSel = (tgListaMenuSel + passo + total) % total; tgConfirmar = false; }
+        else if (xis && tgListaMenuSel < total) tgExecutarLista(itens[tgListaMenuSel], usuario);
+    }
+    else if (tgSelMenuAberto) tgControlesSelMenu(xis, bolinha, passo);
+    else if (tgSelecionando && tgTela == TG_MENSAGENS) {
+        if (bolinha) { tgSairSelecao(); strcpy(tgAviso, "Seleção cancelada."); }
+        else if (passo) tgMoverSelecao(passo);
+        else if (xis && tgTotalMensagens > 0) tgMarcar(tgMensagens[tgIndiceSelecionado()].id);
+        else if (quadrado) { tgSelMenuAberto = true; tgSelMenuSel = 0; tgConfirmarApagar = false; }
+    }
+    else if (tgSeletorAberto) tgControlesSeletor(passo, xis, bolinha, triangulo);
+    else if (tgEncaminharMsg) {
+        tgOrdenarConversas();
+        if (bolinha) { if (tgEncaminharMsg == -1) tgSairSelecao(); tgEncaminharMsg = 0; }
+        else if (passo && tgVisiveis > 0) {
+            tgSelecao = (tgSelecao + passo + tgVisiveis) % tgVisiveis;
+            tgOrdenarConversas();
+            if (tgSelecao >= tgVisiveis - 5) tgCarregarConversas();
+        }
+        else if (xis && tgVisiveis > 0) {
+            long long destino = tgConversas[tgIndice[tgSelecao]].id;
+            static char lista[2600];
+            if (tgEncaminharMsg == -1) tgListaMarcadas(lista, sizeof(lista));
+            else snprintf(lista, sizeof(lista), "[%lld]", tgEncaminharMsg);
+            tgEnviar("{\"@type\":\"forwardMessages\",\"chat_id\":%lld,\"from_chat_id\":%lld,\"message_ids\":%s,\"send_copy\":false,\"remove_caption\":false}", destino, tgEncaminharDe, lista);
+            if (tgEncaminharMsg == -1) tgSairSelecao();
+            tgEncaminharMsg = 0;
+            const TgConversa* c = tgConversaPorId(destino);
+            snprintf(tgAviso, sizeof(tgAviso), "Encaminhada para %.60s", c ? c->titulo : "a conversa");
         }
     }
     else if (tgEmBusca) tgControlesBusca(passo, xis, bolinha, triangulo, usuario);
     else if (tgTela == TG_MENSAGENS) {
-        if (bolinha) tgFecharConversa();
-        else if (quadrado) tgAbrirTeclado(usuario, TG_IME_MENSAGEM, L"Mensagem", 500);
+        if (bolinha) { tgSairSelecao(); tgFecharConversa(); }
+        else if (quadrado) { tgAcoesAberto = true; tgAcoesSel = 0; tgConfirmar = false; }
         else if (triangulo) tgAbrirTeclado(usuario, TG_IME_BUSCA, L"Pesquisar nesta conversa", 100);
         else if (passo) tgMoverSelecao(passo);
         else if (aba < 0) tgCarregarInicio();
@@ -2840,6 +3842,7 @@ bool telegramControles(uint32_t botoes, uint32_t antigos, int32_t usuario) {
     else if (tgTela == TG_CONVERSAS) {
         tgOrdenarConversas();
         if (bolinha) sair = true;
+        else if (quadrado) { tgListaMenuAberto = true; tgListaMenuSel = 0; tgConfirmar = false; }
         else if (triangulo) tgAbrirTeclado(usuario, TG_IME_BUSCA, L"Pesquisar", 100);
         else if (aba) {
             // Depois da primeira e da última aba fica a fila de downloads.
@@ -2880,6 +3883,16 @@ void renderizarTelegram(uint32_t* p) {
             tgVisorY -= (ly > 30 || ly < -30) ? ly / 4 : 0;
             tgSujo = true;
         }
+    }
+    {
+        static char visto[160] = "";
+        static uint64_t desde = 0;
+        uint64_t agora = tgAgoraMs();
+        pthread_mutex_lock(&tgTrava);
+        if (!tgAviso[0]) visto[0] = '\0';
+        else if (strcmp(visto, tgAviso) != 0) { snprintf(visto, sizeof(visto), "%s", tgAviso); desde = agora; }
+        else if (!strchr(tgAviso, '%') && agora - desde > 5000) { tgAviso[0] = '\0'; visto[0] = '\0'; tgSujo = true; }
+        pthread_mutex_unlock(&tgTrava);
     }
     if (!tgQuadro) tgQuadro = (uint32_t*)malloc(1920 * 1080 * 4);
     if (!tgQuadro) return;
@@ -2923,6 +3936,26 @@ static void iniciarTelegram() {
         if (sceSystemServiceParamGetInt(ORBIS_SYSTEM_SERVICE_PARAM_ID_TIME_ZONE, &fuso) == 0 && fuso >= -720 && fuso <= 840) tgFusoMinutos = fuso;
         if (sceSystemServiceParamGetInt((OrbisSystemServiceParamId)5, &verao) == 0 && verao == 1) tgFusoMinutos += 60;
         tgAbrirEmojis("/app0/assets/emoji.pack");
+        if (!tgEmojis) {
+            // Com o jailbreak o app enxerga a raiz real: o pacote fica em /mnt/sandbox/pfsmnt/<ID>-app0.
+            DIR* montagens = opendir("/mnt/sandbox/pfsmnt");
+            struct dirent* e;
+            while (montagens && !tgEmojis && (e = readdir(montagens)) != NULL) {
+                size_t n = strlen(e->d_name);
+                if (n < 6 || strcmp(e->d_name + n - 5, "-app0") != 0) continue;
+                char caminho[200];
+                snprintf(caminho, sizeof(caminho), "/mnt/sandbox/pfsmnt/%s/assets/emoji.pack", e->d_name);
+                FILE* teste = fopen(caminho, "rb");
+                if (!teste) continue;
+                fseek(teste, 0, SEEK_END);
+                long tamanho = ftell(teste);
+                fclose(teste);
+                if (tamanho > 4000000) tgAbrirEmojis(caminho);
+            }
+            if (montagens) closedir(montagens);
+        }
+        extern void hnInstalarRegistradorCrashApp();
+        hnInstalarRegistradorCrashApp();
         tgLerPosicoes();
         pthread_mutex_init(&tgTrava, NULL);
         pthread_t t, imagens;
@@ -2956,6 +3989,8 @@ void acaoCross_Extra() {
     }
     else if (sel == 2) iniciarTelegram();
     else if (sel == 3) menuAtual = MENU_VENTOINHA;
+    else if (sel == 4) { extern void iaAbrir(); iaAbrir(); }
+    else if (sel == 5) { extern void chavesAbrir(); chavesAbrir(); }
 }
 
 // =======================================================

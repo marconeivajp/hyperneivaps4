@@ -59,6 +59,11 @@ extern bool fullscreenMidia;
 extern int panMidiaX, panMidiaY;
 extern char caminhoNavegacaoMusicas[512];
 static char caminhoMusicaTocando[512] = "";
+// Tocar ou parar um áudio do Explorar (opção "tocar" do menu do X, em explorar.cpp).
+void explorarTocarAudio(const char* caminhoArquivo) {
+    if (strcmp(caminhoMusicaTocando, caminhoArquivo) == 0) { tocarMusicaNova("PARADO"); strcpy(caminhoMusicaTocando, ""); sprintf(msgStatus, "Musica Parada"); msgTimer = 90; }
+    else { tocarMusicaNova(caminhoArquivo); snprintf(caminhoMusicaTocando, sizeof(caminhoMusicaTocando), "%s", caminhoArquivo); sprintf(msgStatus, "Reproduzindo Audio"); msgTimer = 90; }
+}
 
 extern int offEsq;
 extern int off;
@@ -272,9 +277,12 @@ void acaoCross_Explorar() {
 
                 extern void abrirOpcoesImagem(const char*, bool); abrirOpcoesImagem(caminhoArquivo, true);
             }
-            else if (strstr(nomeBlindado, ".mp3") || strstr(nomeBlindado, ".wav")) {
-                if (strcmp(caminhoMusicaTocando, caminhoArquivo) == 0) { tocarMusicaNova("PARADO"); strcpy(caminhoMusicaTocando, ""); sprintf(msgStatus, "Musica Parada"); msgTimer = 90; }
-                else { tocarMusicaNova(caminhoArquivo); strcpy(caminhoMusicaTocando, caminhoArquivo); sprintf(msgStatus, "Reproduzindo Audio"); msgTimer = 90; }
+            else if (strstr(nomeBlindado, ".mp3") || strstr(nomeBlindado, ".wav") || strstr(nomeBlindado, ".m4a") || strstr(nomeBlindado, ".ogg") ||
+                     strstr(nomeBlindado, ".flac") || strstr(nomeBlindado, ".aac") || strstr(nomeBlindado, ".opus") || strstr(nomeBlindado, ".oga")) {
+                // Menu: tocar (mp3/wav, os que o player toca) ou transcrever com a IA (gera .txt ao lado).
+                extern void abrirOpcoesAudio(const char* caminho, bool tocavel, bool tocando);
+                bool tocavel = strstr(nomeBlindado, ".mp3") || strstr(nomeBlindado, ".wav");
+                abrirOpcoesAudio(caminhoArquivo, tocavel, strcmp(caminhoMusicaTocando, caminhoArquivo) == 0);
             }
             else if (strstr(nomeBlindado, ".pdf") || strstr(nomeBlindado, ".cbz")) {
                 extern void abrirLeitor(const char* caminho);

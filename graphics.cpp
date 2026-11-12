@@ -144,6 +144,135 @@ bool graficosPrepararApresentacao() {
     return true;
 }
 
+// ---- Cópia da tela para o navegador (network.cpp) ----
+// A memória de vídeo é lenta de ler. Lida direto do buffer exibido, a leitura durava mais
+// que um quadro, e o laço já desenhava o quadro seguinte no mesmo buffer: o navegador via
+// quadros pela metade e a imagem piscava. Agora quem desenha copia uma faixa do quadro
+// pronto logo antes do flip; o quadro inteiro (640x360 ou 960x540) fecha em poucos quadros.
+static uint8_t* capturaRgb = NULL;
+static volatile bool capturaLigada = false;
+static volatile unsigned capturaVoltas = 0;
+// Escala: 2 = 960x540, 3 = 640x360. A pedida só vale no começo de um quadro, para não misturar.
+static volatile int capturaEscalaPedida = 3, capturaEscalaPronta = 3;
+
+void graficosCapturaLigar(bool ligar, int escala) {
+    if (ligar && !capturaRgb) capturaRgb = (uint8_t*)malloc(960 * 540 * 3);
+    capturaEscalaPedida = escala == 2 ? 2 : 3;
+    capturaLigada = ligar && capturaRgb;
+}
+int graficosCapturaEscala() { return capturaEscalaPronta; }
+unsigned graficosCapturaVoltas() { return capturaVoltas; }
+const uint8_t* graficosCapturaRgb() { return capturaRgb; }
+
+static uint64_t capturaAgoraUs() {
+#ifdef _WIN32
+    return (uint64_t)SDL_GetTicks() * 1000;
+#else
+    return sceKernelGetProcessTime();
+#endif
+}
+
+
+// Leitura com movntdqa (SSE4.1): na memória de vídeo (write-combining) busca 64 bytes de uma vez,
+// em vez de uma leitura lenta por instrução como o memcpy.
+#include <smmintrin.h>
+static void capturaCopiarLinha(uint32_t* destino, const uint32_t* origem) {
+    __m128i* o = (__m128i*)origem;
+    __m128i* d = (__m128i*)destino;
+    for (int i = 0; i < 1920 * 4 / 16; i += 4) {
+        __m128i a = _mm_stream_load_si128(o + i), b = _mm_stream_load_si128(o + i + 1);
+        __m128i c = _mm_stream_load_si128(o + i + 2), e = _mm_stream_load_si128(o + i + 3);
+        _mm_store_si128(d + i, a); _mm_store_si128(d + i + 1, b); _mm_store_si128(d + i + 2, c); _mm_store_si128(d + i + 3, e);
+    }
+}
+
+// Leitura em paralelo: medido no console, uma thread só lia uns 40 MB/s da memória de vídeo
+// (0,6 quadro por segundo). Três threads leem o quadro que acabou de ir para a tela, cada uma
+// uma linha a cada três, enquanto o laço desenha no outro buffer.
+#include <pthread.h>
+#define CAP_TRAB 3
+static pthread_mutex_t capTrava = PTHREAD_MUTEX_INITIALIZER;
+static pthread_cond_t capSinal = PTHREAD_COND_INITIALIZER;
+static const uint32_t* volatile capAlvo = NULL;
+static volatile int capPendentes = 0;
+static volatile bool capInvalida = false;
+static unsigned capGeracao = 0;
+static int capE = 3;
+static uint64_t capInicio = 0, capUltimo = 0;
+static volatile int capUltimaMs = 0;
+static bool capThreadsCriadas = false;
+
+int graficosCapturaMs() { return capUltimaMs; }
+
+static void* capTrabalhador(void* arg) {
+    int k = (int)(intptr_t)arg;
+    unsigned vista = 0;
+    static uint32_t linhas[CAP_TRAB][1920] __attribute__((aligned(64)));
+    uint32_t* linha = linhas[k];
+    for (;;) {
+        pthread_mutex_lock(&capTrava);
+        while (capGeracao == vista) pthread_cond_wait(&capSinal, &capTrava);
+        vista = capGeracao;
+        const uint32_t* tela = capAlvo;
+        int e = capE;
+        pthread_mutex_unlock(&capTrava);
+        const int W = 1920 / e, H = 1080 / e;
+        for (int y = k; y < H && tela && capturaRgb; y += CAP_TRAB) {
+            const uint32_t* origem = tela + (size_t)y * e * 1920;
+            if (((uintptr_t)origem & 15) == 0) capturaCopiarLinha(linha, origem);
+            else memcpy(linha, origem, 1920 * 4);
+            uint8_t* d = capturaRgb + (size_t)y * W * 3;
+            for (int x = 0; x < W; x++) {
+                uint32_t px = linha[x * e];
+                d[x * 3] = (uint8_t)(px >> 16); d[x * 3 + 1] = (uint8_t)(px >> 8); d[x * 3 + 2] = (uint8_t)px;
+            }
+        }
+        pthread_mutex_lock(&capTrava);
+        if (--capPendentes == 0) {
+            capUltimaMs = (int)((capturaAgoraUs() - capInicio) / 1000);
+            if (!capInvalida) { capturaEscalaPronta = e; capturaVoltas++; }
+        }
+        pthread_mutex_unlock(&capTrava);
+    }
+    return NULL;
+}
+
+// Chamada com o quadro pronto, logo antes de ele ir para a tela.
+static void capturarFaixa(const uint32_t* tela) {
+    // Uma leitura ainda em curso no outro buffer: o laço vai desenhar nele depois deste flip.
+    // Espera um pouco; se passar do limite, o quadro lido sai torto e é descartado.
+    if (capPendentes > 0 && capAlvo != tela) {
+        uint64_t limite = capturaAgoraUs() + 60000;
+        while (capPendentes > 0 && capturaAgoraUs() < limite) {
+#ifndef _WIN32
+            sceKernelUsleep(300);
+#endif
+        }
+        if (capPendentes > 0) capInvalida = true;
+    }
+    if (!capturaLigada || !tela || !capturaRgb || capPendentes > 0) return;
+    uint64_t agora = capturaAgoraUs();
+    if (agora - capUltimo < 45000) return;   // até uns 20 quadros por segundo
+    if (!capThreadsCriadas) {
+        capThreadsCriadas = true;
+        for (int i = 0; i < CAP_TRAB; i++) {
+            pthread_attr_t at; pthread_attr_init(&at); pthread_attr_setstacksize(&at, 256 * 1024);
+            pthread_t th;
+            if (pthread_create(&th, &at, capTrabalhador, (void*)(intptr_t)i) == 0) pthread_detach(th);
+            pthread_attr_destroy(&at);
+        }
+    }
+    pthread_mutex_lock(&capTrava);
+    capAlvo = tela;
+    capE = capturaEscalaPedida;
+    capInvalida = false;
+    capPendentes = CAP_TRAB;
+    capInicio = capUltimo = agora;
+    capGeracao++;
+    pthread_cond_broadcast(&capSinal);
+    pthread_mutex_unlock(&capTrava);
+}
+
 void graficosEntrarApresentacao() {
     camadaEscrita = 0; camadaExibida = 1; camadaPronta = 2;
     camadaComConteudo = false;
@@ -171,6 +300,7 @@ uint32_t* graficosBufferBack() { return (uint32_t*)buffersSaida[saidaBack]; }
 int graficosIndiceBack() { return saidaBack; }
 
 void graficosFlip() {
+    capturarFaixa((const uint32_t*)buffersSaida[saidaBack]);
     saidaExibida = indiceBaseSaida + saidaBack;
     sceVideoOutSubmitFlip(video, saidaExibida, 1, 0);
     saidaBack ^= 1;
@@ -179,6 +309,8 @@ void graficosFlip() {
 // Repete o buffer que já está na tela: mantém o ritmo do vsync sem redesenhar nada.
 bool graficosRepetirFlip() {
     if (saidaExibida < 0) return false;
+    int exibido = saidaExibida - indiceBaseSaida;
+    if (exibido >= 0 && exibido < 2) capturarFaixa((const uint32_t*)buffersSaida[exibido]);   // nada muda: lê o que está na tela
     return sceVideoOutSubmitFlip(video, saidaExibida, 1, 0) >= 0;
 }
 
@@ -191,6 +323,21 @@ uint32_t* obterBufferVideo() {
 #else
     if (desenhandoNaCamada) return camadasUI[camadaEscrita];
     return (uint32_t*)buffers[bA];
+#endif
+}
+
+// Buffer que está na tela agora, para a imagem da tela que vai para a IA (network.cpp).
+// Lido sem trava: um quadro com "rasgo" de vez em quando não importa para quem só assiste.
+uint32_t* graficosTelaExibida() {
+#ifdef _WIN32
+    return screenBuffer;
+#else
+    if (desenhandoNaCamada) {
+        int s = saidaExibida - indiceBaseSaida;
+        if (saidaExibida >= 0 && s >= 0 && s < 2) return (uint32_t*)buffersSaida[s];
+        return camadasUI[camadaExibida];
+    }
+    return (uint32_t*)buffers[(bA + 1) % 2];
 #endif
 }
 
@@ -213,6 +360,7 @@ void submeterTela() {
         sceKernelUsleep(16000);
         return;
     }
+    capturarFaixa((const uint32_t*)buffers[bA]);
     sceVideoOutSubmitFlip(video, bA, 1, 0);
     bA = (bA + 1) % 2;
     sceKernelUsleep(16000);
@@ -223,6 +371,7 @@ void submeterTelaSemPausa() {
 #ifdef _WIN32
     submeterTela();
 #else
+    capturarFaixa((const uint32_t*)buffers[bA]);
     sceVideoOutSubmitFlip(video, bA, 1, 0);
     bA = (bA + 1) % 2;
     // V52.2: Sincronização inteligente: só atrasa no menu/pausa para evitar flicker

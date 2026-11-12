@@ -25,6 +25,7 @@
 #include "menu.h"
 #include "graphics.h"
 #include "stb_image.h"
+#include "remoto_ime.h"   // teclado do PS4 recebe texto do celular
 
 extern int barX, barY, barW, barH;
 extern int barBg, barFill, barTextCol;

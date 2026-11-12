@@ -102,7 +102,8 @@ static void etapaNucleo(const char* etapa, long valor) {
 static uint8_t ambientePedido[256];
 static uint64_t bridge_periodo_us = 16667, bridge_proximo_quadro = 0;
 extern void definirTaxaAudioEmulador(double taxa);
-void bridge_set_pausado(bool p) { bridge_pausado = p; }
+static void pararEmulacao();
+void bridge_set_pausado(bool p) { if (p) pararEmulacao(); bridge_pausado = p; }
 bool bridge_esta_pausado() { return bridge_pausado; }
 
 // Os núcleos escrevem log por aqui.
@@ -129,7 +130,24 @@ static void retro_log_vazio(int nivel, const char* formato, ...) {
     fclose(f);
 }
 
+// Opções dos núcleos: o app responde com estes valores (o resto fica no padrão do núcleo).
+// Ajuste de velocidade sem recompilar o núcleo.
+struct OpcaoNucleo { const char* chave; const char* valor; };
+static const OpcaoNucleo opcoesNucleo[] = {
+    { "parallel-n64-angrylion-vioverlay", "Unfiltered" },   // sem o filtro de VI, bem mais leve
+    { "parallel-n64-angrylion-sync", "Low" },
+    { "parallel-n64-angrylion-multithread", "all threads" },
+};
+struct VariavelLibretro { const char* chave; const char* valor; };
+
 static bool retro_environment_cb(unsigned cmd, void *data) {
+    if (cmd == 15 /* RETRO_ENVIRONMENT_GET_VARIABLE */ && data) {
+        VariavelLibretro* var = (VariavelLibretro*)data;
+        if (var->chave)
+            for (size_t i = 0; i < sizeof(opcoesNucleo) / sizeof(opcoesNucleo[0]); i++)
+                if (strcmp(var->chave, opcoesNucleo[i].chave) == 0) { var->valor = opcoesNucleo[i].valor; return true; }
+        return false;
+    }
     // Cada comando pedido pelo núcleo aparece uma vez no log.
     unsigned numero = cmd & 0xFFFF;
     if (numero < 256 && !ambientePedido[numero]) { ambientePedido[numero] = 1; etapaNucleo("ambiente", (long)cmd); }
@@ -162,8 +180,30 @@ static bool retro_environment_cb(unsigned cmd, void *data) {
     return false;
 }
 
+// Quadro pronto do núcleo: a thread de emulação copia aqui e a thread principal desenha na tela.
+static pthread_mutex_t travaQuadro;
+static bool travaQuadroPronta = false;
+static uint8_t* quadroBuffer = NULL;
+static size_t quadroCapacidade = 0;
+static unsigned quadroLargura = 0, quadroAltura = 0;
+static size_t quadroPasso = 0;
+static volatile bool quadroValido = false;
+
 static void retro_video_refresh_cb(const void *data, unsigned width, unsigned height, size_t pitch) {
-    if (data && !bridge_pausado) desenharBufferEmulador(data, width, height, pitch);
+    if (!data || bridge_pausado || !width || !height) return;
+    size_t tamanho = pitch * height;
+    pthread_mutex_lock(&travaQuadro);
+    if (tamanho > quadroCapacidade) {
+        free(quadroBuffer);
+        quadroBuffer = (uint8_t*)malloc(tamanho);
+        quadroCapacidade = quadroBuffer ? tamanho : 0;
+    }
+    if (quadroBuffer) {
+        memcpy(quadroBuffer, data, tamanho);
+        quadroLargura = width; quadroAltura = height; quadroPasso = pitch;
+        quadroValido = true;
+    }
+    pthread_mutex_unlock(&travaQuadro);
 }
 
 static void retro_audio_sample_cb(int16_t left, int16_t right) {
@@ -335,8 +375,9 @@ static void hnRegistrarCrash(int sinal, void* info, void* contexto) {
     uint64_t rip = contexto ? *(uint64_t*)((char*)contexto + 16 + 20 * 8) : 0;
     uint64_t rsp = contexto ? *(uint64_t*)((char*)contexto + 16 + 23 * 8) : 0;
     char texto[256];
-    int n = snprintf(texto, sizeof(texto), "CRASH sinal=%d endereco=%llx rip=%llx rsp=%llx base_nucleo=%llx rip_no_nucleo=%llx\n",
+    int n = snprintf(texto, sizeof(texto), "CRASH sinal=%d endereco=%llx rip=%llx rsp=%llx app_ref=%llx base_nucleo=%llx rip_no_nucleo=%llx\n",
                      sinal, (unsigned long long)endereco, (unsigned long long)rip, (unsigned long long)rsp,
+                     (unsigned long long)(uintptr_t)&hnRegistrarCrash,
                      (unsigned long long)hnBaseNucleo,
                      (unsigned long long)(hnBaseNucleo && rip >= hnBaseNucleo ? rip - hnBaseNucleo : 0));
     int fd = open("/data/HyperNeiva/zip_debug_log.txt", O_WRONLY | O_APPEND | O_CREAT, 0666);
@@ -353,9 +394,10 @@ static void hnInstalarRegistradorCrash() {
     memset(&acao, 0, sizeof(acao));
     acao.acao = hnRegistrarCrash;
     acao.flags = 0x40;                 // SA_SIGINFO
-    const int sinais[] = { 4, 8, 10, 11 }; // SIGILL, SIGFPE, SIGBUS, SIGSEGV
-    for (int i = 0; i < 4; i++) hnSigaction(sinais[i], &acao, NULL);
+    const int sinais[] = { 4, 6, 8, 10, 11 }; // SIGILL, SIGABRT, SIGFPE, SIGBUS, SIGSEGV
+    for (int i = 0; i < 5; i++) hnSigaction(sinais[i], &acao, NULL);
 }
+void hnInstalarRegistradorCrashApp() { hnInstalarRegistradorCrash(); }
 
 // Carrega o núcleo de um .prx e pega cada função pelo nome. Devolve false se faltar algo.
 // Núcleos com threads próprias (Yabause) ficam carregados depois do primeiro uso: descarregar
@@ -608,15 +650,16 @@ static uint32_t bridge_frame_count = 0;
 
 // Contador de FPS e velocidade, ligado no menu de pausa.
 bool gMostrarFps = false;
+static volatile uint32_t quadrosEmulados = 0;
 static void desenharContadorFps() {
     static uint64_t inicioSegundo = 0;
-    static int quadrosNoSegundo = 0, fpsMedido = 0;
+    static uint32_t quadrosNoInicio = 0;
+    static int fpsMedido = 0;
     uint64_t agora = sceKernelGetProcessTime();
-    if (inicioSegundo == 0) inicioSegundo = agora;
-    quadrosNoSegundo++;
+    if (inicioSegundo == 0) { inicioSegundo = agora; quadrosNoInicio = quadrosEmulados; }
     if (agora - inicioSegundo >= 1000000) {
-        fpsMedido = (int)((uint64_t)quadrosNoSegundo * 1000000 / (agora - inicioSegundo));
-        quadrosNoSegundo = 0;
+        fpsMedido = (int)((uint64_t)(quadrosEmulados - quadrosNoInicio) * 1000000 / (agora - inicioSegundo));
+        quadrosNoInicio = quadrosEmulados;
         inicioSegundo = agora;
     }
     if (!gMostrarFps) return;
@@ -630,8 +673,69 @@ static void desenharContadorFps() {
     desenharTexto(tela, texto, 30, 24, 20, velocidade >= 95 ? 0xFF00FF00 : (velocidade >= 60 ? 0xFFFFFF00 : 0xFFFF4040));
 }
 
+// ---------- Thread de emulação ----------
+// A emulação roda numa thread própria, presa a um núcleo da CPU; a thread principal só desenha
+// o último quadro pronto, lê o controle e vira a tela. Pausa, estados e saída param a thread antes.
+static pthread_t threadEmulacao;
+static volatile int threadEmuViva = 0, emuLiberada = 0, emuRodando = 0;
+extern "C" void* hnPthreadSelf(void) __asm__("scePthreadSelf");
+extern "C" int hnPthreadSetaffinity(void*, uint64_t) __asm__("scePthreadSetaffinity");
+extern "C" int hnPthreadSetprio(void*, int) __asm__("scePthreadSetprio");
+static void passoEmulacao();
+static void desenharQuadroPronto();
+
+static void* lacoEmulacao(void*) {
+    hnPthreadSetaffinity(hnPthreadSelf(), 1ULL << 2);   // núcleo 2, como o EmuSuNi
+    hnPthreadSetprio(hnPthreadSelf(), 480);
+    etapaNucleo("thread de emulacao iniciada", 2);
+    while (__atomic_load_n(&threadEmuViva, __ATOMIC_SEQ_CST)) {
+        __atomic_store_n(&emuRodando, 1, __ATOMIC_SEQ_CST);
+        if (!__atomic_load_n(&emuLiberada, __ATOMIC_SEQ_CST) || !retro_run_ptr) {
+            __atomic_store_n(&emuRodando, 0, __ATOMIC_SEQ_CST);
+            sceKernelUsleep(2000);
+            continue;
+        }
+        passoEmulacao();
+        __atomic_store_n(&emuRodando, 0, __ATOMIC_SEQ_CST);
+    }
+    return NULL;
+}
+
+// Para a emulação e espera o quadro em andamento terminar (antes de pausa, estados e saída).
+static void pararEmulacao() {
+    __atomic_store_n(&emuLiberada, 0, __ATOMIC_SEQ_CST);
+    while (__atomic_load_n(&emuRodando, __ATOMIC_SEQ_CST)) sceKernelUsleep(500);
+}
+
+static void encerrarThreadEmulacao() {
+    if (!__atomic_load_n(&threadEmuViva, __ATOMIC_SEQ_CST)) return;
+    pararEmulacao();
+    __atomic_store_n(&threadEmuViva, 0, __ATOMIC_SEQ_CST);
+    pthread_join(threadEmulacao, NULL);
+}
+
 void bridge_atualizar() {
     if (!retro_run_ptr) return;
+    if (!travaQuadroPronta) { pthread_mutex_init(&travaQuadro, NULL); travaQuadroPronta = true; }
+    if (!__atomic_load_n(&threadEmuViva, __ATOMIC_SEQ_CST)) {
+        __atomic_store_n(&threadEmuViva, 1, __ATOMIC_SEQ_CST);
+        pthread_attr_t atributos;
+        pthread_attr_init(&atributos);
+        pthread_attr_setstacksize(&atributos, 8 * 1024 * 1024);
+        if (pthread_create(&threadEmulacao, &atributos, lacoEmulacao, NULL) != 0) {
+            __atomic_store_n(&threadEmuViva, 0, __ATOMIC_SEQ_CST);
+            pthread_attr_destroy(&atributos);
+            passoEmulacao();           // sem thread, emula aqui mesmo
+            desenharQuadroPronto();
+            return;
+        }
+        pthread_attr_destroy(&atributos);
+    }
+    __atomic_store_n(&emuLiberada, 1, __ATOMIC_SEQ_CST);
+    desenharQuadroPronto();
+}
+
+static void passoEmulacao() {
     // O núcleo roda o mais rápido que puder: quem marca a velocidade do jogo é este relógio.
     uint64_t agora = sceKernelGetProcessTime();
     if (bridge_proximo_quadro > agora) {
@@ -649,10 +753,23 @@ void bridge_atualizar() {
     if (bridge_frame_count <= 2) etapaNucleo("retro_run", (long)bridge_frame_count);
     retro_run_ptr();
     if (bridge_frame_count <= 2) etapaNucleo("retro_run ok", (long)bridge_frame_count);
+    quadrosEmulados++;
+}
+
+// Thread principal: amplia o último quadro emulado para a tela e desenha o contador.
+static void desenharQuadroPronto() {
+    if (travaQuadroPronta) {
+        pthread_mutex_lock(&travaQuadro);
+        if (quadroValido && quadroBuffer) desenharBufferEmulador(quadroBuffer, quadroLargura, quadroAltura, quadroPasso);
+        pthread_mutex_unlock(&travaQuadro);
+    }
     desenharContadorFps();
 }
 
+static void encerrarThreadEmulacao();
 void bridge_finalizar() {
+    encerrarThreadEmulacao();
+    quadroValido = false;
     // Fechar o jogo e abrir outro chamam esta função duas vezes seguidas.
     // Zerar os ponteiros impede encerrar o núcleo de novo (deinit duplo travava com CE-34878-0).
     if (retro_unload_game_ptr) retro_unload_game_ptr();
@@ -675,6 +792,7 @@ void bridge_finalizar() {
 
 // V33: PERSISTENCIA (SAVES)
 bool bridge_salvar_state(const char* path) {
+    pararEmulacao();
     if (!retro_serialize_ptr || !retro_serialize_size_ptr) return false;
     size_t sz = retro_serialize_size_ptr();
     if (sz == 0) return false;
@@ -691,6 +809,7 @@ bool bridge_salvar_state(const char* path) {
 }
 
 bool bridge_carregar_state(const char* path) {
+    pararEmulacao();
     if (!retro_unserialize_ptr || !retro_serialize_size_ptr) return false;
     FILE* f = fopen(path, "rb");
     if (!f) return false;

@@ -77,6 +77,8 @@ void alternarModoLauncher() {
 }
 
 #include "libretro_bridge.h"
+#include "remoto_ime.h"   // teclado do PS4 recebe texto do celular
+int hnPadLer(int handle, OrbisPadData* dados);   // network.cpp: controle físico + celular
 
 void iniciarEmulador(const char* romPath) {
     bool ehGBA = false;
@@ -9370,7 +9372,7 @@ static void executar() {
 
     for (;;) {
         OrbisPadData pad;
-        if (scePadReadState(globalPadHandle, &pad) != 0) {
+        if (hnPadLer(globalPadHandle, &pad) != 0) {
             sceKernelUsleep(16000);
             continue;
         }
@@ -10200,7 +10202,7 @@ static void executar() {
 
     for (int i = 0; i < 90; i++) {
         OrbisPadData pad;
-        if (scePadReadState(globalPadHandle, &pad) == 0 && !(pad.buttons & (ORBIS_PAD_BUTTON_CIRCLE | ORBIS_PAD_BUTTON_CROSS))) break;
+        if (hnPadLer(globalPadHandle, &pad) == 0 && !(pad.buttons & (ORBIS_PAD_BUTTON_CIRCLE | ORBIS_PAD_BUTTON_CROSS))) break;
         sceKernelUsleep(16000);
     }
 }

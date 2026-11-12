@@ -206,24 +206,35 @@ void retomarMusicaAposVideo() {
 }
 
 // HN_MP3_INICIO
-// A saída de som é fixa em 48 kHz: MP3 em 44,1 kHz tocaria rápido e agudo sem esta conversão.
-static size_t lerMp3Em48k(drmp3* mp3, int16_t* saida, size_t frames, size_t* consumidos) {
-    static int16_t bruto[256 * 2], bloco[256 * 2];
+// A saída de som é fixa em 48 kHz estéreo. Sem esta conversão, MP3 em 44,1 kHz tocava agudo e
+// WAV de voz (16 kHz, mono) tocava três vezes mais rápido. Serve aos dois formatos.
+// 'posicao' é o quadro de origem em que o player está: se não bate com o que o conversor
+// entregou (música nova ou busca), ele joga fora o que tinha guardado.
+static size_t lerEm48k(drwav* wav, drmp3* mp3, uint64_t posicao, int16_t* saida, size_t frames, size_t* consumidos) {
+    static int16_t bruto[256 * 8], bloco[256 * 2];
     static size_t total = 0, pos = 0;
     static double fracao = 0.0;
     static int16_t antesE = 0, antesD = 0;
-    double passo = (double)mp3->sampleRate / 48000.0;
+    static uint64_t entregue = (uint64_t)-1;
+    if (posicao != entregue) { total = 0; pos = 0; fracao = 0.0; antesE = antesD = 0; }
+    uint32_t taxa = wav ? wav->sampleRate : mp3->sampleRate;
+    uint32_t canais = wav ? wav->channels : mp3->channels;
+    if (taxa == 0) taxa = 48000;
+    if (canais < 1) canais = 1;
+    double passo = (double)taxa / 48000.0;
     size_t feitos = 0;
     *consumidos = 0;
     while (feitos < frames) {
         bool acabou = false;
         while (!acabou && (fracao >= 1.0 || pos >= total)) {
             if (pos >= total) {
-                size_t n = (size_t)drmp3_read_pcm_frames_s16(mp3, 256, bruto);
+                size_t pedir = canais <= 8 ? 256 : 0;
+                size_t n = 0;
+                if (pedir) n = wav ? (size_t)drwav_read_pcm_frames_s16(wav, pedir, bruto) : (size_t)drmp3_read_pcm_frames_s16(mp3, pedir, bruto);
                 if (n == 0) { acabou = true; break; }
                 for (size_t i = 0; i < n; i++) {
-                    bloco[i * 2] = bruto[mp3->channels == 1 ? i : i * 2];
-                    bloco[i * 2 + 1] = bruto[mp3->channels == 1 ? i : i * 2 + 1];
+                    bloco[i * 2] = bruto[i * canais];
+                    bloco[i * 2 + 1] = bruto[i * canais + (canais > 1 ? 1 : 0)];
                 }
                 total = n;
                 pos = 0;
@@ -242,6 +253,7 @@ static size_t lerMp3Em48k(drmp3* mp3, int16_t* saida, size_t frames, size_t* con
         feitos++;
         fracao += passo;
     }
+    entregue = posicao + *consumidos;
     return feitos;
 }
 // HN_MP3_FIM
@@ -253,6 +265,8 @@ static size_t lerMp3Em48k(drmp3* mp3, int16_t* saida, size_t frames, size_t* con
 #ifdef _WIN32
 SDL_AudioDeviceID winAudioDevice = 0;
 #endif
+
+void misturarFalaIA(int16_t* saida, int amostras);   // network.cpp
 
 static void* audioThreadFunc(void* argp) {
 #ifndef _WIN32
@@ -377,6 +391,7 @@ static void* audioThreadFunc(void* argp) {
             misturarAudioPiano(pSampleData, 256);
             misturarAudioVideo(pSampleData, 256);
             misturarAudioEmulador(pSampleData, 256);
+            misturarFalaIA(pSampleData, 256);   // voz da IA (network.cpp)
 #ifdef _WIN32
             if (winAudioDevice > 0) {
                 SDL_QueueAudio(winAudioDevice, pSampleData, 256 * 2 * sizeof(int16_t));
@@ -394,11 +409,11 @@ static void* audioThreadFunc(void* argp) {
         uint32_t currentChannels = 2;
 
         if (currentAudioType == AUDIO_WAV) {
-            framesLidos = drwav_read_pcm_frames_s16(&wav, 256, pSampleData);
-            currentChannels = wav.channels;
+            framesLidos = lerEm48k(&wav, NULL, currentFrame, pSampleData, 256, &framesConsumidos);
+            currentChannels = 2;
         }
         else if (currentAudioType == AUDIO_MP3) {
-            framesLidos = lerMp3Em48k(&mp3, pSampleData, 256, &framesConsumidos);
+            framesLidos = lerEm48k(NULL, &mp3, currentFrame, pSampleData, 256, &framesConsumidos);
             currentChannels = 2;
         }
         else if (currentAudioType == AUDIO_STREAM) {
@@ -423,7 +438,7 @@ static void* audioThreadFunc(void* argp) {
             }
         }
 
-        currentFrame += currentAudioType == AUDIO_MP3 ? framesConsumidos : framesLidos;
+        currentFrame += (currentAudioType == AUDIO_MP3 || currentAudioType == AUDIO_WAV) ? framesConsumidos : framesLidos;
 
         if (currentAudioType == AUDIO_WAV) {
             audioTempoAtual = (float)currentFrame / wav.sampleRate;
@@ -487,6 +502,7 @@ static void* audioThreadFunc(void* argp) {
         misturarAudioPiano(pSampleData, 256);
         misturarAudioVideo(pSampleData, 256);
         misturarAudioEmulador(pSampleData, 256);
+        misturarFalaIA(pSampleData, 256);   // voz da IA (network.cpp)
 #ifdef _WIN32
         if (winAudioDevice > 0) {
             SDL_QueueAudio(winAudioDevice, pSampleData, 256 * 2 * sizeof(int16_t));

@@ -26,6 +26,7 @@ extern int p1Double, listLoop, listFocus;
 
 // VARIAVEIS DE COMBOS SONOROS (V63)
 #include "elementos_sonoros.h"
+#include "remoto_ime.h"   // teclado do PS4 recebe texto do celular
 extern SfxCombo combosSFX[20];
 int interfaceComboAlvo = 0;
 bool definindoBotoesCombo = false;

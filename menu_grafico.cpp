@@ -105,6 +105,7 @@ extern int prevTelaIdForOut;
 
 // --- COMBOS SONOROS ---
 #include "elementos_sonoros.h"
+#include "remoto_ime.h"   // teclado do PS4 recebe texto do celular
 extern SfxCombo combosSFX[20];
 extern bool definindoBotoesCombo;
 extern int sfxComboSel;
@@ -142,6 +143,29 @@ void desenharInterface(uint32_t* p) {
     }
     if (menuAtual == MENU_TELEGRAM) {
         renderizarTelegram(p);
+        return;
+    }
+    {
+        extern bool musicaPlayerCheio();
+        if (musicaPlayerCheio() && menuAtual == MENU_MUSICAS && !showOpcoes) {
+            extern void musicaPlayerRenderizar(uint32_t* p);
+            musicaPlayerRenderizar(p);
+            return;
+        }
+    }
+    if (menuAtual == MENU_PC_ARQUIVOS) {
+        extern void pcArquivosRenderizar(uint32_t* p);
+        pcArquivosRenderizar(p);
+        return;
+    }
+    if (menuAtual == MENU_IA) {
+        extern void iaRenderizar(uint32_t* p);
+        iaRenderizar(p);
+        return;
+    }
+    if (menuAtual == MENU_CHAVES) {
+        extern void chavesRenderizar(uint32_t* p);
+        chavesRenderizar(p);
         return;
     }
     if (menuAtual == MENU_INFORMACAO) {
@@ -205,6 +229,9 @@ void desenharInterface(uint32_t* p) {
         strcpy(nomeItemAnterior, ""); strcpy(ultimoJogoCarregado, "");
     }
     else {
+        // Capa de música baixada agora (network.cpp): força recarregar a do item selecionado.
+        extern volatile bool musicaCapaNova;
+        if (musicaCapaNova && menuAtual == MENU_MUSICAS) { musicaCapaNova = false; nomeItemAnterior[0] = 0; }
         if (mAtivo == SCRAPER_LIST) {
             if (strcmp(nAtivo, ultimoJogoCarregado) != 0) {
                 char cp[512]; const char* cName = (consoleAtual >= 0 && consoleAtual < 5) ? listaConsoles[consoleAtual].nome : "Unknown";
@@ -263,6 +290,16 @@ void desenharInterface(uint32_t* p) {
                     imgBgDinamico = carregarMediaCaseInsensitive("/data/HyperNeiva/midia/imagens/Games/Background", nomeItemAnterior, &dynBgW, &dynBgH, &dynBgC);
                     imgCapaDinamica = carregarMediaCaseInsensitive("/data/HyperNeiva/midia/imagens/Games/Artwork1", nomeItemAnterior, &dynCapaW, &dynCapaH, &dynCapaC);
                     imgDiscoDinamico = carregarMediaCaseInsensitive("/data/HyperNeiva/midia/imagens/Games/Artwork2", nomeItemAnterior, &dynDiscoW, &dynDiscoH, &dynDiscoC);
+                    if (menuAtual == MENU_MUSICAS) {
+                        // Capa da música: a do próprio MP3 ou a baixada do iTunes/Deezer.
+                        extern char caminhosMusicasMenu[3000][256];
+                        extern bool musicaCapaCaminho(const char* caminhoMusica, char* saida, int tam);
+                        char cp[600];
+                        if (sAtivo >= 0 && sAtivo < 3000 && musicaCapaCaminho(caminhosMusicasMenu[sAtivo], cp, sizeof(cp))) {
+                            if (imgCapaDinamica) stbi_image_free(imgCapaDinamica);
+                            imgCapaDinamica = stbi_load(cp, &dynCapaW, &dynCapaH, &dynCapaC, 4);
+                        }
+                    }
                 }
             }
         }
@@ -337,7 +374,7 @@ void desenharInterface(uint32_t* p) {
             else if (imgCapaEdicao) { desenharRedimensionado(p, imgCapaEdicao, wCapaE, hCapaE, capaW, capaH, capaX, capaY); }
             else if (defaultArtwork1) { desenharRedimensionado(p, defaultArtwork1, wDef1, hDef1, capaW, capaH, capaX, capaY); }
         } 
-        else if (isMenuXML || isMenuPS4 || editMode) {
+        else if (isMenuXML || isMenuPS4 || editMode || (menuAtual == MENU_MUSICAS && imgCapaDinamica)) {
             if (imgCapaDinamica) { desenharRedimensionado(p, imgCapaDinamica, dynCapaW, dynCapaH, capaW, capaH, capaX, capaY); }
             else if (imgPreview) { desenharRedimensionado(p, imgPreview, wP, hP, capaW, capaH, capaX, capaY); }
             else if (imgCapaEdicao) { desenharRedimensionado(p, imgCapaEdicao, wCapaE, hCapaE, capaW, capaH, capaX, capaY); }
@@ -356,6 +393,9 @@ void desenharInterface(uint32_t* p) {
             else if (defaultArtwork2) { desenharDiscoRedondo(p, defaultArtwork2, wDef2, hDef2, discoW, discoH, discoX, discoY); }
         }
     }
+
+    { extern void letraDesenhar(uint32_t* p); letraDesenhar(p); }   // letra da música (network.cpp)
+    { extern void musicaPlayerMiniDesenhar(uint32_t* p); musicaPlayerMiniDesenhar(p); }   // player em tela pequena (menu_audio.cpp)
 
     // --- OVERLAYS DE UI (Path e IP) ---
     if (menuAtual == MENU_EXPLORAR || menuAtual == MENU_EXPLORAR_HOME) {

@@ -1,0 +1,51 @@
+--- libpcsxcore/lightrec/plugin.c	2026-11-10 19:25:59.770989000 -0300
++++ libpcsxcore/lightrec/plugin.c	2026-11-11 10:11:19.949973100 -0300
+@@ -70,6 +70,19 @@
+ Rcnt rcnts[4];
+ 
+ void* code_buffer;
++#if defined(__PS4__)
++static int hn_jit_ok = 0;
++/* O buffer executavel precisa ser o ultimo do modulo: o sceKernelMprotect deixava a memoria
++ * estatica depois dele inacessivel (a GPU ficava ali e o nucleo caia no GPU_init). Uma secao
++ * propria, sem dados no arquivo, vai para depois do .bss. */
++__asm__(".section .hn_jit,\"aw\",@nobits\n"
++        ".p2align 14\n"
++        ".globl hn_code_buffer\n"
++        "hn_code_buffer:\n"
++        ".zero 8388608\n"
++        ".p2align 14\n"
++        ".previous");
++#endif
+ 
+ static struct lightrec_state *lightrec_state;
+ 
+@@ -402,6 +415,17 @@
+ 				   MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+ 		if (code_buffer == MAP_FAILED)
+ 			return -ENOMEM;
++#elif defined(__PS4__)
++		/* Hyper Neiva (PS4): buffer de codigo no .bss do modulo, tornado executavel com
++		 * sceKernelMprotect (paginas de 16 KB). Sem isso, cai no interpretador do Lightrec. */
++		{
++			extern int sceKernelMprotect(const void *addr, size_t len, int prot);
++			extern char hn_code_buffer[CODE_BUFFER_SIZE];
++			int rc = sceKernelMprotect(hn_code_buffer, sizeof(hn_code_buffer), 7);
++			code_buffer = hn_code_buffer;
++			hn_jit_ok = rc == 0;
++			SysPrintf("HN lightrec: sceKernelMprotect %p+%x = %x\n", hn_code_buffer, (unsigned)sizeof(hn_code_buffer), rc);
++		}
+ #else
+ 		code_buffer = malloc(CODE_BUFFER_SIZE);
+ 		if (!code_buffer)
+@@ -418,6 +442,10 @@
+ 	lightrec_map[PSX_MAP_CODE_BUFFER].address = code_buffer;
+ 
+ 	use_lightrec_interpreter = !!getenv("LIGHTREC_INTERPRETER");
++#if defined(__PS4__)
++	if (!hn_jit_ok)
++		use_lightrec_interpreter = 1;
++#endif
+ 
+ #ifdef LIGHTREC_DEBUG
+ 	char *cycles = getenv("LIGHTREC_BEGIN_CYCLES");

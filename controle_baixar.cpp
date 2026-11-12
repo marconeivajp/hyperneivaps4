@@ -174,6 +174,11 @@ void acaoCross_Baixar(int32_t uId, OrbisImeDialogSetting* imeSetting, uint16_t* 
                 preencherMenuEditarServidor(servidorAtualFTPIndex);
             }
         }
+        else if (sel > totalServidoresFTP) {
+            extern void pcAbrirTela(), pcArquivosAbrir();
+            if (sel == totalServidoresFTP + 1) pcAbrirTela();
+            else pcArquivosAbrir();
+        }
         else {
             servidorAtualFTPIndex = sel - 1;
             acessarFTP(servidorAtualFTPIndex, "/");
@@ -542,7 +547,7 @@ void acaoCircle_Baixar() {
 
 void acaoTriangle_Baixar() {
     if (menuAtual == MENU_BAIXAR_FTP_SERVIDORES) {
-        if (sel > 0) { servidorAtualFTPIndex = sel - 1; preencherMenuEditarServidor(servidorAtualFTPIndex); }
+        if (sel > 0 && sel <= totalServidoresFTP) { servidorAtualFTPIndex = sel - 1; preencherMenuEditarServidor(servidorAtualFTPIndex); }
     }
     else if (menuAtual == MENU_BAIXAR_DROPBOX_LISTA || menuAtual == MENU_BAIXAR_DROPBOX_UPLOAD) {
         extern void acaoTriangle_MenuUpload();

@@ -9,7 +9,7 @@ clone, faça checkout da versão, aplique o patch (`git apply`) e compile com `.
 | snes9x | libretro/snes9x | fae2fea | `snes9x.patch` (só marcas `HN` no log) |
 | stella2014 | libretro/stella2014-libretro | 7d1361e | sem mudança |
 | parallel-n64 | libretro/parallel-n64 | f80b843 | `parallel-n64.patch` |
-| pcsx_rearmed | libretro/pcsx_rearmed | 7b0e8f8 | sem mudança; crie `include/revision.h` com `#define REV "7b0e8f8"` |
+| pcsx_rearmed | libretro/pcsx_rearmed | 7b0e8f8 | `pcsx_rearmed.patch` (Lightrec com buffer executável); crie `include/revision.h` com `#define REV "7b0e8f8"`. Compile com `-DLIGHTREC -DLIGHTREC_STATIC` no lugar de `-DDRC_DISABLE` |
 | yabause (Saturn) | libretro/yabause | 8926b0c | `yabause.patch` |
 
 No parallel-n64, o que faz o N64 rodar no PS4:

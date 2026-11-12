@@ -24,6 +24,7 @@
 #include "stb_image.h" 
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include "stb_image_write.h"
+#include "remoto_ime.h"   // teclado do PS4 recebe texto do celular
 
 #ifndef IME_STATUS_RUNNING
 #define IME_STATUS_RUNNING 1
@@ -192,6 +193,17 @@ void abrirOpcoesImagem(const char* caminho, bool permitirExtrair) {
         listaOpcoes[totalOpcoes] = "plano de fundo hyper neiva"; mapOpcoes[totalOpcoes++] = 10;
         listaOpcoes[totalOpcoes] = "personalizar jogo (appmeta)"; mapOpcoes[totalOpcoes++] = 30;
     }
+    showOpcoes = true; selOpcao = 0;
+}
+
+// Menu do X em áudio: tocar/parar e transcrever com a IA (network.cpp grava o .txt ao lado).
+static char caminhoAudioAberto[512] = "";
+void abrirOpcoesAudio(const char* caminho, bool tocavel, bool tocando) {
+    snprintf(caminhoAudioAberto, sizeof(caminhoAudioAberto), "%s", caminho);
+    for (int k = 0; k < 150; k++) { listaOpcoes[k] = ""; mapOpcoes[k] = -1; }
+    totalOpcoes = 0;
+    if (tocavel) { listaOpcoes[totalOpcoes] = tocando ? "parar" : "tocar"; mapOpcoes[totalOpcoes++] = 180; }
+    listaOpcoes[totalOpcoes] = "transcrever com IA (gera .txt)"; mapOpcoes[totalOpcoes++] = 181;
     showOpcoes = true; selOpcao = 0;
 }
 
@@ -440,6 +452,19 @@ void acaoArquivo(int idxOpcao) {
 
         extern void abrirLeitor(const char* caminho);
         abrirLeitor(caminhoArquivo);
+        showOpcoes = false;
+        break;
+    }
+
+    case 180: {
+        extern void explorarTocarAudio(const char* caminhoArquivo);
+        explorarTocarAudio(caminhoAudioAberto);
+        showOpcoes = false;
+        break;
+    }
+    case 181: {
+        extern bool iaTranscreverArquivo(const char* caminho);
+        iaTranscreverArquivo(caminhoAudioAberto);
         showOpcoes = false;
         break;
     }

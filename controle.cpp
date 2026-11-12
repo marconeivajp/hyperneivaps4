@@ -285,7 +285,8 @@ void processarNavegacaoDPad(uint32_t botoes) {
 
                 bool isGameMenu = (menuAtual == MENU_JOGAR_PS4 || menuAtual == JOGAR_XML || menuAtual == SCRAPER_LIST);
                 extern int bibliotecaColunas();
-                int colunasBiblioteca = ((menuAtual == MENU_EMULADOR || menuAtual == MENU_SISTEMAS) && temaCobreMenu() && !showOpcoes) ? bibliotecaColunas() : 0;
+                extern int temaMidiaBiblioteca();
+                int colunasBiblioteca = ((menuAtual == MENU_EMULADOR || menuAtual == MENU_SISTEMAS || temaMidiaBiblioteca()) && temaCobreMenu() && !showOpcoes) ? bibliotecaColunas() : 0;
                 bool isGrid = colunasBiblioteca > 0 || (!temaCobreMenu() && (listStyle == 4 || listStyle == 5) && isGameMenu && !showOpcoes && !showUploadOpcoes && menuAtual != MENU_NOTEPAD && menuAtual != MENU_AUDIO_OPCOES);
 
                 if (isGrid) {
@@ -448,6 +449,61 @@ void processarControles(uint32_t botoes, int32_t uId, OrbisImeDialogSetting* ime
             isFirstFrameUI = true;
             pCross = pTri = pSquare = pL1 = pR1 = pL2 = false;
             pCircle = true;   // a bolinha que saiu do Telegram não pode voltar mais um menu
+        }
+        botoesAntigos = botoes;
+        return;
+    }
+
+    {
+        // Player de música aberto: ele recebe todos os botões (menu_audio.cpp).
+        extern bool musicaPlayerAberto;
+        extern bool showOpcoes;
+        if (musicaPlayerAberto && (menuAtual != MENU_MUSICAS || showOpcoes)) musicaPlayerAberto = false;
+        if (musicaPlayerAberto) {
+            extern bool musicaPlayerControles(uint32_t botoes, uint32_t antigos);
+            musicaPlayerControles(botoes, botoesAntigos);
+            // Botões que o player usou não podem disparar na lista quando ele fechar.
+            if (botoes & ORBIS_PAD_BUTTON_CIRCLE) pCircle = true;
+            if (botoes & ORBIS_PAD_BUTTON_CROSS) pCross = true;
+            if (botoes & ORBIS_PAD_BUTTON_TRIANGLE) pTri = true;
+            if (botoes & ORBIS_PAD_BUTTON_SQUARE) pSquare = true;
+            if (botoes & ORBIS_PAD_BUTTON_L1) pL1 = true;
+            if (botoes & ORBIS_PAD_BUTTON_R1) pR1 = true;
+            if (botoes & ORBIS_PAD_BUTTON_L2) pL2 = true;
+            botoesAntigos = botoes;
+            return;
+        }
+    }
+
+    if (menuAtual == MENU_PC_ARQUIVOS) {
+        extern bool pcArquivosControles(uint32_t botoes, uint32_t antigos, int32_t usuario);
+        if (pcArquivosControles(botoes, botoesAntigos, uId)) {
+            voltarNavegacao();
+            // A lista de servidores é refeita (ela tem os itens do PC no fim).
+            if (menuAtual == MENU_BAIXAR_FTP_SERVIDORES) {
+                extern void preencherMenuFTPServidores(bool isUpload);
+                extern bool ftpSelecionandoUpload;
+                int volta = sel;
+                preencherMenuFTPServidores(ftpSelecionandoUpload);
+                if (volta < totalItens) sel = volta;
+            }
+            pCross = pTri = pSquare = pL1 = pR1 = pL2 = false;
+            pCircle = true;
+        }
+        botoesAntigos = botoes;
+        return;
+    }
+
+    if (menuAtual == MENU_IA || menuAtual == MENU_CHAVES) {
+        extern bool iaControles(uint32_t botoes, uint32_t antigos, int32_t usuario);
+        extern bool chavesControles(uint32_t botoes, uint32_t antigos, int32_t usuario);
+        if (menuAtual == MENU_IA ? iaControles(botoes, botoesAntigos, uId) : chavesControles(botoes, botoesAntigos, uId)) {
+            voltarNavegacao();
+            extern void ligarInterfaceGrafica();
+            ligarInterfaceGrafica();
+            isFirstFrameUI = true;
+            pCross = pTri = pSquare = pL1 = pR1 = pL2 = false;
+            pCircle = true;   // a bolinha que saiu da IA não pode voltar mais um menu
         }
         botoesAntigos = botoes;
         return;
@@ -783,6 +839,7 @@ void processarControles(uint32_t botoes, int32_t uId, OrbisImeDialogSetting* ime
     // JOGOS XML abre nos sistemas; o Quadrado alterna entre sistemas e a lista XML.
     if (menuAtual == MENU_SISTEMAS && !showOpcoes && (novosBotoes & ORBIS_PAD_BUTTON_SQUARE)) { extern void carregarXML(const char*); carregarXML("system.xml"); sel = 0; off = 0; }
     else if (menuAtual == JOGAR_XML && (novosBotoes & ORBIS_PAD_BUTTON_SQUARE)) { extern void bibliotecaMostrarSistemas(); bibliotecaMostrarSistemas(); }
+    else if (menuAtual == MENU_MUSICAS && !showOpcoes && (novosBotoes & ORBIS_PAD_BUTTON_SQUARE)) { extern void letraAlternar(); letraAlternar(); }
 
     botoesAntigos = botoes;
 }

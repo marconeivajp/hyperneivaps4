@@ -1,6 +1,7 @@
 #include "controle_virtual.h"
 #include "menu.h"
 #include <string.h>
+#include "remoto_ime.h"   // teclado do PS4 recebe texto do celular
 
 extern MenuLevel menuAtual;
 extern bool tecladoAtivo;
