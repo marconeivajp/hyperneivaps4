@@ -321,6 +321,8 @@ static void processarControlesTelaCheia(unsigned int btn, OrbisPadData* pData, b
 
     if (!focoNosIcones) {
         if (toqueY > 0) { cursorAtivo = false; focoNosIcones = true; iconeFoco = IC_PLAY; return; }
+        // Cima na linha de selecionar a posição: oculta a barra na hora, sem esperar ela sozinha.
+        if (toqueY < 0) { fecharControlesPlayer(); return; }
 
         if (dirX) {
             if (!cursorAtivo) { cursorAtivo = true; cursorTempo = video_time_current; cursorInicioUs = agora; }

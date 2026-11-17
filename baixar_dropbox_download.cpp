@@ -1,3 +1,4 @@
+#include <ctype.h>
 #ifndef __builtin_va_list
 #define __builtin_va_list char*
 #endif
@@ -1315,6 +1316,45 @@ static void baixarPkgPeloPs4(const char* url, const char* nome) {
     else { pelaPs4Rodando = false; baixarPkgPeloPs4Agora(url, nome); }
 }
 static bool tentarBgftDireto(const char* urlFinal, const char* nomeExibicao);
+// Link enxuto da CDN do GitHub (blob do Azure com assinatura): tira os parâmetros que não fazem
+// parte da assinatura (jwt, response-*, rscd, rsct) e, se pedido, decodifica os %XX e usa http.
+// Conferido no PC: todas estas formas ainda baixam (206). O PS4 recusava o link de 915 letras
+// com 0x80990033; o enxuto tem ~400.
+static void bgftLinkEnxuto(const char* url, char* saida, size_t tam, bool decodificar, bool http) {
+    const char* q = strchr(url, '?');
+    size_t n = 0;
+    const char* inicio = url;
+    if (http && !strncmp(url, "https://", 8)) { n += snprintf(saida + n, tam - n, "http://"); inicio = url + 8; }
+    n += snprintf(saida + n, tam - n, "%.*s", (int)((q ? q : url + strlen(url)) - inicio), inicio);
+    if (!q || n >= tam) return;
+    static const char* tirar[] = { "jwt", "response-content-disposition", "response-content-type", "rscd", "rsct" };
+    bool primeiro = true;
+    for (const char* p = q + 1; *p && n < tam - 4; ) {
+        const char* fim = strchr(p, '&'); if (!fim) fim = p + strlen(p);
+        const char* igual = (const char*)memchr(p, '=', (size_t)(fim - p));
+        size_t lenNome = igual ? (size_t)(igual - p) : (size_t)(fim - p);
+        bool pula = false;
+        for (int k = 0; k < 5; k++) if (strlen(tirar[k]) == lenNome && !strncmp(p, tirar[k], lenNome)) pula = true;
+        if (!pula) {
+            n += snprintf(saida + n, tam - n, "%s%.*s", primeiro ? "?" : "&", (int)(igual ? igual - p + 1 : fim - p), p);
+            primeiro = false;
+            if (igual) {
+                for (const char* v = igual + 1; v < fim && n < tam - 4; v++) {
+                    if (decodificar && *v == '%' && v + 2 < fim + 0 && isxdigit((unsigned char)v[1]) && isxdigit((unsigned char)v[2])) {
+                        char hx[3] = { v[1], v[2], 0 }; char c = (char)strtol(hx, NULL, 16);
+                        if (c == ' ') n += snprintf(saida + n, tam - n, "%%20"); else if (c == '&' || c == '#') n += snprintf(saida + n, tam - n, "%.3s", v); else saida[n++] = c;
+                        v += 2;
+                    }
+                    else if (decodificar && *v == '+') n += snprintf(saida + n, tam - n, "%%20");
+                    else saida[n++] = *v;
+                }
+                saida[n] = 0;
+            }
+        }
+        p = *fim ? fim + 1 : fim;
+    }
+}
+
 static void baixarPkgPeloPs4Agora(const char* url, const char* nome) {
     // 1) Link curto do GitHub (https e http): o sistema segue o redirecionamento sozinho, e o
     //    download continua mesmo fechando o Hyper Neiva.
@@ -1339,9 +1379,44 @@ static void baixarPkgPeloPs4Agora(const char* url, const char* nome) {
         msgTimer = 400;
         return;
     }
+    // 2) Link da CDN enxuto (sem os parâmetros fora da assinatura), em três formas.
+    if (strstr(final_, "githubusercontent.com") || strstr(final_, "?")) {
+        struct { bool dec, http; } formas[3] = { { false, false }, { true, true }, { true, false } };
+        for (int k = 0; k < 3; k++) {
+            char enxuto[2048];
+            bgftLinkEnxuto(final_, enxuto, sizeof(enxuto), formas[k].dec, formas[k].http);
+            logDownload("BGFT: link enxuto %d (%d letras)", k + 1, (int)strlen(enxuto));
+            if (strcmp(enxuto, final_) != 0 && tentarBgftDireto(enxuto, nome)) {
+                logDownload("BGFT: ACEITO o link enxuto %d", k + 1);
+                snprintf(msgStatus, sizeof(msgStatus), "BAIXANDO PELO PS4: PODE FECHAR O APP (NOTIFICACOES > DOWNLOADS)"); msgTimer = 500;
+                return;
+            }
+        }
+    }
     // Não baixa em silêncio pelo app: a pessoa escolheu "Pelo PS4". Reabre a escolha já no
     // outro modo, para ela decidir (o motivo fica no download_debug_log.txt).
     logDownload("PELO PS4 FALHOU: %.200s", final_);
+    // Diagnóstico: o sistema recusa link com "?" (query)? Registra links de exemplo com o mesmo
+    // PKG e desfaz o registro se algum for aceito. Só para descobrir a regra do PS4.
+    {
+        static bool sondado = false;
+        if (!sondado) {
+            sondado = true;
+            static const char* testes[4] = { "http://example.com/hyperneiva_teste.pkg", "https://example.com/hyperneiva_teste.pkg",
+                                             "http://example.com/hyperneiva_teste.pkg?a=1", "https://example.com/hyperneiva_teste.pkg?a=1" };
+            int32_t userId = 0; sceUserServiceGetInitialUser(&userId);
+            for (int k = 0; k < 4; k++) {
+                OrbisBgftDownloadParam pr; memset(&pr, 0, sizeof(pr));
+                pr.userId = userId; pr.entitlementType = 5; pr.id = "IV0000-HNTESTE00_00-SONDAQUERY000000"; pr.contentUrl = testes[k];
+                pr.contentName = "teste"; pr.playgoScenarioId = "0";
+                uint64_t t = 1048576; memcpy(&pr.packageSize, &t, sizeof(t));
+                OrbisBgftTaskId tid = -1;
+                int r = sceBgftServiceIntDebugDownloadRegisterPkg(&pr, &tid);
+                logDownload("SONDA BGFT %d: 0x%08X tarefa %d %s", k + 1, (unsigned)r, (int)tid, testes[k]);
+                if (r == 0 && tid >= 0) sceBgftServiceIntDownloadUnregisterTask(tid);
+            }
+        }
+    }
     snprintf(msgStatus, sizeof(msgStatus), "O PS4 RECUSOU ESTE LINK (GITHUB NAO DA). BAIXE PELO HYPER NEIVA: INSTALA DIRETO");
     msgTimer = 400;
     snprintf(escolhaPkgUrl, sizeof(escolhaPkgUrl), "%s", url);
@@ -1380,27 +1455,28 @@ void escolhaPkgControles(uint32_t botoes, uint32_t antigos) {
 
 void iniciarDownload(const char* url) {
     if (!url || strlen(url) < 2) return;
-    // PKG por link (http/https): pergunta se baixa pelo PS4 ou pelo Hyper Neiva. O nome dos
-    // arquivos do GitHub não está no link (api.github.com/.../assets/123): vem à parte.
-    if (!strncasecmp(url, "http://", 7) || !strncasecmp(url, "https://", 8)) {
-        extern char githubNomeDownload[128];
-        char nome[128];
-        if (menuAtual == MENU_BAIXAR_GITHUB_ARQUIVOS && githubNomeDownload[0]) snprintf(nome, sizeof(nome), "%s", githubNomeDownload);
-        else {
-            const char* barra = strrchr(url, '/');
-            snprintf(nome, sizeof(nome), "%s", barra ? barra + 1 : url);
-            char* corte = strpbrk(nome, "?#"); if (corte) *corte = '\0';
-        }
-        const char* ext = strrchr(nome, '.');
-        if (ext && !strcasecmp(ext, ".pkg")) {
-            snprintf(escolhaPkgUrl, sizeof(escolhaPkgUrl), "%s", url);
-            snprintf(escolhaPkgNome, sizeof(escolhaPkgNome), "%s", nome);
-            escolhaPkgSel = 0;
-            escolhaPkgAberta = true;
-            return;
-        }
+    char nomeArquivo[128] = "arquivo.bin"; char* ref = strrchr(url, '/'); if (ref) { strncpy(nomeArquivo, ref + 1, 127); nomeArquivo[127] = '\0'; }
+    char* ptrInterrogacao = strchr(nomeArquivo, '?'); if (ptrInterrogacao) *ptrInterrogacao = '\0';
+    char* ptrHash = strchr(nomeArquivo, '#'); if (ptrHash) *ptrHash = '\0';
+    char nomeLimpo[128] = { 0 }; int j = 0;
+    for (int i = 0; nomeArquivo[i] != '\0' && j < 127; i++) { if (nomeArquivo[i] == '%' && nomeArquivo[i + 1] == '2' && nomeArquivo[i + 2] == '0') { nomeLimpo[j++] = ' '; i += 2; } else { nomeLimpo[j++] = nomeArquivo[i]; } }
+    strcpy(nomeArquivo, nomeLimpo);
+    char* ext = strrchr(nomeArquivo, '.');
+    if (ext && (strcasecmp(ext, ".pkg") == 0 || strcasecmp(ext, ".PKG") == 0)) {
+        // O GitHub redireciona para outro servidor: o downloader interno trata isso e mostra a barra.
+        bool ehGithub = menuAtual == MENU_BAIXAR_GITHUB_ARQUIVOS;
+        bool usarBgft = true; if (url[0] == '/' || strstr(url, "dropbox.com") != NULL || ehGithub) { usarBgft = false; }
+        if (usarBgft) { if (tentarBgft(url, nomeArquivo)) return; sprintf(msgStatus, "BGFT FALHOU. USANDO DOWNLOADER INTERNO..."); msgTimer = 180; sceKernelUsleep(1000 * 1000); }
+        else if (!ehGithub) { sprintf(msgStatus, "LINK DROPBOX: USANDO DOWNLOADER INTERNO..."); msgTimer = 180; }
     }
-    iniciarDownloadFila(url);
+    int antes = obterTamanhoFila();
+    if (!downloadEmSegundoPlano) { totalFilaSessao = antes; baixadosFilaSessao = 0; }
+    extern char githubNomeDownload[128];
+    adicionarNaFila(url, menuAtual, menuAtual == MENU_BAIXAR_GITHUB_ARQUIVOS ? githubNomeDownload : caminhoXMLAtual);
+    int depois = obterTamanhoFila();
+    if (depois == antes) { sprintf(msgStatus, "LINK JA EXISTE NA FILA!"); msgTimer = 180; }
+    else { sprintf(msgStatus, "ADICIONADO A FILA!"); msgTimer = 180; }
+    if (!downloadEmSegundoPlano) { downloadEmSegundoPlano = true; progressoAtualDownload = 0.0f; strcpy(msgDownloadBg, "PREPARANDO O DOWNLOAD..."); pthread_t threadId; pthread_create(&threadId, NULL, threadDownloadBackground, NULL); pthread_detach(threadId); }
 }
 
 static void iniciarDownloadFila(const char* url) {

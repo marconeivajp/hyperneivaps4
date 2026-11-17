@@ -161,6 +161,22 @@ void pularParaTempo(double tempo);
 // 1080p do Telegram e quedas). 12 MB ainda são uns 20 s de 1080p adiantados.
 #define FILA_VIDEO_MAX_BYTES_REDE (12 * 1024 * 1024)
 static bool filaVideoLeve = false;
+// IPTV define o tamanho do "cache" antes de abrir o canal (iptv.h); vale só para esse vídeo,
+// depois volta ao padrão. 0 = usa o padrão (nenhum pedido pendente).
+static size_t filaVideoLimiteRedePendente = 0;
+static size_t filaVideoLimiteRedeAtual = FILA_VIDEO_MAX_BYTES_REDE;
+void videoDefinirCacheRedeIptv(size_t bytes) { filaVideoLimiteRedePendente = bytes ? bytes : 1; }
+// Codec preferido ao abrir um canal com mais de uma faixa de vídeo (raro: HLS multi-variante).
+// -1 = nenhuma preferência (primeira faixa de vídeo encontrada, como sempre foi).
+static int videoCodecPreferidoPendente = -1;
+void videoDefinirCodecPreferidoIptv(int pref) { videoCodecPreferidoPendente = pref; }   // 0 HEVC, 1 AVC, 2 AV1
+// User-Agent/timeout/proxy para abrir o próximo vídeo por HTTP puro (sem TLS: iptv.h cuida do https/HLS).
+static char videoHttpUserAgentPendente[160] = ""; static bool videoHttpTimeoutPendente = true; static char videoHttpProxyPendente[128] = "";
+void videoDefinirOpcoesHttpIptv(const char* userAgent, bool timeoutOn, const char* proxy) {
+    snprintf(videoHttpUserAgentPendente, sizeof(videoHttpUserAgentPendente), "%s", userAgent ? userAgent : "");
+    videoHttpTimeoutPendente = timeoutOn;
+    snprintf(videoHttpProxyPendente, sizeof(videoHttpProxyPendente), "%s", proxy ? proxy : "");
+}
 #define FILA_FRAMES_CAP 8
 
 #define PILHA_THREAD (2 * 1024 * 1024)
@@ -554,7 +570,7 @@ static void* threadDemux(void*) {
         }
 
         bool videoCheio = filaPacotesCheia(&filaVideo) ||
-            __atomic_load_n(&filaVideo.bytes, __ATOMIC_RELAXED) > (filaVideoLeve ? FILA_VIDEO_MAX_BYTES_REDE : FILA_VIDEO_MAX_BYTES);
+            __atomic_load_n(&filaVideo.bytes, __ATOMIC_RELAXED) > (filaVideoLeve ? filaVideoLimiteRedeAtual : (size_t)FILA_VIDEO_MAX_BYTES);
         bool audioCheio = temAudio && filaPacotesCheia(&filaAudio);
         // Sem o primeiro quadro o áudio ainda não anda: esperar por ele aqui seria um impasse.
         bool audioEmEspera = serialRelogio != serialAtual;
@@ -1309,12 +1325,15 @@ void pararVideo() {
     if (!videoRodando || bloqueio_fechar_video) return;
 
     extern void telegramPararFluxo(), telegramFecharFluxo();
+    extern void iptvPararFluxo(), iptvFecharFluxo();
     telegramPararFluxo();   // a leitura pode estar esperando a rede: solta antes de encerrar as threads
+    iptvPararFluxo();       // idem para um canal de IPTV https/HLS em andamento
     reiniciarControlesPlayer();
     encerrarThreads();
     legendaFecharVideo();
     liberarRecursosVideo();
     telegramFecharFluxo();
+    iptvFecharFluxo();
 
     videoRodando = false; video_minimizado = false;
     bloqueio_audio_nativo = false;
@@ -1458,26 +1477,60 @@ void iniciarVideoMP4(const char* caminho) {
     // Vídeo do Telegram em andamento: lê pelo TDLib em vez de direto do arquivo.
     extern AVIOContext* telegramAbrirFluxo(const char* caminho);
     AVIOContext* fluxoTelegram = telegramAbrirFluxo(caminho);
-    filaVideoLeve = fluxoTelegram != NULL || strstr(caminho, "://") != NULL || memoriaFlexivelMB() < 220;
+    // IPTV (iptv.h): https e .m3u8 não têm TLS no FFmpeg deste OpenOrbis, então ganham leitor
+    // próprio por sceHttp; http puro continua indo direto pelo FFmpeg (mais simples e robusto).
+    extern AVIOContext* iptvAbrirFluxo(const char* caminho);
+    AVIOContext* fluxoIptv = fluxoTelegram ? NULL : iptvAbrirFluxo(caminho);
+    filaVideoLimiteRedeAtual = filaVideoLimiteRedePendente ? filaVideoLimiteRedePendente : FILA_VIDEO_MAX_BYTES_REDE;
+    filaVideoLimiteRedePendente = 0;
+    filaVideoLeve = fluxoTelegram != NULL || fluxoIptv != NULL || strstr(caminho, "://") != NULL || memoriaFlexivelMB() < 220;
     if (fluxoTelegram) {
         pFormatCtx = avformat_alloc_context();
         pFormatCtx->pb = fluxoTelegram;
         pFormatCtx->flags |= AVFMT_FLAG_CUSTOM_IO;
     }
-    if (avformat_open_input(&pFormatCtx, caminho, NULL, NULL) != 0) {
+    else if (fluxoIptv) {
+        pFormatCtx = avformat_alloc_context();
+        pFormatCtx->pb = fluxoIptv;
+        pFormatCtx->flags |= AVFMT_FLAG_CUSTOM_IO;
+    }
+    // Vídeo http puro (ex.: canal de IPTV sem TLS): usa o User-Agent/timeout/proxy pedidos.
+    AVDictionary* opcoesAbertura = NULL;
+    if (!fluxoTelegram && !fluxoIptv && strstr(caminho, "://") != NULL && videoHttpUserAgentPendente[0]) {
+        char cab[200]; snprintf(cab, sizeof(cab), "User-Agent: %s\r\n", videoHttpUserAgentPendente);
+        av_dict_set(&opcoesAbertura, "headers", cab, 0);
+        av_dict_set(&opcoesAbertura, "timeout", videoHttpTimeoutPendente ? "15000000" : "600000000", 0);
+        if (videoHttpProxyPendente[0]) { char prox[160]; snprintf(prox, sizeof(prox), "http://%s", videoHttpProxyPendente); av_dict_set(&opcoesAbertura, "http_proxy", prox, 0); }
+    }
+    videoHttpUserAgentPendente[0] = 0;
+    if (avformat_open_input(&pFormatCtx, (fluxoTelegram || fluxoIptv) ? "" : caminho, NULL, &opcoesAbertura) != 0) {
+        if (opcoesAbertura) av_dict_free(&opcoesAbertura);
         logVideoInfo("ERRO: nao abriu %s", ultimo_video_tocado);
         bloqueio_audio_nativo = false;
         retomarMusicaAposVideo();
         return;
     }
+    if (opcoesAbertura) av_dict_free(&opcoesAbertura);
     avformat_find_stream_info(pFormatCtx, NULL);
 
+    // Codec preferido (IPTV): só importa quando a fonte oferece mais de uma faixa de vídeo
+    // (ex.: HLS com variantes em codecs diferentes). Sem isso, pega a primeira, como sempre foi.
+    int codecPref = videoCodecPreferidoPendente; videoCodecPreferidoPendente = -1;
     videoStream = -1; audioStream = -1;
+    int videosEncontrados = 0;
     for (unsigned int i = 0; i < pFormatCtx->nb_streams; i++) {
         AVCodecParameters* p = pFormatCtx->streams[i]->codecpar;
-        if (p->codec_type == AVMEDIA_TYPE_VIDEO && videoStream == -1) videoStream = i;
+        if (p->codec_type == AVMEDIA_TYPE_VIDEO) {
+            videosEncontrados++;
+            if (videoStream == -1) videoStream = i;
+            else if (codecPref >= 0) {
+                AVCodecID alvo = codecPref == 0 ? AV_CODEC_ID_HEVC : codecPref == 1 ? AV_CODEC_ID_H264 : AV_CODEC_ID_AV1;
+                if (p->codec_id == alvo && pFormatCtx->streams[videoStream]->codecpar->codec_id != alvo) videoStream = i;
+            }
+        }
         else if (p->codec_type == AVMEDIA_TYPE_AUDIO && audioStream == -1) audioStream = i;
     }
+    (void)videosEncontrados;
 
     if (videoStream == -1 || !abrirDecodificadorVideo()) {
         logVideoInfo("ERRO: sem video decodificavel em %s", ultimo_video_tocado);

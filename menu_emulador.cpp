@@ -47,12 +47,13 @@ void atualizarMenuEmulador(uint32_t buttons, uint32_t ultimos) {
             entradaMenuTime = 0;
         }
         else if (menuEmuSelecao == 1) { // Salvar
-            bridge_salvar_state("/data/retroarch/savestates/gba_save.state");
+            { extern void bridge_caminho_state(char*, size_t); char c[600]; bridge_caminho_state(c, sizeof(c)); bridge_salvar_state(c); }
             snprintf(msgStatus, 128, "STATE SALVO!");
             msgTimer = 60;
         }
         else if (menuEmuSelecao == 2) { // Carregar
-            if (bridge_carregar_state("/data/retroarch/savestates/gba_save.state")) {
+            char cState[600]; { extern void bridge_caminho_state(char*, size_t); bridge_caminho_state(cState, sizeof(cState)); }
+            if (bridge_carregar_state(cState)) {
                 snprintf(msgStatus, 128, "STATE CARREGADO!");
                 menuEmuladorAtivo = false;
                 bridge_set_pausado(false);

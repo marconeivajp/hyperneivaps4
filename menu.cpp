@@ -252,9 +252,11 @@ static const Conquista conquistas[] = {
     { "controle", 5, "Controle em dia", "Em EXTRA, abra o Teste de Controle para ver os botões e o desvio dos analógicos." },
     { "piano", 5, "Músico", "Em EXTRA, abra o Piano Virtual." },
     { "ventoinha", 5, "Ventoinha", "Em EXTRA, abra Ventoinha e temperatura. Esquerda e direita escolhem a temperatura em que a ventoinha acelera, e X aplica. Valor baixo deixa o PS4 mais frio e mais barulhento." },
+    { "meet", 5, "Reuniao", "Em EXTRA, abra Meet e crie uma sala. Quem estiver no mesmo Wi-Fi le o QR code ou abre o link no navegador do celular ou do PC, aceita o aviso de certificado e entra com camera, microfone e chat. Sala privada usa um link com codigo; R2 abre para a internet pelo roteador." },
+    { "iptv", 5, "Televisao", "Em EXTRA, abra IPTV e crie um perfil com uma lista M3U/M3U8 ou os dados do Xtream Codes. Triangulo salva e busca os canais; depois escolha a categoria e X toca." },
     { "editor", 5, "Artista", "Em EXTRA, abra Editor de imagem, ou aperte X numa imagem no EXPLORAR e escolha editar imagem. L1 e R1 trocam a ferramenta, o touchpad desenha e Options abre o menu de salvar." },
     { "tempo", 5, "Meteorologista", "Em EXTRA, abra Previsão do tempo. Quadrado adiciona uma cidade pelo nome, Triângulo tira, cima e baixo trocam de cidade." },
-    { "tg_chave", 5, "Telegram: criar a chave", "No PC, entre em my.telegram.org, abra API development tools e crie um app. Grave /data/HyperNeivaTelegram/api.txt no PS4 pelo FTP: api_id na primeira linha e api_hash na segunda." },
+    { "tg_chave", 5, "Telegram: criar a chave", "No PC, entre em my.telegram.org, abra API development tools e crie um app. Grave /data/HyperNeiva/telegram/api.txt no PS4 pelo FTP: api_id na primeira linha e api_hash na segunda." },
     { "tg_abrir", 5, "Telegram: abrir", "Em EXTRA, escolha Telegram. Sem o arquivo api.txt, o app avisa que falta a chave." },
     { "tg_login", 5, "Telegram: entrar", "Aperte X, digite o telefone com DDI, como +5511999998888, e depois o código que chega no seu Telegram." },
 
@@ -335,7 +337,7 @@ void conquistasAtualizar() {
     if (++arquivos >= 600) {
         arquivos = 0;
         if (conquistaArquivoExiste("/data/HyperNeiva/configuracao/dropbox_token.txt")) { conquistaGanhar("dropbox_app"); conquistaGanhar("dropbox_chave"); }
-        if (conquistaArquivoExiste("/data/HyperNeivaTelegram/api.txt")) conquistaGanhar("tg_chave");
+        if (conquistaArquivoExiste("/data/HyperNeiva/telegram/api.txt")) conquistaGanhar("tg_chave");
         FILE* ch = fopen("/data/HyperNeiva/configuracao/chaves_api.txt", "r");
         if (ch) {
             char l[512];

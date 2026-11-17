@@ -339,15 +339,15 @@ int main(void) {
                     if (btnM & ORBIS_PAD_BUTTON_CROSS) { 
                         if (menuEmuSelecao == 0) menuEmuladorAtivo = false; // Continuar
                         if (menuEmuSelecao == 1) { // Save State
-                            char sPath[1024]; snprintf(sPath, sizeof(sPath), "/data/retroarch/savestates/current.state");
+                            char sPath[1024]; extern void bridge_caminho_state(char*, size_t); bridge_caminho_state(sPath, sizeof(sPath));
                             bridge_salvar_state(sPath);
                             snprintf(msgStatus, sizeof(msgStatus), "STATUS: JOGO SALVO COM SUCESSO!"); msgTimer = 180;
                             menuEmuladorAtivo = false;
                         }
                         if (menuEmuSelecao == 2) { // Load State
-                            char sPath[1024]; snprintf(sPath, sizeof(sPath), "/data/retroarch/savestates/current.state");
-                            bridge_carregar_state(sPath);
-                            snprintf(msgStatus, sizeof(msgStatus), "STATUS: JOGO CARREGADO!"); msgTimer = 180;
+                            char sPath[1024]; extern void bridge_caminho_state(char*, size_t); bridge_caminho_state(sPath, sizeof(sPath));
+                            bool carregou = bridge_carregar_state(sPath);
+                            snprintf(msgStatus, sizeof(msgStatus), carregou ? "STATUS: JOGO CARREGADO!" : "SEM SAVE STATE DESTE JOGO (SALVE ANTES)"); msgTimer = 180;
                             menuEmuladorAtivo = false;
                         }
                         if (menuEmuSelecao == 3) { // Controles

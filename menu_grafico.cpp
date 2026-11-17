@@ -159,9 +159,12 @@ void desenharInterface(uint32_t* p) {
         extern bool modelo3dAberto;
         if (modelo3dAberto) { extern void modelo3dRenderizar(uint32_t* p); modelo3dRenderizar(p); return; }
     }
-    if (menuAtual == MENU_TEMPO) { extern void tempoRenderizar(uint32_t* p); tempoRenderizar(p); return; }
+    if (menuAtual == MENU_TEMPO) { extern bool tempoDetalhe; extern void tempoRenderizar(uint32_t* p); extern void tempoRenderizarDetalhe(uint32_t* p); if (tempoDetalhe) tempoRenderizarDetalhe(p); else tempoRenderizar(p); return; }
     if (menuAtual == MENU_DOWNLOADS) { extern void downloadsRenderizar(uint32_t* p); downloadsRenderizar(p); return; }
     if (menuAtual == MENU_GDRIVE) { extern void gdriveRenderizar(uint32_t* p); gdriveRenderizar(p); return; }
+    if (menuAtual == MENU_MEET) { extern void meetRenderizar(uint32_t* p); meetRenderizar(p); return; }
+    if (menuAtual == MENU_FERRAMENTAS) { extern void ferramentasRenderizar(uint32_t* p); ferramentasRenderizar(p); return; }
+    if (menuAtual == MENU_IPTV) { extern void iptvRenderizar(uint32_t* p); iptvRenderizar(p); return; }
     if (menuAtual == MENU_PC_ARQUIVOS) {
         extern void pcArquivosRenderizar(uint32_t* p);
         pcArquivosRenderizar(p);

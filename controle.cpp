@@ -173,6 +173,7 @@ void voltarNavegacao() {
             else listarDiretorio(pathExplorar);
         }
         else if (menuAtual == MENU_EXTRA) preencherMenuExtra();
+        else if (menuAtual == MENU_FERRAMENTAS) { extern void ferramentasAoVoltar(); ferramentasAoVoltar(); }
         else if (menuAtual == MENU_INFORMACAO) preencherMenuInformacao();
         else if (menuAtual == MENU_EMULADOR) { extern void preencherMenuGBA(); preencherMenuGBA(); }
         else if (menuAtual == MENU_SISTEMAS) { extern void bibliotecaMostrarSistemas(); bibliotecaMostrarSistemas(); }
@@ -486,9 +487,23 @@ void processarControles(uint32_t botoes, int32_t uId, OrbisImeDialogSetting* ime
             return;
         }
     }
-    if (menuAtual == MENU_TEMPO || menuAtual == MENU_DOWNLOADS || menuAtual == MENU_GDRIVE) {
-        extern bool tempoControles(uint32_t, uint32_t, int32_t), downloadsControles(uint32_t, uint32_t, int32_t), gdriveControles(uint32_t, uint32_t, int32_t);
-        bool sai = menuAtual == MENU_TEMPO ? tempoControles(botoes, botoesAntigos, uId) : menuAtual == MENU_DOWNLOADS ? downloadsControles(botoes, botoesAntigos, uId) : gdriveControles(botoes, botoesAntigos, uId);
+    if (menuAtual == MENU_FERRAMENTAS) {
+        extern bool ferramentasControles(uint32_t, uint32_t, int32_t);
+        if (ferramentasControles(botoes, botoesAntigos, uId)) {
+            extern void preencherMenuExtra();
+            menuAtual = MENU_EXTRA;
+            preencherMenuExtra();
+            sel = 9;
+            pCross = pTri = pSquare = pL1 = pR1 = pL2 = false;
+            pCircle = true;
+        }
+        botoesAntigos = botoes;
+        return;
+    }
+    if (menuAtual == MENU_TEMPO || menuAtual == MENU_DOWNLOADS || menuAtual == MENU_GDRIVE || menuAtual == MENU_MEET || menuAtual == MENU_IPTV) {
+        extern bool tempoControles(uint32_t, uint32_t, int32_t), downloadsControles(uint32_t, uint32_t, int32_t), gdriveControles(uint32_t, uint32_t, int32_t), meetControles(uint32_t, uint32_t, int32_t), iptvControles(uint32_t, uint32_t, int32_t);
+        bool sai = menuAtual == MENU_TEMPO ? tempoControles(botoes, botoesAntigos, uId) : menuAtual == MENU_DOWNLOADS ? downloadsControles(botoes, botoesAntigos, uId) :
+            menuAtual == MENU_MEET ? meetControles(botoes, botoesAntigos, uId) : menuAtual == MENU_IPTV ? iptvControles(botoes, botoesAntigos, uId) : gdriveControles(botoes, botoesAntigos, uId);
         if (sai) {
             voltarNavegacao();
             int volta = sel;

@@ -5,6 +5,7 @@
 #include <orbis/Ssl.h>
 #include <orbis/Sysmodule.h>
 #include <stddef.h>
+#include <math.h>
 
 int netPoolId = -1;
 int httpCtxId = -1;
@@ -3153,7 +3154,7 @@ static bool iaRotas(RemotoConexao* c, const char* alvo, const char* query, long 
 // no arquivo que o recurso já lê. Só os 4 últimos caracteres saem do PS4.
 // =========================================================================
 #ifndef TELEGRAM_RAIZ
-#define TELEGRAM_RAIZ "/data/HyperNeivaTelegram"
+#define TELEGRAM_RAIZ "/data/HyperNeiva/telegram"
 #endif
 enum { CH_ARQUIVO, CH_LINHA, CH_ROTULO, CH_NOMEVALOR };
 struct ChaveDef { const char* id; const char* nome; const char* uso; int tipo; const char* arquivo; const char* rotulo; int linha; };
@@ -3856,6 +3857,7 @@ void remotoIniciar() {
     pthread_t t;
     if (pthread_create(&t, NULL, remotoThreadServidor, NULL) == 0) pthread_detach(t);
     else remotoLigado = false;
+    extern void meetLigarSeTiverSalas(); meetLigarSeTiverSalas();   // links permanentes do Meet
 }
 
 // IP desta máquina na rede local (sem mandar pacote: o connect de UDP só escolhe a rota).
@@ -4365,6 +4367,11 @@ static int iaHttpGet(const char* url, char** resp, size_t* tamResp) {
     if (conn >= 0) sceHttpDeleteConnection(conn);
     sceHttpDeleteTemplate(tpl);
     return status;
+}
+
+// GET para as ferramentas (cotacoes e acoes). Devolve o status HTTP.
+int hnHttpGet(const char* url, char** resp, size_t* tamResp) {
+    return iaHttpGet(url, resp, tamResp);
 }
 
 void desenharTexto(uint32_t* pixels, const char* texto, int tam, int x, int y, uint32_t cor);
@@ -5664,14 +5671,59 @@ void remotoDesenharQrTexto(uint32_t* p, const char* texto, int x, int y, int mod
 // PREVISÃO DO TEMPO (EXTRA > Previsão do tempo). Open-Meteo: pública, sem chave.
 // =========================================================================
 #define TEMPO_ARQ REMOTO_RAIZ "/configuracao/tempo_cidades.txt"
+#define TEMPO_HORAS_MAX 168
+#define TEMPO_HORAS_VISIVEIS 10
+#define TEMPO_CIDADES_VISIVEIS 15
+#ifndef M_PI
+#define M_PI 3.14159265358979323846
+#endif
 struct TempoCidade { char nome[96]; double lat, lon; };
-struct TempoDados { bool ok; char erro[96]; double temp, vento; int umid, codigo, dias; char data[7][12]; double tmax[7], tmin[7]; int cod[7], chuva[7]; uint64_t quando; };
+struct TempoDados {
+    bool ok;
+    char erro[96];
+    double temp, sensacao, vento, rajada, chuvaAgora, pressao, visibilidade, uv;
+    int umid, codigo, dirVento, dias;
+    char horaAtual[8];
+    char data[7][12], nascer[7][8], por[7][8];
+    double tmax[7], tmin[7], chuvaMm[7], ventoDia[7], rajadaDia[7], uvDia[7];
+    int cod[7], chuva[7], dirDia[7];
+    int horaTotal;
+    char hora[TEMPO_HORAS_MAX][6];
+    double hTemp[TEMPO_HORAS_MAX], hChuvaMm[TEMPO_HORAS_MAX], hVento[TEMPO_HORAS_MAX], hVis[TEMPO_HORAS_MAX], hUv[TEMPO_HORAS_MAX];
+    int hCod[TEMPO_HORAS_MAX], hChuva[TEMPO_HORAS_MAX], hUmid[TEMPO_HORAS_MAX], hDir[TEMPO_HORAS_MAX];
+    bool aqiOk;
+    int aqi;
+    double pm25, pm10, no2, o3, so2, co;
+    uint64_t quando;
+};
 static TempoCidade tempoCidades[20];
 static TempoDados tempoDados[20];
-static int tempoTotal = 0, tempoSel = 0, tempoImeModo = 0;
+static int tempoTotal = 0, tempoSel = 0, tempoImeModo = 0, tempoDiaSel = 0, tempoHoraOff = -1, tempoListaOff = 0;
 static volatile bool tempoBaixando = false;
 static char tempoAviso[160] = "";
 static bool tempoConfirmarApagar = false;
+
+#define TEMPO_GRAF_PONTOS 400
+struct TempoGrafico {
+    bool ok, baixando;
+    int periodo, parametro, total;
+    char erro[120];
+    char data[TEMPO_GRAF_PONTOS][12];
+    double tempMax[TEMPO_GRAF_PONTOS], tempMin[TEMPO_GRAF_PONTOS];
+    double sensMax[TEMPO_GRAF_PONTOS], sensMin[TEMPO_GRAF_PONTOS];
+    double umid[TEMPO_GRAF_PONTOS], chuvaProb[TEMPO_GRAF_PONTOS], chuvaMm[TEMPO_GRAF_PONTOS];
+    double vento[TEMPO_GRAF_PONTOS], rajada[TEMPO_GRAF_PONTOS], dirVento[TEMPO_GRAF_PONTOS];
+    double uv[TEMPO_GRAF_PONTOS], pressao[TEMPO_GRAF_PONTOS], visibilidade[TEMPO_GRAF_PONTOS];
+    int cod[TEMPO_GRAF_PONTOS];
+};
+static TempoGrafico tempoGraf;
+static volatile bool tempoGrafBaixando = false;
+bool tempoDetalhe = false;
+static int tempoDetalheOff = 0;
+static long long tempoGrafInicio = 0, tempoGrafFim = 0;
+static bool tempoCalAberto = false;
+static int tempoCalEtapa = 0, tempoCalAno = 0, tempoCalMes = 0, tempoCalDia = 1;
+static const char* tempoGrafParametros[] = { "TEMPERATURA", "SENSAÇÃO", "UMIDADE", "CHUVA %", "CHUVA MM", "VENTO", "RAJADAS", "DIR. VENTO", "UV", "PRESSÃO", "VISIBILIDADE", "CÓDIGO" };
 
 static void tempoSalvar() {
     remotoCriarPastas(REMOTO_RAIZ "/configuracao");
@@ -5702,15 +5754,109 @@ static const char* tempoTexto(int c) {
     if (c == 2) return "Parcialmente nublado";
     if (c == 3) return "Nublado";
     if (c == 45 || c == 48) return "Neblina";
-    if (c >= 51 && c <= 57) return "Garoa";
-    if (c >= 61 && c <= 67) return "Chuva";
-    if (c >= 71 && c <= 77) return "Neve";
-    if (c >= 80 && c <= 82) return "Pancadas de chuva";
-    if (c == 85 || c == 86) return "Neve";
-    if (c >= 95) return "Tempestade";
+    if (c == 51 || c == 53 || c == 55) return "Garoa";
+    if (c == 56 || c == 57) return "Garoa congelante";
+    if (c == 61 || c == 63 || c == 65) return "Chuva";
+    if (c == 66 || c == 67) return "Chuva congelante";
+    if (c == 71 || c == 73 || c == 75) return "Neve";
+    if (c == 77) return "Grãos de neve";
+    if (c == 80 || c == 81 || c == 82) return "Pancadas de chuva";
+    if (c == 85 || c == 86) return "Pancadas de neve";
+    if (c == 95) return "Tempestade";
+    if (c == 96 || c == 99) return "Tempestade com granizo";
     return "";
 }
 static uint32_t tempoCor(int c) { return c <= 1 ? 0xFFFFC94A : c <= 3 ? 0xFFB8C2CC : (c >= 95 ? 0xFFB388FF : (c >= 51 ? 0xFF4FC3F7 : 0xFFDDDDDD)); }
+static const char* tempoDirNome(int dir) {
+    static const char* nomes[] = { "N", "NNE", "NE", "ENE", "L", "ESE", "SE", "SSE", "S", "SSO", "SO", "OSO", "O", "ONO", "NO", "NNO" };
+    if (dir < 0) dir += 360 * ((-dir + 359) / 360);
+    return nomes[((dir % 360) * 16 + 180) / 360 % 16];
+}
+static int tempoDiaSemana(int ano, int mes, int dia) {
+    static const int tabela[] = { 0, 3, 2, 5, 0, 3, 5, 1, 4, 6, 2, 4 };
+    int a = mes < 3 ? ano - 1 : ano;
+    return (a + a / 4 - a / 100 + a / 400 + tabela[(mes + 11) % 12] + dia) % 7;
+}
+static const char* tempoLuaNome(double fase, double* iluminacao) {
+    if (fase < 0) fase += 1;
+    if (iluminacao) *iluminacao = (1.0 - cos(2.0 * M_PI * fase)) * 50.0;
+    int n = ((int)(fase * 8.0 + 0.5)) & 7;
+    static const char* nomes[] = { "Lua nova", "Lua crescente", "Quarto crescente", "Crescente gibosa", "Lua cheia", "Minguante gibosa", "Quarto minguante", "Lua minguante" };
+    return nomes[n];
+}
+static double tempoLuaFase(int ano, int mes, int dia) {
+    int a = (14 - mes) / 12, y = ano + 4800 - a, m = mes + 12 * a - 3;
+    long long jdn = dia + (153 * m + 2) / 5 + 365LL * y + y / 4 - y / 100 + y / 400 - 32045;
+    double fase = ((double)jdn - 2451550.1) / 29.530588853;
+    fase -= floor(fase);
+    return fase;
+}
+static void tempoLinha(uint32_t* p, int x0, int y0, int x1, int y1, uint32_t cor, int esp) {
+    int dx = x1 - x0, dy = y1 - y0;
+    int passos = (dx < 0 ? -dx : dx) > (dy < 0 ? -dy : dy) ? (dx < 0 ? -dx : dx) : (dy < 0 ? -dy : dy);
+    if (passos <= 0) passos = 1;
+    for (int i = 0; i <= passos; i++) {
+        int x = x0 + dx * i / passos, y = y0 + dy * i / passos;
+        telaRet(p, x - esp / 2, y - esp / 2, esp, esp, cor);
+    }
+}
+static void tempoCirculo(uint32_t* p, int cx, int cy, int r, uint32_t cor) {
+    for (int y = -r; y <= r; y++) for (int x = -r; x <= r; x++) if (x * x + y * y <= r * r) {
+        int px = cx + x, py = cy + y;
+        if (px >= 0 && px < 1920 && py >= 0 && py < 1080) p[py * 1920 + px] = cor;
+    }
+}
+static void tempoIcone(uint32_t* p, int cx, int cy, int r, int cod, uint32_t cor) {
+    if (cod <= 1) {
+        tempoCirculo(p, cx, cy, r / 2, 0xFFFFC94A);
+        for (int i = 0; i < 8; i++) {
+            double a = i * M_PI / 4.0;
+            tempoLinha(p, cx + (int)(cos(a) * r * 0.72), cy + (int)(sin(a) * r * 0.72), cx + (int)(cos(a) * r), cy + (int)(sin(a) * r), 0xFFFFC94A, 3);
+        }
+        return;
+    }
+    uint32_t nuvem = 0xFFDDE5EE;
+    if (cod == 45 || cod == 48) {
+        for (int i = -1; i <= 1; i++) tempoLinha(p, cx - r, cy + i * r / 3, cx + r, cy + i * r / 3, nuvem, 3);
+        return;
+    }
+    tempoCirculo(p, cx - r / 3, cy, r / 2, nuvem);
+    tempoCirculo(p, cx + r / 4, cy - r / 4, r / 2, nuvem);
+    telaRet(p, cx - r, cy, r * 2, r / 2, nuvem);
+    if ((cod >= 51 && cod <= 67) || (cod >= 80 && cod <= 82)) {
+        for (int i = -1; i <= 1; i++) tempoLinha(p, cx + i * r / 2, cy + r / 2, cx + i * r / 2 - r / 5, cy + r, 0xFF4FC3F7, 3);
+    }
+    else if ((cod >= 71 && cod <= 77) || cod == 85 || cod == 86) {
+        for (int i = -1; i <= 1; i++) tempoCirculo(p, cx + i * r / 2, cy + r * 3 / 4, 2, 0xFFFFFFFF);
+    }
+    else if (cod >= 95) {
+        tempoLinha(p, cx, cy + r / 3, cx - r / 4, cy + r * 3 / 4, 0xFFFFD54F, 4);
+        tempoLinha(p, cx - r / 4, cy + r * 3 / 4, cx + r / 5, cy + r * 3 / 4, 0xFFFFD54F, 4);
+        tempoLinha(p, cx + r / 5, cy + r * 3 / 4, cx - r / 6, cy + r, 0xFFFFD54F, 4);
+    }
+}
+static void tempoSetaVento(uint32_t* p, int cx, int cy, int r, int dir, uint32_t cor) {
+    double rad = dir * M_PI / 180.0;
+    int dx = (int)(sin(rad) * r), dy = (int)(-cos(rad) * r);
+    tempoLinha(p, cx - dx, cy - dy, cx + dx, cy + dy, cor, 3);
+    double a1 = rad + 0.55, a2 = rad - 0.55;
+    int comp = r * 3 / 5;
+    tempoLinha(p, cx + dx, cy + dy, cx + dx - (int)(sin(a1) * comp), cy + dy + (int)(cos(a1) * comp), cor, 3);
+    tempoLinha(p, cx + dx, cy + dy, cx + dx - (int)(sin(a2) * comp), cy + dy + (int)(cos(a2) * comp), cor, 3);
+}
+static void tempoLuaDesenhar(uint32_t* p, int cx, int cy, int r, double fase) {
+    tempoCirculo(p, cx, cy, r, 0xFF182A3E);
+    double termo = cos(2.0 * M_PI * fase);
+    for (int y = -r; y <= r; y++) for (int x = -r; x <= r; x++) {
+        if (x * x + y * y > r * r) continue;
+        double ny = (double)y / r;
+        double tx = termo * sqrt(1.0 - ny * ny);
+        double nx = (double)x / r;
+        bool iluminado = fase <= 0.5 ? nx > tx : nx < -tx;
+        int px = cx + x, py = cy + y;
+        if (iluminado && px >= 0 && px < 1920 && py >= 0 && py < 1080) p[py * 1920 + px] = 0xFFFFE7A3;
+    }
+}
 static int tempoLista(const char* r, const char* chave, double* v, int max) {
     const char* p = strstr(r, chave);
     if (!p) return 0;
@@ -5725,47 +5871,335 @@ static int tempoLista(const char* r, const char* chave, double* v, int max) {
     }
     return n;
 }
+static int tempoListaInt(const char* r, const char* chave, int* v, int max) {
+    double tmp[TEMPO_GRAF_PONTOS];
+    if (max > TEMPO_GRAF_PONTOS) max = TEMPO_GRAF_PONTOS;
+    int n = tempoLista(r, chave, tmp, max);
+    for (int i = 0; i < n; i++) v[i] = (int)(tmp[i] + (tmp[i] >= 0 ? 0.5 : -0.5));
+    return n;
+}
+static int tempoListaTextos(const char* r, const char* chave, char* saida, int max, int tam) {
+    const char* p = strstr(r, chave);
+    if (!p) return 0;
+    p = strchr(p, '['); if (!p) return 0; p++;
+    int n = 0;
+    while (*p && *p != ']' && n < max) {
+        while (*p && *p != '"' && *p != ']') p++;
+        if (*p != '"') break;
+        const char* q = p + 1;
+        const char* f = strchr(q, '"');
+        if (!f) break;
+        int len = (int)(f - q);
+        if (len >= tam) len = tam - 1;
+        memcpy(saida + n * tam, q, len);
+        saida[n * tam + len] = 0;
+        n++;
+        p = f + 1;
+    }
+    return n;
+}
+static void tempoHoraIso(const char* iso, char* saida, int tam) {
+    const char* t = iso ? strchr(iso, 'T') : NULL;
+    if (t && strlen(t + 1) >= 5) snprintf(saida, tam, "%.5s", t + 1);
+    else saida[0] = 0;
+}
+static int tempoListaHoras(const char* r, char horas[][6], int max) {
+    char iso[TEMPO_HORAS_MAX][24];
+    int n = tempoListaTextos(r, "\"time\"", &iso[0][0], max, 24);
+    for (int i = 0; i < n; i++) tempoHoraIso(iso[i], horas[i], 6);
+    return n;
+}
+static void tempoDataHoje(int* ano, int* mes, int* dia) {
+    time_t agora = time(NULL);
+    struct tm* t = localtime(&agora);
+    if (t) { *ano = t->tm_year + 1900; *mes = t->tm_mon + 1; *dia = t->tm_mday; }
+    else { *ano = 2026; *mes = 1; *dia = 1; }
+}
+static long long tempoDataEpoch(int ano, int mes, int dia) {
+    struct tm t;
+    memset(&t, 0, sizeof(t));
+    t.tm_year = ano - 1900; t.tm_mon = mes - 1; t.tm_mday = dia;
+    t.tm_hour = 12; t.tm_isdst = -1;
+    return (long long)mktime(&t);
+}
+static void tempoEpochData(long long epoch, int* ano, int* mes, int* dia) {
+    time_t bruto = (time_t)epoch;
+    struct tm* t = localtime(&bruto);
+    if (t) { *ano = t->tm_year + 1900; *mes = t->tm_mon + 1; *dia = t->tm_mday; }
+    else tempoDataHoje(ano, mes, dia);
+}
+static void tempoDataTexto(long long epoch, char* saida, int tam) {
+    time_t bruto = (time_t)epoch;
+    struct tm* t = localtime(&bruto);
+    if (t) strftime(saida, tam, "%d/%m/%Y", t);
+    else snprintf(saida, tam, "--/--/----");
+}
+static void tempoDataIso(long long epoch, char* saida, int tam) {
+    time_t bruto = (time_t)epoch;
+    struct tm* t = localtime(&bruto);
+    if (t) strftime(saida, tam, "%Y-%m-%d", t);
+    else snprintf(saida, tam, "2026-01-01");
+}
+static int tempoDiasNoMes(int ano, int mes) {
+    while (mes < 1) { mes += 12; ano--; }
+    while (mes > 12) { mes -= 12; ano++; }
+    if (mes == 4 || mes == 6 || mes == 9 || mes == 11) return 30;
+    if (mes == 2) return ((ano % 4 == 0 && ano % 100 != 0) || ano % 400 == 0) ? 29 : 28;
+    return 31;
+}
+static void tempoGrafPeriodoDatas(void) {
+    int a, m, d;
+    tempoDataHoje(&a, &m, &d);
+    long long hoje = tempoDataEpoch(a, m, d);
+    if (tempoGraf.periodo == 0) { tempoGrafInicio = hoje - 7LL * 86400; tempoGrafFim = hoje + 6LL * 86400; }
+    else if (tempoGraf.periodo == 1) { tempoGrafInicio = hoje - 30LL * 86400; tempoGrafFim = hoje + 6LL * 86400; }
+    else if (tempoGraf.periodo == 2) { tempoGrafInicio = hoje - 365LL * 86400; tempoGrafFim = hoje; }
+    else {
+        if (tempoGrafInicio <= 0) tempoGrafInicio = hoje - 30LL * 86400;
+        if (tempoGrafFim <= tempoGrafInicio) tempoGrafFim = hoje;
+    }
+}
+static const char* tempoGrafPeriodoNome(int p) {
+    if (p == 0) return "SEMANA";
+    if (p == 1) return "MES";
+    if (p == 2) return "ANO";
+    return "PERSONALIZADO";
+}
+static void tempoGrafMontarUrl(int cidade, char* url, int tam, long long ini, long long fim) {
+    char a[16], b[16];
+    tempoDataIso(ini, a, sizeof(a));
+    tempoDataIso(fim, b, sizeof(b));
+    int aa, mm, dd;
+    tempoDataHoje(&aa, &mm, &dd);
+    long long hoje = tempoDataEpoch(aa, mm, dd);
+    bool arquivo = tempoGraf.periodo == 2 || (tempoGraf.periodo == 3 && fim < hoje);
+    const char* base = arquivo ? "https://archive-api.open-meteo.com/v1/archive" : "https://api.open-meteo.com/v1/forecast";
+    const char* extras = arquivo ? "" : ",uv_index_max,precipitation_probability_max";
+    snprintf(url, tam, "%s?latitude=%.4f&longitude=%.4f&start_date=%s&end_date=%s"
+        "&daily=weather_code,temperature_2m_max,temperature_2m_min,apparent_temperature_max,apparent_temperature_min,relative_humidity_2m_mean,precipitation_sum,wind_speed_10m_max,wind_gusts_10m_max,wind_direction_10m_dominant,pressure_msl_mean,visibility_mean%s"
+        "&timezone=auto", base, tempoCidades[cidade].lat, tempoCidades[cidade].lon, a, b, extras);
+}
+static void* tempoGrafThread(void* arg) {
+    int cidade = (int)(intptr_t)arg;
+    tempoGrafPeriodoDatas();
+    long long ini = tempoGrafInicio, fim = tempoGrafFim;
+    char url[1800];
+    tempoGrafMontarUrl(cidade, url, sizeof(url), ini, fim);
+    char* r = NULL; size_t tam = 0;
+    int st = iaHttpGet(url, &r, &tam);
+    TempoGrafico g;
+    memset(&g, 0, sizeof(g));
+    g.periodo = tempoGraf.periodo;
+    g.parametro = tempoGraf.parametro;
+    if (st == 200 && r) {
+        const char* diario = strstr(r, "\"daily\":{");
+        if (diario) {
+            g.total = tempoListaTextos(diario, "\"time\"", &g.data[0][0], TEMPO_GRAF_PONTOS, 12);
+            if (g.total > TEMPO_GRAF_PONTOS) g.total = TEMPO_GRAF_PONTOS;
+            tempoLista(diario, "\"temperature_2m_max\"", g.tempMax, TEMPO_GRAF_PONTOS);
+            tempoLista(diario, "\"temperature_2m_min\"", g.tempMin, TEMPO_GRAF_PONTOS);
+            tempoLista(diario, "\"apparent_temperature_max\"", g.sensMax, TEMPO_GRAF_PONTOS);
+            tempoLista(diario, "\"apparent_temperature_min\"", g.sensMin, TEMPO_GRAF_PONTOS);
+            tempoLista(diario, "\"relative_humidity_2m_mean\"", g.umid, TEMPO_GRAF_PONTOS);
+            tempoLista(diario, "\"precipitation_sum\"", g.chuvaMm, TEMPO_GRAF_PONTOS);
+            tempoLista(diario, "\"wind_speed_10m_max\"", g.vento, TEMPO_GRAF_PONTOS);
+            tempoLista(diario, "\"wind_gusts_10m_max\"", g.rajada, TEMPO_GRAF_PONTOS);
+            tempoLista(diario, "\"wind_direction_10m_dominant\"", g.dirVento, TEMPO_GRAF_PONTOS);
+            tempoLista(diario, "\"pressure_msl_mean\"", g.pressao, TEMPO_GRAF_PONTOS);
+            tempoLista(diario, "\"visibility_mean\"", g.visibilidade, TEMPO_GRAF_PONTOS);
+            tempoLista(diario, "\"uv_index_max\"", g.uv, TEMPO_GRAF_PONTOS);
+            tempoLista(diario, "\"precipitation_probability_max\"", g.chuvaProb, TEMPO_GRAF_PONTOS);
+            tempoListaInt(diario, "\"weather_code\"", g.cod, TEMPO_GRAF_PONTOS);
+            g.ok = g.total > 0;
+        }
+        if (!g.ok) snprintf(g.erro, sizeof(g.erro), "O Open-Meteo nao devolveu o grafico.");
+    }
+    else snprintf(g.erro, sizeof(g.erro), "Grafico sem resposta (HTTP %d).", st);
+    free(r);
+    tempoGraf = g;
+    tempoGrafBaixando = false;
+    return NULL;
+}
+static void tempoGrafAtualizar(void) {
+    if (tempoGrafBaixando || tempoSel < 0 || tempoSel >= tempoTotal) return;
+    tempoGrafBaixando = true;
+    tempoGraf.baixando = true;
+    tempoGraf.ok = false;
+    tempoGraf.total = 0;
+    if (!remotoCriarThread(tempoGrafThread, (void*)(intptr_t)tempoSel)) {
+        tempoGrafBaixando = false;
+        tempoGraf.baixando = false;
+    }
+}
+static void tempoCalAbrir(int etapa) {
+    long long epoch;
+    if (etapa == 0) {
+        epoch = tempoGrafInicio;
+        if (epoch <= 0) { int a, m, d; tempoDataHoje(&a, &m, &d); epoch = tempoDataEpoch(a, m, d) - 30LL * 86400; }
+    }
+    else {
+        epoch = tempoGrafFim;
+        if (epoch <= 0) { int a, m, d; tempoDataHoje(&a, &m, &d); epoch = tempoDataEpoch(a, m, d); }
+    }
+    tempoEpochData(epoch, &tempoCalAno, &tempoCalMes, &tempoCalDia);
+    tempoCalEtapa = etapa;
+    tempoCalAberto = true;
+    snprintf(tempoAviso, sizeof(tempoAviso), "Escolha a data de %s.", etapa == 0 ? "inicio" : "fim");
+}
+static void tempoCalMover(int tipo, int delta) {
+    if (tipo == 0) {
+        long long epoch = tempoDataEpoch(tempoCalAno, tempoCalMes, tempoCalDia) + (long long)delta * 86400;
+        tempoEpochData(epoch, &tempoCalAno, &tempoCalMes, &tempoCalDia);
+    }
+    else if (tipo == 1) {
+        tempoCalMes += delta;
+        while (tempoCalMes < 1) { tempoCalMes += 12; tempoCalAno--; }
+        while (tempoCalMes > 12) { tempoCalMes -= 12; tempoCalAno++; }
+        int max = tempoDiasNoMes(tempoCalAno, tempoCalMes);
+        if (tempoCalDia > max) tempoCalDia = max;
+    }
+    else {
+        tempoCalAno += delta;
+        if (tempoCalAno < 1940) tempoCalAno = 1940;
+        if (tempoCalAno > 2100) tempoCalAno = 2100;
+        int max = tempoDiasNoMes(tempoCalAno, tempoCalMes);
+        if (tempoCalDia > max) tempoCalDia = max;
+    }
+}
+static void tempoCalConfirmar(void) {
+    long long epoch = tempoDataEpoch(tempoCalAno, tempoCalMes, tempoCalDia);
+    char data[24];
+    tempoDataTexto(epoch, data, sizeof(data));
+    if (tempoCalEtapa == 0) {
+        tempoGrafInicio = epoch;
+        tempoCalAbrir(1);
+        return;
+    }
+    if (epoch <= tempoGrafInicio) {
+        snprintf(tempoAviso, sizeof(tempoAviso), "A data de fim deve ser maior que a de inicio.");
+        return;
+    }
+    tempoGrafFim = epoch;
+    tempoCalAberto = false;
+    char ini[24];
+    tempoDataTexto(tempoGrafInicio, ini, sizeof(ini));
+    snprintf(tempoAviso, sizeof(tempoAviso), "Periodo: %s ate %s", ini, data);
+    tempoGrafAtualizar();
+}
+static int tempoHoraAtualIndice(const TempoDados* d) {
+    if (!d->horaAtual[0]) return -1;
+    for (int i = 0; i < d->horaTotal && i < TEMPO_HORAS_MAX; i++)
+        if (d->hora[i][0] == d->horaAtual[0] && d->hora[i][1] == d->horaAtual[1]) return i;
+    return -1;
+}
+static int tempoHoraInicioAtual(void) {
+    TempoDados* d = &tempoDados[tempoSel];
+    if (tempoDiaSel != 0 || !d->ok || !d->horaAtual[0]) return 0;
+    int h = atoi(d->horaAtual);
+    int maximo = 24 - TEMPO_HORAS_VISIVEIS;
+    if (h < 0) h = 0;
+    if (h > maximo) h = maximo;
+    return h;
+}
 static void* tempoThread(void* arg) {
     int i = (int)(intptr_t)arg;
-    char url[512];
-    snprintf(url, sizeof(url), "https://api.open-meteo.com/v1/forecast?latitude=%.4f&longitude=%.4f&current=temperature_2m,relative_humidity_2m,weather_code,wind_speed_10m"
-        "&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max&timezone=auto&forecast_days=7", tempoCidades[i].lat, tempoCidades[i].lon);
+    char url[1200];
+    snprintf(url, sizeof(url), "https://api.open-meteo.com/v1/forecast?latitude=%.4f&longitude=%.4f"
+        "&current=temperature_2m,relative_humidity_2m,apparent_temperature,is_day,precipitation,weather_code,cloud_cover,pressure_msl,surface_pressure,wind_speed_10m,wind_direction_10m,wind_gusts_10m"
+        "&hourly=temperature_2m,relative_humidity_2m,apparent_temperature,precipitation_probability,precipitation,weather_code,wind_speed_10m,wind_direction_10m,wind_gusts_10m,visibility,uv_index"
+        "&daily=weather_code,temperature_2m_max,temperature_2m_min,apparent_temperature_max,apparent_temperature_min,sunrise,sunset,uv_index_max,precipitation_sum,precipitation_probability_max,wind_speed_10m_max,wind_gusts_10m_max,wind_direction_10m_dominant"
+        "&timezone=auto&forecast_days=7", tempoCidades[i].lat, tempoCidades[i].lon);
     char* r = NULL; size_t tam = 0;
     int st = iaHttpGet(url, &r, &tam);
     TempoDados d; memset(&d, 0, sizeof(d));
     if (st == 200 && r) {
+        bool achou = false;
         const char* atual = strstr(r, "\"current\":{");
         if (atual) {
             const char* fim = strchr(atual, '}');
-            char v[32];
-            if (jsonCampo(atual, fim, "temperature_2m", v, sizeof(v))) d.temp = atof(v);
-            if (jsonCampo(atual, fim, "relative_humidity_2m", v, sizeof(v))) d.umid = atoi(v);
-            if (jsonCampo(atual, fim, "weather_code", v, sizeof(v))) d.codigo = atoi(v);
-            if (jsonCampo(atual, fim, "wind_speed_10m", v, sizeof(v))) d.vento = atof(v);
+            char v[64];
+            if (fim) {
+                if (jsonCampo(atual, fim, "time", v, sizeof(v))) tempoHoraIso(v, d.horaAtual, sizeof(d.horaAtual));
+                if (jsonCampo(atual, fim, "temperature_2m", v, sizeof(v))) d.temp = atof(v);
+                if (jsonCampo(atual, fim, "apparent_temperature", v, sizeof(v))) d.sensacao = atof(v);
+                if (jsonCampo(atual, fim, "relative_humidity_2m", v, sizeof(v))) d.umid = atoi(v);
+                if (jsonCampo(atual, fim, "precipitation", v, sizeof(v))) d.chuvaAgora = atof(v);
+                if (jsonCampo(atual, fim, "weather_code", v, sizeof(v))) d.codigo = atoi(v);
+                if (jsonCampo(atual, fim, "pressure_msl", v, sizeof(v))) d.pressao = atof(v);
+                if (jsonCampo(atual, fim, "wind_speed_10m", v, sizeof(v))) d.vento = atof(v);
+                if (jsonCampo(atual, fim, "wind_direction_10m", v, sizeof(v))) d.dirVento = atoi(v);
+                if (jsonCampo(atual, fim, "wind_gusts_10m", v, sizeof(v))) d.rajada = atof(v);
+                achou = true;
+            }
+        }
+        const char* horario = strstr(r, "\"hourly\":{");
+        if (horario) {
+            d.horaTotal = tempoListaHoras(horario, d.hora, TEMPO_HORAS_MAX);
+            tempoLista(horario, "\"temperature_2m\"", d.hTemp, TEMPO_HORAS_MAX);
+            tempoLista(horario, "\"precipitation\"", d.hChuvaMm, TEMPO_HORAS_MAX);
+            tempoLista(horario, "\"wind_speed_10m\"", d.hVento, TEMPO_HORAS_MAX);
+            tempoLista(horario, "\"visibility\"", d.hVis, TEMPO_HORAS_MAX);
+            tempoLista(horario, "\"uv_index\"", d.hUv, TEMPO_HORAS_MAX);
+            tempoListaInt(horario, "\"weather_code\"", d.hCod, TEMPO_HORAS_MAX);
+            tempoListaInt(horario, "\"precipitation_probability\"", d.hChuva, TEMPO_HORAS_MAX);
+            tempoListaInt(horario, "\"relative_humidity_2m\"", d.hUmid, TEMPO_HORAS_MAX);
+            tempoListaInt(horario, "\"wind_direction_10m\"", d.hDir, TEMPO_HORAS_MAX);
+            int hi = tempoHoraAtualIndice(&d);
+            if (hi >= 0 && hi < d.horaTotal) { d.visibilidade = d.hVis[hi] / 1000.0; d.uv = d.hUv[hi]; }
+            achou = true;
         }
         const char* diario = strstr(r, "\"daily\":{");
         if (diario) {
-            double cod[7], chuva[7];
             d.dias = tempoLista(diario, "\"temperature_2m_max\"", d.tmax, 7);
             tempoLista(diario, "\"temperature_2m_min\"", d.tmin, 7);
-            int nc = tempoLista(diario, "\"weather_code\"", cod, 7);
-            int nh = tempoLista(diario, "\"precipitation_probability_max\"", chuva, 7);
-            for (int k = 0; k < 7; k++) { d.cod[k] = k < nc ? (int)cod[k] : 0; d.chuva[k] = k < nh ? (int)chuva[k] : 0; }
-            const char* t = strstr(diario, "\"time\":[");
-            for (int k = 0; t && k < d.dias; k++) {
-                t = strchr(t + 1, '"'); if (!t) break;
-                if (k == 0) t = strchr(t + 1, '"');   // pula o nome "time"
-                if (!t) break;
-                const char* q = t + 1;
-                if (*q == '[' || *q == ':') { k--; continue; }
-                snprintf(d.data[k], sizeof(d.data[k]), "%.10s", q);
-                t = strchr(q, '"');
-            }
+            tempoLista(diario, "\"precipitation_sum\"", d.chuvaMm, 7);
+            tempoLista(diario, "\"wind_speed_10m_max\"", d.ventoDia, 7);
+            tempoLista(diario, "\"wind_gusts_10m_max\"", d.rajadaDia, 7);
+            tempoLista(diario, "\"uv_index_max\"", d.uvDia, 7);
+            tempoListaInt(diario, "\"weather_code\"", d.cod, 7);
+            tempoListaInt(diario, "\"precipitation_probability_max\"", d.chuva, 7);
+            tempoListaInt(diario, "\"wind_direction_10m_dominant\"", d.dirDia, 7);
+            tempoListaTextos(diario, "\"time\"", &d.data[0][0], 7, 12);
+            char iso[7][24];
+            int ns = tempoListaTextos(diario, "\"sunrise\"", &iso[0][0], 7, 24);
+            for (int k = 0; k < ns; k++) tempoHoraIso(iso[k], d.nascer[k], sizeof(d.nascer[k]));
+            ns = tempoListaTextos(diario, "\"sunset\"", &iso[0][0], 7, 24);
+            for (int k = 0; k < ns; k++) tempoHoraIso(iso[k], d.por[k], sizeof(d.por[k]));
+            if (d.dias < 0) d.dias = 0;
+            if (d.dias > 7) d.dias = 7;
+            achou = true;
         }
-        d.ok = true;
+        d.ok = achou;
+        if (!achou) snprintf(d.erro, sizeof(d.erro), "O Open-Meteo respondeu sem dados.");
     }
     else snprintf(d.erro, sizeof(d.erro), "Sem resposta do Open-Meteo (HTTP %d).", st);
     free(r);
+    if (d.ok) {
+        char aqurl[512];
+        snprintf(aqurl, sizeof(aqurl), "https://air-quality-api.open-meteo.com/v1/air-quality?latitude=%.4f&longitude=%.4f"
+            "&current=us_aqi,european_aqi,pm10,pm2_5,nitrogen_dioxide,sulphur_dioxide,ozone,carbon_monoxide&timezone=auto&forecast_days=1",
+            tempoCidades[i].lat, tempoCidades[i].lon);
+        char* ar = NULL; size_t at = 0;
+        int ast = iaHttpGet(aqurl, &ar, &at);
+        if (ast == 200 && ar) {
+            const char* aq = strstr(ar, "\"current\":{");
+            if (aq) {
+                const char* af = strchr(aq, '}');
+                char v[64];
+                if (af) {
+                    if (jsonCampo(aq, af, "us_aqi", v, sizeof(v))) { d.aqi = atoi(v); d.aqiOk = true; }
+                    if (!d.aqiOk && jsonCampo(aq, af, "european_aqi", v, sizeof(v))) { d.aqi = atoi(v); d.aqiOk = true; }
+                    if (jsonCampo(aq, af, "pm2_5", v, sizeof(v))) d.pm25 = atof(v);
+                    if (jsonCampo(aq, af, "pm10", v, sizeof(v))) d.pm10 = atof(v);
+                    if (jsonCampo(aq, af, "nitrogen_dioxide", v, sizeof(v))) d.no2 = atof(v);
+                    if (jsonCampo(aq, af, "ozone", v, sizeof(v))) d.o3 = atof(v);
+                    if (jsonCampo(aq, af, "sulphur_dioxide", v, sizeof(v))) d.so2 = atof(v);
+                    if (jsonCampo(aq, af, "carbon_monoxide", v, sizeof(v))) d.co = atof(v);
+                }
+            }
+        }
+        free(ar);
+    }
     d.quando = remotoAgoraMs();
     tempoDados[i] = d;
     tempoBaixando = false;
@@ -5797,6 +6231,8 @@ static void* tempoThreadBuscar(void* arg) {
         memset(&tempoDados[tempoTotal], 0, sizeof(TempoDados));
         tempoTotal++;
         tempoSel = tempoTotal - 1;
+        tempoDiaSel = 0;
+        tempoHoraOff = -1;
         tempoSalvar();
         snprintf(tempoAviso, sizeof(tempoAviso), "Cidade adicionada: %.100s", c->nome);
         tempoBaixando = false;
@@ -5812,10 +6248,22 @@ void tempoAbrir() {
     extern MenuLevel menuAtual;
     tempoCarregar();
     if (tempoSel >= tempoTotal) tempoSel = 0;
+    tempoDiaSel = 0;
+    tempoHoraOff = -1;
+    tempoConfirmarApagar = false;
+    tempoDetalhe = false;
+    tempoCalAberto = false;
+    tempoDetalheOff = 0;
+    tempoGrafInicio = 0;
+    tempoGrafFim = 0;
+    tempoGraf.periodo = 0;
+    tempoGraf.parametro = 0;
+    tempoGraf.ok = false;
+    tempoGraf.total = 0;
     menuAtual = MENU_TEMPO;
     tempoAviso[0] = 0;
     conquistaGanhar("tempo");
-    if (!tempoDados[tempoSel].ok) tempoAtualizar(tempoSel);
+    if (!tempoDados[tempoSel].ok || remotoAgoraMs() - tempoDados[tempoSel].quando > 600000) tempoAtualizar(tempoSel);
 }
 
 bool tempoControles(uint32_t botoes, uint32_t antigos, int32_t usuario) {
@@ -5829,13 +6277,84 @@ bool tempoControles(uint32_t botoes, uint32_t antigos, int32_t usuario) {
         return false;
     }
     uint32_t n = botoes & ~antigos;
-    if (n & ORBIS_PAD_BUTTON_CIRCLE) return true;
+    if (tempoCalAberto) {
+        if (n & ORBIS_PAD_BUTTON_CIRCLE) { tempoCalAberto = false; tempoAviso[0] = 0; return false; }
+        if (n & (ORBIS_PAD_BUTTON_UP | ORBIS_PAD_BUTTON_DOWN)) tempoCalMover(0, (n & ORBIS_PAD_BUTTON_DOWN) ? 7 : -7);
+        if (n & (ORBIS_PAD_BUTTON_LEFT | ORBIS_PAD_BUTTON_RIGHT)) tempoCalMover(1, (n & ORBIS_PAD_BUTTON_RIGHT) ? 1 : -1);
+        if (n & (ORBIS_PAD_BUTTON_L2 | ORBIS_PAD_BUTTON_R2)) tempoCalMover(2, (n & ORBIS_PAD_BUTTON_R2) ? 1 : -1);
+        if (n & ORBIS_PAD_BUTTON_CROSS) tempoCalConfirmar();
+        return false;
+    }
+    if (n & ORBIS_PAD_BUTTON_CIRCLE) {
+        if (tempoDetalhe) { tempoDetalhe = false; tempoAviso[0] = 0; return false; }
+        return true;
+    }
+    if (tempoDetalhe) {
+        if (n & (ORBIS_PAD_BUTTON_UP | ORBIS_PAD_BUTTON_DOWN)) {
+            tempoDetalheOff += (n & ORBIS_PAD_BUTTON_DOWN) ? 1 : -1;
+            if (tempoDetalheOff < 0) tempoDetalheOff = 0;
+            if (tempoDetalheOff > 3) tempoDetalheOff = 3;
+        }
+        if (n & (ORBIS_PAD_BUTTON_LEFT | ORBIS_PAD_BUTTON_RIGHT)) {
+            int total = (int)(sizeof(tempoGrafParametros) / sizeof(tempoGrafParametros[0]));
+            tempoGraf.parametro = (tempoGraf.parametro + ((n & ORBIS_PAD_BUTTON_RIGHT) ? 1 : total - 1)) % total;
+        }
+        if (n & (ORBIS_PAD_BUTTON_L1 | ORBIS_PAD_BUTTON_R1)) {
+            int p = tempoGraf.periodo + ((n & ORBIS_PAD_BUTTON_R1) ? 1 : -1);
+            if (p < 0) p = 3;
+            if (p > 3) p = 0;
+            tempoGraf.periodo = p;
+            if (p == 3) tempoCalAbrir(0);
+            else { tempoGrafInicio = 0; tempoGrafFim = 0; tempoGrafAtualizar(); }
+        }
+        if (n & (ORBIS_PAD_BUTTON_L2 | ORBIS_PAD_BUTTON_R2)) {
+            if (tempoHoraOff < 0) tempoHoraOff = tempoHoraInicioAtual();
+            tempoHoraOff += (n & ORBIS_PAD_BUTTON_R2) ? 2 : -2;
+            if (tempoHoraOff < 0) tempoHoraOff = 0;
+            if (tempoHoraOff > 24 - TEMPO_HORAS_VISIVEIS) tempoHoraOff = 24 - TEMPO_HORAS_VISIVEIS;
+        }
+        if (n & ORBIS_PAD_BUTTON_CROSS) {
+            if (tempoGraf.periodo == 3) tempoCalAbrir(0);
+            else tempoGrafAtualizar();
+        }
+        if (n & ORBIS_PAD_BUTTON_SQUARE) tempoAtualizar(tempoSel);
+        if (n & ORBIS_PAD_BUTTON_TRIANGLE) { tempoDetalheOff = 0; snprintf(tempoAviso, sizeof(tempoAviso), "Grafico: %s / %s", tempoGrafPeriodoNome(tempoGraf.periodo), tempoGrafParametros[tempoGraf.parametro]); }
+        return false;
+    }
     if (n & (ORBIS_PAD_BUTTON_UP | ORBIS_PAD_BUTTON_DOWN)) {
         tempoSel = (tempoSel + ((n & ORBIS_PAD_BUTTON_UP) ? tempoTotal - 1 : 1)) % tempoTotal;
+        tempoDiaSel = 0;
+        tempoHoraOff = -1;
         tempoConfirmarApagar = false;
+        tempoAviso[0] = 0;
         if (!tempoDados[tempoSel].ok || remotoAgoraMs() - tempoDados[tempoSel].quando > 600000) tempoAtualizar(tempoSel);
     }
-    if (n & ORBIS_PAD_BUTTON_CROSS) tempoAtualizar(tempoSel);
+    if (n & (ORBIS_PAD_BUTTON_LEFT | ORBIS_PAD_BUTTON_RIGHT)) {
+        TempoDados* d = &tempoDados[tempoSel];
+        int dias = d->ok && d->dias > 0 ? d->dias : 7;
+        if (dias > 7) dias = 7;
+        tempoDiaSel = (tempoDiaSel + ((n & ORBIS_PAD_BUTTON_RIGHT) ? 1 : dias - 1)) % dias;
+        tempoHoraOff = -1;
+        tempoConfirmarApagar = false;
+    }
+    if (n & (ORBIS_PAD_BUTTON_L2 | ORBIS_PAD_BUTTON_R2)) {
+        if (tempoHoraOff < 0) tempoHoraOff = tempoHoraInicioAtual();
+        tempoHoraOff += (n & ORBIS_PAD_BUTTON_R2) ? 2 : -2;
+        if (tempoHoraOff < 0) tempoHoraOff = 0;
+        if (tempoHoraOff > 24 - TEMPO_HORAS_VISIVEIS) tempoHoraOff = 24 - TEMPO_HORAS_VISIVEIS;
+        tempoConfirmarApagar = false;
+    }
+    if (n & ORBIS_PAD_BUTTON_CROSS) {
+        tempoDetalhe = true;
+        tempoDetalheOff = 0;
+        tempoCalAberto = false;
+        tempoConfirmarApagar = false;
+        tempoGrafInicio = 0;
+        tempoGrafFim = 0;
+        tempoGrafPeriodoDatas();
+        tempoGrafAtualizar();
+        snprintf(tempoAviso, sizeof(tempoAviso), "Grafico de %s", tempoCidades[tempoSel].nome);
+    }
     if (n & ORBIS_PAD_BUTTON_SQUARE) { if (iaAbrirTecladoBase(usuario, "Nome da cidade", 80, NULL)) tempoImeModo = 1; }
     if (n & ORBIS_PAD_BUTTON_TRIANGLE) {
         if (tempoTotal <= 1) snprintf(tempoAviso, sizeof(tempoAviso), "Deixe pelo menos uma cidade.");
@@ -5843,58 +6362,468 @@ bool tempoControles(uint32_t botoes, uint32_t antigos, int32_t usuario) {
         else {
             for (int i = tempoSel; i < tempoTotal - 1; i++) { tempoCidades[i] = tempoCidades[i + 1]; tempoDados[i] = tempoDados[i + 1]; }
             tempoTotal--; if (tempoSel >= tempoTotal) tempoSel = tempoTotal - 1;
+            tempoDiaSel = 0; tempoHoraOff = -1;
             tempoSalvar(); tempoConfirmarApagar = false; tempoAviso[0] = 0;
+        }
+    }
+    if (n & (ORBIS_PAD_BUTTON_L1 | ORBIS_PAD_BUTTON_R1)) {
+        int j = tempoSel + ((n & ORBIS_PAD_BUTTON_L1) ? -1 : 1);
+        if (j >= 0 && j < tempoTotal) {
+            TempoCidade cidade = tempoCidades[tempoSel];
+            TempoDados dados = tempoDados[tempoSel];
+            tempoCidades[tempoSel] = tempoCidades[j];
+            tempoDados[tempoSel] = tempoDados[j];
+            tempoCidades[j] = cidade;
+            tempoDados[j] = dados;
+            tempoSel = j;
+            tempoDiaSel = 0;
+            tempoHoraOff = -1;
+            tempoConfirmarApagar = false;
+            tempoSalvar();
+            snprintf(tempoAviso, sizeof(tempoAviso), "Ordem das cidades salva.");
         }
     }
     return false;
 }
 
-void tempoRenderizar(uint32_t* p) {
-    telaFundo(p, 0xFF0E1A2B);
-    desenharTexto(p, "Previsão do tempo", 44, 60, 40, 0xFFFFFFFF);
-    desenharTexto(p, "Open-Meteo (open-meteo.com), sem chave", 22, 60, 100, 0xFF8FA6BF);
-    telaRet(p, 40, 150, 560, 800, 0xFF13243A);
-    for (int i = 0; i < tempoTotal; i++) {
-        int y = 170 + i * 50;
-        if (i == tempoSel) telaRet(p, 50, y - 6, 540, 46, 0xFF24456B);
-        desenharTexto(p, tempoCidades[i].nome, 26, 70, y, i == tempoSel ? 0xFFFFFFFF : 0xFFC0CCD8);
+static const char* tempoAqiNome(int a) {
+    if (a <= 50) return "Boa";
+    if (a <= 100) return "Moderada";
+    if (a <= 150) return "Ruim para sensíveis";
+    if (a <= 200) return "Ruim";
+    if (a <= 300) return "Muito ruim";
+    return "Perigosa";
+}
+static uint32_t tempoAqiCor(int a) {
+    if (a <= 50) return 0xFF66BB6A;
+    if (a <= 100) return 0xFFFFD54F;
+    if (a <= 150) return 0xFFFF9800;
+    if (a <= 200) return 0xFFEF5350;
+    if (a <= 300) return 0xFFAB47BC;
+    return 0xFF8D6E63;
+}
+static const char* tempoUvNome(double uv) {
+    if (uv < 3) return "Baixo";
+    if (uv < 6) return "Moderado";
+    if (uv < 8) return "Alto";
+    if (uv < 11) return "Muito alto";
+    return "Extremo";
+}
+static uint32_t tempoUvCor(double uv) {
+    if (uv < 3) return 0xFF66BB6A;
+    if (uv < 6) return 0xFFFFD54F;
+    if (uv < 8) return 0xFFFF9800;
+    if (uv < 11) return 0xFFEF5350;
+    return 0xFFAB47BC;
+}
+static void tempoRotuloDia(int k, const char* data, char* saida, int tam) {
+    int a = 0, m = 0, dd = 0;
+    sscanf(data, "%d-%d-%d", &a, &m, &dd);
+    if (!a || !m || !dd) { snprintf(saida, tam, "%s", k == 0 ? "Hoje" : "Próximo dia"); return; }
+    static const char* semana[] = { "Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb" };
+    if (k == 0) snprintf(saida, tam, "Hoje %02d/%02d", dd, m);
+    else snprintf(saida, tam, "%s %02d/%02d", semana[tempoDiaSemana(a, m, dd)], dd, m);
+}
+static void tempoCard(uint32_t* p, int x, int y, int w, const char* titulo, const char* valor, uint32_t cor) {
+    telaRet(p, x, y, w, 100, 0xFF13243A);
+    desenharTexto(p, titulo, 17, x + 14, y + 12, 0xFF8FA6BF);
+    desenharTexto(p, valor, 27, x + 14, y + 44, cor);
+}
+
+static void tempoGrafValor(int parametro, int i, double* v1, double* v2) {
+    *v2 = 0;
+    if (parametro == 0) { *v1 = tempoGraf.tempMax[i]; *v2 = tempoGraf.tempMin[i]; }
+    else if (parametro == 1) { *v1 = tempoGraf.sensMax[i]; *v2 = tempoGraf.sensMin[i]; }
+    else if (parametro == 2) *v1 = tempoGraf.umid[i];
+    else if (parametro == 3) *v1 = tempoGraf.chuvaProb[i];
+    else if (parametro == 4) *v1 = tempoGraf.chuvaMm[i];
+    else if (parametro == 5) *v1 = tempoGraf.vento[i];
+    else if (parametro == 6) *v1 = tempoGraf.rajada[i];
+    else if (parametro == 7) *v1 = tempoGraf.dirVento[i];
+    else if (parametro == 8) *v1 = tempoGraf.uv[i];
+    else if (parametro == 9) *v1 = tempoGraf.pressao[i];
+    else if (parametro == 10) *v1 = tempoGraf.visibilidade[i] / 1000.0;
+    else *v1 = tempoGraf.cod[i];
+}
+static void tempoGrafRotulo(int parametro, double v, char* saida, int tam) {
+    if (parametro == 0 || parametro == 1) snprintf(saida, tam, "%.0f°", v);
+    else if (parametro == 2 || parametro == 3) snprintf(saida, tam, "%.0f%%", v);
+    else if (parametro == 4) snprintf(saida, tam, "%.1f mm", v);
+    else if (parametro == 5 || parametro == 6) snprintf(saida, tam, "%.0f km/h", v);
+    else if (parametro == 7) snprintf(saida, tam, "%s", tempoDirNome((int)v));
+    else if (parametro == 8) snprintf(saida, tam, "UV %.1f", v);
+    else if (parametro == 9) snprintf(saida, tam, "%.0f hPa", v);
+    else if (parametro == 10) snprintf(saida, tam, "%.1f km", v);
+    else snprintf(saida, tam, "%s", tempoTexto((int)v));
+}
+static uint32_t tempoGrafCor(int parametro) {
+    if (parametro == 4 || parametro == 3) return 0xFF4FC3F7;
+    if (parametro == 2) return 0xFF8ACBFF;
+    if (parametro == 8) return 0xFFFFD54F;
+    if (parametro == 9) return 0xFFC0CCD8;
+    return 0xFFFF8A65;
+}
+static void tempoGrafDesenhar(uint32_t* p, int x, int y, int w, int h) {
+    telaRet(p, x, y, w, h, 0xFF0B1118);
+    for (int i = 0; i <= 4; i++) telaRet(p, x, y + (h * i) / 4, w, 1, 0xFF24303B);
+    if (tempoGrafBaixando || tempoGraf.baixando) {
+        desenharTexto(p, "Baixando grafico...", 24, x + 40, y + h / 2 - 20, 0xFFFFE08A);
+        return;
     }
-    TempoDados* d = &tempoDados[tempoSel];
-    int x0 = 660;
-    desenharTexto(p, tempoCidades[tempoSel].nome, 40, x0, 160, 0xFFFFFFFF);
-    if (tempoBaixando && !d->ok) desenharTexto(p, "Buscando a previsão...", 30, x0, 240, 0xFFB8C2CC);
-    else if (!d->ok) desenharTexto(p, d->erro[0] ? d->erro : "Aperte X para buscar a previsão.", 28, x0, 240, 0xFFFFB0A0);
-    else {
-        char t[96];
-        snprintf(t, sizeof(t), "%.0f°C", d->temp);
-        desenharTexto(p, t, 120, x0, 220, tempoCor(d->codigo));
-        desenharTexto(p, tempoTexto(d->codigo), 40, x0 + 330, 250, 0xFFFFFFFF);
-        snprintf(t, sizeof(t), "Umidade %d%%   Vento %.0f km/h", d->umid, d->vento);
-        desenharTexto(p, t, 28, x0 + 330, 310, 0xFFC0CCD8);
-        static const char* semana[] = { "Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb" };
-        for (int k = 0; k < d->dias; k++) {
-            int x = x0 + k * 170, y = 430;
-            telaRet(p, x, y, 158, 300, k == 0 ? 0xFF24456B : 0xFF16304F);
-            int a = 0, m = 0, dd = 0;
-            sscanf(d->data[k], "%d-%d-%d", &a, &m, &dd);
-            // Dia da semana (Zeller simplificado / Sakamoto).
-            static const int tabela[] = { 0, 3, 2, 5, 0, 3, 5, 1, 4, 6, 2, 4 };
-            int aa = m < 3 ? a - 1 : a;
-            int ds = a ? (aa + aa / 4 - aa / 100 + aa / 400 + tabela[(m + 11) % 12] + dd) % 7 : 0;
-            snprintf(t, sizeof(t), "%s %02d/%02d", k == 0 ? "Hoje" : semana[ds], dd, m);
-            desenharTexto(p, t, 22, x + 12, y + 14, 0xFFFFFFFF);
-            snprintf(t, sizeof(t), "%.0f°", d->tmax[k]);
-            desenharTexto(p, t, 52, x + 12, y + 60, tempoCor(d->cod[k]));
-            snprintf(t, sizeof(t), "min %.0f°", d->tmin[k]);
-            desenharTexto(p, t, 24, x + 12, y + 130, 0xFFC0CCD8);
-            char curto[40]; snprintf(curto, sizeof(curto), "%s", tempoTexto(d->cod[k]));
-            desenharTexto(p, curto, 18, x + 12, y + 180, 0xFFDDE6EE);
-            snprintf(t, sizeof(t), "chuva %d%%", d->chuva[k]);
-            desenharTexto(p, t, 22, x + 12, y + 240, 0xFF4FC3F7);
+    if (!tempoGraf.ok || tempoGraf.total < 2) {
+        desenharTexto(p, tempoGraf.erro[0] ? tempoGraf.erro : "Sem dados para o grafico.", 22, x + 40, y + h / 2 - 20, 0xFFFFB0A0);
+        return;
+    }
+    double mn = 1e30, mx = -1e30;
+    for (int i = 0; i < tempoGraf.total; i++) {
+        double a, b;
+        tempoGrafValor(tempoGraf.parametro, i, &a, &b);
+        if (a < mn) mn = a;
+        if (a > mx) mx = a;
+        if (b != 0 && b < mn) mn = b;
+        if (b != 0 && b > mx) mx = b;
+    }
+    if (mx - mn < 0.0001) { mn -= 1; mx += 1; }
+    uint32_t cor = tempoGrafCor(tempoGraf.parametro);
+    int px = 0, py = 0, px2 = 0, py2 = 0;
+    for (int i = 0; i < tempoGraf.total; i++) {
+        double a, b;
+        tempoGrafValor(tempoGraf.parametro, i, &a, &b);
+        int cx = x + 12 + (int)((long long)(w - 24) * i / (tempoGraf.total - 1));
+        int cy = y + h - 16 - (int)((a - mn) * (h - 44) / (mx - mn));
+        if (cy < y + 8) cy = y + 8;
+        if (cy > y + h - 8) cy = y + h - 8;
+        if (i > 0) tempoLinha(p, px, py, cx, cy, cor, 2);
+        px = cx; py = cy;
+        if (b != 0) {
+            int by = y + h - 16 - (int)((b - mn) * (h - 44) / (mx - mn));
+            if (by < y + 8) by = y + 8;
+            if (by > y + h - 8) by = y + h - 8;
+            if (i > 0) tempoLinha(p, px2, py2, cx, by, 0xFF8ACBFF, 2);
+            px2 = cx; py2 = by;
         }
     }
-    if (tempoAviso[0]) desenharTexto(p, tempoAviso, 24, x0, 790, 0xFFFFE08A);
-    desenharTexto(p, "Cima/Baixo cidade   X atualiza   Quadrado adiciona cidade   Triângulo tira cidade   O volta", 22, 60, 1010, 0xFF8FA6BF);
+    char rot[64];
+    tempoGrafRotulo(tempoGraf.parametro, mx, rot, sizeof(rot));
+    desenharTexto(p, rot, 18, x + 10, y + 6, 0xFF8FA6BF);
+    tempoGrafRotulo(tempoGraf.parametro, mn, rot, sizeof(rot));
+    desenharTexto(p, rot, 18, x + 10, y + h - 28, 0xFF8FA6BF);
+    if (tempoGraf.total > 0) {
+        desenharTexto(p, tempoGraf.data[0], 16, x + 10, y + h + 6, 0xFF7E94AE);
+        desenharTexto(p, tempoGraf.data[tempoGraf.total - 1], 16, x + w - 120, y + h + 6, 0xFF7E94AE);
+    }
+}
+static void tempoCalUm(uint32_t* p, const char* titulo, int ano, int mes, int dia, int x, int y, bool ativo) {
+    static const char* meses[] = { "JANEIRO", "FEVEREIRO", "MARCO", "ABRIL", "MAIO", "JUNHO", "JULHO", "AGOSTO", "SETEMBRO", "OUTUBRO", "NOVEMBRO", "DEZEMBRO" };
+    static const char* semana[] = { "D", "S", "T", "Q", "Q", "S", "S" };
+    telaRet(p, x, y, 440, 410, ativo ? 0xFF102A3D : 0xFF13243A);
+    telaRet(p, x, y, 440, 4, ativo ? 0xFF4FC3F7 : 0xFF24303B);
+    char cab[80];
+    snprintf(cab, sizeof(cab), "%s - %s %d", titulo, meses[mes - 1], ano);
+    desenharTexto(p, cab, 22, x + 18, y + 18, ativo ? 0xFFFFE08A : 0xFFC0CCD8);
+    for (int c = 0; c < 7; c++) desenharTexto(p, semana[c], 19, x + 20 + c * 58, y + 56, 0xFF8FA6BF);
+    long long primeiro = tempoDataEpoch(ano, mes, 1);
+    time_t bruto = (time_t)primeiro;
+    struct tm* tp = localtime(&bruto);
+    int ini = tp ? tp->tm_wday : 0;
+    int total = tempoDiasNoMes(ano, mes);
+    for (int d = 1; d <= total; d++) {
+        int pos = ini + d - 1;
+        int cx = x + 14 + (pos % 7) * 58;
+        int cy = y + 90 + (pos / 7) * 43;
+        if (d == dia) telaRet(p, cx, cy, 44, 32, ativo ? 0xFF4FC3F7 : 0xFF24456B);
+        char n[8]; snprintf(n, sizeof(n), "%d", d);
+        desenharTexto(p, n, 20, cx + 10, cy + 5, d == dia && ativo ? 0xFF001018 : 0xFFFFFFFF);
+    }
+}
+static void tempoCalDesenhar(uint32_t* p) {
+    if (!tempoCalAberto) return;
+    telaRet(p, 260, 130, 1400, 560, 0xFF0B1624);
+    telaRet(p, 260, 130, 1400, 4, 0xFF4FC3F7);
+    desenharTexto(p, "PERSONALIZADO - DATA DE INICIO E DATA DE FIM", 30, 290, 150, 0xFFFFFFFF);
+    long long ini = tempoGrafInicio > 0 ? tempoGrafInicio : time(NULL) - 30LL * 86400;
+    long long fim = tempoGrafFim > 0 ? tempoGrafFim : time(NULL);
+    int ai, mi, di, af, mf, df;
+    tempoEpochData(ini, &ai, &mi, &di);
+    tempoEpochData(fim, &af, &mf, &df);
+    if (tempoCalEtapa == 0) { ai = tempoCalAno; mi = tempoCalMes; di = tempoCalDia; }
+    else { af = tempoCalAno; mf = tempoCalMes; df = tempoCalDia; }
+    tempoCalUm(p, "INICIO", ai, mi, di, 300, 200, tempoCalEtapa == 0);
+    tempoCalUm(p, "FIM", af, mf, df, 1180, 200, tempoCalEtapa == 1);
+    desenharTexto(p, "X confirma   O cancela   Esq/Dir mes   Cima/Baixo semana   L2/R2 ano", 19, 300, 655, 0xFF8FA6BF);
+}
+void tempoRenderizar(uint32_t* p) {
+    telaFundo(p, 0xFF0B1624);
+    desenharTexto(p, "Previsão do tempo", 42, 60, 34, 0xFFFFFFFF);
+    desenharTexto(p, "Open-Meteo - previsão por hora, 7 dias, vento, qualidade do ar e lua", 19, 60, 88, 0xFF8FA6BF);
+    telaRet(p, 40, 128, 560, 836, 0xFF102136);
+    desenharTexto(p, "CIDADES", 22, 62, 144, 0xFF9FB5CB);
+    if (tempoSel < tempoListaOff) tempoListaOff = tempoSel;
+    if (tempoSel >= tempoListaOff + TEMPO_CIDADES_VISIVEIS) tempoListaOff = tempoSel - TEMPO_CIDADES_VISIVEIS + 1;
+    if (tempoListaOff < 0) tempoListaOff = 0;
+    for (int i = tempoListaOff; i < tempoTotal && i < tempoListaOff + TEMPO_CIDADES_VISIVEIS; i++) {
+        int y = 194 + (i - tempoListaOff) * 47;
+        if (i == tempoSel) telaRet(p, 52, y - 7, 536, 43, 0xFF24456B);
+        desenharTexto(p, tempoCidades[i].nome, 24, 70, y, i == tempoSel ? 0xFFFFFFFF : 0xFFC0CCD8);
+    }
+    desenharTexto(p, "L1/R1 muda a ordem", 18, 62, 930, 0xFF7E94AE);
+    if (tempoAviso[0]) desenharTexto(p, tempoAviso, 17, 62, 958, 0xFFFFE08A);
+
+    TempoDados* d = &tempoDados[tempoSel];
+    int x0 = 660;
+    desenharTexto(p, tempoCidades[tempoSel].nome, 36, x0, 132, 0xFFFFFFFF);
+    if (tempoBaixando) desenharTexto(p, "Atualizando...", 18, x0 + 520, 142, 0xFF8FA6BF);
+    if (!d->ok) {
+        if (tempoBaixando) desenharTexto(p, "Buscando a previsão...", 30, x0, 250, 0xFFB8C2CC);
+        else desenharTexto(p, d->erro[0] ? d->erro : "Aperte X para buscar a previsão.", 28, x0, 250, 0xFFFFB0A0);
+        desenharTexto(p, "Cima/Baixo cidade   X atualiza   Quadrado adiciona   Triângulo tira   O volta", 18, 60, 1035, 0xFF8FA6BF);
+        return;
+    }
+
+    int dia = tempoDiaSel;
+    if (dia < 0) dia = 0;
+    if (d->dias > 0 && dia >= d->dias) dia = d->dias - 1;
+    int codDia = d->dias > 0 ? d->cod[dia] : d->codigo;
+    double tempGrande = (dia == 0 && d->temp != 0) ? d->temp : (d->dias > 0 ? d->tmax[dia] : d->temp);
+    double tmin = d->dias > 0 ? d->tmin[dia] : d->temp;
+    double tmax = d->dias > 0 ? d->tmax[dia] : d->temp;
+    char t[160], rotulo[64];
+    if (d->dias > 0) tempoRotuloDia(dia, d->data[dia], rotulo, sizeof(rotulo));
+    else snprintf(rotulo, sizeof(rotulo), "Hoje");
+    desenharTexto(p, rotulo, 21, x0, 176, 0xFF9FB5CB);
+    snprintf(t, sizeof(t), "%.0f°", tempGrande);
+    desenharTexto(p, t, 98, x0, 202, tempoCor(codDia));
+    tempoIcone(p, x0 + 285, 252, 42, codDia, tempoCor(codDia));
+    desenharTexto(p, tempoTexto(codDia), 31, x0 + 352, 214, 0xFFFFFFFF);
+    if (dia == 0) snprintf(t, sizeof(t), "Sensação %.0f°   Máx %.0f°   Mín %.0f°", d->sensacao, tmax, tmin);
+    else snprintf(t, sizeof(t), "Máx %.0f°   Mín %.0f°   Chuva %d%%", tmax, tmin, d->chuva[dia]);
+    desenharTexto(p, t, 24, x0 + 352, 260, 0xFFC0CCD8);
+    if (d->dias > 0 && d->nascer[dia][0]) snprintf(t, sizeof(t), "Nascer %s   Pôr %s   Vento %s %.0f km/h", d->nascer[dia], d->por[dia], tempoDirNome(d->dirDia[dia]), d->ventoDia[dia]);
+    else snprintf(t, sizeof(t), "Vento %s %.0f km/h   Rajadas %.0f km/h", tempoDirNome(d->dirVento), d->vento, d->rajada);
+    desenharTexto(p, t, 20, x0 + 352, 302, 0xFF9FB5CB);
+
+    int y1 = 340, y2 = 452, larg = 285;
+    snprintf(t, sizeof(t), "%d%%", d->umid);
+    tempoCard(p, x0, y1, larg, "UMIDADE", t, 0xFF8ACBFF);
+    tempoCard(p, x0 + 300, y1, larg, "VENTO", "", 0xFFFFFFFF);
+    tempoSetaVento(p, x0 + 345, y1 + 65, 24, d->dirVento, 0xFF8ACBFF);
+    snprintf(t, sizeof(t), "%.0f km/h", d->vento);
+    desenharTexto(p, t, 27, x0 + 382, y1 + 43, 0xFFFFFFFF);
+    snprintf(t, sizeof(t), "de %s - rajadas %.0f", tempoDirNome(d->dirVento), d->rajada);
+    desenharTexto(p, t, 16, x0 + 382, y1 + 77, 0xFF9FB5CB);
+    if (d->dias > 0) snprintf(t, sizeof(t), "%d%%", d->chuva[dia]);
+    else snprintf(t, sizeof(t), "--");
+    tempoCard(p, x0 + 600, y1, larg, "CHUVA", t, 0xFF4FC3F7);
+    if (d->dias > 0) snprintf(t, sizeof(t), "%.1f mm no dia", d->chuvaMm[dia]);
+    else snprintf(t, sizeof(t), "sem dados");
+    desenharTexto(p, t, 16, x0 + 614, y1 + 77, 0xFF9FB5CB);
+    if (d->aqiOk) snprintf(t, sizeof(t), "AQI %d", d->aqi);
+    else snprintf(t, sizeof(t), "sem dados");
+    tempoCard(p, x0 + 900, y1, larg, "QUALIDADE DO AR", t, d->aqiOk ? tempoAqiCor(d->aqi) : 0xFF9FB5CB);
+    if (d->aqiOk) snprintf(t, sizeof(t), "%s - PM2.5 %.0f", tempoAqiNome(d->aqi), d->pm25);
+    else snprintf(t, sizeof(t), "Open-Meteo Air Quality");
+    desenharTexto(p, t, 16, x0 + 914, y1 + 77, 0xFF9FB5CB);
+
+    if (d->dias > 0) {
+        snprintf(t, sizeof(t), "%.1f", d->uvDia[dia]);
+        tempoCard(p, x0, y2, larg, "ÍNDICE UV", t, tempoUvCor(d->uvDia[dia]));
+        desenharTexto(p, tempoUvNome(d->uvDia[dia]), 16, x0 + 14, y2 + 77, 0xFF9FB5CB);
+    }
+    else tempoCard(p, x0, y2, larg, "ÍNDICE UV", "--", 0xFF9FB5CB);
+    snprintf(t, sizeof(t), "%.0f hPa", d->pressao);
+    tempoCard(p, x0 + 300, y2, larg, "PRESSÃO", t, 0xFFC0CCD8);
+    desenharTexto(p, "nível do mar", 16, x0 + 314, y2 + 77, 0xFF9FB5CB);
+    if (d->visibilidade > 0) snprintf(t, sizeof(t), "%.1f km", d->visibilidade);
+    else snprintf(t, sizeof(t), "--");
+    tempoCard(p, x0 + 600, y2, larg, "VISIBILIDADE", t, 0xFFC0CCD8);
+    desenharTexto(p, "agora", 16, x0 + 614, y2 + 77, 0xFF9FB5CB);
+    double fase = 0, iluminacao = 0;
+    int aa = 0, mm = 0, dd = 0;
+    if (d->dias > 0) sscanf(d->data[dia], "%d-%d-%d", &aa, &mm, &dd);
+    if (aa) fase = tempoLuaFase(aa, mm, dd);
+    const char* lua = tempoLuaNome(fase, &iluminacao);
+    telaRet(p, x0 + 900, y2, larg, 100, 0xFF13243A);
+    desenharTexto(p, "LUA", 17, x0 + 914, y2 + 12, 0xFF8FA6BF);
+    tempoLuaDesenhar(p, x0 + 935, y2 + 64, 22, fase);
+    desenharTexto(p, lua, 23, x0 + 972, y2 + 44, 0xFFFFE7A3);
+    snprintf(t, sizeof(t), "%d%% iluminada", (int)(iluminacao + 0.5));
+    desenharTexto(p, t, 16, x0 + 972, y2 + 77, 0xFF9FB5CB);
+
+    desenharTexto(p, "POR HORA", 22, x0, 570, 0xFFFFFFFF);
+    char horaRotulo[64];
+    tempoRotuloDia(dia, d->dias > 0 ? d->data[dia] : "", horaRotulo, sizeof(horaRotulo));
+    desenharTexto(p, horaRotulo, 18, x0 + 130, 575, 0xFF9FB5CB);
+    desenharTexto(p, "L2/R2 percorre as horas", 16, x0 + 960, 576, 0xFF7E94AE);
+    int base = dia * 24;
+    int inicio = tempoHoraOff;
+    if (inicio < 0) inicio = tempoHoraInicioAtual();
+    int disponiveis = d->horaTotal - base;
+    if (disponiveis > 24) disponiveis = 24;
+    if (disponiveis < 0) disponiveis = 0;
+    if (inicio >= disponiveis) inicio = disponiveis > 0 ? disponiveis - 1 : 0;
+    if (inicio < 0) inicio = 0;
+    int atual = tempoHoraAtualIndice(d);
+    int yh = 602, lh = 205;
+    for (int j = 0; j < TEMPO_HORAS_VISIVEIS; j++) {
+        int hi = base + inicio + j;
+        if (inicio + j >= disponiveis || hi >= d->horaTotal) break;
+        int x = x0 + j * 124;
+        bool agora = dia == 0 && hi == atual;
+        telaRet(p, x, yh, 112, lh, agora ? 0xFF24456B : 0xFF13243A);
+        desenharTexto(p, d->hora[hi], 18, x + 10, yh + 8, agora ? 0xFFFFFFFF : 0xFF9FB5CB);
+        tempoIcone(p, x + 56, yh + 48, 16, d->hCod[hi], tempoCor(d->hCod[hi]));
+        snprintf(t, sizeof(t), "%.0f°", d->hTemp[hi]);
+        desenharTexto(p, t, 29, x + 10, yh + 68, tempoCor(d->hCod[hi]));
+        snprintf(t, sizeof(t), "%d%%", d->hChuva[hi]);
+        desenharTexto(p, t, 16, x + 10, yh + 108, 0xFF4FC3F7);
+        snprintf(t, sizeof(t), "%.1fmm", d->hChuvaMm[hi]);
+        desenharTexto(p, t, 15, x + 10, yh + 128, 0xFF8ACBFF);
+        tempoSetaVento(p, x + 22, yh + 158, 9, d->hDir[hi], 0xFFC0CCD8);
+        snprintf(t, sizeof(t), "%.0f km/h", d->hVento[hi]);
+        desenharTexto(p, t, 13, x + 38, yh + 148, 0xFFC0CCD8);
+        snprintf(t, sizeof(t), "%s", tempoDirNome(d->hDir[hi]));
+        desenharTexto(p, t, 13, x + 38, yh + 166, 0xFF7E94AE);
+        snprintf(t, sizeof(t), "UR %d%%", d->hUmid[hi]);
+        desenharTexto(p, t, 14, x + 10, yh + 185, 0xFF9FB5CB);
+    }
+
+    desenharTexto(p, "7 DIAS", 22, x0, 824, 0xFFFFFFFF);
+    desenharTexto(p, "Esq/Dir escolhe o dia", 16, x0 + 880, 830, 0xFF7E94AE);
+    int yd = 850, ld = 130;
+    for (int k = 0; k < d->dias; k++) {
+        int x = x0 + k * 172;
+        bool escolhido = k == dia;
+        telaRet(p, x, yd, 156, ld, escolhido ? 0xFF24456B : 0xFF13243A);
+        tempoRotuloDia(k, d->data[k], t, sizeof(t));
+        desenharTexto(p, t, 17, x + 9, yd + 9, escolhido ? 0xFFFFFFFF : 0xFFC0CCD8);
+        tempoIcone(p, x + 128, yd + 36, 13, d->cod[k], tempoCor(d->cod[k]));
+        snprintf(t, sizeof(t), "%.0f°", d->tmax[k]);
+        desenharTexto(p, t, 27, x + 9, yd + 42, tempoCor(d->cod[k]));
+        snprintf(t, sizeof(t), "min %.0f°", d->tmin[k]);
+        desenharTexto(p, t, 16, x + 74, yd + 50, 0xFF9FB5CB);
+        snprintf(t, sizeof(t), "%d%% - %.1fmm", d->chuva[k], d->chuvaMm[k]);
+        desenharTexto(p, t, 15, x + 9, yd + 84, 0xFF4FC3F7);
+        int ka = 0, km = 0, kd = 0;
+        sscanf(d->data[k], "%d-%d-%d", &ka, &km, &kd);
+        double kf = ka ? tempoLuaFase(ka, km, kd) : 0;
+        tempoLuaDesenhar(p, x + 134, yd + 100, 10, kf);
+        snprintf(t, sizeof(t), "%s", tempoDirNome(d->dirDia[k]));
+        desenharTexto(p, t, 14, x + 9, yd + 106, 0xFF7E94AE);
+    }
+    desenharTexto(p, "Cima/Baixo cidade   Esq/Dir dia   L2/R2 hora   L1/R1 reordena cidade   X entra na cidade   Quadrado adiciona   Triângulo remove   O volta", 17, 60, 1035, 0xFF8FA6BF);
+}
+
+void tempoRenderizarDetalhe(uint32_t* p) {
+    telaFundo(p, 0xFF0B1624);
+    TempoDados* d = &tempoDados[tempoSel];
+    desenharTexto(p, "Previsão do tempo - detalhe", 36, 60, 28, 0xFFFFFFFF);
+    desenharTexto(p, tempoCidades[tempoSel].nome, 28, 60, 74, 0xFF4FC3F7);
+    if (tempoAviso[0]) desenharTexto(p, tempoAviso, 18, 700, 78, 0xFFFFE08A);
+
+    telaRet(p, 40, 120, 560, 860, 0xFF102136);
+    if (d->ok) {
+        char t[160];
+        snprintf(t, sizeof(t), "%.0f°", d->temp);
+        desenharTexto(p, t, 92, 70, 150, tempoCor(d->codigo));
+        tempoIcone(p, 360, 200, 44, d->codigo, tempoCor(d->codigo));
+        desenharTexto(p, tempoTexto(d->codigo), 26, 420, 180, 0xFFFFFFFF);
+        snprintf(t, sizeof(t), "Sensação %.0f°   Máx %.0f°   Mín %.0f°", d->sensacao, d->dias > 0 ? d->tmax[0] : d->temp, d->dias > 0 ? d->tmin[0] : d->temp);
+        desenharTexto(p, t, 22, 70, 270, 0xFFC0CCD8);
+        snprintf(t, sizeof(t), "Vento %s %.0f km/h - rajadas %.0f", tempoDirNome(d->dirVento), d->vento, d->rajada);
+        desenharTexto(p, t, 19, 70, 310, 0xFF9FB5CB);
+        tempoCard(p, 70, 360, 245, "UMIDADE", (snprintf(t, sizeof(t), "%d%%", d->umid), t), 0xFF8ACBFF);
+        tempoCard(p, 335, 360, 245, "CHUVA", (snprintf(t, sizeof(t), "%.1f mm", d->chuvaAgora), t), 0xFF4FC3F7);
+        tempoCard(p, 70, 480, 245, "PRESSÃO", (snprintf(t, sizeof(t), "%.0f hPa", d->pressao), t), 0xFFC0CCD8);
+        tempoCard(p, 335, 480, 245, "VISIBILIDADE", (snprintf(t, sizeof(t), "%.1f km", d->visibilidade), t), 0xFFC0CCD8);
+        tempoCard(p, 70, 600, 245, "UV", (snprintf(t, sizeof(t), "%.1f %s", d->uv, tempoUvNome(d->uv)), t), tempoUvCor(d->uv));
+        snprintf(t, sizeof(t), d->aqiOk ? "AQI %d - %s" : "sem dados", d->aqi, tempoAqiNome(d->aqi));
+        tempoCard(p, 335, 600, 245, "AR", t, d->aqiOk ? tempoAqiCor(d->aqi) : 0xFF9FB5CB);
+        double fase = 0, iluminacao = 0;
+        int aa = 0, mm = 0, dd = 0;
+        if (d->dias > 0) sscanf(d->data[0], "%d-%d-%d", &aa, &mm, &dd);
+        if (aa) fase = tempoLuaFase(aa, mm, dd);
+        const char* lua = tempoLuaNome(fase, &iluminacao);
+        telaRet(p, 70, 720, 510, 100, 0xFF13243A);
+        tempoLuaDesenhar(p, 110, 770, 26, fase);
+        desenharTexto(p, lua, 25, 160, 744, 0xFFFFE7A3);
+        snprintf(t, sizeof(t), "%d%% iluminada", (int)(iluminacao + 0.5));
+        desenharTexto(p, t, 18, 160, 786, 0xFF9FB5CB);
+    }
+    else desenharTexto(p, d->erro[0] ? d->erro : "Aperte Quadrado para atualizar a cidade.", 24, 70, 200, 0xFFFFB0A0);
+
+    const char* periodos[4] = { "SEMANA", "MES", "ANO", "PERSONALIZADO" };
+    for (int i = 0; i < 4; i++) {
+        int x = 660 + i * 300;
+        bool ativo = i == tempoGraf.periodo;
+        telaRet(p, x, 120, 286, 44, ativo ? 0xFF4FC3F7 : 0xFF13243A);
+        desenharTexto(p, periodos[i], 21, x + 18, 132, ativo ? 0xFF001018 : 0xFFC0CCD8);
+    }
+    char paramTitulo[128];
+    snprintf(paramTitulo, sizeof(paramTitulo), "PARAMETRO: %s   (%d/%d)", tempoGrafParametros[tempoGraf.parametro], tempoGraf.parametro + 1, (int)(sizeof(tempoGrafParametros) / sizeof(tempoGrafParametros[0])));
+    desenharTexto(p, paramTitulo, 23, 660, 180, 0xFFFFFFFF);
+    char intervalo[96];
+    char di[24], df[24];
+    tempoDataTexto(tempoGrafInicio > 0 ? tempoGrafInicio : time(NULL) - 30LL * 86400, di, sizeof(di));
+    tempoDataTexto(tempoGrafFim > 0 ? tempoGrafFim : time(NULL), df, sizeof(df));
+    snprintf(intervalo, sizeof(intervalo), "DE %s ATE %s", di, df);
+    desenharTexto(p, intervalo, 18, 1500, 184, 0xFF8FA6BF);
+    tempoGrafDesenhar(p, 660, 220, 1220, 430);
+    tempoCalDesenhar(p);
+
+    int base = 700 - tempoDetalheOff * 70;
+    int yh = base;
+    if (yh + 60 >= 700 && yh <= 985) {
+        desenharTexto(p, "POR HORA", 23, 660, yh, 0xFFFFFFFF);
+        desenharTexto(p, "L2/R2 percorre as horas", 17, 1450, yh + 4, 0xFF7E94AE);
+    }
+    if (d->ok) {
+        int dia = tempoDiaSel;
+        if (dia < 0) dia = 0;
+        if (d->dias > 0 && dia >= d->dias) dia = d->dias - 1;
+        int b = dia * 24;
+        int ini = tempoHoraOff < 0 ? tempoHoraInicioAtual() : tempoHoraOff;
+        int disponiveis = d->horaTotal - b;
+        if (disponiveis > 24) disponiveis = 24;
+        if (disponiveis < 0) disponiveis = 0;
+        if (ini >= disponiveis) ini = disponiveis > 0 ? disponiveis - 1 : 0;
+        if (ini < 0) ini = 0;
+        for (int j = 0; j < TEMPO_HORAS_VISIVEIS; j++) {
+            int hi = b + ini + j;
+            if (ini + j >= disponiveis || hi >= d->horaTotal) break;
+            int yy = yh + 40 + (j / 6) * 150;
+            if (yy + 140 < 700 || yy > 985) continue;
+            int x = 660 + (j % 6) * 202;
+            telaRet(p, x, yy, 190, 140, 0xFF13243A);
+            char t[64];
+            snprintf(t, sizeof(t), "%s %.0f°", d->hora[hi], d->hTemp[hi]);
+            desenharTexto(p, t, 21, x + 12, yy + 10, tempoCor(d->hCod[hi]));
+            snprintf(t, sizeof(t), "%d%% - %.1fmm", d->hChuva[hi], d->hChuvaMm[hi]);
+            desenharTexto(p, t, 16, x + 12, yy + 45, 0xFF4FC3F7);
+            snprintf(t, sizeof(t), "UR %d%%  %.0f km/h", d->hUmid[hi], d->hVento[hi]);
+            desenharTexto(p, t, 15, x + 12, yy + 76, 0xFF9FB5CB);
+            tempoSetaVento(p, x + 28, yy + 120, 11, d->hDir[hi], 0xFFC0CCD8);
+            snprintf(t, sizeof(t), "UV %.1f  Vis %.1f km", d->hUv[hi], d->hVis[hi] / 1000.0);
+            desenharTexto(p, t, 15, x + 50, yy + 112, 0xFF8FA6BF);
+        }
+    }
+    int yd = base + 340;
+    if (yd + 60 >= 700 && yd <= 985) desenharTexto(p, "7 DIAS", 23, 660, yd, 0xFFFFFFFF);
+    if (d->ok && d->dias > 0) {
+        for (int k = 0; k < d->dias; k++) {
+            int yy = yd + 40 + (k / 6) * 110;
+            if (yy + 100 < 700 || yy > 985) continue;
+            int x = 660 + (k % 6) * 202;
+            telaRet(p, x, yy, 190, 100, k == tempoDiaSel ? 0xFF24456B : 0xFF13243A);
+            char t[96];
+            tempoRotuloDia(k, d->data[k], t, sizeof(t));
+            desenharTexto(p, t, 16, x + 10, yy + 8, 0xFF9FB5CB);
+            snprintf(t, sizeof(t), "%.0f° / %.0f°", d->tmax[k], d->tmin[k]);
+            desenharTexto(p, t, 24, x + 10, yy + 34, tempoCor(d->cod[k]));
+            snprintf(t, sizeof(t), "%d%% %.1fmm  UV %.1f", d->chuva[k], d->chuvaMm[k], d->uvDia[k]);
+            desenharTexto(p, t, 14, x + 10, yy + 74, 0xFF4FC3F7);
+        }
+    }
+    if (!tempoCalAberto) desenharTexto(p, "Cima/Baixo rola   Esq/Dir parametro   L1/R1 periodo   X atualiza/calendario   Quadrado atualiza cidade   O volta", 17, 60, 1035, 0xFF8FA6BF);
 }
 
 // =========================================================================
@@ -6383,6 +7312,17 @@ static void edPlatUsarImagem(const char* caminho) { extern void abrirOpcoesImage
 static void edPlatConquista(const char* chave) { conquistaGanhar(chave); }
 static void edPlatCriarPasta(const char* caminho) { mkdir(caminho, 0777); }
 #include "editor_imagem_ui.h"
+
+// =========================================================================
+// MEET (meet_ps4.h: servidor HTTPS/WebSocket; meet_tela.h: tela e PS4 participando)
+// =========================================================================
+#include "meet_ps4.h"
+#include "meet_tela.h"
+
+// =========================================================================
+// IPTV (iptv.h): perfis M3U/Xtream Codes, categorias, canais, EPG e reprodução
+// =========================================================================
+#include "iptv.h"
 
 // ---- Thread principal: abre o que chegou do celular ----
 void remotoAtender() {

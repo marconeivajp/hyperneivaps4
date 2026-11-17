@@ -86,6 +86,7 @@ void inicializarPastasGamesESistemas(const char* rootMidia) {
 }
 
 void inicializarPastas() {
+    { extern void hnMigrarPastaTelegram(); hnMigrarPastaTelegram(); }   // Telegram vai para /data/HyperNeiva/telegram
     sceKernelMkdir("/data/HyperNeiva", 0777);
 
     // CONFIGURAÇÃO E SUBPASTAS
@@ -98,6 +99,7 @@ void inicializarPastas() {
     sceKernelMkdir("/data/HyperNeiva/configuracao/audios/elementos_sonoros", 0777);
     sceKernelMkdir("/data/HyperNeiva/configuracao/jogar", 0777);
     sceKernelMkdir("/data/HyperNeiva/configuracao/settings", 0777);
+    sceKernelMkdir("/data/HyperNeiva/iptv", 0777);   // cache dos canais de cada perfil (iptv.h)
 
     // VÍDEO IMAGENS E CATEGORIAS DE SISTEMA (V64)
     sceKernelMkdir("/data/HyperNeiva/configuracao/video_imagens", 0777);

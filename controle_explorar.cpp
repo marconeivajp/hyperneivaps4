@@ -455,6 +455,13 @@ static void pkgLog(const char* formato, int a, const char* b) {
 // Instala direto do arquivo (sceAppInstUtilAppInstallPkg): sem passar pelo download do
 // sistema, que fica lento (0,2 MB/s) enquanto um app está aberto. Se o sistema recusar,
 // cai no jeito antigo (download do sistema servido pelo próprio app).
+//
+// Isto foi trocado numa sessão anterior por um registro assíncrono no BGFT apontando para o
+// servidor local (sceBgftServiceIntDebugDownloadRegisterPkg + http://127.0.0.1:8080/...), que
+// só inicia o download e devolve a tela antes de confirmar nada: se o app fosse minimizado,
+// trocasse de tela, ou o servidor local parasse por qualquer motivo antes do sistema terminar
+// de "baixar" o PKG inteiro de si mesmo, o jogo ficava instalado incompleto e dava erro ao
+// abrir. Voltando ao jeito direto e síncrono, que já era comprovado (retorna 0 e funciona).
 static char pkgDiretoCaminho[512];
 static volatile bool pkgDiretoRodando = false;
 static void* threadPkgDireto(void*) {
@@ -486,9 +493,10 @@ static void* threadPkgDireto(void*) {
 void instalarPkgLocal(const char* caminhoAbsoluto) {
     extern void conquistaGanhar(const char* chave);
     conquistaGanhar("pkg");
-    long long faltamAntes = hnBytesFaltandoPkg(caminhoAbsoluto);
-    if (faltamAntes > 0) {
-        snprintf(msgStatus, sizeof(msgStatus), "PKG INCOMPLETO: FALTAM %.2f GB. BAIXE E EXTRAIA TODAS AS PARTES", (double)faltamAntes / 1073741824.0);
+    // PKG cortado sempre falha no console: melhor dizer o motivo antes de tentar.
+    long long faltam = hnBytesFaltandoPkg(caminhoAbsoluto);
+    if (faltam > 0) {
+        snprintf(msgStatus, sizeof(msgStatus), "PKG INCOMPLETO: FALTAM %.2f GB. BAIXE E EXTRAIA TODAS AS PARTES", (double)faltam / 1073741824.0);
         msgTimer = 600;
         return;
     }

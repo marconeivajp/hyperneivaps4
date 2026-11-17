@@ -19,6 +19,11 @@ extern MenuLevel menuAtual;
 extern int totalItens;
 extern char nomes[3000][256];
 
+void ferramentasAbrir();
+void ferramentasAoVoltar();
+bool ferramentasControles(uint32_t botoes, uint32_t antigos, int32_t uId);
+void ferramentasRenderizar(uint32_t* pixels);
+
 // PONTE: Lê o comando já aberto pelo main.cpp
 extern int globalPadHandle;
 
@@ -72,7 +77,10 @@ void preencherMenuExtra() {
     strcpy(nomes[5], "Chaves de API");
     strcpy(nomes[6], "Previsao do tempo");
     strcpy(nomes[7], "Editor de imagem");
-    totalItens = 8;
+    strcpy(nomes[8], "Meet (chamada de video)");
+    strcpy(nomes[9], "Ferramentas (calculadora, relogio, gravador e mais)");
+    strcpy(nomes[10], "IPTV (listas M3U e Xtream Codes)");
+    totalItens = 11;
     menuAtual = MENU_EXTRA;
     sel = 0;
 }
@@ -114,6 +122,7 @@ const char* td_execute(const char* request);
 #include <math.h>
 #include <orbis/SystemService.h>
 #include <dirent.h>
+#include <sys/stat.h>
 #include <strings.h>
 #include <sys/types.h>
 extern "C" {
@@ -156,7 +165,7 @@ extern "C" int getentropy(void* destino, size_t tamanho) {
     return 0;
 }
 
-#define TELEGRAM_PASTA "/data/HyperNeivaTelegram"
+#define TELEGRAM_PASTA "/data/HyperNeiva/telegram"   // antes /data/HyperNeivaTelegram (movida na abertura)
 #define TG_MAX_CONVERSAS 600
 #define TG_MAX_PASTAS 14
 #define TG_MAX_RESULTADOS 60
@@ -727,7 +736,7 @@ static void tgCarregarFontes() {
     // Glifos já guardados como ? podem existir agora nas fontes novas.
     for (int i = 0; i < TG_MAX_GLIFOS; i++) { free(tgGlifos[i].alfa); memset(&tgGlifos[i], 0, sizeof(tgGlifos[i])); }
     pthread_mutex_unlock(&tgTrava);
-    FILE* d = fopen("/data/HyperNeivaTelegram/diagnostico.txt", "w");
+    FILE* d = fopen(TELEGRAM_PASTA "/diagnostico.txt", "w");
     if (d) { fprintf(d, "emojis=%d (%s) fontes=%d\n", tgTotalEmojis, tgEmojiMotivo, tgTotalFontes); fclose(d); }
     tgSujo = true;
 }
@@ -765,7 +774,7 @@ static void tgAnotarFaltando(uint32_t cp) {
     if (total >= 200) return;
     for (int i = 0; i < total; i++) if (vistos[i] == cp) return;
     vistos[total++] = cp;
-    FILE* f = fopen("/data/HyperNeivaTelegram/diagnostico.txt", "a");
+    FILE* f = fopen(TELEGRAM_PASTA "/diagnostico.txt", "a");
     if (f) { fprintf(f, "faltou %x\n", cp); fclose(f); }
 }
 
@@ -4231,6 +4240,9 @@ void acaoCross_Extra() {
     else if (sel == 5) { extern void chavesAbrir(); chavesAbrir(); }
     else if (sel == 6) { extern void tempoAbrir(); tempoAbrir(); }
     else if (sel == 7) { extern bool editorImagemAbrir(const char* caminho); editorImagemAbrir(NULL); }
+    else if (sel == 8) { extern void meetAbrirTela(); meetAbrirTela(); }
+    else if (sel == 9) ferramentasAbrir();
+    else if (sel == 10) { extern void iptvAbrirTela(); iptvAbrirTela(); }
 }
 
 // =======================================================
@@ -4752,3 +4764,56 @@ bool hnEmojiRGBA(const char* nome, uint32_t* rgba) {
     memcpy(rgba, px, 72 * 72 * 4);
     return true;
 }
+
+// Tudo do app fica em /data/HyperNeiva: a pasta antiga do Telegram vai inteira para
+// /data/HyperNeiva/telegram (mesmo disco: só troca o nome, o login continua) e é apagada.
+static void hnApagarArvore(const char* caminho) {
+    DIR* d = opendir(caminho);
+    if (d) {
+        struct dirent* e;
+        while ((e = readdir(d))) {
+            if (!strcmp(e->d_name, ".") || !strcmp(e->d_name, "..")) continue;
+            char filho[700]; snprintf(filho, sizeof(filho), "%s/%s", caminho, e->d_name);
+            struct stat st;
+            if (stat(filho, &st) == 0 && S_ISDIR(st.st_mode)) hnApagarArvore(filho); else remove(filho);
+        }
+        closedir(d);
+    }
+    rmdir(caminho);
+}
+void hnMigrarPastaTelegram() {
+    const char* antiga = "/data/HyperNeivaTelegram";
+    struct stat st;
+    if (stat(antiga, &st) != 0) return;
+    mkdir("/data/HyperNeiva", 0777);
+    FILE* lg = fopen("/data/HyperNeiva/inicio_log.txt", "a");
+    if (stat(TELEGRAM_PASTA, &st) != 0 && rename(antiga, TELEGRAM_PASTA) == 0) {
+        if (lg) { fprintf(lg, "TELEGRAM: pasta movida para %s\n", TELEGRAM_PASTA); fclose(lg); }
+        return;
+    }
+    // A nova já existe (ou o rename falhou): leva cada item que falta e apaga o resto.
+    mkdir(TELEGRAM_PASTA, 0777);
+    int movidos = 0;
+    DIR* d = opendir(antiga);
+    if (d) {
+        struct dirent* e;
+        while ((e = readdir(d))) {
+            if (!strcmp(e->d_name, ".") || !strcmp(e->d_name, "..")) continue;
+            char de[700], para[700];
+            snprintf(de, sizeof(de), "%s/%s", antiga, e->d_name);
+            snprintf(para, sizeof(para), "%s/%s", TELEGRAM_PASTA, e->d_name);
+            if (stat(para, &st) != 0 && rename(de, para) == 0) movidos++;
+        }
+        closedir(d);
+    }
+    hnApagarArvore(antiga);
+    if (lg) { fprintf(lg, "TELEGRAM: %d itens juntados em %s, pasta antiga apagada\n", movidos, TELEGRAM_PASTA); fclose(lg); }
+}
+
+#include "ferramentas_ps4.h"
+
+void ferramentasAbrir() { ftAbrir(); }
+void ferramentasAoVoltar() { ftAoVoltar(); }
+bool ferramentasControles(uint32_t botoes, uint32_t antigos, int32_t uId) { return ftControles(botoes, antigos, uId); }
+void ferramentasRenderizar(uint32_t* pixels) { ftRender(pixels); }
+

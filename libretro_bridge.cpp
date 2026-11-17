@@ -81,6 +81,9 @@ int gEmuPixelFormat = 2; // Default para RGB565 por segurança
 static bool bridge_pausado = false;
 static void* romPendente = NULL;
 static void* romEmUso = NULL;
+static char romAtualCaminho[512] = "";      // jogo aberto (saves em /data/HyperNeiva)
+static void bridgeSramCarregar();
+static void bridgeSramGravar();
 static size_t romPendenteTamanho = 0;
 
 // ROM lida de um compactado: fica na memória até o jogo fechar.
@@ -629,6 +632,8 @@ bool bridge_iniciar(const char* caminho_core, const char* caminho_rom) {
         return false;
     }
     registrarEmulador("carregado", caminho_rom, tamanhoRom);
+    snprintf(romAtualCaminho, sizeof(romAtualCaminho), "%s", caminho_rom ? caminho_rom : "");
+    bridgeSramCarregar();
     // Declara um controle padrão na porta 1 (o N64 ficava "sem nada plugado" sem isto).
     if (retro_set_controller_port_device_ptr) retro_set_controller_port_device_ptr(0, RETRO_DEVICE_JOYPAD);
 
@@ -753,6 +758,7 @@ static void passoEmulacao() {
     if (bridge_frame_count <= 2) etapaNucleo("retro_run", (long)bridge_frame_count);
     retro_run_ptr();
     if (bridge_frame_count <= 2) etapaNucleo("retro_run ok", (long)bridge_frame_count);
+    if (bridge_frame_count % 1800 == 0) bridgeSramGravar();   // a cada ~30 s, se o jogo salvou
     quadrosEmulados++;
 }
 
@@ -769,6 +775,8 @@ static void desenharQuadroPronto() {
 static void encerrarThreadEmulacao();
 void bridge_finalizar() {
     encerrarThreadEmulacao();
+    if (retro_unload_game_ptr) bridgeSramGravar();   // antes de descarregar o jogo
+    romAtualCaminho[0] = 0;
     quadroValido = false;
     // Fechar o jogo e abrir outro chamam esta função duas vezes seguidas.
     // Zerar os ponteiros impede encerrar o núcleo de novo (deinit duplo travava com CE-34878-0).
@@ -790,6 +798,51 @@ void bridge_finalizar() {
     romEmUso = NULL;
 }
 
+// ---- Save de bateria (SRAM) e save state por jogo, em /data/HyperNeiva ----
+// Antes o save de dentro do jogo (SRAM) nunca ia para o disco: sumia ao fechar. E o save state
+// era um arquivo só para todos os jogos, com caminhos diferentes no menu e no atalho.
+static uint32_t sramHashGravado = 0;
+static uint32_t sramHash(const uint8_t* d, size_t n) { uint32_t h = 2166136261u; for (size_t i = 0; i < n; i++) h = (h ^ d[i]) * 16777619u; return h; }
+static void bridgeCaminhoJogo(const char* pasta, const char* ext, char* saida, size_t tam) {
+    const char* nome = strrchr(romAtualCaminho, '/'); nome = nome ? nome + 1 : romAtualCaminho;
+    char base[256]; snprintf(base, sizeof(base), "%s", nome[0] ? nome : "jogo");
+    char* ponto = strrchr(base, '.'); if (ponto) *ponto = 0;
+    snprintf(saida, tam, "/data/HyperNeiva/%s/%s.%s", pasta, base, ext);
+}
+// Caminho do save state do jogo aberto (o menu de pausa e o atalho usam o mesmo).
+void bridge_caminho_state(char* saida, size_t tam) { bridgeCaminhoJogo("savestates", "state", saida, tam); }
+static void bridgeSramCarregar() {
+    sramHashGravado = 0;
+    if (!retro_get_memory_data_ptr || !retro_get_memory_size_ptr || !romAtualCaminho[0]) return;
+    uint8_t* mem = (uint8_t*)retro_get_memory_data_ptr(0 /* RETRO_MEMORY_SAVE_RAM */);
+    size_t n = retro_get_memory_size_ptr(0);
+    if (!mem || !n) return;
+    char c[600]; bridgeCaminhoJogo("saves", "srm", c, sizeof(c));
+    FILE* f = fopen(c, "rb");
+    if (!f) return;
+    size_t lidos = fread(mem, 1, n, f);
+    fclose(f);
+    sramHashGravado = sramHash(mem, n);
+    etapaNucleo("save de bateria carregado", (long)lidos);
+}
+// Grava a SRAM se mudou desde a última gravação.
+static void bridgeSramGravar() {
+    if (!retro_get_memory_data_ptr || !retro_get_memory_size_ptr || !romAtualCaminho[0]) return;
+    uint8_t* mem = (uint8_t*)retro_get_memory_data_ptr(0);
+    size_t n = retro_get_memory_size_ptr(0);
+    if (!mem || !n) return;
+    uint32_t h = sramHash(mem, n);
+    if (h == sramHashGravado) return;
+    sceKernelMkdir("/data/HyperNeiva/saves", 0777);
+    char c[600], tmp[620]; bridgeCaminhoJogo("saves", "srm", c, sizeof(c));
+    snprintf(tmp, sizeof(tmp), "%s.tmp", c);
+    FILE* f = fopen(tmp, "wb");
+    if (!f) return;
+    bool ok = fwrite(mem, 1, n, f) == n;
+    if (fclose(f) != 0) ok = false;
+    if (ok) { remove(c); rename(tmp, c); sramHashGravado = h; } else remove(tmp);
+}
+
 // V33: PERSISTENCIA (SAVES)
 bool bridge_salvar_state(const char* path) {
     pararEmulacao();
@@ -799,6 +852,8 @@ bool bridge_salvar_state(const char* path) {
     void* data = malloc(sz);
     if (!data) return false;
     bool ok = retro_serialize_ptr(data, sz);
+    bridgeSramGravar();
+    sceKernelMkdir("/data/HyperNeiva/savestates", 0777);
     if (ok) {
         FILE* f = fopen(path, "wb");
         if (f) { fwrite(data, 1, sz, f); fclose(f); }
@@ -815,11 +870,15 @@ bool bridge_carregar_state(const char* path) {
     if (!f) return false;
     fseek(f, 0, SEEK_END); size_t szFile = ftell(f); fseek(f, 0, SEEK_SET);
     size_t szCore = retro_serialize_size_ptr();
-    if (szFile != szCore) { fclose(f); return false; }
-    void* data = malloc(szCore);
+    // O tamanho pedido pelo núcleo pode variar um pouco: entrega o arquivo como está e deixa
+    // o núcleo conferir (antes, qualquer diferença dava "ERRO AO CARREGAR").
+    if (szFile == 0 || szFile > szCore + 1024 * 1024) { fclose(f); return false; }
+    size_t sz = szFile > szCore ? szFile : szCore;
+    void* data = calloc(1, sz);
     if (!data) { fclose(f); return false; }
-    fread(data, 1, szCore, f); fclose(f);
-    bool ok = retro_unserialize_ptr(data, szCore);
+    fread(data, 1, szFile, f); fclose(f);
+    bool ok = retro_unserialize_ptr(data, szFile);
+    if (!ok && szFile != szCore) ok = retro_unserialize_ptr(data, szCore);
     free(data);
     return ok;
 }

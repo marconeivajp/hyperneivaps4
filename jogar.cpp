@@ -38,7 +38,7 @@
 #include "menu_grafico_cache_grafico.h"
 #include <orbis/libkernel.h> 
 
-#define HN_VERSAO "3.00"
+#define HN_VERSAO "3.88"
 
 extern char msgStatus[128];
 extern int msgTimer;
