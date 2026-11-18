@@ -175,6 +175,18 @@ int ftp_comando_simples(int srvIdx, const char* cmd) {
     send_ftp_cmd(ctrl_sock, "QUIT", resp); close(ctrl_sock); return res;
 }
 
+// Igual, mas devolve o código da resposta do servidor (250 = feito), ou -1 sem conexão.
+int ftp_comando_codigo(int srvIdx, const char* cmd) {
+    int ctrl_sock = ftp_connect_control(srvIdx); if (ctrl_sock < 0) return -1;
+    char resp[2048]; char cmdUser[128], cmdPass[128];
+    sprintf(cmdUser, "USER %s", listaServidoresFTP[srvIdx].user); send_ftp_cmd(ctrl_sock, cmdUser, resp);
+    if (strlen(listaServidoresFTP[srvIdx].pass) > 0) sprintf(cmdPass, "PASS %s", listaServidoresFTP[srvIdx].pass);
+    else sprintf(cmdPass, "PASS hyperneiva@ps4.com"); send_ftp_cmd(ctrl_sock, cmdPass, resp);
+    send_ftp_cmd(ctrl_sock, cmd, resp);
+    int codigo = atoi(resp);
+    send_ftp_cmd(ctrl_sock, "QUIT", resp); close(ctrl_sock); return codigo;
+}
+
 void ftp_renomear(int srvIdx, const char* oldPath, const char* newPath) {
     int ctrl_sock = ftp_connect_control(srvIdx); if (ctrl_sock < 0) return;
     char resp[2048]; char cmdUser[128], cmdPass[128];
@@ -749,7 +761,15 @@ void processar_deletar_ftp() {
         }
     }
 
-    for (int i = 0; i < tItens; i++) {
+    // Antes a lista não era atualizada (para a tela não piscar) e os itens apagados continuavam
+    // aparecendo. Agora cada item é conferido e só os que sumiram de verdade saem da lista, na
+    // memória, sem reler a pasta. Pasta do PS4 com arquivos dentro também não apagava (rmdir só
+    // apaga pasta vazia).
+    extern void deletarPastaRecursivamente(const char* path);
+    static bool apagado[3000];
+    memset(apagado, 0, sizeof(apagado));
+    int apagados = 0, falhas = 0;
+    for (int i = 0; i < tItens && i < 3000; i++) {
         if (mItems[i] || (!temMarcado && i == sAt)) {
             char nomeLimpo[256];
             if (nItems[i][0] == '[') { strncpy(nomeLimpo, &nItems[i][1], strlen(nItems[i]) - 2); nomeLimpo[strlen(nItems[i]) - 2] = '\0'; }
@@ -757,25 +777,46 @@ void processar_deletar_ftp() {
 
             if (isLocal) {
                 char* pPath = isEsq ? pathExplorarEsq : pathExplorarDireita;
-                char absPath[1024]; sprintf(absPath, "%s/%s", pPath, nomeLimpo);
-                if (nItems[i][0] == '[') sceKernelRmdir(absPath); else unlink(absPath);
+                if (!nomeLimpo[0]) continue;
+                char absPath[1024]; snprintf(absPath, sizeof(absPath), "%s%s%s", pPath, strcmp(pPath, "/") == 0 ? "" : "/", nomeLimpo);
+                struct stat st;
+                if (stat(absPath, &st) == 0) {
+                    if (S_ISDIR(st.st_mode)) deletarPastaRecursivamente(absPath); else unlink(absPath);
+                }
+                apagado[i] = stat(absPath, &st) != 0;
             }
             else {
-                char cmd[1024]; char urlSel[1024]; strcpy(urlSel, lItems[i]); int tam = strlen(urlSel);
-                if (tam > 0 && urlSel[tam - 1] == '/') { urlSel[tam - 1] = '\0'; sprintf(cmd, "RMD %s", urlSel); }
-                else { sprintf(cmd, "DELE %s", urlSel); }
-                ftp_comando_simples(servidorAtualFTPIndex, cmd);
+                if (!lItems[i][0]) continue;   // "Pasta Vazia" não é arquivo
+                char cmd[1100]; char urlSel[1024]; strcpy(urlSel, lItems[i]); int tam = strlen(urlSel);
+                if (tam > 0 && urlSel[tam - 1] == '/') { urlSel[tam - 1] = '\0'; snprintf(cmd, sizeof(cmd), "RMD %s", urlSel); }
+                else { snprintf(cmd, sizeof(cmd), "DELE %s", urlSel); }
+                int codigo = ftp_comando_codigo(servidorAtualFTPIndex, cmd);
+                apagado[i] = codigo >= 200 && codigo < 300;
             }
+            if (apagado[i]) apagados++; else falhas++;
         }
     }
 
-    if (isLocal) {
-        // ATUALIZAÇÃO REMOVIDA PARA EVITAR REDIRECIONAMENTO E PISCAR DA TELA
+    int fica = 0;
+    for (int i = 0; i < tItens; i++) {
+        if (i < 3000 && apagado[i]) continue;
+        if (fica != i) { memcpy(nItems[fica], nItems[i], 256); memcpy(lItems[fica], lItems[i], 1024); }
+        mItems[fica] = false;
+        fica++;
     }
-    else {
-        // ATUALIZAÇÃO REMOVIDA PARA EVITAR REDIRECIONAMENTO E PISCAR DA TELA
-    }
-    sprintf(msgStatus, "ARQUIVOS DELETADOS!"); msgTimer = 180;
+    for (int i = fica; i < tItens; i++) { nItems[i][0] = '\0'; lItems[i][0] = '\0'; mItems[i] = false; }
+    if (fica == 0) { strcpy(nItems[0], "Pasta Vazia"); lItems[0][0] = '\0'; fica = 1; }
+    int& totalRef = isEsq ? totalItensEsq : totalItens;
+    int& selRef = isEsq ? selEsq : sel;
+    int& offRef = isEsq ? offEsq : off;
+    totalRef = fica;
+    if (selRef >= fica) selRef = fica - 1;
+    if (selRef < 0) selRef = 0;
+    if (offRef > selRef) offRef = selRef;
+
+    if (falhas) snprintf(msgStatus, sizeof(msgStatus), "APAGADOS: %d. NAO APAGADOS: %d", apagados, falhas);
+    else snprintf(msgStatus, sizeof(msgStatus), "APAGADOS: %d", apagados);
+    msgTimer = 180;
 }
 
 extern void deletarPastaRecursivamente(const char* path);

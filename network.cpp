@@ -6485,7 +6485,12 @@ static void tempoGrafDesenhar(uint32_t* p, int x, int y, int w, int h) {
     }
     if (mx - mn < 0.0001) { mn -= 1; mx += 1; }
     uint32_t cor = tempoGrafCor(tempoGraf.parametro);
+    bool duasLinhas = tempoGraf.parametro == 0 || tempoGraf.parametro == 1;
+    // Mostra o valor e o dia de cada ponto (não só o maior e o menor da escala): numa lista
+    // longa, pula pontos para não embolar o texto, mas sempre marca pelo menos ~12 deles.
+    int passo = tempoGraf.total > 12 ? (tempoGraf.total + 11) / 12 : 1;
     int px = 0, py = 0, px2 = 0, py2 = 0;
+    int cxs[TEMPO_GRAF_PONTOS], cys[TEMPO_GRAF_PONTOS], cys2[TEMPO_GRAF_PONTOS];
     for (int i = 0; i < tempoGraf.total; i++) {
         double a, b;
         tempoGrafValor(tempoGraf.parametro, i, &a, &b);
@@ -6494,24 +6499,53 @@ static void tempoGrafDesenhar(uint32_t* p, int x, int y, int w, int h) {
         if (cy < y + 8) cy = y + 8;
         if (cy > y + h - 8) cy = y + h - 8;
         if (i > 0) tempoLinha(p, px, py, cx, cy, cor, 2);
-        px = cx; py = cy;
+        px = cx; py = cy; cxs[i] = cx; cys[i] = cy; cys2[i] = -1;
         if (b != 0) {
             int by = y + h - 16 - (int)((b - mn) * (h - 44) / (mx - mn));
             if (by < y + 8) by = y + 8;
             if (by > y + h - 8) by = y + h - 8;
             if (i > 0) tempoLinha(p, px2, py2, cx, by, 0xFF8ACBFF, 2);
-            px2 = cx; py2 = by;
+            px2 = cx; py2 = by; cys2[i] = by;
         }
+    }
+    // Pontinho e valor em cada ponto marcado (passo, sempre incluindo o último), sem deixar o
+    // texto sair da caixa do gráfico.
+    for (int i = 0; i < tempoGraf.total; i += passo) {
+        if (i + passo >= tempoGraf.total && i != tempoGraf.total - 1) i = tempoGraf.total - 1;   // não perde o último ponto
+        double a, b; tempoGrafValor(tempoGraf.parametro, i, &a, &b);
+        telaRet(p, cxs[i] - 3, cys[i] - 3, 6, 6, cor);
+        char vrot[40]; tempoGrafRotulo(tempoGraf.parametro, a, vrot, sizeof(vrot));
+        int lv = medirLarguraTexto(vrot, 16);
+        int ly = cys[i] - 22; if (ly < y + 4) ly = cys[i] + 10;
+        desenharTexto(p, vrot, 16, cxs[i] - lv / 2, ly, cor);
+        if (cys2[i] >= 0) {
+            telaRet(p, cxs[i] - 3, cys2[i] - 3, 6, 6, 0xFF8ACBFF);
+            char vrot2[40]; tempoGrafRotulo(tempoGraf.parametro, b, vrot2, sizeof(vrot2));
+            int lv2 = medirLarguraTexto(vrot2, 16);
+            int ly2 = cys2[i] + 10; if (ly2 > y + h - 30) ly2 = cys2[i] - 22;
+            desenharTexto(p, vrot2, 16, cxs[i] - lv2 / 2, ly2, 0xFF8ACBFF);
+        }
+        // dia abaixo do eixo, no mesmo x do ponto
+        if (i < tempoGraf.total) {
+            char diaRot[20]; int aa = 0, mm = 0, dd = 0; sscanf(tempoGraf.data[i], "%d-%d-%d", &aa, &mm, &dd);
+            if (dd) snprintf(diaRot, sizeof(diaRot), "%02d/%02d", dd, mm); else snprintf(diaRot, sizeof(diaRot), "%.5s", tempoGraf.data[i]);
+            int ld = medirLarguraTexto(diaRot, 15);
+            desenharTexto(p, diaRot, 15, cxs[i] - ld / 2, y + h + 6, 0xFF7E94AE);
+        }
+    }
+    // Legenda: quando tem 2 linhas (temperatura/sensação), diz qual é a máxima e qual é a mínima.
+    if (duasLinhas) {
+        telaRet(p, x + w - 190, y + 8, 14, 14, cor);
+        desenharTexto(p, "Maxima", 17, x + w - 168, y + 6, 0xFFC0CCD8);
+        telaRet(p, x + w - 190, y + 28, 14, 14, 0xFF8ACBFF);
+        desenharTexto(p, "Minima", 17, x + w - 168, y + 26, 0xFFC0CCD8);
     }
     char rot[64];
     tempoGrafRotulo(tempoGraf.parametro, mx, rot, sizeof(rot));
     desenharTexto(p, rot, 18, x + 10, y + 6, 0xFF8FA6BF);
     tempoGrafRotulo(tempoGraf.parametro, mn, rot, sizeof(rot));
     desenharTexto(p, rot, 18, x + 10, y + h - 28, 0xFF8FA6BF);
-    if (tempoGraf.total > 0) {
-        desenharTexto(p, tempoGraf.data[0], 16, x + 10, y + h + 6, 0xFF7E94AE);
-        desenharTexto(p, tempoGraf.data[tempoGraf.total - 1], 16, x + w - 120, y + h + 6, 0xFF7E94AE);
-    }
+    // (o dia de cada ponto já é desenhado no laço acima, embaixo de cada marcador)
 }
 static void tempoCalUm(uint32_t* p, const char* titulo, int ano, int mes, int dia, int x, int y, bool ativo) {
     static const char* meses[] = { "JANEIRO", "FEVEREIRO", "MARCO", "ABRIL", "MAIO", "JUNHO", "JULHO", "AGOSTO", "SETEMBRO", "OUTUBRO", "NOVEMBRO", "DEZEMBRO" };

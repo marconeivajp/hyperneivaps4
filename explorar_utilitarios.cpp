@@ -312,7 +312,12 @@ static HnExtracao hnFila[HN_MAX_FILA];
 static volatile int hnFilaTotal = 0;
 static char hnPkgs[16][1024];
 static volatile int hnPkgsTotal = 0;
-static volatile bool hnListaMudou = false;
+// Fica "pendente" (não desarma) até a tela certa realmente recarregar. Antes desarmava na
+// hora, mesmo se o painel não estivesse no Explorar — se a pessoa apagou e saiu da tela antes
+// da fila esvaziar, a atualização se perdia para sempre e a lista ficava com os arquivos já
+// apagados até sair e entrar de novo na mesma pasta (que também não re-lia, porque a bandeira
+// já tinha sido descartada).
+static volatile bool hnListaMudouDir = false, hnListaMudouEsq = false;
 volatile bool hnBarraAtiva = false;
 volatile float hnBarraProgresso = 0.0f;
 volatile int hnBarraFeitos = 0, hnBarraTotal = 0;
@@ -447,7 +452,7 @@ static void* hnThreadFila(void*) {
         hnBarraFeitos++;
         // Com a fila vazia a lista recarrega uma vez só, sem perder a posição a cada arquivo.
         if (hnFilaTotal == 0) {
-            hnListaMudou = true;
+            hnListaMudouDir = true; hnListaMudouEsq = true;
             if (hnApagados || hnNaoApagados) {
                 if (hnNaoApagados) snprintf(msgStatus, sizeof(msgStatus), "APAGADOS: %d. NAO APAGADOS: %d", hnApagados, hnNaoApagados);
                 else snprintf(msgStatus, sizeof(msgStatus), "APAGADOS: %d", hnApagados);
@@ -517,16 +522,17 @@ void hnAtualizarExtracao() {
     extern MenuLevel menuAtualEsq;
     extern bool painelDuplo;
     extern int sel, off, totalItens;
-    if (hnListaMudou) {
-        hnListaMudou = false;
-        if (menuAtual == MENU_EXPLORAR) {
-            int selAntes = sel, offAntes = off;
-            listarDiretorio(pathExplorar);
-            sel = selAntes < totalItens ? selAntes : 0;
-            off = offAntes;
-        }
-        if (painelDuplo && menuAtualEsq == MENU_EXPLORAR) listarDiretorioEsq(pathExplorarEsq);
+    // Cada painel só desarma a própria bandeira quando ele mesmo recarrega: se a pessoa saiu do
+    // Explorar antes da fila esvaziar, a bandeira continua pendente e é atendida na próxima vez
+    // que esse painel estiver mostrando o Explorar, seja agora ou só quando ela voltar para lá.
+    if (hnListaMudouDir && menuAtual == MENU_EXPLORAR) {
+        int selAntes = sel, offAntes = off;
+        listarDiretorio(pathExplorar);
+        sel = selAntes < totalItens ? selAntes : 0;
+        off = offAntes;
+        hnListaMudouDir = false;
     }
+    if (hnListaMudouEsq && painelDuplo && menuAtualEsq == MENU_EXPLORAR) { listarDiretorioEsq(pathExplorarEsq); hnListaMudouEsq = false; }
     static char caminho[1024];
     // Um PKG por vez, depois de tudo extraído: o jogo base e a atualização saem do mesmo arquivo.
     static int esperaEntrePkgs = 0;

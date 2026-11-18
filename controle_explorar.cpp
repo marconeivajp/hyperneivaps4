@@ -35,7 +35,8 @@
 #include "stb_image.h" 
 #include "audio.h"   
 #include "bloco_de_notas.h"
-#include "miniz.h" 
+#include "miniz.h"
+#include "pkg_verificar.h"   // confere o PKG antes de instalar (qualquer origem)
 #include "video.h" // <--- CABEï¿½ALHO DO Vï¿½DEO ADICIONADO AQUI
 
 extern void preencherOpcoesContexto(const char* nomeArquivo);
@@ -464,26 +465,98 @@ static void pkgLog(const char* formato, int a, const char* b) {
 // abrir. Voltando ao jeito direto e síncrono, que já era comprovado (retorna 0 e funciona).
 static char pkgDiretoCaminho[512];
 static volatile bool pkgDiretoRodando = false;
-static void* threadPkgDireto(void*) {
-    sceSysmoduleLoadModuleInternal(ORBIS_SYSMODULE_INTERNAL_APP_INST_UTIL);
-    static bool iniciado = false;
-    if (!iniciado) { int r0 = sceAppInstUtilInitialize(); pkgLog("INSTALAR DIRETO: inicializar 0x%08X %s", r0, ""); iniciado = true; }
-    // O instalador só aceita o caminho completo do sistema: /data/... dava 0x80020012.
-    char completo[540];
-    if (!strncmp(pkgDiretoCaminho, "/data/", 6)) snprintf(completo, sizeof(completo), "/user%s", pkgDiretoCaminho);
-    else snprintf(completo, sizeof(completo), "%s", pkgDiretoCaminho);
-    int r = sceAppInstUtilAppInstallPkg(completo, NULL);
-    pkgLog("INSTALAR DIRETO: 0x%08X %s", r, completo);
-    if (r < 0 && strcmp(completo, pkgDiretoCaminho) != 0) {
-        r = sceAppInstUtilAppInstallPkg(pkgDiretoCaminho, NULL);
-        pkgLog("INSTALAR DIRETO (sem /user): 0x%08X %s", r, pkgDiretoCaminho);
+// PKG que a cópia do Telegram acabou de conferir (extra.cpp): não precisa ler os gigas de novo.
+char hnPkgJaConferido[512] = "";
+// Confere os SHA256 que o próprio PKG declara (pkg_verificar.h), lendo o arquivo uma vez.
+// 1 conferido, 0 estragado, -1 não dá para conferir (o PKG não traz o hash dos dados).
+static int pkgConferirArquivo(const char* caminho, char* motivo, int tam) {
+    FILE* f = fopen(caminho, "rb");
+    if (!f) { snprintf(motivo, tam, "nao abriu"); return -1; }
+    fseeko(f, 0, SEEK_END); long long total = (long long)ftello(f); fseeko(f, 0, SEEK_SET);
+    static HnPkgVerif v; hnPkgVerifIniciar(&v);
+    static uint8_t bloco[1 << 20];
+    long long lido = 0; int ultimo = -1; size_t n;
+    while ((n = fread(bloco, 1, sizeof(bloco), f)) > 0) {
+        hnPkgVerifAlimentar(&v, bloco, n);
+        lido += (long long)n;
+        int pct = total > 0 ? (int)(lido * 100 / total) : 0;
+        if (pct != ultimo) { ultimo = pct; snprintf(msgStatus, sizeof(msgStatus), "CONFERINDO O PKG ANTES DE INSTALAR: %d%%", pct); msgTimer = 120; }
     }
-    if (r >= 0) {
-        snprintf(msgStatus, sizeof(msgStatus), "INSTALANDO DIRETO NO PS4... VEJA NA TELA INICIAL");
-        msgTimer = 500;
+    fclose(f);
+    return hnPkgVerifTerminar(&v, motivo, tam);
+}
+static void pkgBgftIniciar() {
+    sceSysmoduleLoadModuleInternal(ORBIS_SYSMODULE_INTERNAL_APP_INST_UTIL); sceSysmoduleLoadModuleInternal(ORBIS_SYSMODULE_INTERNAL_BGFT);
+    static void* bgftHeap = NULL;
+    if (!bgftHeap) { sceAppInstUtilInitialize(); OrbisBgftInitParams bgftInit; memset(&bgftInit, 0, sizeof(OrbisBgftInitParams)); bgftInit.heapSize = 2 * 1024 * 1024; bgftHeap = memalign(4096, bgftInit.heapSize); bgftInit.heap = bgftHeap; sceBgftServiceIntInit(&bgftInit); }
+}
+// Instala como o "Instalador de Pacotes" do próprio PS4: registra no gerenciador de downloads
+// (BGFT) uma tarefa que lê o arquivo direto do disco. Conferido nas tarefas que o sistema grava em
+// /user/bgft/task/*/d0.pdb quando se instala por lá: a origem é o caminho local
+// "/user/data/pkg/<arquivo>.pkg" e o destino /user/app/<ID>/app.pkg. Aparece nas notificações,
+// continua com o app fechado e não depende do servidor local do app.
+// O sceAppInstUtilAppInstallPkg respondia 0, mas não criava /user/app/<ID>: o jogo ficava sem os
+// dados (God of War com 1 GB, Party Saboteurs e Sportal sem pasta) e dava erro ao abrir.
+static int pkgInstalarPeloSistema(const char* caminho, char* titulo, int tamTitulo) {
+    static char contentId[40], completo[600];
+    memset(contentId, 0, sizeof(contentId)); uint64_t tamanho = 0;
+    FILE* f = fopen(caminho, "rb");
+    if (!f) return -1;
+    fseek(f, 0x40, SEEK_SET); fread(contentId, 1, 36, f); fseeko(f, 0, SEEK_END); tamanho = (uint64_t)ftello(f); fclose(f);
+    hnTituloPkg(caminho, titulo, tamTitulo);
+    if (!titulo[0]) { const char* b = strrchr(caminho, '/'); snprintf(titulo, tamTitulo, "%s", b ? b + 1 : caminho); }
+    if (!strncmp(caminho, "/data/", 6)) snprintf(completo, sizeof(completo), "/user%s", caminho);
+    else snprintf(completo, sizeof(completo), "%s", caminho);
+    pkgBgftIniciar();
+    // tarefa velha do mesmo pacote (tentativa anterior) atrapalha o registro novo
+    OrbisBgftTaskId velha = -1;
+    sceBgftServiceIntDownloadFindActiveTask(contentId, ORBIS_BGFT_TASK_SUB_TYPE_PACKAGE, &velha);
+    if (velha != -1) sceBgftServiceIntDownloadUnregisterTask(velha);
+    int32_t userId = 0; sceUserServiceGetInitialUser(&userId);
+    int res = -1; OrbisBgftTaskId tarefa = -1;
+    const char* origens[2] = { completo, caminho };
+    for (int k = 0; k < 2 && res != 0; k++) {
+        if (k == 1 && !strcmp(origens[0], origens[1])) break;
+        OrbisBgftDownloadParamEx p; memset(&p, 0, sizeof(p));
+        p.params.userId = userId; p.params.entitlementType = 5; p.params.id = contentId;
+        p.params.contentUrl = origens[k]; p.params.contentName = titulo; p.params.iconPath = "";
+        p.params.playgoScenarioId = "0"; p.params.option = ORBIS_BGFT_TASK_OPT_NONE;
+        memcpy(&p.params.packageSize, &tamanho, sizeof(tamanho));   // no SDK de verdade é 64 bits
+        p.slot = 0;
+        tarefa = -1;
+        res = sceBgftServiceIntDownloadRegisterTaskByStorageEx(&p, &tarefa);
+        pkgLog("INSTALAR PELO SISTEMA: registro 0x%08X %s", res, origens[k]);
+    }
+    if (res != 0 || tarefa < 0) return res ? res : -1;
+    int ini = sceBgftServiceDownloadStartTask(tarefa);
+    pkgLog("INSTALAR PELO SISTEMA: iniciar 0x%08X %s", ini, titulo);
+    extern volatile int hnTarefaPkg; hnTarefaPkg = (int)tarefa;
+    extern void dlRegistrarTarefaPs4(int id, const char* nome); dlRegistrarTarefaPs4((int)tarefa, titulo);
+    return ini;
+}
+static void* threadPkgDireto(void*) {
+    // Instalar um PKG com um pedaço estragado "funciona", mas o jogo dá erro ao abrir. Confere antes.
+    if (strcmp(hnPkgJaConferido, pkgDiretoCaminho) != 0) {
+        char motivo[120] = "";
+        int c = pkgConferirArquivo(pkgDiretoCaminho, motivo, sizeof(motivo));
+        pkgLog("CONFERIR PKG: %d %s", c, motivo[0] ? motivo : pkgDiretoCaminho);
+        if (c == 0) {
+            snprintf(msgStatus, sizeof(msgStatus), "PKG ESTRAGADO (%s): NAO INSTALEI. BAIXE OU EXTRAIA DE NOVO", motivo);
+            msgTimer = 900;
+            pkgDiretoRodando = false;
+            return NULL;
+        }
+    }
+    hnPkgJaConferido[0] = '\0';
+    static char titulo[160];
+    int r = pkgInstalarPeloSistema(pkgDiretoCaminho, titulo, sizeof(titulo));
+    if (r == 0) {
+        snprintf(msgStatus, sizeof(msgStatus), "INSTALANDO PELO PS4: %.60s (VEJA AS NOTIFICACOES, PODE FECHAR O APP)", titulo);
+        msgTimer = 600;
     }
     else {
-        snprintf(msgStatus, sizeof(msgStatus), "INSTALACAO DIRETA RECUSADA (0x%08X): USANDO O DOWNLOAD DO SISTEMA", (unsigned)r);
+        // Plano B: o mesmo gerenciador do sistema, servido pelo app (instalou o Lost Ruins inteiro).
+        snprintf(msgStatus, sizeof(msgStatus), "O PS4 RECUSOU (0x%08X): TENTANDO PELO SERVIDOR DO APP (NAO FECHE O APP)", (unsigned)r);
         msgTimer = 400;
         instalarPkgPeloServidor(pkgDiretoCaminho);
     }

@@ -115,6 +115,15 @@ void preencherOpcoesContexto(const char* nomeArquivo) {
     }
 }
 
+// Nome que a pasta ainda lista mas cujo arquivo não existe (stat dá ENOENT): ficava na tela
+// depois de apagado (baixado/telegram com PKGs já removidos) e "apagar" de novo não mudava nada.
+static bool nomeSemArquivo(const char* caminho) {
+    struct stat st;
+    if (stat(caminho, &st) == 0 || errno != ENOENT) return false;
+    FILE* f = fopen("/data/HyperNeiva/zip_debug_log.txt", "a");
+    if (f) { fprintf(f, "LISTAR: nome sem arquivo, escondido: %s\n", caminho); fclose(f); }
+    return true;
+}
 void listarDiretorio(const char* path) {
     DIR* d = opendir(path);
     if (!d) {
@@ -129,6 +138,7 @@ void listarDiretorio(const char* path) {
         if (strcmp(dir->d_name, ".") == 0 || strcmp(dir->d_name, "..") == 0) continue;
         char cleanName[256]; strcpy(cleanName, dir->d_name); int len = strlen(cleanName);
         strncpy(temp[count].nome, cleanName, 255); char fullPath[1024]; snprintf(fullPath, sizeof(fullPath), "%s/%s", path, cleanName); struct stat st;
+        if (nomeSemArquivo(fullPath)) continue;
         if (dir->d_type == DT_DIR || (dir->d_type == DT_UNKNOWN && stat(fullPath, &st) == 0 && S_ISDIR(st.st_mode))) temp[count].ehPasta = true;
         else temp[count].ehPasta = false; count++;
     } closedir(d);
@@ -160,6 +170,7 @@ void listarDiretorioEsq(const char* path) {
         if (strcmp(dir->d_name, ".") == 0 || strcmp(dir->d_name, "..") == 0) continue;
         char cleanName[256]; strcpy(cleanName, dir->d_name); int len = strlen(cleanName);
         strncpy(temp[count].nome, cleanName, 255); char fullPath[1024]; snprintf(fullPath, sizeof(fullPath), "%s/%s", path, cleanName); struct stat st;
+        if (nomeSemArquivo(fullPath)) continue;
         if (dir->d_type == DT_DIR || (dir->d_type == DT_UNKNOWN && stat(fullPath, &st) == 0 && S_ISDIR(st.st_mode))) temp[count].ehPasta = true;
         else temp[count].ehPasta = false; count++;
     } closedir(d);

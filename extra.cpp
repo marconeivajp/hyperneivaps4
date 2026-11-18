@@ -124,6 +124,7 @@ const char* td_execute(const char* request);
 #include <dirent.h>
 #include <sys/stat.h>
 #include <strings.h>
+#include "pkg_verificar.h"   // confere os SHA256 do PKG baixado pelo Telegram antes de instalar
 #include <sys/types.h>
 extern "C" {
 typedef struct OpusEncoder OpusEncoder;
@@ -183,7 +184,7 @@ struct TgConversa { long long id, data, lidoAte; long long ordens[TG_MAX_PASTAS 
 struct TgMensagem { long long id, autor, data; bool minha, figurinha; int arquivo, imgL, imgA, grande, midia, totalLinks, alturaCache[2]; char rotulo[32]; char resumo[48]; char arquivoNome[100]; char links[12][200]; char texto[1024]; };
 struct TgPasta { int id; char nome[64]; };
 enum TgEstadoDownload { TG_D_BAIXANDO, TG_D_COPIAR, TG_D_COPIANDO, TG_D_PRONTO, TG_D_ERRO };
-struct TgDownload { int arquivo, estado; bool salvar, pkg, iniciado; long long total, baixado, mensagem, conversa, proxima; int tentativas; char nome[120]; long long inicioMs, marcaMs, marcaBytes; double velocidade; };
+struct TgDownload { int arquivo, estado; bool salvar, pkg, iniciado; long long total, baixado, mensagem, conversa, proxima; int tentativas; char nome[120]; long long inicioMs, marcaMs, marcaBytes; double velocidade; int refeitos; };
 struct TgResultado { long long conversa, mensagem, data; char texto[200]; };
 struct TgUsuario { long long id; char nome[64]; };
 
@@ -556,6 +557,7 @@ static char tgBuscaTexto[128] = "";
 
 static int tgVisor = 0, tgVisorMini = 0, tgVisorX = 0, tgVisorY = 0;
 static float tgVisorZoom = 1.0f;
+static long long tgVisorMsg = 0;   // mensagem da foto aberta (L1/R1 andam pelas fotos; Triângulo abre baixar/encaminhar)
 static int tgPendente = 0, tgPendenteTipo = TG_M_NADA;
 static bool tgAbrirAgora = false;
 static char tgPendenteCaminho[220];
@@ -578,6 +580,12 @@ static struct {
 } tgFluxo;
 static bool tgMenuAberto = false;
 static int tgMenuSel = 0, tgMenuTotal = 0;
+// "Reagir" (-7): o mesmo menu vira a lista de emojis; cada item é -100 - índice em tgReacoes.
+static bool tgReagindo = false;
+static const char* const tgReacoes[][2] = {
+    { "👍", "Curtir" }, { "❤️", "Amei" }, { "😂", "Haha" }, { "😮", "Uau" }, { "😢", "Triste" },
+    { "🙏", "Obrigado" }, { "🔥", "Fogo" }, { "🎉", "Festa" }, { "👏", "Palmas" }, { "👎", "Nao curti" } };
+static const int tgTotalReacoes = (int)(sizeof(tgReacoes) / sizeof(tgReacoes[0]));
 // Itens do menu do X: índice em tgMenuUrls, -1 baixa, -2 responde, -3 encaminha, -4 seleciona, -5 copia.
 // Sem limite: o menu busca a mensagem inteira e lista todos os links dela.
 static int* tgMenuLinks = NULL;
@@ -1484,13 +1492,20 @@ static void tgDesenharMenu(uint32_t* p) {
     int largura = 1000, altura = 70 + linhas * 58 + (tgMenuTotal > linhas ? 50 : 16);
     int x = TG_LISTA_L + 2 + (1920 - TG_LISTA_L - largura) / 2, y = (1080 - altura) / 2;
     tgArredondado(p, x, y, largura, altura, 18, TG_COR(30, 44, 58), 0, 1080);
-    tgEscrever(p, "Opções", 0, 1 << 30, 28, x + 28, y + 18, TG_COR(255, 255, 255));
+    tgEscrever(p, tgReagindo ? "Reagir" : "Opções", 0, 1 << 30, 28, x + 28, y + 18, TG_COR(255, 255, 255));
     for (int j = 0; j < linhas; j++) {
         int i = topo + j;
         int linha = y + 70 + j * 58;
         if (i == tgMenuSel) tgArredondado(p, x + 12, linha, largura - 24, 54, 12, TG_COR(46, 112, 165), 0, 1080);
         int op = tgMenuLinks[i];
-        const char* nome = op >= 0 ? (op < tgMenuTotalUrls ? tgMenuUrls[op] : "") :
+        char reacao[64] = "";
+        if (op <= -100 && -100 - op < tgTotalReacoes) {
+            int k = -100 - op;
+            if (tgEmojis) snprintf(reacao, sizeof(reacao), "%s  %s", tgReacoes[k][0], tgReacoes[k][1]);
+            else snprintf(reacao, sizeof(reacao), "%s", tgReacoes[k][1]);
+        }
+        const char* nome = op <= -100 ? reacao : op >= 0 ? (op < tgMenuTotalUrls ? tgMenuUrls[op] : "") :
+            op == -7 ? tgIcone("😀 Reagir", "Reagir") :
             op == -2 ? tgIcone("↩️ Responder", "Responder") : op == -3 ? tgIcone("➡️ Encaminhar", "Encaminhar") :
             op == -4 ? tgIcone("☑️ Selecionar", "Selecionar") : op == -5 ? tgIcone("📋 Copiar texto", "Copiar texto") :
             op == -6 ? tgIcone("✏️ Editar", "Editar") :
@@ -1622,10 +1637,18 @@ static void tgDesenharVisor(uint32_t* p) {
             }
         }
     }
-    const char* dica = a && a->falhou ? "Não foi possível abrir esta imagem     O  Voltar" : a && a->pixels ? "Direcional  Zoom     Analógico  Mover     O  Voltar" : "Carregando imagem...     O  Voltar";
+    const char* dica = a && a->falhou ? "Não foi possível abrir esta imagem     L1 R1  Anterior / próxima     Triângulo  Baixar, encaminhar     O  Voltar" :
+        a && a->pixels ? "Direcional  Zoom     Analógico  Mover     L1 R1  Anterior / próxima     Triângulo  Baixar, encaminhar     O  Voltar" :
+        "Carregando imagem...     L1 R1  Anterior / próxima     O  Voltar";
     int w = tgLargura(dica, 22) + 40;
     tgArredondado(p, (1920 - w) / 2, 1020, w, 42, 20, TG_COR(30, 36, 44), 0, 1080);
     tgEscrever(p, dica, 0, 1 << 30, 22, (1920 - w) / 2 + 20, 1029, TG_COR(235, 240, 245));
+    if (tgAviso[0]) {
+        int wa = tgLargura(tgAviso, 22) + 40;
+        tgArredondado(p, (1920 - wa) / 2, 30, wa, 42, 20, TG_COR(30, 36, 44), 0, 1080);
+        tgEscrever(p, tgAviso, 0, 1 << 30, 22, (1920 - wa) / 2 + 20, 39, TG_COR(235, 240, 245));
+    }
+    if (tgMenuAberto) tgDesenharMenu(p);
 }
 
 static void tgDesenharEntrada(uint32_t* p) {
@@ -2354,6 +2377,11 @@ static void tgProcessar(const char* r) {
         tgSujo = true;
         return;
     }
+    if (strstr(r, "\"@extra\":\"reagir\"")) {
+        if (tgTipo(r, "error")) snprintf(tgAviso, sizeof(tgAviso), "Não deu para reagir: esta conversa não aceita essa reação");
+        tgSujo = true;
+        return;
+    }
     if (strstr(r, "\"@extra\":\"link\"")) {
         tgProcessarLink(r);
         tgSujo = true;
@@ -2787,27 +2815,65 @@ static bool tgCopiaPkg = false;
 static volatile bool tgCopiando = false;
 
 // Copia em vez de mover: o TDLib continua dono do arquivo que baixou.
+// PKG: confere os SHA256 do próprio PKG durante a cópia (a cópia já lê o arquivo inteiro).
+// Arquivo grande de canal vem da CDN do Telegram e o TDLib, ao retomar um download, confia nos
+// pedaços já gravados sem conferir o hash de novo (o patch do vídeo deixa isso valer para tudo).
+// Um pedaço estragado ficava no PKG: instalava e dava erro ao abrir o jogo. Agora, se não
+// conferir, apaga e baixa do zero (o deleteFile descarta os pedaços salvos) em vez de instalar.
+extern char hnPkgJaConferido[512];
 static void* threadSalvar(void*) {
     FILE* a = fopen(tgCopiaOrigem, "rb");
     FILE* b = a ? fopen(tgCopiaDestino, "wb") : NULL;
     bool certo = a && b;
     static char bloco[1 << 18];
+    static HnPkgVerif verif;
+    hnPkgVerifIniciar(&verif);
     size_t n;
-    while (certo && (n = fread(bloco, 1, sizeof(bloco), a)) > 0) certo = fwrite(bloco, 1, n, b) == n;
+    while (certo && (n = fread(bloco, 1, sizeof(bloco), a)) > 0) {
+        if (tgCopiaPkg) hnPkgVerifAlimentar(&verif, (const uint8_t*)bloco, n);
+        certo = fwrite(bloco, 1, n, b) == n;
+    }
     if (a) fclose(a);
     if (b) fclose(b);
-    if (!certo) remove(tgCopiaDestino);
+    int conferido = -1; char motivo[120] = "";
+    if (certo && tgCopiaPkg) conferido = hnPkgVerifTerminar(&verif, motivo, sizeof(motivo));
+    if (!certo || conferido == 0) remove(tgCopiaDestino);
+    {
+        FILE* lg = fopen("/data/HyperNeiva/zip_debug_log.txt", "a");
+        if (lg && tgCopiaPkg) { fprintf(lg, "TG PKG copia=%d conferido=%d %s %s\n", certo ? 1 : 0, conferido, motivo, tgCopiaDestino); }
+        if (lg) fclose(lg);
+    }
     pthread_mutex_lock(&tgTrava);
     TgDownload* d = tgDownload(tgCopiaArquivo);
-    if (d) d->estado = certo ? TG_D_PRONTO : TG_D_ERRO;
-    if (certo && tgCopiaPkg) {
-        // PKG é grande: a cópia em /data/pkg basta, a do TDLib só gastaria espaço.
+    if (certo && tgCopiaPkg && conferido == 0) {
+        // Corrompido: o arquivo do TDLib vai embora (com os pedaços salvos) e o download recomeça do zero.
         TgArquivo* arquivo = tgArquivo(tgCopiaArquivo);
-        if (arquivo) { arquivo->baixado = false; arquivo->pedido = false; }
+        if (arquivo) { arquivo->baixado = false; arquivo->pedido = true; }
         tgEnviar("{\"@type\":\"deleteFile\",\"file_id\":%d}", tgCopiaArquivo);
-        snprintf(tgInstalar, sizeof(tgInstalar), "%s", tgCopiaDestino);
+        if (d && d->refeitos < 2) {
+            d->refeitos++;
+            d->estado = TG_D_BAIXANDO; d->iniciado = false;
+            d->baixado = 0; d->inicioMs = 0; d->velocidade = 0;
+            snprintf(tgAviso, sizeof(tgAviso), "PKG veio estragado (%s): baixando de novo do zero (%d de 2)", motivo, d->refeitos);
+        }
+        else {
+            if (d) d->estado = TG_D_ERRO;
+            snprintf(tgAviso, sizeof(tgAviso), "PKG estragado de novo (%s): nao instalei. O arquivo no canal pode estar com defeito.", motivo);
+        }
     }
-    else snprintf(tgAviso, sizeof(tgAviso), certo ? "Salvo em baixado/telegram" : "Não foi possível salvar o arquivo.");
+    else {
+        if (d) d->estado = certo ? TG_D_PRONTO : TG_D_ERRO;
+        if (certo && tgCopiaPkg) {
+            // PKG é grande: a cópia em /data/pkg basta, a do TDLib só gastaria espaço.
+            TgArquivo* arquivo = tgArquivo(tgCopiaArquivo);
+            if (arquivo) { arquivo->baixado = false; arquivo->pedido = false; }
+            tgEnviar("{\"@type\":\"deleteFile\",\"file_id\":%d}", tgCopiaArquivo);
+            snprintf(tgInstalar, sizeof(tgInstalar), "%s", tgCopiaDestino);
+            // o instalador não precisa ler os gigas de novo para conferir
+            if (conferido == 1) snprintf(hnPkgJaConferido, sizeof(hnPkgJaConferido), "%s", tgCopiaDestino);
+        }
+        else snprintf(tgAviso, sizeof(tgAviso), certo ? "Salvo em baixado/telegram" : "Não foi possível salvar o arquivo.");
+    }
     pthread_mutex_unlock(&tgTrava);
     tgSujo = true;
     tgCopiando = false;
@@ -3061,6 +3127,7 @@ static void tgAbrirMidia(const TgMensagem* m) {
     if (m->midia == TG_M_FOTO) {
         tgVisor = m->grande;
         tgVisorMini = m->arquivo;
+        tgVisorMsg = m->id;
         tgVisorZoom = 1.0f; tgVisorX = 0; tgVisorY = 0;
         a->limite = 1920;
         a->uso = ++tgRelogioUso;
@@ -3231,7 +3298,9 @@ static void tgMenuGuardarUrl(const char* url) {
 // Monta os itens com os links que já estão em tgMenuUrls.
 static void tgMontarMenu(const TgMensagem* m) {
     tgMenuTotal = 0;
+    tgReagindo = false;
     tgMenuItem(-2);
+    tgMenuItem(-7);
     tgMenuItem(-3);
     tgMenuItem(-4);
     if (m->texto[0]) tgMenuItem(-5);
@@ -3254,7 +3323,7 @@ static void tgAbrirMenu(const TgMensagem* m) {
 
 // Resposta do getMessage do menu: junta todos os links do texto inteiro, das palavras com link e dos botões.
 static void tgMenuLinksCompletos(const char* r, long long id) {
-    if (!tgMenuAberto || tgMenuMensagem != id || !tgTipo(r, "message")) return;
+    if (!tgMenuAberto || tgReagindo || tgMenuMensagem != id || !tgTipo(r, "message")) return;
     const TgMensagem* m = NULL;
     for (int i = 0; i < tgTotalMensagens; i++) if (tgMensagens[i].id == id) m = &tgMensagens[i];
     if (!m) return;
@@ -3990,8 +4059,24 @@ bool telegramControles(uint32_t botoes, uint32_t antigos, int32_t usuario) {
         }
     }
     else if (opcoes && !tgVisor && (tgTela == TG_CONVERSAS || tgTela == TG_MENSAGENS)) { tgFilaAberta = true; tgMenuAberto = false; tgFilaSel = 0; }
-    else if (tgVisor) {
+    else if (tgVisor && !tgMenuAberto) {
         if (bolinha) tgVisor = 0;
+        else if (aba) {
+            // Próxima (R1) ou anterior (L1) entre as fotos já carregadas da conversa, pela ordem das mensagens.
+            const TgMensagem* alvo = NULL;
+            for (int i = 0; i < tgTotalMensagens; i++) {
+                const TgMensagem* c = &tgMensagens[i];
+                if (c->midia != TG_M_FOTO || c->id == tgVisorMsg || c->grande <= 0) continue;
+                if (aba > 0 ? c->id > tgVisorMsg && (!alvo || c->id < alvo->id) : c->id < tgVisorMsg && (!alvo || c->id > alvo->id)) alvo = c;
+            }
+            if (alvo) tgAbrirMidia(alvo);
+            else strcpy(tgAviso, aba > 0 ? "Esta é a última imagem carregada" : "Esta é a primeira imagem carregada");
+        }
+        else if (triangulo && tgVisorMsg) {
+            tgMenuTotal = 0; tgReagindo = false;
+            tgMenuItem(-1); tgMenuItem(-3);
+            tgMenuSel = 0; tgMenuMensagem = tgVisorMsg; tgMenuAberto = true;
+        }
         else if (passo) {
             tgVisorZoom *= passo < 0 ? 1.25f : 0.8f;
             if (tgVisorZoom < 1.0f) { tgVisorZoom = 1.0f; tgVisorX = 0; tgVisorY = 0; }
@@ -4001,13 +4086,27 @@ bool telegramControles(uint32_t botoes, uint32_t antigos, int32_t usuario) {
     else if (tgMenuAberto) {
         const TgMensagem* m = NULL;
         for (int i = 0; i < tgTotalMensagens; i++) if (tgMensagens[i].id == tgMenuMensagem) m = &tgMensagens[i];
-        if (bolinha || !m) tgMenuAberto = false;
+        if (bolinha || !m) { tgMenuAberto = false; tgReagindo = false; }
         else if (passo) tgMenuSel = (tgMenuSel + passo + tgMenuTotal) % tgMenuTotal;
         else if (xis) {
             int opcao = tgMenuLinks[tgMenuSel];
             tgMenuAberto = false;
-            if (opcao == -2) { tgResponderA = m->id; tgAbrirTeclado(usuario, TG_IME_MENSAGEM, L"Responder", 500); }
-            else if (opcao == -3) { tgEncaminharMsg = m->id; tgEncaminharDe = tgAberta; }
+            if (opcao <= -100) {
+                int k = -100 - opcao;
+                if (k < tgTotalReacoes) {
+                    tgEnviar("{\"@type\":\"addMessageReaction\",\"chat_id\":%lld,\"message_id\":%lld,\"reaction_type\":{\"@type\":\"reactionTypeEmoji\",\"emoji\":\"%s\"},\"is_big\":false,\"update_recent_reactions\":true,\"@extra\":\"reagir\"}", tgAberta, m->id, tgReacoes[k][0]);
+                    snprintf(tgAviso, sizeof(tgAviso), "Reação enviada: %s", tgReacoes[k][1]);
+                }
+                tgReagindo = false;
+            }
+            else if (opcao == -7) {
+                // Reabre o mesmo quadro com os emojis (Bolinha fecha).
+                tgMenuTotal = 0;
+                for (int k = 0; k < tgTotalReacoes; k++) tgMenuItem(-100 - k);
+                tgMenuSel = 0; tgReagindo = true; tgMenuAberto = true;
+            }
+            else if (opcao == -2) { tgResponderA = m->id; tgAbrirTeclado(usuario, TG_IME_MENSAGEM, L"Responder", 500); }
+            else if (opcao == -3) { tgEncaminharMsg = m->id; tgEncaminharDe = tgAberta; tgVisor = 0; }
             else if (opcao == -4) { tgSelecionando = true; tgTotalMarcadas = 0; tgMarcar(m->id); }
             else if (opcao == -6) {
                 // Abre o teclado já com o texto; o resultado vira editMessageText.

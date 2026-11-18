@@ -42,9 +42,17 @@ struct IptvPerfil {
 static IptvPerfil iptvPerfis[IPTV_MAX_PERFIS];
 static int iptvTotalPerfis = 0;
 
-struct IptvCanal { char nome[96], logo[260], grupo[64], tvgId[64]; char url[700]; };
+// tipo: 0 ao vivo, 1 filme (VOD), 2 série. Série: 'url' fica vazia e 'xtreamId' guarda o
+// series_id (busca os episódios com get_series_info antes de poder tocar algo).
+struct IptvCanal { char nome[96], logo[260], grupo[64], tvgId[64]; char url[700]; int tipo; long xtreamId; };
 static IptvCanal* iptvCanais = NULL;          // malloc (IPTV_MAX_CANAIS)
 static int iptvTotalCanais = 0;
+static int iptvTipoAtual = 0;                 // aba atual: 0 ao vivo, 1 filmes, 2 séries
+#define IPTV_MAX_EPISODIOS 500
+struct IptvEpisodio { char nome[120]; char url[700]; };
+static IptvEpisodio iptvEpisodios[IPTV_MAX_EPISODIOS];
+static int iptvTotalEpisodios = 0;
+static char iptvSerieNome[96] = "";
 static char iptvCategorias[IPTV_MAX_CATEGORIAS][64];
 static int iptvTotalCategorias = 0;
 static char iptvErro[200] = "";
@@ -58,7 +66,7 @@ static char iptvNomeCanalAberto[96] = "";
 // ---------------------------------------------------------------- tela (estado)
 // 0 lista de perfis, 1 editor de perfil, 2 categorias, 3 lista de canais
 static int iptvTela = 0;
-static int iptvSelPerfil = 0, iptvSelCategoria = 0, iptvSelCanal = 0, iptvOffCanal = 0;
+static int iptvSelPerfil = 0, iptvSelCategoria = 0, iptvSelCanal = 0, iptvOffCanal = 0, iptvOffCategoria = 0;
 static int iptvEditando = -1;                // -1 = perfil novo, senão índice em iptvPerfis
 static IptvPerfil iptvEdit;
 static int iptvSelCampo = 0;
@@ -69,6 +77,13 @@ static char iptvFiltro[40] = "";
 static char iptvEpgTexto[260] = "";           // "agora: ..." do canal em destaque
 static uint64_t iptvEpgPedidoMs = 0;
 static int iptvEpgPedidoCanal = -1;
+// Favoritos: lista de URLs por perfil (Triangulo marca/desmarca na lista de canais). Pais/idioma
+// e qualidade (HD/SD) já vêm no nome e no tvg-id da maioria das listas — a busca por texto
+// (Quadrado) já casa com os dois; "quando canal.tvgId tem .br/.pt etc." documenta isso embaixo.
+#define IPTV_MAX_FAVORITOS 300
+static char iptvFavoritos[IPTV_MAX_FAVORITOS][700];
+static int iptvTotalFavoritos = 0;
+static bool iptvSoFavoritos = false;
 
 // ---------------------------------------------------------------- utilidades
 static void iptvSlug(const char* in, char* out, int tam) {
@@ -178,22 +193,52 @@ static const char* iptvInicioObjeto(const char* comeco, const char* p) {
 }
 
 // ---------------------------------------------------------------- HTTP: GET bufferizado (sem o teto de 8MB do iaHttpGet)
-static int iptvHttpGetBuf(const char* url, const char* userAgent, char** resp, size_t* tamResp, size_t tetoBytes) {
-    *resp = NULL; *tamResp = 0;
+// Redirecionamento seguido à mão (iptvHttpGetBuf): o automático do sceHttp recebia o salto do
+// jmp2.uk (Pluto TV) para um endereço de ~3.200 letras e o app caía (CE-34878-0) ao abrir o canal.
+// Endereço de destino maior que isto não é pedido: a resposta 3xx volta para quem chamou.
+#define IPTV_REDIR_MAX 2048
+// Passo a passo da abertura no video_debug_log.txt (só as primeiras linhas de cada canal): o app
+// caía (CE-34878-0) ao abrir Band/Pluto sem deixar rastro; isto mostra em que chamada parou.
+extern void logVideoInfo(const char* formato, ...);
+static int iptvPassosRestantes = 0;
+#define IPTV_PASSO(...) do { if (iptvPassosRestantes > 0) { iptvPassosRestantes--; logVideoInfo(__VA_ARGS__); } } while (0)
+static int iptvRedirLongo = 0;   // tamanho do último Location recusado por ser longo (0 = nenhum)
+static int iptvHttpGetUma(const char* url, const char* userAgent, char** resp, size_t* tamResp, size_t tetoBytes, char* destino, size_t tamDestino) {
+    *resp = NULL; *tamResp = 0; destino[0] = 0;
+    IPTV_PASSO("IPTV http: pedindo %.150s", url);
     int tpl = sceHttpCreateTemplate(httpCtxId, userAgent && userAgent[0] ? userAgent : IPTV_UA_PADRAO, ORBIS_HTTP_VERSION_1_1, 1);
+    IPTV_PASSO("IPTV http: template %d", tpl);
     if (tpl < 0) return tpl;
     sceHttpsSetSslCallback(tpl, skipSslCallback, NULL);
     typedef int (*DefinirRedirecionamento)(int, int);
-    ((DefinirRedirecionamento)(void*)sceHttpSetAutoRedirect)(tpl, 1);
+    ((DefinirRedirecionamento)(void*)sceHttpSetAutoRedirect)(tpl, 0);
     int conn = sceHttpCreateConnectionWithURL(tpl, url, 1);
     int req = conn >= 0 ? sceHttpCreateRequestWithURL(conn, ORBIS_METHOD_GET, url, 0) : -1;
     int status = req < 0 ? (conn < 0 ? conn : req) : -1;
+    IPTV_PASSO("IPTV http: conexao %d pedido %d", conn, req);
     if (req >= 0) {
-        ((int (*)(int, unsigned int))sceHttpSetRecvTimeOut)(req, 30u * 1000000u);
-        sceHttpSetConnectTimeOut(req, 15u * 1000000u);
+        ((int (*)(int, unsigned int))sceHttpSetRecvTimeOut)(req, 15u * 1000000u);
+        sceHttpSetConnectTimeOut(req, 8u * 1000000u);
         int rc = sceHttpSendRequest(req, NULL, 0);
+        IPTV_PASSO("IPTV http: enviado 0x%08X", (unsigned)rc);
         if (rc >= 0) {
             sceHttpGetStatusCode(req, &status);
+            IPTV_PASSO("IPTV http: status %d", status);
+            if (status == 301 || status == 302 || status == 303 || status == 307 || status == 308) {
+                char* cab = NULL; size_t tc = 0;
+                if (sceHttpGetAllResponseHeaders(req, &cab, &tc) >= 0 && cab) {
+                    for (size_t i = 0; i + 9 < tc; i++) {
+                        if ((i == 0 || cab[i - 1] == '\n') && strncasecmp(cab + i, "location:", 9) == 0) {
+                            size_t j = i + 9; while (j < tc && cab[j] == ' ') j++;
+                            size_t total = 0; while (j + total < tc && cab[j + total] != '\r' && cab[j + total] != '\n') total++;
+                            if (total < tamDestino) { memcpy(destino, cab + j, total); destino[total] = 0; }
+                            else iptvRedirLongo = (int)total;
+                            IPTV_PASSO("IPTV http: location com %u letras", (unsigned)total);
+                            break;
+                        }
+                    }
+                }
+            }
             size_t cap = 65536, n = 0; char* buf = (char*)malloc(cap);
             char bloco[32768]; int lidos;
             while (buf && (lidos = sceHttpReadData(req, bloco, sizeof(bloco))) > 0) {
@@ -202,12 +247,40 @@ static int iptvHttpGetBuf(const char* url, const char* userAgent, char** resp, s
                 if (tetoBytes && n > tetoBytes) break;
             }
             if (buf) { buf[n] = 0; *resp = buf; *tamResp = n; }
+            IPTV_PASSO("IPTV http: corpo %u bytes", (unsigned)n);
         }
         else status = rc;
         sceHttpDeleteRequest(req);
     }
     if (conn >= 0) sceHttpDeleteConnection(conn);
     sceHttpDeleteTemplate(tpl);
+    IPTV_PASSO("IPTV http: liberado, devolvendo %d", status);
+    return status;
+}
+static int iptvHttpGetBuf(const char* url, const char* userAgent, char** resp, size_t* tamResp, size_t tetoBytes) {
+    static char atual[IPTV_REDIR_MAX], destino[IPTV_REDIR_MAX], montado[IPTV_REDIR_MAX];
+    iptvRedirLongo = 0;
+    if (strlen(url) >= sizeof(atual)) { *resp = NULL; *tamResp = 0; return -1; }
+    snprintf(atual, sizeof(atual), "%s", url);
+    int status = -1;
+    for (int salto = 0; salto < 6; salto++) {
+        status = iptvHttpGetUma(atual, userAgent, resp, tamResp, tetoBytes, destino, sizeof(destino));
+        if (!destino[0] || salto == 5) break;               // não é salto (ou saltos demais): devolve como veio
+        if (*resp) { free(*resp); *resp = NULL; *tamResp = 0; }
+        char* frag = strchr(destino, '#'); if (frag) *frag = 0;
+        if (!strncmp(destino, "http://", 7) || !strncmp(destino, "https://", 8)) snprintf(montado, sizeof(montado), "%s", destino);
+        else {
+            const char* esquema = strstr(atual, "://");
+            const char* host = esquema ? esquema + 3 : atual;
+            const char* corte = destino[0] == '/' ? strchr(host, '/') : strrchr(host, '/');
+            int n = corte ? (int)(corte - atual) + (destino[0] == '/' ? 0 : 1) : (int)strlen(atual);
+            if (!corte && destino[0] != '/') { montado[0] = 0; snprintf(montado, sizeof(montado), "%s/", atual); n = (int)strlen(montado); }
+            else snprintf(montado, sizeof(montado), "%.*s", n, atual);
+            if (strlen(montado) + strlen(destino) >= sizeof(montado)) { iptvRedirLongo = (int)(strlen(montado) + strlen(destino)); break; }
+            strncat(montado, destino, sizeof(montado) - strlen(montado) - 1);
+        }
+        snprintf(atual, sizeof(atual), "%s", montado);
+    }
     return status;
 }
 
@@ -224,15 +297,36 @@ static void iptvOrdenarCategorias() {
 }
 
 // ---------------------------------------------------------------- parser M3U / M3U8
-static void iptvAdicionarCanal(const char* nome, const char* grupo, const char* tvgId, const char* logo, const char* url) {
-    if (iptvTotalCanais >= IPTV_MAX_CANAIS || !url || !url[0]) return;
+// M3U não separa "ao vivo/filme/série" por protocolo (tudo é só uma URL): classifica pelo
+// nome da categoria, do jeito que a maioria das listas BR já nomeia.
+static int iptvClassificarTipoM3U(const char* grupo) {
+    static const char* filme[] = { "filme", "movie", "vod", NULL };
+    static const char* serie[] = { "serie", "série", "series", "séries", "anime", "novela", "dorama", NULL };
+    for (int i = 0; filme[i]; i++) if (iptvContemSemCase(grupo, filme[i])) return 1;
+    for (int i = 0; serie[i]; i++) if (iptvContemSemCase(grupo, serie[i])) return 2;
+    return 0;
+}
+// tipo: 0 ao vivo, 1 filme, 2 série (série de verdade do Xtream: url vazia, xtreamId = series_id)
+static void iptvAdicionarCanalTipo(const char* nome, const char* grupo, const char* tvgId, const char* logo, const char* url, int tipo, long xtreamId) {
+    if (iptvTotalCanais >= IPTV_MAX_CANAIS || (!url[0] && tipo != 2)) return;
     IptvCanal* c = &iptvCanais[iptvTotalCanais++];
     snprintf(c->nome, sizeof(c->nome), "%.95s", nome && nome[0] ? nome : "Canal");
     snprintf(c->grupo, sizeof(c->grupo), "%.63s", grupo && grupo[0] ? grupo : "Sem categoria");
     snprintf(c->tvgId, sizeof(c->tvgId), "%.63s", tvgId ? tvgId : "");
     snprintf(c->logo, sizeof(c->logo), "%.259s", logo ? logo : "");
-    snprintf(c->url, sizeof(c->url), "%.699s", url);
-    iptvCategoriaAdicionar(c->grupo);
+    snprintf(c->url, sizeof(c->url), "%.699s", url ? url : "");
+    c->tipo = tipo; c->xtreamId = xtreamId;
+    // categorias são recalculadas por aba (iptvRecalcularCategorias), não aqui: uma lista M3U
+    // mistura ao vivo/filme/série no mesmo array, e cada aba só mostra as categorias dela.
+}
+// Reconstrói iptvCategorias só com as categorias dos canais do tipo da aba atual.
+static void iptvRecalcularCategorias() {
+    iptvTotalCategorias = 0;
+    for (int i = 0; i < iptvTotalCanais; i++) if (iptvCanais[i].tipo == iptvTipoAtual) iptvCategoriaAdicionar(iptvCanais[i].grupo);
+    iptvOrdenarCategorias();
+}
+static void iptvAdicionarCanal(const char* nome, const char* grupo, const char* tvgId, const char* logo, const char* url) {
+    iptvAdicionarCanalTipo(nome, grupo, tvgId, logo, url, iptvClassificarTipoM3U(grupo), -1);
 }
 static void iptvAtributoM3U(const char* linha, const char* chave, char* out, int tam) {
     out[0] = 0;
@@ -253,6 +347,7 @@ static void iptvParseM3U(char* texto) {
         if (!strncmp(linha, "#EXTINF", 7)) {
             iptvAtributoM3U(linha, "tvg-name", tvgName, sizeof(tvgName));
             iptvAtributoM3U(linha, "group-title", grupo, sizeof(grupo));
+            { char* ponto = strchr(grupo, ';'); if (ponto) *ponto = 0; }   // "Esportes;Familia" -> só a 1a (categoria principal)
             iptvAtributoM3U(linha, "tvg-id", tvgId, sizeof(tvgId));
             iptvAtributoM3U(linha, "tvg-logo", logo, sizeof(logo));
             const char* virgula = strrchr(linha, ',');
@@ -276,9 +371,15 @@ static void iptvXtreamUrlBase(const IptvPerfil* p, char* out, int tam) {
     int n = (int)strlen(serv); while (n > 0 && serv[n - 1] == '/') serv[--n] = 0;
     snprintf(out, tam, "%s", serv);
 }
-static bool iptvXtreamListar(const IptvPerfil* p) {
+// Busca categorias + itens de UM tipo (0 ao vivo, 1 filmes, 2 séries) na API Xtream Codes.
+// Ao vivo e filmes têm URL direta; série não tem stream_id (só dá para tocar depois de
+// escolher um episódio, via iptvXtreamEpisodios).
+static bool iptvXtreamListarTipo(const IptvPerfil* p, int tipo) {
+    static const char* acaoCat[3] = { "get_live_categories", "get_vod_categories", "get_series_categories" };
+    static const char* acaoItens[3] = { "get_live_streams", "get_vod_streams", "get_series" };
+    static const char* chaveId[3] = { "\"stream_id\"", "\"stream_id\"", "\"series_id\"" };
     char base[220]; iptvXtreamUrlBase(p, base, sizeof(base));
-    char urlCat[400]; snprintf(urlCat, sizeof(urlCat), "%s/player_api.php?username=%s&password=%s&action=get_live_categories", base, p->xtreamUsuario, p->xtreamSenha);
+    char urlCat[400]; snprintf(urlCat, sizeof(urlCat), "%s/player_api.php?username=%s&password=%s&action=%s", base, p->xtreamUsuario, p->xtreamSenha, acaoCat[tipo]);
     char* rc; size_t nc;
     if (iptvHttpGetBuf(urlCat, p->userAgent, &rc, &nc, 4 * 1024 * 1024) < 0 || !rc) { snprintf(iptvErro, sizeof(iptvErro), "Sem resposta do servidor Xtream (categorias)."); return false; }
     char categorias[800][48]; int idsCat[800]; int nCat = 0;
@@ -291,29 +392,69 @@ static bool iptvXtreamListar(const IptvPerfil* p) {
         p2 = fimObj;
     }
     free(rc);
-    char urlStr[400]; snprintf(urlStr, sizeof(urlStr), "%s/player_api.php?username=%s&password=%s&action=get_live_streams", base, p->xtreamUsuario, p->xtreamSenha);
+    char urlStr[400]; snprintf(urlStr, sizeof(urlStr), "%s/player_api.php?username=%s&password=%s&action=%s", base, p->xtreamUsuario, p->xtreamSenha, acaoItens[tipo]);
     char* rs; size_t ns;
-    if (iptvHttpGetBuf(urlStr, p->userAgent, &rs, &ns, 48 * 1024 * 1024) < 0 || !rs) { snprintf(iptvErro, sizeof(iptvErro), "Sem resposta do servidor Xtream (canais)."); return false; }
+    if (iptvHttpGetBuf(urlStr, p->userAgent, &rs, &ns, 48 * 1024 * 1024) < 0 || !rs) { snprintf(iptvErro, sizeof(iptvErro), "Sem resposta do servidor Xtream (lista)."); return false; }
     int total = 0;
-    for (const char* p2 = rs; (p2 = strstr(p2, "\"stream_id\"")) && total < IPTV_MAX_CANAIS; total++) {
+    for (const char* p2 = rs; (p2 = strstr(p2, chaveId[tipo])) && total < IPTV_MAX_CANAIS; total++) {
         const char* objIni = iptvInicioObjeto(rs, p2);
         const char* fimObj = iptvFimObjeto(objIni);
-        char nome[96] = "", logo[260] = "", epgId[64] = "";
+        char nome[96] = "", logo[260] = "", epgId[64] = "", ext[16] = "mp4";
         iptvJsonTexto(objIni, "name", nome, sizeof(nome), fimObj);
-        iptvJsonTexto(objIni, "stream_icon", logo, sizeof(logo), fimObj);
-        iptvJsonTexto(objIni, "epg_channel_id", epgId, sizeof(epgId), fimObj);
-        long sid = iptvJsonNum(objIni, "stream_id", fimObj);
+        iptvJsonTexto(objIni, tipo == 2 ? "cover" : "stream_icon", logo, sizeof(logo), fimObj);
+        if (tipo == 0) iptvJsonTexto(objIni, "epg_channel_id", epgId, sizeof(epgId), fimObj);
+        if (tipo == 1) iptvJsonTexto(objIni, "container_extension", ext, sizeof(ext));
+        long sid = iptvJsonNum(objIni, tipo == 2 ? "series_id" : "stream_id", fimObj);
         long catId = iptvJsonNum(objIni, "category_id", fimObj);
         char grupo[48] = "Sem categoria";
         for (int i = 0; i < nCat; i++) if (idsCat[i] == (int)catId) { snprintf(grupo, sizeof(grupo), "%s", categorias[i]); break; }
-        char url[700]; snprintf(url, sizeof(url), "%s/live/%s/%s/%ld.ts", base, p->xtreamUsuario, p->xtreamSenha, sid);
-        // guarda o stream_id em tvgId prefixado, para o EPG curto (get_short_epg) saber qual pedir
-        char tvgId[64]; snprintf(tvgId, sizeof(tvgId), "xt:%ld:%s", sid, epgId);
-        iptvAdicionarCanal(nome, grupo, tvgId, logo, url);
+        char tvgId[64] = "";
+        char url[700] = "";
+        if (tipo == 0) { snprintf(url, sizeof(url), "%s/live/%s/%s/%ld.ts", base, p->xtreamUsuario, p->xtreamSenha, sid); snprintf(tvgId, sizeof(tvgId), "xt:%ld:%s", sid, epgId); }
+        else if (tipo == 1) snprintf(url, sizeof(url), "%s/movie/%s/%s/%ld.%s", base, p->xtreamUsuario, p->xtreamSenha, sid, ext);
+        // tipo == 2 (série): sem URL ainda, só o series_id em xtreamId
+        iptvAdicionarCanalTipo(nome, grupo, tvgId, logo, url, tipo, sid);
         p2 = fimObj;
     }
     free(rs);
     return iptvTotalCanais > 0;
+}
+// Episódios de uma série (get_series_info): junta todas as temporadas num só histórico,
+// com "1x03 - Nome" para não precisar de outra tela de temporadas.
+static bool iptvXtreamEpisodios(const IptvPerfil* p, long seriesId) {
+    iptvTotalEpisodios = 0;
+    char base[220]; iptvXtreamUrlBase(p, base, sizeof(base));
+    char url[400]; snprintf(url, sizeof(url), "%s/player_api.php?username=%s&password=%s&action=get_series_info&series_id=%ld", base, p->xtreamUsuario, p->xtreamSenha, seriesId);
+    char* r; size_t n;
+    if (iptvHttpGetBuf(url, p->userAgent, &r, &n, 8 * 1024 * 1024) < 0 || !r) { snprintf(iptvErro, sizeof(iptvErro), "Sem resposta do servidor (episodios)."); return false; }
+    const char* eps = strstr(r, "\"episodes\"");
+    const char* fimEps = eps ? iptvFimObjeto(strchr(eps, '{') ? strchr(eps, '{') : eps) : NULL;
+    if (eps && fimEps) {
+        for (const char* p2 = eps; (p2 = strstr(p2, "\"id\"")) && p2 < fimEps && iptvTotalEpisodios < IPTV_MAX_EPISODIOS; ) {
+            const char* objIni = iptvInicioObjeto(eps, p2);
+            const char* fimObj = iptvFimObjeto(objIni);
+            long epId = iptvJsonNum(objIni, "id", fimObj);
+            long season = iptvJsonNum(objIni, "season", fimObj);
+            long numEp = iptvJsonNum(objIni, "episode_num", fimObj);
+            char titulo[80] = "", ext[16] = "mp4";
+            iptvJsonTexto(objIni, "title", titulo, sizeof(titulo), fimObj);
+            iptvJsonTexto(objIni, "container_extension", ext, sizeof(ext), fimObj);
+            if (epId > 0) {
+                IptvEpisodio* e = &iptvEpisodios[iptvTotalEpisodios++];
+                snprintf(e->nome, sizeof(e->nome), "%ldx%02ld - %s", season > 0 ? season : 1, numEp, titulo[0] ? titulo : "Episodio");
+                snprintf(e->url, sizeof(e->url), "%s/series/%s/%s/%ld.%s", base, p->xtreamUsuario, p->xtreamSenha, epId, ext);
+            }
+            p2 = fimObj;
+        }
+    }
+    free(r);
+    return iptvTotalEpisodios > 0;
+}
+static long iptvSerieIdPendente = -1;
+static void* iptvThreadEpisodios(void*) {
+    if (iptvEditando >= 0) iptvXtreamEpisodios(&iptvPerfis[iptvEditando], iptvSerieIdPendente);
+    iptvCarregandoRodando = false;
+    return NULL;
 }
 // Programa atual (EPG curto da Xtream): decodifica o título em base64.
 static bool iptvXtreamEpgAgora(const IptvPerfil* p, long streamId, char* out, int tam) {
@@ -436,9 +577,13 @@ static bool iptvAbrirConexao(IptvFluxo* f, const char* url, bool manterViva) {
     f->req = sceHttpCreateRequestWithURL(f->conn, ORBIS_METHOD_GET, url, 0);
     if (f->req < 0) { iptvFecharConexao(f); return false; }
     sceHttpAddRequestHeader(f->req, "Connection", manterViva ? "keep-alive" : "close", 0);
-    sceHttpSetConnectTimeOut(f->req, 15u * 1000000u);
-    ((int (*)(int, unsigned int))sceHttpSetRecvTimeOut)(f->req, 20u * 1000000u);
+    // Curto de propósito: isto roda no laço de abertura do vídeo, que trava a tela até devolver
+    // algo. Um canal fora do ar precisa falhar em segundos, não em minutos.
+    sceHttpSetConnectTimeOut(f->req, 6u * 1000000u);
+    ((int (*)(int, unsigned int))sceHttpSetRecvTimeOut)(f->req, 8u * 1000000u);
+    IPTV_PASSO("IPTV conexao: enviando %.150s", url);
     int rc = sceHttpSendRequest(f->req, NULL, 0);
+    IPTV_PASSO("IPTV conexao: enviado 0x%08X", (unsigned)rc);
     if (rc < 0) { iptvFecharConexao(f); return false; }
     int status = 0; sceHttpGetStatusCode(f->req, &status);
     if (status >= 300) { iptvFecharConexao(f); return false; }
@@ -462,8 +607,44 @@ static void iptvResolverUrl(const char* base, const char* alvo, char* out, int t
 // os segmentos novos da variante, por número de sequência, para listas em direto).
 static bool iptvAtualizarPlaylist(IptvFluxo* f, int codecPref) {
     char* texto; size_t n;
-    if (iptvHttpGetBuf(f->urlVariante[0] ? f->urlVariante : f->url, f->userAgent, &texto, &n, 2 * 1024 * 1024) < 0 || !texto) return false;
+    int status = iptvHttpGetBuf(f->urlVariante[0] ? f->urlVariante : f->url, f->userAgent, &texto, &n, 2 * 1024 * 1024);
+    IPTV_PASSO("IPTV lista: status %d, %u bytes, %s", status, (unsigned)n, texto && strstr(texto, "#EXTM3U") ? "com #EXTM3U" : "sem #EXTM3U");
+    if (status < 0) { if (texto) free(texto); return false; }
+    if (!texto) { texto = (char*)malloc(1); if (!texto) return false; texto[0] = 0; }
+    // Resposta que não é lista (redirecionamento não seguido, 404, página HTML): antes cada linha
+    // do HTML ("<html>", "<center>...") virava um "segmento" e o leitor tentava abrir lixo.
+    // Na abertura (nenhum segmento visto ainda) desiste na hora com o motivo; com o canal já
+    // tocando, conta só como uma falha da atualização (pode ser um soluço do servidor).
+    if (status < 200 || status >= 300 || !strstr(texto, "#EXTM3U")) {
+        free(texto);
+        if (f->ultimaSeqVista >= 0) return false;
+        if (status >= 300 && status < 400 && iptvRedirLongo) snprintf(iptvErro, sizeof(iptvErro), "O canal redireciona para um endereco longo demais (%d letras, ex.: Pluto TV): sem suporte.", iptvRedirLongo);
+        else if (status >= 300 && status < 400) snprintf(iptvErro, sizeof(iptvErro), "O canal redireciona para um endereco que o PS4 nao seguiu (%d).", status);
+        else if (status < 200 || status >= 300) snprintf(iptvErro, sizeof(iptvErro), "O servidor do canal respondeu %d (fora do ar ou bloqueado).", status);
+        else snprintf(iptvErro, sizeof(iptvErro), "O endereco nao devolveu uma lista de video (HLS).");
+        f->parar = true; return false;
+    }
     if (strstr(texto, "#EXT-X-KEY") && strstr(texto, "METHOD=AES")) { snprintf(iptvErro, sizeof(iptvErro), "Lista criptografada (DRM): sem suporte."); free(texto); f->parar = true; return false; }
+    // Áudio em lista separada (ex.: Pluto TV): o leitor só segue uma lista, tocaria sem som.
+    if (!f->urlVariante[0] && strstr(texto, "#EXT-X-STREAM-INF")) {
+        for (const char* m = strstr(texto, "#EXT-X-MEDIA:"); m; m = strstr(m + 1, "#EXT-X-MEDIA:")) {
+            const char* fimLinha = strchr(m, '\n'); size_t tl = fimLinha ? (size_t)(fimLinha - m) : strlen(m);
+            const char* tipo = strstr(m, "TYPE=AUDIO"); const char* uri = strstr(m, "URI=");
+            if (tipo && uri && (size_t)(tipo - m) < tl && (size_t)(uri - m) < tl) {
+                snprintf(iptvErro, sizeof(iptvErro), "Canal com audio em lista separada (ex.: Pluto TV): sem suporte.");
+                free(texto); f->parar = true; return false;
+            }
+        }
+    }
+    // URL maior que o espaço guardado sairia cortada (o Pluto usa linhas de 2.500 letras).
+    for (const char* l = texto; l && *l; ) {
+        const char* fimLinha = strchr(l, '\n'); size_t tl = fimLinha ? (size_t)(fimLinha - l) : strlen(l);
+        if (tl >= sizeof(f->urlVariante) - 1 && l[0] != '#') {
+            snprintf(iptvErro, sizeof(iptvErro), "Enderecos do canal longos demais (%u letras): sem suporte.", (unsigned)tl);
+            free(texto); f->parar = true; return false;
+        }
+        l = fimLinha ? fimLinha + 1 : NULL;
+    }
     if (!f->urlVariante[0] && strstr(texto, "#EXT-X-STREAM-INF")) {
         // master playlist: escolhe a variante pelo codec preferido, senão a de maior BANDWIDTH.
         // Percorre linha a linha (como o parser M3U): a linha de STREAM-INF só marca o que vem,
@@ -517,20 +698,31 @@ static bool iptvAtualizarPlaylist(IptvFluxo* f, int codecPref) {
     return novos > 0;
 }
 // Lê bytes para o FFmpeg: percorre segmentos (HLS) ou mantém a conexão contínua (.ts).
+// Esta função roda no laço de abertura do vídeo, que bloqueia a tela toda (nenhum botão
+// responde) até ela devolver algo — por isso desiste rápido (poucos segundos) quando o canal
+// está fora do ar, em vez de martelar o servidor por minutos com a tela travada.
+#define IPTV_FALHAS_MAX 4
+extern bool videoAberturaEstourou();   // video.cpp: prazo de abertura de canal (20 s) estourou
+static int iptvFluxoLerDentro(IptvFluxo* f, uint8_t* buf, int tam);
 static int iptvFluxoLer(void* opaque, uint8_t* buf, int tam) {
     IptvFluxo* f = (IptvFluxo*)opaque;
-    if (f->parar) return AVERROR_EOF;
+    int r = iptvFluxoLerDentro(f, buf, tam);
+    if (r <= 0) IPTV_PASSO("IPTV ler: pedido de %d bytes devolveu %d%s", tam, r, f->parar ? " (parado)" : "");
+    return r;
+}
+static int iptvFluxoLerDentro(IptvFluxo* f, uint8_t* buf, int tam) {
+    if (f->parar || videoAberturaEstourou()) return AVERROR_EOF;
     if (!f->hls) {
-        if (f->req < 0 && !iptvAbrirConexao(f, f->url, true)) { if (++f->falhasSeguidas > 20) return AVERROR_EOF; remotoDormir(300); return 0 < tam ? AVERROR(EAGAIN) : 0; }
+        if (f->req < 0 && !iptvAbrirConexao(f, f->url, true)) { if (++f->falhasSeguidas > IPTV_FALHAS_MAX) return AVERROR_EOF; remotoDormir(250); return 0 < tam ? AVERROR(EAGAIN) : 0; }
         int n = sceHttpReadData(f->req, buf, tam);
         if (n > 0) { f->falhasSeguidas = 0; return n; }
         iptvFecharConexao(f);
-        if (++f->falhasSeguidas > 20) return AVERROR_EOF;
+        if (++f->falhasSeguidas > IPTV_FALHAS_MAX) return AVERROR_EOF;
         return AVERROR(EAGAIN);
     }
     // HLS
-    for (int tentativas = 0; tentativas < 400; tentativas++) {
-        if (f->parar) return AVERROR_EOF;
+    for (int tentativas = 0; tentativas < 200; tentativas++) {
+        if (f->parar || videoAberturaEstourou()) return AVERROR_EOF;
         if (f->req >= 0) {
             int n = sceHttpReadData(f->req, buf, tam);
             if (n > 0) { f->falhasSeguidas = 0; return n; }
@@ -540,7 +732,8 @@ static int iptvFluxoLer(void* opaque, uint8_t* buf, int tam) {
         }
         if (f->segAtual < f->totalSeg) {
             if (iptvAbrirConexao(f, f->segmentos[f->segAtual], false)) continue;
-            f->segAtual++;   // segmento falhou: pula
+            f->segAtual++;   // segmento falhou: pula, mas conta para o limite de desistência
+            if (++f->falhasSeguidas > IPTV_FALHAS_MAX) return AVERROR_EOF;
             continue;
         }
         // fila vazia: atualiza a playlist (sem martelar o servidor)
@@ -548,13 +741,49 @@ static int iptvFluxoLer(void* opaque, uint8_t* buf, int tam) {
         if (agora < f->proximaAtualizacaoMs) { remotoDormir(200); continue; }
         f->proximaAtualizacaoMs = agora + 3000;
         if (f->totalSeg >= IPTV_MAX_SEG) { f->totalSeg = 0; f->segAtual = 0; }   // fila cheia: reaproveita o espaço
-        extern int videoCodecPreferidoPendenteLeitura();
         bool achou = iptvAtualizarPlaylist(f, iptvPerfilAbertoP ? iptvPerfilAbertoP->codecPref : 0);
         if (f->parar) return AVERROR_EOF;
-        if (!achou && ++f->falhasSeguidas > 30) return AVERROR_EOF;
-        if (!achou) remotoDormir(500);
+        if (!achou && ++f->falhasSeguidas > IPTV_FALHAS_MAX) return AVERROR_EOF;
+        if (achou) f->falhasSeguidas = 0;
+        else remotoDormir(400);
     }
-    return AVERROR(EAGAIN);
+    return AVERROR_EOF;
+}
+// video.cpp chama ANTES do avformat_open_input: só entrega o canal ao FFmpeg se já há dados
+// chegando (lista lida e conexão aberta num segmento, ou o .ts contínuo conectado). Canal que
+// recusa (403 do Band, 302 do Pluto) ou não responde (Agro Brasil) fazia o leitor devolver "fim"
+// sem nenhum byte; o FFmpeg seguia sondando um fluxo vazio (pedidos de até 1 MB) e o app caía
+// (CE-34878-0) antes de voltar. Assim o erro sai daqui, sem o FFmpeg.
+bool iptvFluxoPronto() {
+    IptvFluxo* f = &iptvFluxoAtual;
+    if (!f->emUso) return false;
+    bool pronto = false;
+    for (int t = 0; t < 200; t++) {
+        if (f->parar || videoAberturaEstourou()) break;
+        if (f->req >= 0) { pronto = true; break; }
+        if (!f->hls) {
+            if (iptvAbrirConexao(f, f->url, true)) { pronto = true; break; }
+            if (++f->falhasSeguidas > IPTV_FALHAS_MAX) break;
+            remotoDormir(250); continue;
+        }
+        if (f->segAtual < f->totalSeg) {
+            if (iptvAbrirConexao(f, f->segmentos[f->segAtual], false)) { pronto = true; break; }
+            f->segAtual++;
+            if (++f->falhasSeguidas > IPTV_FALHAS_MAX) break;
+            continue;
+        }
+        uint64_t agora = remotoAgoraMs();
+        if (agora < f->proximaAtualizacaoMs) { remotoDormir(200); continue; }
+        f->proximaAtualizacaoMs = agora + 3000;
+        bool achou = iptvAtualizarPlaylist(f, iptvPerfilAbertoP ? iptvPerfilAbertoP->codecPref : 0);
+        if (f->parar) break;
+        if (achou) f->falhasSeguidas = 0;
+        else { if (++f->falhasSeguidas > IPTV_FALHAS_MAX) break; remotoDormir(400); }
+    }
+    IPTV_PASSO("IPTV pronto: %s", pronto ? "sim" : "nao");
+    if (pronto) f->falhasSeguidas = 0;
+    else if (!iptvErro[0]) snprintf(iptvErro, sizeof(iptvErro), "%s", videoAberturaEstourou() ? "O canal nao respondeu em 20 s (fora do ar ou lento)." : "O servidor do canal nao respondeu (fora do ar ou bloqueado).");
+    return pronto;
 }
 // video.cpp chama isto ANTES de fechar o vídeo: solta uma leitura de rede que esteja bloqueada
 // (como o Telegram faz com telegramPararFluxo), senão fechar esperaria até o timeout de rede.
@@ -562,6 +791,8 @@ void iptvPararFluxo() {
     iptvFluxoAtual.parar = true;
     if (iptvFluxoAtual.req >= 0) sceHttpAbortRequest(iptvFluxoAtual.req);
 }
+// Motivo da última falha do leitor (para o log de vídeo).
+const char* iptvUltimoErro() { return iptvErro; }
 // Chamado depois, já com a leitura solta: libera a conexão e o próprio AVIOContext de verdade.
 void iptvFecharFluxo() {
     if (!iptvFluxoAtual.emUso) return;
@@ -587,6 +818,8 @@ AVIOContext* iptvAbrirFluxo(const char* caminho) {
     AVIOContext* avio = avio_alloc_context(memoria, 65536, 0, f, iptvFluxoLer, NULL, NULL);
     if (!avio) { av_free(memoria); f->emUso = false; return NULL; }
     iptvAvioAtual = avio;
+    iptvPassosRestantes = 80;
+    IPTV_PASSO("IPTV fluxo criado (%s)", hls ? "HLS" : "continuo");
     return avio;
 }
 
@@ -640,24 +873,74 @@ static void iptvCarregarPerfis() {
     }
     fclose(f);
 }
-static void iptvCanalCachePath(const char* nomePerfil, char* out, int tam) { char slug[48]; iptvSlug(nomePerfil, slug, sizeof(slug)); snprintf(out, tam, "%s/%s.txt", IPTV_RAIZ, slug); }
-static void iptvSalvarCacheCanais(const char* nomePerfil) {
-    char caminho[300]; iptvCanalCachePath(nomePerfil, caminho, sizeof(caminho));
+// ---------------------------------------------------------------- favoritos (por perfil)
+static void iptvFavoritosPath(const char* nomePerfil, char* out, int tam) {
+    char slug[48]; iptvSlug(nomePerfil, slug, sizeof(slug));
+    snprintf(out, tam, "%s/%s_favoritos.txt", IPTV_RAIZ, slug);
+}
+static void iptvSalvarFavoritos(const char* nomePerfil) {
+    char caminho[300]; iptvFavoritosPath(nomePerfil, caminho, sizeof(caminho));
     FILE* f = fopen(caminho, "w"); if (!f) return;
-    for (int i = 0; i < iptvTotalCanais; i++) { IptvCanal* c = &iptvCanais[i]; fprintf(f, "%s\t%s\t%s\t%s\t%s\n", c->nome, c->grupo, c->tvgId, c->logo, c->url); }
+    for (int i = 0; i < iptvTotalFavoritos; i++) fprintf(f, "%s\n", iptvFavoritos[i]);
     fclose(f);
 }
-static bool iptvCarregarCacheCanais(const char* nomePerfil) {
-    char caminho[300]; iptvCanalCachePath(nomePerfil, caminho, sizeof(caminho));
+static void iptvCarregarFavoritos(const char* nomePerfil) {
+    iptvTotalFavoritos = 0;
+    char caminho[300]; iptvFavoritosPath(nomePerfil, caminho, sizeof(caminho));
+    FILE* f = fopen(caminho, "r"); if (!f) return;
+    char l[700];
+    while (fgets(l, sizeof(l), f) && iptvTotalFavoritos < IPTV_MAX_FAVORITOS) {
+        l[strcspn(l, "\r\n")] = 0;
+        if (l[0]) snprintf(iptvFavoritos[iptvTotalFavoritos++], sizeof(iptvFavoritos[0]), "%s", l);
+    }
+    fclose(f);
+}
+// Série não tem URL própria (só depois de escolher o episódio): usa uma chave sintética.
+static void iptvChaveFavorito(const IptvCanal* c, char* out, int tam) {
+    if (c->url[0]) snprintf(out, tam, "%s", c->url);
+    else snprintf(out, tam, "serie:%ld:%s", c->xtreamId, c->nome);
+}
+static bool iptvEhFavorito(const char* url) {
+    for (int i = 0; i < iptvTotalFavoritos; i++) if (!strcmp(iptvFavoritos[i], url)) return true;
+    return false;
+}
+// Marca/desmarca; salva na hora (são poucos, não pesa).
+static void iptvAlternarFavorito(const char* url) {
+    for (int i = 0; i < iptvTotalFavoritos; i++) if (!strcmp(iptvFavoritos[i], url)) {
+        for (int k = i; k < iptvTotalFavoritos - 1; k++) snprintf(iptvFavoritos[k], sizeof(iptvFavoritos[0]), "%s", iptvFavoritos[k + 1]);
+        iptvTotalFavoritos--;
+        iptvSalvarFavoritos(iptvPerfis[iptvEditando].nome);
+        return;
+    }
+    if (iptvTotalFavoritos < IPTV_MAX_FAVORITOS) { snprintf(iptvFavoritos[iptvTotalFavoritos++], sizeof(iptvFavoritos[0]), "%s", url); iptvSalvarFavoritos(iptvPerfis[iptvEditando].nome); }
+}
+
+// M3U guarda os 3 tipos juntos num só cache (uma só busca); Xtream busca cada tipo com uma
+// chamada de API diferente, então cada aba tem seu próprio arquivo de cache.
+static void iptvCanalCachePath(const char* nomePerfil, int tipoXtream, char* out, int tam) {
+    char slug[48]; iptvSlug(nomePerfil, slug, sizeof(slug));
+    static const char* suf[3] = { "_live", "_vod", "_series" };
+    if (tipoXtream < 0) snprintf(out, tam, "%s/%s.txt", IPTV_RAIZ, slug);
+    else snprintf(out, tam, "%s/%s%s.txt", IPTV_RAIZ, slug, suf[tipoXtream]);
+}
+static void iptvSalvarCacheCanais(const char* nomePerfil, int tipoXtream) {
+    char caminho[300]; iptvCanalCachePath(nomePerfil, tipoXtream, caminho, sizeof(caminho));
+    FILE* f = fopen(caminho, "w"); if (!f) return;
+    for (int i = 0; i < iptvTotalCanais; i++) { IptvCanal* c = &iptvCanais[i]; fprintf(f, "%s\t%s\t%s\t%s\t%s\t%d\t%ld\n", c->nome, c->grupo, c->tvgId, c->logo, c->url, c->tipo, c->xtreamId); }
+    fclose(f);
+}
+static bool iptvCarregarCacheCanais(const char* nomePerfil, int tipoXtream) {
+    char caminho[300]; iptvCanalCachePath(nomePerfil, tipoXtream, caminho, sizeof(caminho));
     FILE* f = fopen(caminho, "r"); if (!f) return false;
-    iptvTotalCanais = 0; iptvTotalCategorias = 0;
+    iptvTotalCanais = 0;
     char l[1300];
     while (fgets(l, sizeof(l), f) && iptvTotalCanais < IPTV_MAX_CANAIS) {
         l[strcspn(l, "\r\n")] = 0;
-        char* c[5]; if (iptvDividirTabs(l, c, 5) >= 5 && c[0][0]) iptvAdicionarCanal(c[0], c[1], c[2], c[3], c[4]);
+        char* c[7]; int n = iptvDividirTabs(l, c, 7);
+        if (n >= 5 && c[0][0]) iptvAdicionarCanalTipo(c[0], c[1], c[2], c[3], c[4], n >= 6 ? atoi(c[5]) : 0, n >= 7 ? atol(c[6]) : -1);
     }
     fclose(f);
-    iptvOrdenarCategorias();
+    iptvRecalcularCategorias();
     return iptvTotalCanais > 0;
 }
 
@@ -667,7 +950,7 @@ static void iptvBuscarAgora(IptvPerfil* p) {
     iptvTotalCanais = 0; iptvTotalCategorias = 0;
     bool ok = false;
     if (p->tipo == 1) {
-        ok = iptvXtreamListar(p);
+        ok = iptvXtreamListarTipo(p, iptvTipoAtual);
     }
     else if (p->m3uArquivo[0]) {
         FILE* f = fopen(p->m3uArquivo, "rb");
@@ -687,7 +970,12 @@ static void iptvBuscarAgora(IptvPerfil* p) {
         else { iptvParseM3U(r); free(r); ok = iptvTotalCanais > 0; }
     }
     else snprintf(iptvErro, sizeof(iptvErro), "Preencha a URL da playlist, o arquivo, ou os dados do Xtream Codes.");
-    if (ok) { iptvOrdenarCategorias(); iptvSalvarCacheCanais(p->nome); snprintf(iptvAviso, sizeof(iptvAviso), "%d canais em %d categorias.", iptvTotalCanais, iptvTotalCategorias); }
+    if (ok) {
+        iptvRecalcularCategorias();
+        iptvSalvarCacheCanais(p->nome, p->tipo == 1 ? iptvTipoAtual : -1);
+        int nTipo = 0; for (int i = 0; i < iptvTotalCanais; i++) if (iptvCanais[i].tipo == iptvTipoAtual) nTipo++;
+        snprintf(iptvAviso, sizeof(iptvAviso), "%d itens em %d categorias.", nTipo, iptvTotalCategorias);
+    }
     else if (!iptvErro[0]) snprintf(iptvErro, sizeof(iptvErro), "A lista voltou vazia.");
     iptvCarregandoRodando = false;
 }
@@ -698,8 +986,70 @@ static void iptvAtualizarLista() {
     if (!remotoCriarThread(iptvThreadBuscar, &iptvPerfis[iptvEditando])) iptvCarregandoRodando = false;
 }
 
+// ---------------------------------------------------------------- filtros (país e qualidade)
+// País: o código no tvg-id ("Globo.br@HD" -> "br", "AELatinAmerica.us@Brazil" -> "us"). As listas
+// públicas (iptv-org) não trazem idioma, mas trazem isso. Qualidade: "(720p)" no nome ou @HD/@SD.
+static char iptvFiltroPais[8] = "";           // "" = todos
+static int iptvFiltroQualidade = 0;           // 0 todas, 1 só HD (720p ou mais), 2 só SD
+static void iptvPaisDoCanal(const IptvCanal* c, char* out, int tam) {
+    out[0] = 0;
+    const char* arroba = strchr(c->tvgId, '@');
+    const char* fim = arroba ? arroba : c->tvgId + strlen(c->tvgId);
+    const char* p = fim; while (p > c->tvgId && p[-1] != '.') p--;
+    if (p == c->tvgId) return;                 // sem ponto: não tem país
+    int n = (int)(fim - p); if (n < 2 || n > 3 || n >= tam) return;
+    for (int i = 0; i < n; i++) { char ch = p[i]; if (!isalpha((unsigned char)ch)) { out[0] = 0; return; } out[i] = (char)tolower((unsigned char)ch); }
+    out[n] = 0;
+}
+// 1 = HD, 0 = SD, -1 = não diz.
+static int iptvEhHD(const IptvCanal* c) {
+    for (const char* p = strchr(c->nome, '('); p; p = strchr(p + 1, '(')) {
+        int linhas = atoi(p + 1);
+        if (linhas > 0) { const char* q = p + 1; while (isdigit((unsigned char)*q)) q++; if (*q == 'p' || *q == 'i') return linhas >= 720 ? 1 : 0; }
+    }
+    const char* a = strchr(c->tvgId, '@');
+    if (a) { if (!strcasecmp(a, "@SD")) return 0; if (!strcasecmp(a, "@HD") || !strcasecmp(a, "@FHD") || !strcasecmp(a, "@UHD")) return 1; }
+    if (iptvContemSemCase(c->nome, " FHD") || iptvContemSemCase(c->nome, " HD") || iptvContemSemCase(c->nome, " 4K") || iptvContemSemCase(c->nome, "UHD")) return 1;
+    if (iptvContemSemCase(c->nome, " SD")) return 0;
+    return -1;
+}
+static bool iptvPassaFiltros(int i) {
+    const IptvCanal* c = &iptvCanais[i];
+    if (iptvFiltroPais[0]) { char pais[8]; iptvPaisDoCanal(c, pais, sizeof(pais)); if (strcmp(pais, iptvFiltroPais)) return false; }
+    if (iptvFiltroQualidade == 1 && iptvEhHD(c) != 1) return false;
+    if (iptvFiltroQualidade == 2 && iptvEhHD(c) == 1) return false;
+    return true;
+}
+// Próximo país da aba atual (em ordem alfabética; depois do último volta para "todos").
+static void iptvProximoPais() {
+    char melhor[8] = "";
+    for (int i = 0; i < iptvTotalCanais; i++) {
+        if (iptvCanais[i].tipo != iptvTipoAtual) continue;
+        char pais[8]; iptvPaisDoCanal(&iptvCanais[i], pais, sizeof(pais));
+        if (!pais[0] || strcmp(pais, iptvFiltroPais) <= 0) continue;
+        if (!melhor[0] || strcmp(pais, melhor) < 0) snprintf(melhor, sizeof(melhor), "%s", pais);
+    }
+    snprintf(iptvFiltroPais, sizeof(iptvFiltroPais), "%s", melhor);
+}
+static void iptvDescreverFiltros(char* out, int tam) {
+    static const char* q[3] = { "", "   [so HD]", "   [so SD]" };
+    char pais[24] = ""; if (iptvFiltroPais[0]) snprintf(pais, sizeof(pais), "   [pais: %s]", iptvFiltroPais);
+    snprintf(out, tam, "%s%s", pais, q[iptvFiltroQualidade]);
+}
+
 // ---------------------------------------------------------------- reprodução
 void iptvPararEpg() { iptvEpgPedidoCanal = -1; iptvEpgTexto[0] = 0; }
+// O motor de vídeo não devolve erro: se depois de abrir ele não está rodando, o canal falhou
+// (fora do ar, bloqueado no país, formato sem suporte ou demorou mais de 20 s). Antes a tela
+// continuava dizendo "IPTV: nome" como se estivesse tocando.
+static void iptvAvisarSeNaoAbriu(const char* nome) {
+    extern bool videoRodando;
+    if (videoRodando) { snprintf(msgStatus, sizeof(msgStatus), "IPTV: %.100s", nome); msgTimer = 180; return; }
+    // O leitor (iptvAtualizarPlaylist) pode ter deixado o motivo exato: mantém.
+    if (iptvErro[0]) { char motivo[200]; snprintf(motivo, sizeof(motivo), "%s", iptvErro); snprintf(iptvErro, sizeof(iptvErro), "Nao abriu \"%.50s\": %.140s", nome, motivo); }
+    else snprintf(iptvErro, sizeof(iptvErro), "Nao abriu \"%.60s\": fora do ar, bloqueado ou formato sem suporte. Tente outro.", nome);
+    snprintf(msgStatus, sizeof(msgStatus), "IPTV: CANAL NAO ABRIU (%.80s)", nome); msgTimer = 360;
+}
 static void iptvAbrirCanal(int idx) {
     if (idx < 0 || idx >= iptvTotalCanais || iptvEditando < 0) return;
     IptvCanal* c = &iptvCanais[idx];
@@ -714,8 +1064,9 @@ static void iptvAbrirCanal(int idx) {
     videoDefinirOpcoesHttpIptv(p->userAgent[0] ? p->userAgent : IPTV_UA_PADRAO, p->timeoutRede, p->proxy);
     iptvCanalAbertoIdx = idx; iptvPerfilAbertoP = p;
     snprintf(iptvNomeCanalAberto, sizeof(iptvNomeCanalAberto), "%s", c->nome);
+    iptvErro[0] = 0;
     iniciarVideoMP4(c->url);
-    snprintf(msgStatus, sizeof(msgStatus), "IPTV: %s", c->nome); msgTimer = 180;
+    iptvAvisarSeNaoAbriu(c->nome);
     conquistaGanhar("iptv");
 }
 
@@ -727,10 +1078,23 @@ static void iptvNovoPerfil() {
     iptvEditando = -1; iptvSelCampo = 0; iptvTela = 1;
 }
 static void iptvEditarPerfil(int i) { iptvEdit = iptvPerfis[i]; iptvEditando = i; iptvSelCampo = 0; iptvTela = 1; }
+// Troca Ao vivo/Filmes/Séries (L2/R2 nas telas de categoria e canais). No M3U já tem tudo
+// carregado numa busca só (só refiltra); no Xtream cada aba é uma busca/cache separada.
+static void iptvSelecionarTipo(int tipo) {
+    if (tipo < 0) tipo = 2; if (tipo > 2) tipo = 0;
+    iptvTipoAtual = tipo;
+    iptvSelCategoria = -1; iptvSelCanal = 0; iptvOffCanal = 0; iptvOffCategoria = 0; iptvFiltro[0] = 0;
+    if (iptvEditando < 0) return;
+    IptvPerfil* p = &iptvPerfis[iptvEditando];
+    if (p->tipo == 1) { if (!iptvCarregarCacheCanais(p->nome, tipo)) iptvAtualizarLista(); }
+    else iptvRecalcularCategorias();
+}
 static void iptvAbrirPerfil(int i) {
-    iptvEditando = i; iptvSelCategoria = -1; iptvSelCanal = 0; iptvOffCanal = 0; iptvFiltro[0] = 0;
+    iptvEditando = i; iptvTipoAtual = 0; iptvSelCategoria = -1; iptvSelCanal = 0; iptvOffCanal = 0; iptvOffCategoria = 0; iptvFiltro[0] = 0; iptvSoFavoritos = false;
+    iptvCarregarFavoritos(iptvPerfis[i].nome);
     if (!iptvCanais) iptvCanais = (IptvCanal*)malloc(sizeof(IptvCanal) * IPTV_MAX_CANAIS);
-    if (!iptvCarregarCacheCanais(iptvPerfis[i].nome)) iptvAtualizarLista();
+    bool tevCache = iptvPerfis[i].tipo == 1 ? iptvCarregarCacheCanais(iptvPerfis[i].nome, 0) : iptvCarregarCacheCanais(iptvPerfis[i].nome, -1);
+    if (!tevCache) iptvAtualizarLista();
     iptvTela = 2;
 }
 // Campos do editor: índice -> o que faz. Monta dinamicamente conforme o tipo.
@@ -811,9 +1175,17 @@ bool iptvControles(uint32_t botoes, uint32_t antigos, int32_t usuario) {
     }
     // ---- 2/3: categorias e canais (tela única: -1 = mostra categorias; senão lista os canais dela)
     if (iptvTela == 2) {
+        if (n & ORBIS_PAD_BUTTON_L2) iptvSelecionarTipo(iptvTipoAtual - 1);
+        if (n & ORBIS_PAD_BUTTON_R2) iptvSelecionarTipo(iptvTipoAtual + 1);
         if (iptvSelCategoria < 0) {
             if (n & ORBIS_PAD_BUTTON_CIRCLE) { iptvTela = 0; return false; }
-            int total = iptvTotalCategorias + 1;   // 0 = "Todos os canais"
+            // Quadrado: só favoritos desta aba (de qualquer categoria) - um filtro rápido, além
+            // de categoria e busca por texto (que já casa com país/idioma no tvg-id e qualidade
+            // tipo "720p"/"HD" no nome, porque é onde as listas já trazem isso).
+            if (n & ORBIS_PAD_BUTTON_SQUARE) { iptvSoFavoritos = !iptvSoFavoritos; iptvSelCanal = 0; iptvOffCategoria = 0; }
+            if (n & ORBIS_PAD_BUTTON_R1) { iptvProximoPais(); iptvSelCanal = 0; iptvOffCategoria = 0; }
+            if (n & ORBIS_PAD_BUTTON_L1) { iptvFiltroQualidade = (iptvFiltroQualidade + 1) % 3; iptvSelCanal = 0; iptvOffCategoria = 0; }
+            int total = iptvTotalCategorias + 1;   // 0 = "Todos"
             if (n & ORBIS_PAD_BUTTON_UP) iptvSelCanal = (iptvSelCanal + total - 1) % total;
             if (n & ORBIS_PAD_BUTTON_DOWN) iptvSelCanal = (iptvSelCanal + 1) % total;
             if (n & ORBIS_PAD_BUTTON_CROSS) { iptvSelCategoria = iptvSelCanal; iptvSelCanal = 0; iptvOffCanal = 0; }
@@ -821,13 +1193,16 @@ bool iptvControles(uint32_t botoes, uint32_t antigos, int32_t usuario) {
             return false;
         }
         // dentro de uma categoria: O volta para a lista de categorias (não direto para os perfis)
-        if (n & ORBIS_PAD_BUTTON_CIRCLE) { iptvSelCategoria = -1; iptvSelCanal = 0; iptvFiltro[0] = 0; return false; }
-        // monta a lista filtrada (categoria + texto) sob demanda
+        if (n & ORBIS_PAD_BUTTON_CIRCLE) { iptvSelCategoria = -1; iptvSelCanal = 0; iptvOffCategoria = 0; iptvFiltro[0] = 0; return false; }
+        // monta a lista filtrada (categoria + texto + aba atual + favoritos) sob demanda
         int ids[IPTV_MAX_CANAIS]; int total = 0;
         const char* catNome = iptvSelCategoria == 0 ? NULL : iptvCategorias[iptvSelCategoria - 1];
         for (int i = 0; i < iptvTotalCanais && total < IPTV_MAX_CANAIS; i++) {
+            if (iptvCanais[i].tipo != iptvTipoAtual) continue;
             if (catNome && strcmp(iptvCanais[i].grupo, catNome)) continue;
-            if (iptvFiltro[0] && !iptvContemSemCase(iptvCanais[i].nome, iptvFiltro)) continue;
+            if (iptvFiltro[0] && !iptvContemSemCase(iptvCanais[i].nome, iptvFiltro) && !iptvContemSemCase(iptvCanais[i].tvgId, iptvFiltro)) continue;
+            if (iptvSoFavoritos) { char chave[700]; iptvChaveFavorito(&iptvCanais[i], chave, sizeof(chave)); if (!iptvEhFavorito(chave)) continue; }
+            if (!iptvPassaFiltros(i)) continue;
             ids[total++] = i;
         }
         if (total > 0) {
@@ -835,9 +1210,42 @@ bool iptvControles(uint32_t botoes, uint32_t antigos, int32_t usuario) {
             if (n & ORBIS_PAD_BUTTON_DOWN) iptvSelCanal = (iptvSelCanal + 1) % total;
             if (n & ORBIS_PAD_BUTTON_L1) iptvSelCanal = iptvSelCanal >= 10 ? iptvSelCanal - 10 : 0;
             if (n & ORBIS_PAD_BUTTON_R1) iptvSelCanal = iptvSelCanal + 10 < total ? iptvSelCanal + 10 : total - 1;
-            if (n & ORBIS_PAD_BUTTON_CROSS) iptvAbrirCanal(ids[iptvSelCanal]);
+            if (n & ORBIS_PAD_BUTTON_CROSS) {
+                int idx = ids[iptvSelCanal];
+                if (iptvCanais[idx].tipo == 2) {   // série: busca os episódios antes de poder tocar
+                    snprintf(iptvSerieNome, sizeof(iptvSerieNome), "%s", iptvCanais[idx].nome);
+                    iptvSerieIdPendente = iptvCanais[idx].xtreamId;
+                    iptvCarregandoRodando = true;
+                    if (!remotoCriarThread(iptvThreadEpisodios, NULL)) iptvCarregandoRodando = false;
+                    iptvTela = 5; iptvSelCanal = 0; iptvOffCanal = 0;
+                }
+                else iptvAbrirCanal(idx);
+            }
+            if (n & ORBIS_PAD_BUTTON_TRIANGLE) { char chave[700]; iptvChaveFavorito(&iptvCanais[ids[iptvSelCanal]], chave, sizeof(chave)); iptvAlternarFavorito(chave); }
         }
-        if (n & ORBIS_PAD_BUTTON_SQUARE) { if (iaAbrirTecladoBase(usuario, "Buscar canal pelo nome", 24, iptvFiltro)) iptvImeModo = 99; }
+        if (n & ORBIS_PAD_BUTTON_SQUARE) { if (iaAbrirTecladoBase(usuario, "Buscar por nome ou pais/idioma (ex.: br, HD)", 24, iptvFiltro)) iptvImeModo = 99; }
+        return false;
+    }
+    // ---- 5: episódios de uma série
+    if (iptvTela == 5) {
+        if (n & ORBIS_PAD_BUTTON_CIRCLE) { iptvTela = 2; return false; }
+        if (iptvCarregandoRodando) return false;
+        if (iptvTotalEpisodios > 0) {
+            if (n & ORBIS_PAD_BUTTON_UP) iptvSelCanal = (iptvSelCanal + iptvTotalEpisodios - 1) % iptvTotalEpisodios;
+            if (n & ORBIS_PAD_BUTTON_DOWN) iptvSelCanal = (iptvSelCanal + 1) % iptvTotalEpisodios;
+            if (n & ORBIS_PAD_BUTTON_CROSS) {
+                IptvPerfil* p = &iptvPerfis[iptvEditando];
+                extern void videoDefinirCacheRedeIptv(size_t); extern void videoDefinirCodecPreferidoIptv(int);
+                extern void videoDefinirOpcoesHttpIptv(const char*, bool, const char*); extern void iniciarVideoMP4(const char*);
+                size_t bytes = p->cacheMb <= 0 ? (2u * 1024 * 1024) : (size_t)p->cacheMb * 1024 * 1024;
+                videoDefinirCacheRedeIptv(bytes); videoDefinirCodecPreferidoIptv(p->codecPref);
+                videoDefinirOpcoesHttpIptv(p->userAgent[0] ? p->userAgent : IPTV_UA_PADRAO, p->timeoutRede, p->proxy);
+                iptvErro[0] = 0;
+                iniciarVideoMP4(iptvEpisodios[iptvSelCanal].url);
+                iptvAvisarSeNaoAbriu(iptvEpisodios[iptvSelCanal].nome);
+                conquistaGanhar("iptv");
+            }
+        }
         return false;
     }
     return false;
@@ -892,36 +1300,76 @@ void iptvRenderizar(uint32_t* p) {
         desenharTexto(p, "X muda/edita o campo   Triangulo salva e busca a lista   O volta sem salvar", 20, 50, 1040, 0xFF8A96A3);
         return;
     }
+    if (iptvTela == 5) {
+        char cabEp[150]; snprintf(cabEp, sizeof(cabEp), "Episodios de %s", iptvSerieNome);
+        desenharTexto(p, cabEp, 24, 50, 88, 0xFF8FA6BF);
+        if (iptvCarregandoRodando) { desenharTexto(p, "Buscando episodios...", 24, 50, 130, 0xFFFFE08A); desenharTexto(p, "O volta", 20, 50, 1040, 0xFF8A96A3); return; }
+        if (!iptvTotalEpisodios) { desenharTexto(p, "Nao achei episodios para esta serie.", 22, 50, 130, 0xFFFF8A80); desenharTexto(p, "O volta", 20, 50, 1040, 0xFF8A96A3); return; }
+        int visEp = 15;
+        int offEp = iptvSelCanal >= visEp ? iptvSelCanal - visEp + 1 : 0;
+        int y = 140;
+        for (int i = offEp; i < iptvTotalEpisodios && i < offEp + visEp; i++, y += 50) {
+            bool sel = i == iptvSelCanal;
+            if (sel) telaRet(p, 40, y - 8, 1100, 44, 0xFF24456B);
+            desenharTexto(p, iptvEpisodios[i].nome, 24, 60, y, sel ? 0xFFFFFFFF : 0xFFC0CCD8);
+        }
+        desenharTexto(p, "X toca o episodio   O volta", 20, 50, 1040, 0xFF8A96A3);
+        return;
+    }
     // ---- categorias / canais
-    if (iptvCarregandoRodando) { desenharTexto(p, "Buscando a lista de canais...", 24, 50, 100, 0xFFFFE08A); desenharTexto(p, "O volta", 20, 50, 1040, 0xFF8A96A3); return; }
+    static const char* nomeTipo[3] = { "Ao vivo", "Filmes", "Series" };
+    if (iptvCarregandoRodando) { desenharTexto(p, "Buscando...", 24, 50, 100, 0xFFFFE08A); desenharTexto(p, "O volta", 20, 50, 1040, 0xFF8A96A3); return; }
+    char filtros[60]; iptvDescreverFiltros(filtros, sizeof(filtros));
+    char aba[220]; snprintf(aba, sizeof(aba), "%s   [ %s ]%s%s   L2/R2 troca", iptvPerfis[iptvEditando].nome, nomeTipo[iptvTipoAtual], iptvSoFavoritos ? "   [so favoritos]" : "", filtros);
     if (iptvSelCategoria < 0) {
-        desenharTexto(p, iptvPerfis[iptvEditando].nome, 24, 50, 88, 0xFF8FA6BF);
+        desenharTexto(p, aba, 24, 50, 88, 0xFF8FA6BF);
         if (iptvErro[0]) desenharTexto(p, iptvErro, 22, 50, 120, 0xFFFF8A80);
         else if (iptvAviso[0]) desenharTexto(p, iptvAviso, 22, 50, 120, 0xFF8FC8FF);
+        auto contaFiltrado = [](int i) -> bool {
+            if (iptvCanais[i].tipo != iptvTipoAtual) return false;
+            if (!iptvPassaFiltros(i)) return false;
+            if (!iptvSoFavoritos) return true;
+            char chave[700]; iptvChaveFavorito(&iptvCanais[i], chave, sizeof(chave)); return iptvEhFavorito(chave);
+        };
+        int totalDaAba = 0; for (int i = 0; i < iptvTotalCanais; i++) if (contaFiltrado(i)) totalDaAba++;
+        // "Todos" conta como o item 0, cada categoria é item i+1: a janela rola para acompanhar
+        // iptvSelCanal (sem isso, descer passava da tela e não tinha como ver o item selecionado).
+        int totalItensCat = iptvTotalCategorias + 1;
+        int visCat = 15;
+        if (iptvSelCanal < iptvOffCategoria) iptvOffCategoria = iptvSelCanal;
+        if (iptvSelCanal >= iptvOffCategoria + visCat) iptvOffCategoria = iptvSelCanal - visCat + 1;
         int y = 170;
-        bool selTudo = iptvSelCanal == 0;
-        if (selTudo) telaRet(p, 40, y - 8, 1100, 48, 0xFF24456B);
-        char l0[60]; snprintf(l0, sizeof(l0), "Todos os canais (%d)", iptvTotalCanais);
-        desenharTexto(p, l0, 26, 60, y, selTudo ? 0xFFFFFFFF : 0xFF8FC8FF); y += 56;
-        for (int i = 0; i < iptvTotalCategorias; i++, y += 56) {
-            bool sel = iptvSelCanal == i + 1;
+        for (int item = iptvOffCategoria; item < totalItensCat && item < iptvOffCategoria + visCat; item++, y += 56) {
+            bool sel = iptvSelCanal == item;
             if (sel) telaRet(p, 40, y - 8, 1100, 48, 0xFF24456B);
-            int qtd = 0; for (int k = 0; k < iptvTotalCanais; k++) if (!strcmp(iptvCanais[k].grupo, iptvCategorias[i])) qtd++;
-            char l[90]; snprintf(l, sizeof(l), "%s (%d)", iptvCategorias[i], qtd);
-            desenharTexto(p, l, 26, 60, y, sel ? 0xFFFFFFFF : 0xFFC0CCD8);
+            if (item == 0) {
+                char l0[60]; snprintf(l0, sizeof(l0), "Todos (%d)", totalDaAba);
+                desenharTexto(p, l0, 26, 60, y, sel ? 0xFFFFFFFF : 0xFF8FC8FF);
+            }
+            else {
+                int i = item - 1;
+                int qtd = 0; for (int k = 0; k < iptvTotalCanais; k++) if (contaFiltrado(k) && !strcmp(iptvCanais[k].grupo, iptvCategorias[i])) qtd++;
+                char l[90]; snprintf(l, sizeof(l), "%s (%d)", iptvCategorias[i], qtd);
+                desenharTexto(p, l, 26, 60, y, sel ? 0xFFFFFFFF : 0xFFC0CCD8);
+            }
         }
-        desenharTexto(p, "X entra   Triangulo atualiza a lista   O volta", 20, 50, 1040, 0xFF8A96A3);
+        if (!totalDaAba && !iptvTotalCategorias) desenharTexto(p, iptvSoFavoritos ? "(nenhum favorito nesta aba)" : "(nada aqui ainda nesta aba)", 22, 60, 170, 0xFF8A96A3);
+        desenharTexto(p, "X entra   Triangulo atualiza   Quadrado so favoritos   R1 pais   L1 HD/SD   L2/R2 troca aba   O volta", 20, 50, 1040, 0xFF8A96A3);
         return;
     }
     int ids[IPTV_MAX_CANAIS]; int total = 0;
     const char* catNome = iptvSelCategoria == 0 ? NULL : iptvCategorias[iptvSelCategoria - 1];
     for (int i = 0; i < iptvTotalCanais && total < IPTV_MAX_CANAIS; i++) {
+        if (iptvCanais[i].tipo != iptvTipoAtual) continue;
         if (catNome && strcmp(iptvCanais[i].grupo, catNome)) continue;
-        if (iptvFiltro[0] && !iptvContemSemCase(iptvCanais[i].nome, iptvFiltro)) continue;
+        if (iptvFiltro[0] && !iptvContemSemCase(iptvCanais[i].nome, iptvFiltro) && !iptvContemSemCase(iptvCanais[i].tvgId, iptvFiltro)) continue;
+        if (iptvSoFavoritos) { char chave[700]; iptvChaveFavorito(&iptvCanais[i], chave, sizeof(chave)); if (!iptvEhFavorito(chave)) continue; }
+        if (!iptvPassaFiltros(i)) continue;
         ids[total++] = i;
     }
-    char cab[120]; snprintf(cab, sizeof(cab), "%s%s%s  -  %d canal(is)", catNome ? catNome : "Todos", iptvFiltro[0] ? "  -  busca: " : "", iptvFiltro, total);
+    char cab[220]; snprintf(cab, sizeof(cab), "%s  -  %s%s%s  -  %d item(ns)%s", nomeTipo[iptvTipoAtual], catNome ? catNome : "Todos", iptvFiltro[0] ? "  -  busca: " : "", iptvFiltro, total, filtros);
     desenharTexto(p, cab, 22, 50, 88, 0xFF8FA6BF);
+    if (iptvErro[0]) desenharTexto(p, iptvErro, 22, 50, 1000, 0xFFFF8A80);
     if (iptvSelCanal >= total && total > 0) iptvSelCanal = total - 1;
     int visiveis = 15;
     if (iptvSelCanal < iptvOffCanal) iptvOffCanal = iptvSelCanal;
@@ -930,9 +1378,11 @@ void iptvRenderizar(uint32_t* p) {
     for (int i = iptvOffCanal; i < total && i < iptvOffCanal + visiveis; i++, y += 56) {
         bool sel = i == iptvSelCanal;
         if (sel) telaRet(p, 40, y - 8, 1260, 48, 0xFF24456B);
-        char l[110]; snprintf(l, sizeof(l), "%s", iptvCanais[ids[i]].nome);
-        desenharTexto(p, l, 25, 60, y, sel ? 0xFFFFFFFF : 0xFFC0CCD8);
+        char chave[700]; iptvChaveFavorito(&iptvCanais[ids[i]], chave, sizeof(chave));
+        char l[115]; snprintf(l, sizeof(l), "%s%s", iptvEhFavorito(chave) ? "* " : "", iptvCanais[ids[i]].nome);
+        desenharTexto(p, l, 25, 60, y, sel ? 0xFFFFFFFF : (iptvEhFavorito(chave) ? 0xFFFFD54F : 0xFFC0CCD8));
     }
-    if (!total) desenharTexto(p, "Nenhum canal encontrado.", 24, 60, 170, 0xFF8A96A3);
-    desenharTexto(p, "X toca   Quadrado busca por nome   L1/R1 pula 10   O volta as categorias", 20, 50, 1040, 0xFF8A96A3);
+    if (!total) desenharTexto(p, "Nada encontrado.", 24, 60, 170, 0xFF8A96A3);
+    desenharTexto(p, iptvTipoAtual == 2 ? "X abre os episodios   Triangulo favorito   Quadrado busca   L1/R1 pula 10   O volta" : "X toca   Triangulo favorito   Quadrado busca (nome/pais)   L1/R1 pula 10   O volta",
+        20, 50, 1040, 0xFF8A96A3);
 }

@@ -177,6 +177,14 @@ void videoDefinirOpcoesHttpIptv(const char* userAgent, bool timeoutOn, const cha
     videoHttpTimeoutPendente = timeoutOn;
     snprintf(videoHttpProxyPendente, sizeof(videoHttpProxyPendente), "%s", proxy ? proxy : "");
 }
+// Prazo para ABRIR um vídeo de rede (IPTV): a abertura roda na thread da tela, então um canal
+// fora do ar, bloqueado ou num formato que o leitor não entende travava o app sem mensagem.
+// Vale só durante avformat_open_input/find_stream_info; depois volta a 0 (sem prazo), para não
+// interferir na reprodução. Vídeo local e do Telegram não usam prazo.
+#define PRAZO_ABERTURA_REDE_US 20000000ULL
+static volatile uint64_t prazoAberturaUs = 0;
+static int interromperAberturaRede(void*) { return prazoAberturaUs && sceKernelGetProcessTime() > prazoAberturaUs; }
+bool videoAberturaEstourou() { return prazoAberturaUs && sceKernelGetProcessTime() > prazoAberturaUs; }
 #define FILA_FRAMES_CAP 8
 
 #define PILHA_THREAD (2 * 1024 * 1024)
@@ -1503,15 +1511,67 @@ void iniciarVideoMP4(const char* caminho) {
         if (videoHttpProxyPendente[0]) { char prox[160]; snprintf(prox, sizeof(prox), "http://%s", videoHttpProxyPendente); av_dict_set(&opcoesAbertura, "http_proxy", prox, 0); }
     }
     videoHttpUserAgentPendente[0] = 0;
+    bool aberturaDeRede = !fluxoTelegram && (fluxoIptv != NULL || strstr(caminho, "://") != NULL);
+    uint64_t inicioAbertura = sceKernelGetProcessTime();
+    if (aberturaDeRede) {
+        logVideoInfo("ABRINDO (rede): %s", ultimo_video_tocado);
+        if (!pFormatCtx) pFormatCtx = avformat_alloc_context();
+        if (pFormatCtx) { pFormatCtx->interrupt_callback.callback = interromperAberturaRede; pFormatCtx->interrupt_callback.opaque = NULL; }
+        prazoAberturaUs = inicioAbertura + PRAZO_ABERTURA_REDE_US;
+    }
+    // IPTV: só entrega ao FFmpeg um canal que já está mandando dados (iptv.h, iptvFluxoPronto).
+    // Sondar um fluxo vazio derrubava o app (Band 403, Pluto 302, Agro Brasil sem resposta).
+    if (fluxoIptv) {
+        extern bool iptvFluxoPronto();
+        if (!iptvFluxoPronto()) {
+            bool estourou = videoAberturaEstourou();
+            prazoAberturaUs = 0;
+            if (opcoesAbertura) av_dict_free(&opcoesAbertura);
+            logVideoInfo("ERRO: nao abriu %s (%s, %.1f s)", ultimo_video_tocado, estourou ? "tempo esgotado" : "sem resposta", (sceKernelGetProcessTime() - inicioAbertura) / 1000000.0);
+            extern const char* iptvUltimoErro(); extern void iptvFecharFluxo();
+            const char* motivo = iptvUltimoErro();
+            if (motivo && motivo[0]) logVideoInfo("IPTV motivo: %s", motivo);
+            if (pFormatCtx) { pFormatCtx->pb = NULL; avformat_free_context(pFormatCtx); pFormatCtx = NULL; }
+            iptvFecharFluxo();
+            logVideoInfo("IPTV fluxo fechado");
+            bloqueio_audio_nativo = false;
+            retomarMusicaAposVideo();
+            return;
+        }
+    }
+    if (aberturaDeRede) logVideoInfo("ABRINDO (rede): sondando o formato");
     if (avformat_open_input(&pFormatCtx, (fluxoTelegram || fluxoIptv) ? "" : caminho, NULL, &opcoesAbertura) != 0) {
+        bool estourou = videoAberturaEstourou();
+        prazoAberturaUs = 0;
         if (opcoesAbertura) av_dict_free(&opcoesAbertura);
-        logVideoInfo("ERRO: nao abriu %s", ultimo_video_tocado);
+        logVideoInfo("ERRO: nao abriu %s (%s, %.1f s)", ultimo_video_tocado, estourou ? "tempo esgotado" : "recusado", (sceKernelGetProcessTime() - inicioAbertura) / 1000000.0);
+        if (fluxoIptv) {
+            extern const char* iptvUltimoErro(); extern void iptvFecharFluxo();
+            const char* motivo = iptvUltimoErro();
+            if (motivo && motivo[0]) logVideoInfo("IPTV motivo: %s", motivo);
+            logVideoInfo("IPTV fechando fluxo");
+            iptvFecharFluxo();
+            logVideoInfo("IPTV fluxo fechado");
+        }
         bloqueio_audio_nativo = false;
         retomarMusicaAposVideo();
         return;
     }
     if (opcoesAbertura) av_dict_free(&opcoesAbertura);
     avformat_find_stream_info(pFormatCtx, NULL);
+    if (aberturaDeRede) {
+        bool estourou = videoAberturaEstourou();
+        prazoAberturaUs = 0;
+        logVideoInfo("ABERTURA (rede): %.1f s%s", (sceKernelGetProcessTime() - inicioAbertura) / 1000000.0, estourou ? " - tempo esgotado" : "");
+        if (estourou) {
+            logVideoInfo("ERRO: canal nao respondeu a tempo %s", ultimo_video_tocado);
+            avformat_close_input(&pFormatCtx);
+            if (fluxoIptv) { extern void iptvFecharFluxo(); iptvFecharFluxo(); }
+            bloqueio_audio_nativo = false;
+            retomarMusicaAposVideo();
+            return;
+        }
+    }
 
     // Codec preferido (IPTV): só importa quando a fonte oferece mais de uma faixa de vídeo
     // (ex.: HLS com variantes em codecs diferentes). Sem isso, pega a primeira, como sempre foi.
