@@ -160,9 +160,13 @@ void voltarNavegacao() {
         else if (menuAtual == MENU_JOGAR_PS4) preencherMenuJogar();
         else if (menuAtual == JOGAR_XML) carregarXML("system.xml");
         else if (menuAtual == MENU_MIDIA) {
-            extern char caminhoMidiaAtual[512];
-            char pastaMidia[512]; strcpy(pastaMidia, caminhoMidiaAtual);
-            abrirPastaMidia(pastaMidia);
+            extern bool stremioAtivo(); extern void stremioRepreencher();
+            if (stremioAtivo()) stremioRepreencher();
+            else {
+                extern char caminhoMidiaAtual[512];
+                char pastaMidia[512]; strcpy(pastaMidia, caminhoMidiaAtual);
+                abrirPastaMidia(pastaMidia);
+            }
         }
         else if (menuAtual == MENU_BAIXAR) preencherMenuBaixar();
         else if (menuAtual == MENU_EDITAR) preencherMenuEditar();
@@ -437,6 +441,7 @@ void processarNavegacaoDPad(uint32_t botoes) {
 void processarControles(uint32_t botoes, int32_t uId, OrbisImeDialogSetting* imeSetting, uint16_t* imeTitle) {
     static uint32_t botoesAntigos = 0;
     globalUserId = uId;
+    { extern void stremioTick(); stremioTick(); }   // Stremio: teclado do addon e torrent esperando o começo
 
     if (processarControlesLeitor(botoes, botoesAntigos)) {
         botoesAntigos = botoes;
@@ -463,6 +468,21 @@ void processarControles(uint32_t botoes, int32_t uId, OrbisImeDialogSetting* ime
         if (editorImagemAberto) {
             extern bool editorImagemControles(uint32_t botoes, uint32_t antigos, int32_t usuario);
             editorImagemControles(botoes, botoesAntigos, uId);
+            if (botoes & ORBIS_PAD_BUTTON_CROSS) pCross = true;
+            if (botoes & ORBIS_PAD_BUTTON_CIRCLE) pCircle = true;
+            if (botoes & ORBIS_PAD_BUTTON_SQUARE) pSquare = true;
+            if (botoes & ORBIS_PAD_BUTTON_TRIANGLE) pTri = true;
+            if (botoes & ORBIS_PAD_BUTTON_L1) pL1 = true;
+            if (botoes & ORBIS_PAD_BUTTON_R1) pR1 = true;
+            if (botoes & ORBIS_PAD_BUTTON_L2) pL2 = true;
+            botoesAntigos = botoes;
+            return;
+        }
+        // Editor de vídeo aberto (network.cpp, editor_video_ui.h): idem.
+        extern bool editorVideoAberto;
+        if (editorVideoAberto) {
+            extern bool editorVideoControles(uint32_t botoes, uint32_t antigos, int32_t usuario);
+            editorVideoControles(botoes, botoesAntigos, uId);
             if (botoes & ORBIS_PAD_BUTTON_CROSS) pCross = true;
             if (botoes & ORBIS_PAD_BUTTON_CIRCLE) pCircle = true;
             if (botoes & ORBIS_PAD_BUTTON_SQUARE) pSquare = true;
@@ -825,7 +845,8 @@ void processarControles(uint32_t botoes, int32_t uId, OrbisImeDialogSetting* ime
                     handled = acaoCircle_Musicas();
                 }
                 else if (menuAtual == MENU_MIDIA) {
-                    handled = voltarPastaMidia();
+                    extern bool stremioBolinha();
+                    handled = stremioBolinha() || voltarPastaMidia();
                 }
                 else if (menuAtual == MENU_BAIXAR_RETROARCH) {
                     extern bool acaoCircle_RetroArch();
@@ -876,6 +897,14 @@ void processarControles(uint32_t botoes, int32_t uId, OrbisImeDialogSetting* ime
             else {
                 if (menuAtual == MENU_EMULADOR || menuAtual == MENU_SISTEMAS) { extern void bibliotecaTriangulo(); bibliotecaTriangulo(); }
                 else if (menuAtual == MENU_MUSICAS) acaoTriangle_Musicas();
+                else if (menuAtual == MENU_MIDIA && [](){
+                    // Triângulo troca Mídia local <-> Stremio (na raiz de Mídia, ou de volta de qualquer nível do Stremio).
+                    extern bool stremioAtivo(); extern char caminhoMidiaAtual[512];
+                    return stremioAtivo() || strcmp(caminhoMidiaAtual, "/data/HyperNeiva/midia") == 0; }()) {
+                    extern bool stremioAtivo(); extern void stremioEntrar(); extern void stremioSair();
+                    showOpcoes = false;
+                    if (stremioAtivo()) stremioSair(); else stremioEntrar();
+                }
                 else if (menuAtual == MENU_MIDIA && [](){ extern int temaMidiaBiblioteca(); return temaMidiaBiblioteca() == 4; }()) {
                     // Mídia > videos: tema da lista e capas (explorar.cpp).
                     extern void abrirOpcoesVideos();

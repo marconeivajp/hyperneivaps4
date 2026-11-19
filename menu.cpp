@@ -64,6 +64,7 @@ bool ehArquivoVideo(const char* nome) {
 }
 
 void abrirPastaMidia(const char* caminho) {
+    { extern void stremioDesligar(); stremioDesligar(); }   // a lista volta a ser a Mídia local
     memset(nomes, 0, sizeof(nomes));
     totalItens = 0;
     strcpy(caminhoMidiaAtual, caminho);

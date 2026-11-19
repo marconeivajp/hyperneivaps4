@@ -328,7 +328,17 @@ static void processarControlesTelaCheia(unsigned int btn, OrbisPadData* pData, b
             if (!cursorAtivo) { cursorAtivo = true; cursorTempo = video_time_current; cursorInicioUs = agora; }
             if (toqueX) { cursorInicioUs = agora; cursorTempo = cursorTempo + dirX * 5.0; }
             double tempoSegurado = (double)(agora - cursorInicioUs) / 1000000.0;
-            double velocidade = tempoSegurado < 0.3 ? 0.0 : tempoSegurado < 1.5 ? 20.0 : tempoSegurado < 4.0 ? 60.0 : 180.0;
+            // Acelera sem degraus: 30 s/s logo após 0,2 s e dobra a cada ~0,9 s segurado, até um teto
+            // que cresce com o filme (2 h atravessadas em ~12 s). Antes: 20/60/180 s/s em degraus,
+            // lento para pegar velocidade e sem passar de 180 s/s.
+            double teto = video_time_total > 0.0 ? video_time_total / 12.0 : 600.0;
+            if (teto < 300.0) teto = 300.0;
+            double velocidade = 0.0;
+            if (tempoSegurado >= 0.2) {
+                velocidade = 30.0;
+                for (double t = 0.2; t < tempoSegurado && velocidade < teto; t += 0.9) velocidade *= 2.0;
+                if (velocidade > teto) velocidade = teto;
+            }
             double alvo = cursorTempo + dirX * velocidade * passou;
             if (alvo < 0.0) alvo = 0.0;
             if (video_time_total > 0.0 && alvo > video_time_total) alvo = video_time_total;

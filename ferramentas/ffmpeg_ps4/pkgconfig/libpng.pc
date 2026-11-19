@@ -1,0 +1,12 @@
+prefix=C:/OpenOrbis
+exec_prefix=${prefix}
+libdir=${exec_prefix}/lib
+includedir=${prefix}/include/libpng16
+
+Name: libpng
+Description: Loads and saves PNG files
+Version: 1.6.37
+Requires: zlib
+Libs: -L${libdir} -lpng16
+Libs.private: -lz -L/opt/pacbrew/ps4/openorbis/lib -LC:/OpenOrbis/lib -lc -lclang_rt.builtins-x86_64 -lkernel -lSceLibcInternal
+Cflags: -I${includedir}

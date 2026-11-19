@@ -3923,7 +3923,12 @@ static int64_t remotoAvioSaltar(void* opaco, int64_t posicao, int origem) {
 
 // Chamadas de telegramAbrirFluxo / telegramPararFluxo / telegramFecharFluxo (extra.cpp),
 // que o player já usa para vídeo que ainda está chegando.
+// Torrent do Stremio (stremio.h, no fim deste arquivo) entra pela mesma porta: torrent://hash/arquivo.
+AVIOContext* stremioAbrirFluxo(const char* caminho);
+void stremioPararFluxo();
+void stremioFecharFluxo();
 AVIOContext* remotoAbrirFluxo(const char* caminho) {
+    { AVIOContext* torrent = stremioAbrirFluxo(caminho); if (torrent) return torrent; }
     if (strncmp(caminho, "remoto://", 9) != 0) return NULL;
     unsigned id = remotoFonteIdAtual();
     if (!id) return NULL;
@@ -3937,9 +3942,10 @@ AVIOContext* remotoAbrirFluxo(const char* caminho) {
     return remotoAvio;
 }
 
-void remotoPararFluxo() { if (remotoAvio) remotoFontePararLeitura(remotoAvioFonte); }
+void remotoPararFluxo() { stremioPararFluxo(); if (remotoAvio) remotoFontePararLeitura(remotoAvioFonte); }
 
 void remotoFecharFluxo() {
+    stremioFecharFluxo();
     if (!remotoAvio) return;
     av_freep(&remotoAvio->buffer);
     avio_context_free(&remotoAvio);
@@ -7348,6 +7354,12 @@ static void edPlatCriarPasta(const char* caminho) { mkdir(caminho, 0777); }
 #include "editor_imagem_ui.h"
 
 // =========================================================================
+// EDITOR DE VÍDEO (editor_video.h: motor e exportação MP4; editor_video_ui.h: tela estilo CapCut).
+// Usa as mesmas funções de plataforma do editor de imagem, logo acima.
+// =========================================================================
+#include "editor_video_ui.h"
+
+// =========================================================================
 // MEET (meet_ps4.h: servidor HTTPS/WebSocket; meet_tela.h: tela e PS4 participando)
 // =========================================================================
 #include "meet_ps4.h"
@@ -7357,6 +7369,11 @@ static void edPlatCriarPasta(const char* caminho) { mkdir(caminho, 0777); }
 // IPTV (iptv.h): perfis M3U/Xtream Codes, categorias, canais, EPG e reprodução
 // =========================================================================
 #include "iptv.h"
+
+// =========================================================================
+// STREMIO (stremio.h): addons, catálogos, fontes e torrent tocando enquanto baixa (em Mídia)
+// =========================================================================
+#include "stremio.h"
 
 // ---- Thread principal: abre o que chegou do celular ----
 void remotoAtender() {

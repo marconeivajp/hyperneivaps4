@@ -22,6 +22,7 @@ Baixe e extraia (`tar -xzf arquivo.tar.gz`) mantendo estes lugares:
 | `nucleos_ps4.tar.gz` | idem | Núcleos de emulador em `.prx` e os scripts de montagem |
 | `nucleos_fonte.tar.gz` | idem | Fontes dos núcleos (libretro) |
 | `vulkan_ps4.tar.gz` | idem | Testes do Vulkan para o PS4 |
+| `ffmpeg_ps4.tar.gz` | idem | FFmpeg 5.0 recompilado para o PS4 com os codificadores do editor de vídeo (MPEG-4, AAC, MP4). Receita em `ferramentas/ffmpeg_ps4` |
 
 Este repositório fica em `...\teste3\HyperNeiva-Telegram`.
 
@@ -35,11 +36,18 @@ build (`hyperneiva-ps4-build/scripts/build_pkg.ps1`) e o simulador do player de 
 ## 4. Compilar e empacotar
 
 ```powershell
-$e=@('-LC:/Users/Marco/source/repos/teste3/lt_ps4/lib','-LC:/Users/Marco/source/repos/teste3/td_ps4/lib','-lhntorrent','-ltdjsonapi','-ltdcore','-ltdapi','-ltde2e','-ltddb','-ltdsqlite','-ltdnet','-ltdactor','-ltdutils','-lssl','-lcrypto','C:/OpenOrbis/lib/libz.a')
-& "$env:USERPROFILE\.claude\skills\hyperneiva-ps4-build\scripts\build_pkg.ps1" -Versao 3.72 -NomePkg HyperNeiva_teste.pkg -Projeto <pasta deste repo> -LinkExtra $e -SemEnvio
+$f='C:/Users/Marco/source/repos/teste3/ffmpeg_ps4/instalado/lib'
+$e=@('--wrap=pthread_create','--wrap=pthread_join','--wrap=pthread_detach','--wrap=pthread_cancel',"$f/libavformat.a","$f/libavfilter.a","$f/libavcodec.a","$f/libswscale.a","$f/libswresample.a","$f/libavutil.a",'-LC:/Users/Marco/source/repos/teste3/lt_ps4/lib','-LC:/Users/Marco/source/repos/teste3/td_ps4/lib','-lhntorrent','-ltdjsonapi','-ltdcore','-ltdapi','-ltde2e','-ltddb','-ltdsqlite','-ltdnet','-ltdactor','-ltdutils','-lssl','-lcrypto','C:/OpenOrbis/lib/libz.a')
+& "$env:USERPROFILE\.claude\skills\hyperneiva-ps4-build\scripts\build_pkg.ps1" -Versao 4.21 -NomePkg HyperNeiva_teste.pkg -Projeto <pasta deste repo> -LinkExtra $e -SemEnvio
 ```
 
 Troque `C:/Users/Marco` pelo seu usuário. O PKG sai em `%TEMP%\opencode\pkg_<nome>\`.
+
+- As bibliotecas do FFmpeg de `ffmpeg_ps4` vêm antes de tudo: elas substituem as do OpenOrbis
+  (que não têm os codificadores do editor de vídeo).
+- Os quatro `--wrap=pthread_*` são obrigatórios desde a 4.21: o app reaproveita as threads
+  (`__wrap_pthread_create` e afins no começo de `video.cpp`). Sem eles o link falha por falta de
+  `__real_pthread_create`.
 
 - `build.bat` é só referência: não execute.
 - `sce_sys/param.sfo` do repositório é o oficial (MARC00001). Para testar ao lado do oficial,

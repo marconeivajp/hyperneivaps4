@@ -53,6 +53,11 @@ curl.exe --ftp-pasv --connect-timeout 10 -s -u anonymous:anonymous -o log.txt "f
 
 Logs do console valem mais que suposições: baixe antes de diagnosticar. Leitura pelo FTP é segura.
 
+- Desde novembro de 2026 o PS4 está em `192.168.1.102` (confirme se falhar).
+- O FTP do GoldHEN decifra SELF/PRX (`.prx`, `.sprx`, eboot) ao baixar e ao responder ao SIZE. O arquivo devolvido é um ELF maior e o SHA256 nunca bate. Para esses arquivos, confira os bytes enviados com `curl.exe -T arq -w '%{size_upload}' url`. Para PKG, o SHA256 baixado continua valendo.
+- No `curl.exe`, `-B` é modo ASCII, não binário: nunca use no envio.
+- Núcleos de emulador separados vão para `/data/HyperNeiva/nucleos/` (ex.: `mgba_libretro.prx`).
+
 ## Armadilhas conhecidas
 
 - `create-fself.exe` exige caminhos absolutos em `-in`, `-out` e `-eboot`.
@@ -114,3 +119,38 @@ Logs do console valem mais que suposições: baixe antes de diagnosticar. Leitur
 ## Release no GitHub (só quando pedido)
 
 `gh` não está instalado. Use a API com token vindo de `git credential fill` (`protocol=https`, `host=github.com`), sem nunca imprimir o token. Confirme tamanho e digest do asset enviado.
+
+## Antes de compilar: a pasta certa e a versão certa (3.00)
+
+- **Confira se a pasta está no HEAD.** Rode `git status --short` e `git log -1`. Em novembro de 2026 outro agente trabalhou numa cópia em `Desktop\HyperNeiva_v2.71_fonte` e commitou na branch `telegram`, porque o `.git` da cópia aponta para o mesmo worktree. A pasta `HyperNeiva-Telegram` ficou com arquivos antigos e o `git status` mostrou muitos `M` e `D`. Faça backup e `git checkout HEAD -- <arquivos>` antes de mexer, e nunca trabalhe em duas pastas ao mesmo tempo.
+- **O GP4 nasce do `pkg_2_*.gp4` de número maior.** Uma pasta sem os GP4 novos monta o PKG com a lista de arquivos antiga. Copie os GP4 junto com a pasta.
+- **`sce_sys/param.sfo` da cópia de teste é MARC00002 e nunca vai para o Git.** Se for commitado, o PKG oficial gerado do repositório instala como app de teste.
+- **O IP do PS4 muda.** Já foi 1.101, 1.103 e 1.102. Se o FTP der tempo esgotado, pergunte o IP antes de concluir que o console está desligado.
+- **Abertura lenta:** desde a 3.02, `/data/HyperNeiva/inicio_log.txt` grava o tempo de cada etapa da abertura e cada quadro que passou de meio segundo, com o menu. Baixe esse arquivo antes de chutar a causa.
+- **Heredoc do Bash troca `\n` por quebra de linha real** em código C gerado por script. Para texto com barra invertida, use Write ou Edit.
+
+## Núcleos de emulador em .prx (3.11 a 3.16)
+
+- Ficam em `C:\Users\Marco\source\repos\teste3\nucleos_ps4\`, montados com `montar_nucleo.sh nome arquivo.a [extras]`, e vão para `/data/HyperNeiva/nucleos/<nome>_libretro.prx`. A ponte (`libretro_bridge.cpp`, `bridge_nucleo_para_rom`) escolhe pelo tipo de arquivo e pela pasta.
+- Não use o `crtlib.o` do OpenOrbis: ele deixa TEXTREL (o PS4 recusa com `0x80020008`) e chama endereço 0 no `module_start`. Use `crt_nucleo.o`, `crt_alocador.o` e `crt_locale.o`, nessa ordem, antes do `.a`, com `--allow-multiple-definition`.
+- `crt_alocador.c`: o núcleo usa o malloc do app, entregue pela ponte via `hn_definir_alocador`.
+- `crt_locale.c`: a musl do OpenOrbis guarda o locale em `%fs:0-8` (TLS local-exec). Num módulo, esse endereço é do eboot. Sem a substituição, os núcleos em C++ (snes9x, desmume, stella) caíam no `retro_init`, e o DS chegou a desligar o PS4. Confira com `llvm-objdump -d` se `uselocale` e `mbrtowc` não usam `%fs`.
+- O `create-fself.exe` não grava os arquivos se a saída for para `/dev/null`, e não aceita símbolo fraco sem definição (ex.: `ZSTD_trace_*`).
+- O `.a` do gambatte, do mupen64plus, do pcsx_rearmed e do desmume (sem 2015) está incompleto: precisa ser compilado de novo a partir do código-fonte.
+- O log de etapas (`ETAPA ...` em `zip_debug_log.txt`) e o `nucleo_log.txt` mostram onde o núcleo parou.
+- **C++ para PS4 precisa de `-D__PS4__`.** O `__config` do libc++ do OpenOrbis só desliga o `__FreeBSD__` e liga as adaptações da musl e das threads do PS4 com essa definição. Sem ela, os cabeçalhos seguem o caminho do FreeBSD e o código não bate com o `libc++.a`. Os `.a` antigos de snes9x, stella e desmume caíam por isso. O `build.bat` do app também não passa `-D__PS4__`: até hoje não deu erro, mas é um risco no código C++ do app.
+- Para recompilar um núcleo a partir do fonte (pedir autorização antes de baixar), use `nucleos_ps4/compilar_fonte.sh nome pasta "defines" "includes"`. Ele lê a lista de fontes de `lista_<nome>.txt` (tirada do `Makefile.common`), não roda o Makefile e usa `-std=gnu11` e `-std=gnu++14`, porque o modo estrito esconde funções POSIX da musl. Os fontes ficam em `C:\Users\Marco\source\repos\teste3\nucleos_fonte\`.
+- **Construtores globais:** o PS4 não chama o `module_start` nem roda o `.init_array` de um `.prx` carregado pelo app. Por isso a ponte chama `hn_rodar_construtores` (via `hn_definir_alocador`). Sem isso, objetos globais do C++ (`std::map`, `std::set`) ficam zerados. Não teste isso com um `__attribute__((constructor))` que só grava uma variável: o clang resolve na compilação, e a marca sai falsa.
+- **libretro-common precisa de `-DORBIS -D__ORBIS__`** em `rthreads`, `retro_eventcount`, `features_cpu`, `rtime` e `vfs_implementation`. Sem isso o `retro_eventcount` cai no caminho FreeBSD com semáforos da musl, que não funcionam no PS4: o núcleo trava sem crash (foi o caso do angrylion no parallel-n64). Confira com `llvm-objdump -T` que não sobrou `sem_wait`.
+- **N64:** use o `parallel-n64` em software (angrylion, `HAVE_THR_AL`, interpretador, sem GL). A lista de fontes está em `lista_parallel_n64.txt`. O `libretro.c` precisa de `-DHAVE_OPENGLES2` só para os tipos do GL, e as 11 fontes de `Graphics/` usam `$(ROOT_DIR)`.
+- **Cabeçalho incluído não dispara recompilação.** O `build_pkg.ps1` só recompila um módulo quando o `.c`/`.cpp` dele muda. Mudou um `.h` incluído (ex.: `hn_7z/hn_7z_impl.h`, incluído pelo `miniz.c`)? Passe `-Modulos miniz` (ou o módulo que inclui o cabeçalho). As 3.23 e 3.24 saíram sem a mudança por causa disso. Confira com `grep -c "texto novo" teste3.elf`.
+- **JIT/dynarec no PS4 (GoldHEN):** memória no `.bss` do próprio módulo (perto do código, porque o código gerado usa deslocamentos de 32 bits) vira RWX com `sceKernelMprotect(addr, len, 7)`, em páginas de 16 KB. No parallel-n64: `-DDYNAREC -D_M_X64 -DNEW_DYNAREC=2 -DARCH_MIN_SSE2`, `new_dynarec.c`, `linkage_x64.asm` montado com `C:\msys64\usr\bin\nasm.exe -f elf64` (sem `LEADING_UNDERSCORE`) e `asm_defines_nasm.h` gerado das strings `@ASM_DEFINE` do `asm_defines.o`. Referência de como o EmuSuNi faz (GPL, só como ideia): github.com/arturofuentes1988/EmuSuNi.
+- Não rode no PC executáveis compilados de código de terceiros: o bloqueio de permissões barra, e a regra do projeto proíbe.
+
+## Threads reaproveitadas e FFmpeg próprio (4.21)
+
+- O link do app precisa de `--wrap=pthread_create`, `--wrap=pthread_join`, `--wrap=pthread_detach` e `--wrap=pthread_cancel` no `-LinkExtra`. O começo de `video.cpp` define os `__wrap_` (a seção "THREADS REAPROVEITADAS"): nenhuma thread morre, fica parada esperando a próxima tarefa. Sem os `--wrap`, o link falha.
+- Motivo: abrir um vídeo poucos segundos depois de outro fechar derrubava o app ao criar threads, sem passar pelo registrador de crash (Telegram, Stremio e IPTV; a 4.20 esperou 6 s e caiu igual). Minutos depois, abria normal.
+- Confira no binário: `ff_frame_thread_init` e `criarThread` chamam `__wrap_pthread_create`, e só os `__wrap_` chamam `pthread_create@plt`.
+- As bibliotecas do FFmpeg vêm de `C:/Users/Marco/source/repos/teste3/ffmpeg_ps4/instalado/lib` (FFmpeg 5.0 com os codificadores do editor de vídeo), antes de `-L lt_ps4/lib`. Receita em `ferramentas/ffmpeg_ps4` no repositório.
+- PKG de release (MARC00001): troque o content_id de `pkg_2_99.gp4` E do `pkg_<versão>.gp4`, se ele já existir. O script reaproveita o GP4 da versão, e na 4.21 o primeiro PKG oficial saiu MARC00002 por isso. Confira `TITLE_ID` com `pkg_extractentry 9` e `sfo_listentries`.

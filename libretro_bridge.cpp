@@ -384,7 +384,29 @@ static void hnRegistrarCrash(int sinal, void* info, void* contexto) {
                      (unsigned long long)hnBaseNucleo,
                      (unsigned long long)(hnBaseNucleo && rip >= hnBaseNucleo ? rip - hnBaseNucleo : 0));
     int fd = open("/data/HyperNeiva/zip_debug_log.txt", O_WRONLY | O_APPEND | O_CREAT, 0666);
-    if (fd >= 0) { write(fd, texto, (size_t)n); close(fd); }
+    if (fd >= 0) {
+        write(fd, texto, (size_t)n);
+        // Em qual módulo caiu: os crashes "sinal=10 rip=880db0f60" vinham sempre de uma biblioteca do
+        // sistema sem nome no log. Lista os módulos carregados agora (os do sistema entram tarde).
+        static OrbisKernelModule modulos[256];
+        static OrbisKernelModuleInfo info;
+        size_t total = 0;
+        if (sceKernelGetModuleList(modulos, 256, &total) == 0) {
+            for (size_t i = 0; i < total && i < 256; i++) {
+                memset(&info, 0, sizeof(info)); info.size = sizeof(info);
+                if (sceKernelGetModuleInfo(modulos[i], &info) != 0) continue;
+                for (uint32_t s = 0; s < info.segmentCount && s < 4; s++) {
+                    uint64_t ini = (uint64_t)(uintptr_t)info.segmentInfo[s].address, fim = ini + info.segmentInfo[s].size;
+                    bool temRip = rip >= ini && rip < fim, temEnd = endereco >= ini && endereco < fim;
+                    if (!temRip && !temEnd) continue;
+                    n = snprintf(texto, sizeof(texto), "CRASH %s em %s segmento %u +%llx\n", temRip ? "rip" : "endereco", info.name, s,
+                                 (unsigned long long)((temRip ? rip : endereco) - ini));
+                    write(fd, texto, (size_t)n);
+                }
+            }
+        }
+        close(fd);
+    }
     HnSigactionFreeBsd padrao;
     memset(&padrao, 0, sizeof(padrao));
     hnSigaction(sinal, &padrao, NULL);   // volta ao padrão e deixa o sistema fechar o app

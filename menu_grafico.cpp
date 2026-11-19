@@ -156,6 +156,8 @@ void desenharInterface(uint32_t* p) {
     {
         extern bool editorImagemAberto;
         if (editorImagemAberto) { extern void editorImagemRenderizar(uint32_t* p); editorImagemRenderizar(p); return; }
+        extern bool editorVideoAberto;
+        if (editorVideoAberto) { extern void editorVideoRenderizar(uint32_t* p); editorVideoRenderizar(p); return; }
         extern bool modelo3dAberto;
         if (modelo3dAberto) { extern void modelo3dRenderizar(uint32_t* p); modelo3dRenderizar(p); return; }
     }

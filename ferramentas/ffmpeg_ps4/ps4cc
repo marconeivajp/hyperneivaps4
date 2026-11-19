@@ -1,0 +1,36 @@
+#!/bin/bash
+# Compilador do PS4 para o configure do FFmpeg (MSYS2): clang com o alvo do OpenOrbis.
+# Compilar (-c, -E, -S): clang direto. Ligar (programas de teste do configure): compila os .c e
+# chama o ld.lld como o build.bat do app (crt1.o, link.x, -lc -lkernel ...). O resultado não roda
+# no PC; o configure só precisa saber se liga.
+CLANG="/c/Program Files/LLVM/bin/clang.exe"
+LLD="/c/Program Files/LLVM/bin/ld.lld.exe"
+BASE=(--target=x86_64-pc-freebsd12-elf -fPIC -funwind-tables -march=btver2 -isystem C:/Users/Marco/source/repos/teste3/ffmpeg_ps4/include_extra -isystem C:/OpenOrbis/include -Wno-unused-command-line-argument)
+
+compila=0
+for a in "$@"; do case "$a" in -c|-E|-S|-M|-MM) compila=1;; esac; done
+if [ $compila = 1 ]; then
+    args=(); for a in "$@"; do [ "$a" = "-pthread" ] && continue; args+=("$a"); done
+    exec "$CLANG" "${BASE[@]}" "${args[@]}"
+fi
+
+saida="a.out"; objs=(); libs=(); dirs=(); flags=(); proximo=""
+tmp=$(mktemp -d)
+for a in "$@"; do
+    if [ "$proximo" = "o" ]; then saida="$a"; proximo=""; continue; fi
+    case "$a" in
+        -o) proximo="o";;
+        -o*) saida="${a#-o}";;
+        -lz) libs+=("C:/OpenOrbis/lib/libz.a");;   # o -lz do SDK pega um libz sem as funções
+        -l*) libs+=("$a");;
+        -L*) dirs+=("$a");;
+        -pthread|-Wl,*|-shared|-static|-rdynamic) ;;
+        *.c|*.S|*.s|*.cpp) o="$tmp/$(basename "$a").o"; "$CLANG" "${BASE[@]}" "${flags[@]}" -c "$a" -o "$o" || { rm -rf "$tmp"; exit 1; }; objs+=("$o");;
+        *.o|*.a) objs+=("$a");;
+        *) flags+=("$a");;
+    esac
+done
+"$LLD" -m elf_x86_64 -pie --script C:/OpenOrbis/link.x --eh-frame-hdr --allow-multiple-definition -o "$saida" "-LC:/OpenOrbis/lib" "${dirs[@]}" C:/OpenOrbis/lib/crt1.o "${objs[@]}" --start-group "${libs[@]}" -lpng16 C:/OpenOrbis/lib/libz.a -lbz2 -lc -lm -lkernel -lSceSysmodule -lScePosix --end-group
+r=$?
+rm -rf "$tmp"
+exit $r

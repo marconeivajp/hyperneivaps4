@@ -56,6 +56,8 @@ static char iptvSerieNome[96] = "";
 static char iptvCategorias[IPTV_MAX_CATEGORIAS][64];
 static int iptvTotalCategorias = 0;
 static char iptvErro[200] = "";
+// User-Agent pedido por quem abriu o vídeo fora do IPTV (Stremio: alguns servidores recusam o do app).
+static char iptvUaForcado[200] = "";
 static char iptvAviso[200] = "";
 // Canal/perfil que está (ou acabou de ser pedido para) tocar — o leitor https/HLS usa isso
 // para saber o User-Agent/tipo a aplicar quando video.cpp chamar iptvAbrirFluxo().
@@ -810,7 +812,7 @@ AVIOContext* iptvAbrirFluxo(const char* caminho) {
     memset(&iptvFluxoAtual, 0, sizeof(iptvFluxoAtual));
     IptvFluxo* f = &iptvFluxoAtual;
     snprintf(f->url, sizeof(f->url), "%s", caminho);
-    const char* ua = (iptvPerfilAbertoP && iptvCanalAbertoIdx >= 0) ? iptvPerfilAbertoP->userAgent : IPTV_UA_PADRAO;
+    const char* ua = iptvUaForcado[0] ? iptvUaForcado : (iptvPerfilAbertoP && iptvCanalAbertoIdx >= 0) ? iptvPerfilAbertoP->userAgent : IPTV_UA_PADRAO;
     snprintf(f->userAgent, sizeof(f->userAgent), "%s", ua[0] ? ua : IPTV_UA_PADRAO);
     f->hls = hls; f->emUso = true; f->req = f->conn = f->tpl = -1; f->ultimaSeqVista = -1;
     uint8_t* memoria = (uint8_t*)av_malloc(65536);
@@ -1042,6 +1044,14 @@ void iptvPararEpg() { iptvEpgPedidoCanal = -1; iptvEpgTexto[0] = 0; }
 // O motor de vídeo não devolve erro: se depois de abrir ele não está rodando, o canal falhou
 // (fora do ar, bloqueado no país, formato sem suporte ou demorou mais de 20 s). Antes a tela
 // continuava dizendo "IPTV: nome" como se estivesse tocando.
+// Antes de abrir um canal: o vídeo tem prioridade sobre as imagens guardadas do Telegram (até
+// 56 MB; o AgroCanal caiu ao montar o player com 100 MB livres), e o registrador de crash passa
+// a valer também sem o Telegram aberto (grava "CRASH sinal=..." em zip_debug_log.txt).
+static void iptvAntesDoVideo() {
+    extern void telegramLiberarMemoriaParaVideo(); extern void hnInstalarRegistradorCrashApp();
+    hnInstalarRegistradorCrashApp();
+    telegramLiberarMemoriaParaVideo();
+}
 static void iptvAvisarSeNaoAbriu(const char* nome) {
     extern bool videoRodando;
     if (videoRodando) { snprintf(msgStatus, sizeof(msgStatus), "IPTV: %.100s", nome); msgTimer = 180; return; }
@@ -1062,9 +1072,10 @@ static void iptvAbrirCanal(int idx) {
     videoDefinirCacheRedeIptv(bytes);
     videoDefinirCodecPreferidoIptv(p->codecPref);
     videoDefinirOpcoesHttpIptv(p->userAgent[0] ? p->userAgent : IPTV_UA_PADRAO, p->timeoutRede, p->proxy);
-    iptvCanalAbertoIdx = idx; iptvPerfilAbertoP = p;
+    iptvCanalAbertoIdx = idx; iptvPerfilAbertoP = p; iptvUaForcado[0] = 0;
     snprintf(iptvNomeCanalAberto, sizeof(iptvNomeCanalAberto), "%s", c->nome);
     iptvErro[0] = 0;
+    iptvAntesDoVideo();
     iniciarVideoMP4(c->url);
     iptvAvisarSeNaoAbriu(c->nome);
     conquistaGanhar("iptv");
@@ -1241,6 +1252,7 @@ bool iptvControles(uint32_t botoes, uint32_t antigos, int32_t usuario) {
                 videoDefinirCacheRedeIptv(bytes); videoDefinirCodecPreferidoIptv(p->codecPref);
                 videoDefinirOpcoesHttpIptv(p->userAgent[0] ? p->userAgent : IPTV_UA_PADRAO, p->timeoutRede, p->proxy);
                 iptvErro[0] = 0;
+                iptvAntesDoVideo(); iptvUaForcado[0] = 0;
                 iniciarVideoMP4(iptvEpisodios[iptvSelCanal].url);
                 iptvAvisarSeNaoAbriu(iptvEpisodios[iptvSelCanal].nome);
                 conquistaGanhar("iptv");

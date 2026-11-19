@@ -478,6 +478,7 @@ void acaoCross_Root() {
     }
 
     else if (menuAtual == MENU_MIDIA) {
+        { extern bool stremioAtivo(); extern void stremioX(); if (stremioAtivo()) { stremioX(); return; } }
         if (strcmp(nomes[sel], "Radio & Podcast") == 0) {
             extern void preencherMenuRadioCategorias();
             preencherMenuRadioCategorias();

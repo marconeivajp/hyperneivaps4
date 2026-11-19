@@ -198,6 +198,215 @@ bool videoAberturaEstourou() { return prazoAberturaUs && sceKernelGetProcessTime
 // mesmo à memória, senão o otimizador (LTO) pode mantê-las fixas dentro do laço da thread.
 template <typename T>
 static inline T lerCompartilhado(const T& valor) { return *(const volatile T*)&valor; }
+// Quando as threads do último vídeo terminaram (pararVideo). O Telegram consulta para a troca.
+uint64_t videoFimUs = 0;
+
+#ifndef _WIN32   // só no PS4: o link do build_pkg passa --wrap para estas quatro funções
+// ==========================================
+// THREADS REAPROVEITADAS (ld.lld --wrap=pthread_create,pthread_join,pthread_detach,pthread_cancel)
+// ==========================================
+// Logs de 18/11: o app caía sem passar pelo registrador de crash sempre que um vídeo abria poucos
+// segundos depois de outro fechar (troca de episódio do Telegram, Stremio, IPTV), ao criar threads
+// (as do FFmpeg ou as do player). A sonda da 4.18 (criar e juntar 5 threads) e a abertura em thread
+// auxiliar da 4.11 caíram do mesmo jeito; minutos depois, abria normal. Esperar 6 s não bastou.
+// Aqui nenhuma thread morre: a função terminou, a thread fica parada esperando a próxima tarefa, e
+// um pthread_create seguinte reaproveita. pthread_self() dentro da tarefa devolve o mesmo valor que
+// o pthread_create entregou.
+#include <pthread.h>
+#include <string.h>
+#include <stdint.h>
+
+extern "C" {
+int __real_pthread_create(pthread_t*, const pthread_attr_t*, void* (*)(void*), void*);
+int __real_pthread_join(pthread_t, void**);
+int __real_pthread_detach(pthread_t);
+int __real_pthread_cancel(pthread_t);
+}
+#ifndef HN_POOL_PC
+extern "C" int hnPoolGetprio(pthread_t, int*) __asm__("scePthreadGetprio");
+extern "C" int hnPoolSetprio(pthread_t, int) __asm__("scePthreadSetprio");
+extern "C" int hnPoolGetafin(pthread_t, uint64_t*) __asm__("scePthreadGetaffinity");
+extern "C" int hnPoolSetafin(pthread_t, uint64_t) __asm__("scePthreadSetaffinity");
+#endif
+
+enum { HN_T_LIVRE = 0, HN_T_OCUPADA, HN_T_ACABOU, HN_T_MORTA };
+struct HnTrabalhadora {
+    pthread_t real;
+    pthread_mutex_t m;
+    pthread_cond_t c;
+    void* (*funcao)(void*);
+    void* arg;
+    void* retorno;
+    volatile int estado;
+    bool solta;        // detach: ninguém vai juntar, volta a ficar livre sozinha
+    bool cancelada;    // pthread_cancel: a thread morre de verdade (só o UDP do FFmpeg faz isso)
+    size_t pilha;
+};
+#define HN_MAX_TRABALHADORAS 160
+static HnTrabalhadora hnTrab[HN_MAX_TRABALHADORAS];
+static volatile int hnTotalTrab = 0;
+static pthread_mutex_t hnPoolTrava = PTHREAD_MUTEX_INITIALIZER;
+static volatile unsigned hnPoolCriadas = 0, hnPoolReusos = 0, hnPoolDiretas = 0;
+
+static void* hnTrabLaco(void* p) {
+    HnTrabalhadora* t = (HnTrabalhadora*)p;
+#ifndef HN_POOL_PC
+    int prio = -1; uint64_t afin = 0;
+    bool temPrio = hnPoolGetprio(pthread_self(), &prio) == 0;
+    bool temAfin = hnPoolGetafin(pthread_self(), &afin) == 0;
+#endif
+    int velho;
+    pthread_mutex_lock(&t->m);
+    for (;;) {
+        // Parada, ninguém pode cancelar (cond_wait é ponto de cancelamento).
+        pthread_setcancelstate(PTHREAD_CANCEL_DISABLE, &velho);
+        while (t->estado != HN_T_OCUPADA) pthread_cond_wait(&t->c, &t->m);
+        void* (*funcao)(void*) = t->funcao;
+        void* arg = t->arg;
+        pthread_mutex_unlock(&t->m);
+        pthread_setcancelstate(PTHREAD_CANCEL_ENABLE, &velho);
+        void* r = funcao(arg);
+        pthread_setcancelstate(PTHREAD_CANCEL_DISABLE, &velho);
+#ifndef HN_POOL_PC
+        // A tarefa pode ter mudado a prioridade (apresentador 400, som 300) ou os núcleos.
+        if (temPrio) hnPoolSetprio(pthread_self(), prio);
+        if (temAfin) hnPoolSetafin(pthread_self(), afin);
+#endif
+        pthread_mutex_lock(&t->m);
+        t->retorno = r;
+        if (t->solta) { t->solta = false; t->estado = HN_T_LIVRE; }
+        else t->estado = HN_T_ACABOU;
+        pthread_cond_broadcast(&t->c);
+    }
+    return NULL;
+}
+
+static HnTrabalhadora* hnAcharTrab(pthread_t h) {
+    int n = hnTotalTrab;
+    for (int i = 0; i < n; i++) if (hnTrab[i].estado != HN_T_MORTA && pthread_equal(hnTrab[i].real, h)) return &hnTrab[i];
+    return NULL;
+}
+
+static size_t hnPilhaPadrao() {
+    static size_t padrao = 0;
+    if (!padrao) {
+        pthread_attr_t a; pthread_attr_init(&a);
+        if (pthread_attr_getstacksize(&a, &padrao) != 0 || padrao == 0) padrao = 64 * 1024;
+        pthread_attr_destroy(&a);
+    }
+    return padrao;
+}
+
+extern "C" int __wrap_pthread_create(pthread_t* thr, const pthread_attr_t* attr, void* (*funcao)(void*), void* arg) {
+    size_t pilha = hnPilhaPadrao();
+    int desligada = PTHREAD_CREATE_JOINABLE;
+    if (attr) {
+        size_t s = 0;
+        if (pthread_attr_getstacksize(attr, &s) == 0 && s > 0) pilha = s;
+        pthread_attr_getdetachstate(attr, &desligada);
+    }
+    pthread_mutex_lock(&hnPoolTrava);
+    // Reaproveita a parada com a menor pilha que serve.
+    HnTrabalhadora* t = NULL;
+    for (int i = 0; i < hnTotalTrab; i++) {
+        HnTrabalhadora* c = &hnTrab[i];
+        if (c->estado != HN_T_LIVRE || c->pilha < pilha) continue;
+        if (!t || c->pilha < t->pilha) t = c;
+    }
+    if (t) {
+        pthread_mutex_lock(&t->m);
+        t->funcao = funcao; t->arg = arg; t->retorno = NULL;
+        t->solta = desligada == PTHREAD_CREATE_DETACHED; t->cancelada = false;
+        t->estado = HN_T_OCUPADA;
+        *thr = t->real;
+        pthread_cond_broadcast(&t->c);
+        pthread_mutex_unlock(&t->m);
+        hnPoolReusos++;
+        pthread_mutex_unlock(&hnPoolTrava);
+        return 0;
+    }
+    // Vaga de uma que morreu (cancelada) ou uma nova.
+    for (int i = 0; i < hnTotalTrab && !t; i++) if (hnTrab[i].estado == HN_T_MORTA) t = &hnTrab[i];
+    bool nova = !t && hnTotalTrab < HN_MAX_TRABALHADORAS;
+    if (nova) t = &hnTrab[hnTotalTrab];
+    if (!t) {
+        // Tabela cheia: thread comum, como antes.
+        pthread_mutex_unlock(&hnPoolTrava);
+        hnPoolDiretas++;
+        return __real_pthread_create(thr, attr, funcao, arg);
+    }
+    if (nova) { pthread_mutex_init(&t->m, NULL); pthread_cond_init(&t->c, NULL); }
+    t->funcao = funcao; t->arg = arg; t->retorno = NULL;
+    t->solta = desligada == PTHREAD_CREATE_DETACHED; t->cancelada = false;
+    t->pilha = pilha;
+    t->estado = HN_T_OCUPADA;
+    pthread_attr_t a; pthread_attr_init(&a);
+    pthread_attr_setstacksize(&a, pilha);
+    int r = __real_pthread_create(&t->real, &a, hnTrabLaco, t);
+    pthread_attr_destroy(&a);
+    if (r != 0) {
+        t->estado = HN_T_MORTA;
+        pthread_mutex_unlock(&hnPoolTrava);
+        return r;
+    }
+    if (nova) hnTotalTrab = hnTotalTrab + 1;
+    *thr = t->real;
+    hnPoolCriadas++;
+    pthread_mutex_unlock(&hnPoolTrava);
+    return 0;
+}
+
+extern "C" int __wrap_pthread_join(pthread_t h, void** retorno) {
+    pthread_mutex_lock(&hnPoolTrava);
+    HnTrabalhadora* t = hnAcharTrab(h);
+    pthread_mutex_unlock(&hnPoolTrava);
+    if (!t) return __real_pthread_join(h, retorno);
+    pthread_mutex_lock(&t->m);
+    while (t->estado == HN_T_OCUPADA && !t->cancelada) pthread_cond_wait(&t->c, &t->m);
+    if (t->cancelada && t->estado == HN_T_OCUPADA) {
+        pthread_mutex_unlock(&t->m);
+        int r = __real_pthread_join(h, retorno);
+        pthread_mutex_lock(&hnPoolTrava);
+        t->estado = HN_T_MORTA;
+        pthread_mutex_unlock(&hnPoolTrava);
+        return r;
+    }
+    if (retorno) *retorno = t->retorno;
+    t->estado = HN_T_LIVRE;
+    pthread_mutex_unlock(&t->m);
+    return 0;
+}
+
+extern "C" int __wrap_pthread_detach(pthread_t h) {
+    pthread_mutex_lock(&hnPoolTrava);
+    HnTrabalhadora* t = hnAcharTrab(h);
+    pthread_mutex_unlock(&hnPoolTrava);
+    if (!t) return __real_pthread_detach(h);
+    pthread_mutex_lock(&t->m);
+    if (t->estado == HN_T_ACABOU) t->estado = HN_T_LIVRE;
+    else if (t->estado == HN_T_OCUPADA) t->solta = true;
+    pthread_mutex_unlock(&t->m);
+    return 0;
+}
+
+extern "C" int __wrap_pthread_cancel(pthread_t h) {
+    pthread_mutex_lock(&hnPoolTrava);
+    HnTrabalhadora* t = hnAcharTrab(h);
+    pthread_mutex_unlock(&hnPoolTrava);
+    if (t) {
+        pthread_mutex_lock(&t->m);
+        if (t->estado != HN_T_OCUPADA) { pthread_mutex_unlock(&t->m); return 0; }
+        t->cancelada = true;
+        pthread_mutex_unlock(&t->m);
+    }
+    return __real_pthread_cancel(h);
+}
+
+// Para o log: quantas threads existem e quantas vezes uma foi reaproveitada.
+void hnPoolInfo(int* total, unsigned* criadas, unsigned* reusos, unsigned* diretas) {
+    *total = hnTotalTrab; *criadas = hnPoolCriadas; *reusos = hnPoolReusos; *diretas = hnPoolDiretas;
+}
+#endif
 
 static AVFormatContext* pFormatCtx = NULL;
 static AVCodecContext* pCodecCtx = NULL, * aCodecCtx = NULL;
@@ -1342,6 +1551,7 @@ void pararVideo() {
     liberarRecursosVideo();
     telegramFecharFluxo();
     iptvFecharFluxo();
+    videoFimUs = sceKernelGetProcessTime();
 
     videoRodando = false; video_minimizado = false;
     bloqueio_audio_nativo = false;
@@ -1364,10 +1574,14 @@ void retomarVideoAposTela() {
     video_pausado_por_tela = false;
 }
 
+static bool videoForcarUmaThread = false;   // iniciarVideoMP4: memória entre 100 e 125 MB
+static bool decodificadorTravou = false;   // reservado: a abertura com prazo em outra thread (4.11) derrubava o app
+
 static bool abrirDecodificadorVideo() {
     AVStream* stream = pFormatCtx->streams[videoStream];
     const AVCodec* codec = avcodec_find_decoder(stream->codecpar->codec_id);
     if (!codec) return false;
+    decodificadorTravou = false;
 
     int largura = stream->codecpar->width, altura = stream->codecpar->height;
     int threads = (int64_t)largura * altura <= 1280 * 720 ? 4 : 5;
@@ -1376,6 +1590,11 @@ static bool abrirDecodificadorVideo() {
     {
         int livre = memoriaFlexivelMB();
         if (livre < 220 && threads > 3) { threads = 3; logVideoInfo("MEMORIA baixa (%d MB): decodificando com 3 threads", livre); }
+        // As quedas com 91 a 151 MB livres eram de um vídeo aberto logo depois de outro (threads
+        // recriadas: ver THREADS REAPROVEITADAS); com 100 MB e 3 threads também abriu. Só abaixo
+        // de 100 MB reduz.
+        if (livre < 100 && threads > 1) { threads = 1; logVideoInfo("MEMORIA critica (%d MB): decodificando com 1 thread", livre); }
+        if (videoForcarUmaThread && threads > 1) threads = 1;
     }
 
     // O decodificador roda fora do loop principal, então a latência das threads por quadro é
@@ -1389,6 +1608,8 @@ static bool abrirDecodificadorVideo() {
         pCodecCtx->thread_type = FF_THREAD_FRAME | FF_THREAD_SLICE;
         pCodecCtx->flags2 |= AV_CODEC_FLAG2_FAST;
         if (largura > 1920 || altura > 1920) pCodecCtx->lowres = 1;
+        // Aberto aqui mesmo, como até a 4.10: abrir numa thread auxiliar (4.11) fazia todo vídeo
+        // cair logo depois do INICIO VIDEO.
         if (avcodec_open2(pCodecCtx, codec, NULL) >= 0) return true;
         avcodec_free_context(&pCodecCtx);
     }
@@ -1447,7 +1668,10 @@ static void reiniciarEstadoMotor() {
     logConverterUs = 0; logComporUs = 0; logUltimoUs = 0;
 }
 
+// Motivo da última recusa do player (ex.: vídeo 4K), para quem abriu mostrar ao usuário.
+char videoMotivoRecusa[160] = "";
 void iniciarVideoMP4(const char* caminho) {
+    videoMotivoRecusa[0] = 0;
     video_repetir = true;
     video_telegram = false;
     video_legenda_altura = 0;
@@ -1461,6 +1685,44 @@ void iniciarVideoMP4(const char* caminho) {
     sceKernelUsleep(150000);
 
     if (videoRodando) pararVideo();
+
+    // A troca rápida de vídeo (episódio seguinte) caía ao criar threads: ver "THREADS
+    // REAPROVEITADAS" no começo do arquivo. Esperar 6 s não resolvia (4.20).
+#ifndef _WIN32
+    {
+        int total; unsigned criadas, reusos, diretas;
+        hnPoolInfo(&total, &criadas, &reusos, &diretas);
+        logVideoInfo("THREADS: %d no app (%u criadas, %u reaproveitadas, %u comuns); fim do video anterior ha %d ms", total, criadas, reusos, diretas,
+                     videoFimUs ? (int)((sceKernelGetProcessTime() - videoFimUs) / 1000) : -1);
+    }
+#endif
+
+    // Memória do app (flexível) baixa demais: abrir o decodificador congelava ou derrubava o app
+    // (log de 17 e 18/11: 91, 106, 107 e 118 MB livres travaram, mesmo com 2 threads; 128 MB ou
+    // mais abriram). O vídeo tem prioridade: solta tudo que o menu recarrega sozinho depois
+    // (imagens/emojis/letras do Telegram, capas, fundo dinâmico, prévias, texturas, personagem),
+    // espera um pouco a memória voltar e, com pouca, decodifica com 1 thread. Só recusa abaixo de 100 MB.
+    videoForcarUmaThread = false;
+    {
+        int antes = memoriaFlexivelMB(), livre = antes;
+        if (livre < 160) {
+            extern void telegramLiberarMemoriaParaVideo(), limparCacheGrafico(), liberarSpriteSheetParaEmu();
+            telegramLiberarMemoriaParaVideo();
+            limparCacheGrafico();
+            liberarSpriteSheetParaEmu();
+            livre = memoriaFlexivelMB();
+            for (int espera = 0; espera < 12 && livre < 125; espera++) { sceKernelUsleep(250000); livre = memoriaFlexivelMB(); }
+            logVideoInfo("MEMORIA liberada para o video: %d MB -> %d MB", antes, livre);
+        }
+        if (livre < 100) {
+            snprintf(videoMotivoRecusa, sizeof(videoMotivoRecusa), "MEMORIA BAIXA (%d MB) MESMO DEPOIS DE LIBERAR: O VIDEO NAO ABRIU PARA O APP NAO TRAVAR. FECHE E ABRA O APP.", livre);
+            logVideoInfo("ERRO: %s (%s)", videoMotivoRecusa, caminho ? caminho : "");
+            snprintf(msgStatus, sizeof(msgStatus), "%s", videoMotivoRecusa); msgTimer = 600;
+            bloqueio_audio_nativo = false;
+            retomarMusicaAposVideo();
+            return;
+        }
+    }
 
     video_pausado = false;
     video_pausado_por_tela = false;
@@ -1591,17 +1853,55 @@ void iniciarVideoMP4(const char* caminho) {
         else if (p->codec_type == AVMEDIA_TYPE_AUDIO && audioStream == -1) audioStream = i;
     }
     (void)videosEncontrados;
+    // Canal de rede: marca cada etapa até o INICIO VIDEO (o AgroCanal caiu aqui, com 100 MB livres).
+    // Com pouca memória, também para arquivo local (a troca de episódio do Telegram caiu aqui).
+    bool etapasNoLog = true;   // cada etapa da abertura no log: mostra onde parou se o app cair
+    #define ETAPA_REDE(nome) do { if (etapasNoLog) logVideoInfo("ETAPA %s: %s (livre %d MB)", aberturaDeRede ? "rede" : "arquivo", nome, memoriaFlexivelMB()); } while (0)
+    if (aberturaDeRede && videoStream >= 0) {
+        AVCodecParameters* pv = pFormatCtx->streams[videoStream]->codecpar;
+        logVideoInfo("ETAPA rede: %u faixas, video %dx%d codec %d, audio %d", pFormatCtx->nb_streams, pv->width, pv->height, (int)pv->codec_id,
+            audioStream >= 0 ? (int)pFormatCtx->streams[audioStream]->codecpar->codec_id : -1);
+    }
+    ETAPA_REDE("abrindo decodificador de video");
+
+    // 4K (maior que 1920) em codec sem decodificação reduzida (lowres): HEVC, H.264, AV1 e VP9.
+    // No PS4 por software não cabe na memória: Stremio 3840x1600 HEVC deu "ERRO DE LEITURA -12"
+    // (sem memória) e tela preta; a segunda tentativa congelou o app ao abrir o decodificador.
+    if (videoStream >= 0) {
+        AVCodecParameters* pv = pFormatCtx->streams[videoStream]->codecpar;
+        const AVCodec* dec = avcodec_find_decoder(pv->codec_id);
+        if ((pv->width > 1920 || pv->height > 1920) && (!dec || dec->max_lowres == 0)) {
+            snprintf(videoMotivoRecusa, sizeof(videoMotivoRecusa), "VIDEO %dx%d (%s): O PS4 NAO DECODIFICA 4K. ESCOLHA OUTRA FONTE (1080P)",
+                     pv->width, pv->height, dec ? dec->name : "?");
+            logVideoInfo("ERRO: %s em %s", videoMotivoRecusa, ultimo_video_tocado);
+            snprintf(msgStatus, sizeof(msgStatus), "%s", videoMotivoRecusa); msgTimer = 500;
+            liberarRecursosVideo();
+            // Solta a leitura (Telegram, Stremio, celular, IPTV) como o pararVideo faz.
+            extern void telegramFecharFluxo(), iptvFecharFluxo();
+            telegramFecharFluxo();
+            iptvFecharFluxo();
+            bloqueio_audio_nativo = false;
+            retomarMusicaAposVideo();
+            return;
+        }
+    }
 
     if (videoStream == -1 || !abrirDecodificadorVideo()) {
         logVideoInfo("ERRO: sem video decodificavel em %s", ultimo_video_tocado);
+        if (decodificadorTravou) snprintf(videoMotivoRecusa, sizeof(videoMotivoRecusa), "O DECODIFICADOR NAO RESPONDEU (POUCA MEMORIA). FECHE E ABRA O APP PARA VER ESTE VIDEO.");
+        else snprintf(videoMotivoRecusa, sizeof(videoMotivoRecusa), "FORMATO DE VIDEO SEM SUPORTE NESTE PLAYER.");
+        snprintf(msgStatus, sizeof(msgStatus), "%s", videoMotivoRecusa); msgTimer = 500;
         liberarRecursosVideo();
+        { extern void telegramFecharFluxo(), iptvFecharFluxo(); telegramFecharFluxo(); iptvFecharFluxo(); }
         bloqueio_audio_nativo = false;
         retomarMusicaAposVideo();
         return;
     }
 
+    ETAPA_REDE("decodificador de video aberto");
     if (audioStream != -1) {
         temAudio = abrirDecodificadorAudio();
+        ETAPA_REDE(temAudio ? "audio aberto" : "audio falhou");
         if (!temAudio) {
             logVideoInfo("AVISO: audio nao abriu, tocando sem som");
             if (swr_ctx) swr_free(&swr_ctx);
@@ -1614,6 +1914,7 @@ void iniciarVideoMP4(const char* caminho) {
     if (temAudio) tbAudio = pFormatCtx->streams[audioStream]->time_base;
     tempoBaseArquivo = pFormatCtx->start_time != AV_NOPTS_VALUE ? (double)pFormatCtx->start_time / AV_TIME_BASE : 0.0;
     video_time_total = pFormatCtx->duration > 0 ? (double)pFormatCtx->duration / AV_TIME_BASE : 0.0;
+    ETAPA_REDE("legendas");
     legendaAbrirVideo(pFormatCtx, ultimo_video_tocado, tempoBaseArquivo, fluxoTelegram != NULL || strstr(ultimo_video_tocado, "://") != NULL);
     ultimaLegenda = 0;
 
@@ -1628,6 +1929,7 @@ void iniciarVideoMP4(const char* caminho) {
     filaAudio.capacidade = FILA_AUDIO_CAP; filaAudio.cabeca = 0; filaAudio.cauda = 0; filaAudio.bytes = 0;
     filaVideo.itens = (EntradaPacote*)calloc(FILA_VIDEO_CAP, sizeof(EntradaPacote));
     filaAudio.itens = (EntradaPacote*)calloc(FILA_AUDIO_CAP, sizeof(EntradaPacote));
+    ETAPA_REDE("filas prontas, preparando a tela");
 
     if (!filaVideo.itens || !filaAudio.itens || !graficosPrepararApresentacao()) {
         logVideoInfo("ERRO: sem memoria para o player");
@@ -1646,10 +1948,12 @@ void iniciarVideoMP4(const char* caminho) {
         pCodecCtx->active_thread_type, temAudio ? aCodecCtx->codec->name : "nenhum");
 
     videoRodando = true;
+    logVideoInfo("ETAPA criando threads do player");
     thVideoViva = criarThread(&thVideo, threadVideo);
     if (temAudio) thAudioViva = criarThread(&thAudio, threadAudio);
     thDemuxViva = criarThread(&thDemux, threadDemux);
     thApresentadorViva = criarThread(&thApresentador, threadApresentador);
+    logVideoInfo("ETAPA threads do player criadas (livre %d MB)", memoriaFlexivelMB());
 
     if (!thVideoViva || !thDemuxViva || !thApresentadorViva || (temAudio && !thAudioViva)) {
         logVideoInfo("ERRO: nao criou as threads do player");

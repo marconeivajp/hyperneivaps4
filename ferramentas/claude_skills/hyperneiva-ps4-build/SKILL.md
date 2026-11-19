@@ -146,3 +146,11 @@ Logs do console valem mais que suposições: baixe antes de diagnosticar. Leitur
 - **Cabeçalho incluído não dispara recompilação.** O `build_pkg.ps1` só recompila um módulo quando o `.c`/`.cpp` dele muda. Mudou um `.h` incluído (ex.: `hn_7z/hn_7z_impl.h`, incluído pelo `miniz.c`)? Passe `-Modulos miniz` (ou o módulo que inclui o cabeçalho). As 3.23 e 3.24 saíram sem a mudança por causa disso. Confira com `grep -c "texto novo" teste3.elf`.
 - **JIT/dynarec no PS4 (GoldHEN):** memória no `.bss` do próprio módulo (perto do código, porque o código gerado usa deslocamentos de 32 bits) vira RWX com `sceKernelMprotect(addr, len, 7)`, em páginas de 16 KB. No parallel-n64: `-DDYNAREC -D_M_X64 -DNEW_DYNAREC=2 -DARCH_MIN_SSE2`, `new_dynarec.c`, `linkage_x64.asm` montado com `C:\msys64\usr\bin\nasm.exe -f elf64` (sem `LEADING_UNDERSCORE`) e `asm_defines_nasm.h` gerado das strings `@ASM_DEFINE` do `asm_defines.o`. Referência de como o EmuSuNi faz (GPL, só como ideia): github.com/arturofuentes1988/EmuSuNi.
 - Não rode no PC executáveis compilados de código de terceiros: o bloqueio de permissões barra, e a regra do projeto proíbe.
+
+## Threads reaproveitadas e FFmpeg próprio (4.21)
+
+- O link do app precisa de `--wrap=pthread_create`, `--wrap=pthread_join`, `--wrap=pthread_detach` e `--wrap=pthread_cancel` no `-LinkExtra`. O começo de `video.cpp` define os `__wrap_` (a seção "THREADS REAPROVEITADAS"): nenhuma thread morre, fica parada esperando a próxima tarefa. Sem os `--wrap`, o link falha.
+- Motivo: abrir um vídeo poucos segundos depois de outro fechar derrubava o app ao criar threads, sem passar pelo registrador de crash (Telegram, Stremio e IPTV; a 4.20 esperou 6 s e caiu igual). Minutos depois, abria normal.
+- Confira no binário: `ff_frame_thread_init` e `criarThread` chamam `__wrap_pthread_create`, e só os `__wrap_` chamam `pthread_create@plt`.
+- As bibliotecas do FFmpeg vêm de `C:/Users/Marco/source/repos/teste3/ffmpeg_ps4/instalado/lib` (FFmpeg 5.0 com os codificadores do editor de vídeo), antes de `-L lt_ps4/lib`. Receita em `ferramentas/ffmpeg_ps4` no repositório.
+- PKG de release (MARC00001): troque o content_id de `pkg_2_99.gp4` E do `pkg_<versão>.gp4`, se ele já existir. O script reaproveita o GP4 da versão, e na 4.21 o primeiro PKG oficial saiu MARC00002 por isso. Confira `TITLE_ID` com `pkg_extractentry 9` e `sfo_listentries`.

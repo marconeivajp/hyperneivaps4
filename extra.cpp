@@ -80,7 +80,8 @@ void preencherMenuExtra() {
     strcpy(nomes[8], "Meet (chamada de video)");
     strcpy(nomes[9], "Ferramentas (calculadora, relogio, gravador e mais)");
     strcpy(nomes[10], "IPTV (listas M3U e Xtream Codes)");
-    totalItens = 11;
+    strcpy(nomes[11], "Editor de video");
+    totalItens = 12;
     menuAtual = MENU_EXTRA;
     sel = 0;
 }
@@ -640,6 +641,10 @@ static bool tgSeletorAberto = false;
 static char tgSeletorPasta[300] = "/data";
 static TgEntrada tgSeletorItens[300];
 static int tgSeletorTotal = 0, tgSeletorSel = 0;
+// Imagem escolhida: pergunta se vai como foto (o Telegram comprime) ou como arquivo (inteira).
+static bool tgEnvioPergunta = false;
+static int tgEnvioSel = 0;
+static char tgEnvioCaminho[420], tgEnvioNome[100];
 // Gravação de áudio pelo microfone do fone ligado no controle.
 static volatile bool tgGravando = false, tgGravacaoParar = false, tgGravacaoCancelar = false;
 static volatile int tgGravacaoSegundos = 0;
@@ -1092,11 +1097,31 @@ static void tgDesenharPixels(uint32_t* p, const TgArquivo* a, int x, int y, int 
     }
 }
 
+// Tabela cheia (rolar um canal com muitas fotos enchia as 700 vagas e nada mais abria, nem
+// vídeo: "Muitos arquivos abertos"): reaproveita a vaga usada há mais tempo que não está em uso
+// (fila de downloads, vídeo tocando ou preparado, cópia, visor). Prefere as que não estão
+// baixando; a imagem volta a ser pedida se aparecer de novo na tela.
+static bool tgArquivoEmUso(int id);
+static TgArquivo* tgReaproveitarVaga() {
+    TgArquivo* melhor = NULL; bool melhorParado = false;
+    for (int i = 0; i < tgTotalArquivos; i++) {
+        TgArquivo* c = &tgArquivos[i];
+        if (tgArquivoEmUso(c->id)) continue;
+        bool parado = !(c->pedido && !c->baixado);
+        if (!melhor || (parado && !melhorParado) || (parado == melhorParado && c->uso < melhor->uso)) { melhor = c; melhorParado = parado; }
+    }
+    if (!melhor) return NULL;
+    if (melhor->pixels) {
+        tgMemoriaImagens -= (size_t)melhor->largura * melhor->altura * 4;
+        free(melhor->pixels);
+    }
+    return melhor;
+}
 static TgArquivo* tgArquivo(int id) {
     if (id <= 0) return NULL;
     for (int i = 0; i < tgTotalArquivos; i++) if (tgArquivos[i].id == id) return &tgArquivos[i];
-    if (tgTotalArquivos >= TG_MAX_ARQUIVOS) return NULL;
-    TgArquivo* a = &tgArquivos[tgTotalArquivos++];
+    TgArquivo* a = tgTotalArquivos < TG_MAX_ARQUIVOS ? &tgArquivos[tgTotalArquivos++] : tgReaproveitarVaga();
+    if (!a) return NULL;
     memset(a, 0, sizeof(*a));
     a->id = id;
     return a;
@@ -1582,7 +1607,7 @@ static void tgDesenharFila(uint32_t* p) {
         if (cheio >= 10) tgArredondado(p, x + 30, yl + 74, cheio, 10, 5, d->estado == TG_D_ERRO ? TG_COR(200, 80, 70) : TG_COR(100, 180, 240), 0, 1080);
     }
     const char* dica = "O  Fechar";
-    if (tgTotalDownloads > 0) dica = tgDownloads[tgFilaSel].estado == TG_D_BAIXANDO ? "X  Cancelar     O  Fechar" : tgDownloads[tgFilaSel].estado >= TG_D_PRONTO ? "X  Tirar da lista     O  Fechar" : "O  Fechar";
+    if (tgTotalDownloads > 0) dica = tgDownloads[tgFilaSel].estado == TG_D_BAIXANDO ? "X  Cancelar     Quadrado  Subir     Triângulo  Descer     O  Fechar" : tgDownloads[tgFilaSel].estado >= TG_D_PRONTO ? "X  Tirar da lista     Quadrado  Subir     Triângulo  Descer     O  Fechar" : "Quadrado  Subir     Triângulo  Descer     O  Fechar";
     tgEscrever(p, dica, 0, 1 << 30, 22, x + 28, y + altura - 42, TG_COR(150, 165, 180));
 }
 
@@ -1833,6 +1858,19 @@ static void tgDesenharSeletor(uint32_t* p) {
         tgEscreverCortado(p, linha, 24, x + 30, yl + 12, largura - 60, TG_COR(245, 245, 245));
     }
     tgEscrever(p, "X  Abrir pasta / Enviar arquivo     O  Voltar     Triângulo  Fechar", 0, 1 << 30, 22, x + 28, y + altura - 42, TG_COR(150, 165, 180));
+    if (tgEnvioPergunta) {
+        static const char* nomes[2] = { "Foto (o Telegram comprime, aparece na conversa)", "Arquivo (imagem inteira, sem perder qualidade)" };
+        int l2 = 900, a2 = 70 + 2 * 58 + 60, x2 = (1920 - l2) / 2, y2 = (1080 - a2) / 2;
+        tgArredondado(p, x2, y2, l2, a2, 18, TG_COR(36, 52, 68), 0, 1080);
+        char titulo[160]; snprintf(titulo, sizeof(titulo), "Enviar %.60s como:", tgEnvioNome);
+        tgEscreverCortado(p, titulo, 26, x2 + 28, y2 + 18, l2 - 56, TG_COR(255, 255, 255));
+        for (int i = 0; i < 2; i++) {
+            int linha = y2 + 70 + i * 58;
+            if (i == tgEnvioSel) tgArredondado(p, x2 + 12, linha, l2 - 24, 54, 12, TG_COR(46, 112, 165), 0, 1080);
+            tgEscrever(p, nomes[i], 0, 1 << 30, 24, x2 + 30, linha + 12, TG_COR(245, 245, 245));
+        }
+        tgEscrever(p, "X  Enviar     O  Voltar", 0, 1 << 30, 22, x2 + 28, y2 + a2 - 42, TG_COR(150, 165, 180));
+    }
 }
 
 static void tgDesenharGravacao(uint32_t* p) {
@@ -2299,7 +2337,9 @@ static void tgProcessarArquivo(const char* r) {
         snprintf(tgAviso, sizeof(tgAviso), "Baixando %s  (%s)   Options: downloads", info, tam);
     }
     if (!completo) return;
-    TgArquivo* a = tgArquivo((int)id);
+    TgArquivo* a = NULL;
+    for (int i = 0; i < tgTotalArquivos && !a; i++) if (tgArquivos[i].id == (int)id) a = &tgArquivos[i];
+    if (!a && (d || id == tgPendente)) a = tgArquivo((int)id);   // não ocupa vaga por arquivo que ninguém espera
     if (!a) return;
     if (!a->baixado) {
         tgTexto(r, NULL, "\"local\":{\"@type\":\"localFile\",\"path\":\"", a->caminho, sizeof(a->caminho));
@@ -2526,7 +2566,16 @@ static void tgProcessar(const char* r) {
         }
         tgGuardarMensagem(&m);
     }
-    else if (tgTipo(r, "updateMessageSendFailed")) strcpy(tgAviso, "Mensagem não enviada.");
+    else if (tgTipo(r, "updateMessageSendFailed")) {
+        // Mostra o motivo que o Telegram deu (antes era só "Mensagem não enviada.").
+        char motivo[120] = "";
+        const char* erro = strstr(r, "\"error\":{");
+        if (erro) tgTexto(erro, NULL, "\"message\":\"", motivo, sizeof(motivo));
+        if (!motivo[0]) tgTexto(r, NULL, "\"error_message\":\"", motivo, sizeof(motivo));
+        if (strstr(motivo, "too big") || strstr(motivo, "TOO_BIG") || strstr(motivo, "FILE_PARTS"))
+            snprintf(tgAviso, sizeof(tgAviso), "Não enviado: arquivo grande demais (limite 2 GB, ou 4 GB com Premium)");
+        else snprintf(tgAviso, sizeof(tgAviso), motivo[0] ? "Mensagem não enviada: %.110s" : "Mensagem não enviada.", motivo);
+    }
     else if (tgTipo(r, "foundChatMessages") && strstr(r, "\"@extra\":\"historico\"")) tgProcessarMensagens(r, false);
     else if (tgTipo(r, "messages")) {
         if (strstr(r, "\"@extra\":\"historico\"")) tgProcessarMensagens(r, false);
@@ -2688,7 +2737,8 @@ static void* threadImagens(void*) {
         uint32_t* pixels = tgLerImagem(caminho, &largura, &altura, limite);
 
         pthread_mutex_lock(&tgTrava);
-        TgArquivo* a = tgArquivo(id);
+        TgArquivo* a = NULL;   // só a vaga que ainda é dele: se foi reaproveitada no meio, descarta
+        for (int i = 0; i < tgTotalArquivos && !a; i++) if (tgArquivos[i].id == id) a = &tgArquivos[i];
         if (a) {
             a->quer = false;
             a->falhou = pixels == NULL;
@@ -3034,6 +3084,10 @@ static void tgLiberarMemoriaParaVideo() {
     tgSujo = true;
 }
 
+// Outros vídeos (IPTV) também têm prioridade: solta as imagens se o Telegram já foi aberto.
+static volatile bool tgTravaPronta = false;
+void telegramLiberarMemoriaParaVideo() { if (tgTravaPronta) tgLiberarMemoriaParaVideo(); }
+
 // Fora da trava: o player leva tempo para abrir e usa a thread principal.
 static void tgAbrirPendente() {
     extern void iniciarVideoMP4(const char* caminho);
@@ -3178,6 +3232,14 @@ static const TgMensagem* tgAcharVideo(int direcao) {
 
 static long long tgPreparadoMensagem = 0;
 static int tgPreparadoArquivo = 0;
+// Arquivo que não pode perder a vaga na tabela (tgReaproveitarVaga). Chamada com a trava pega.
+static bool tgArquivoEmUso(int id) {
+    if (id <= 0) return false;
+    if (id == tgVisor || id == tgVisorMini || id == tgPendente || id == tgPreparadoArquivo) return true;
+    if (tgFluxo.ativo && id == tgFluxo.arquivo) return true;
+    if (tgCopiando && id == tgCopiaArquivo) return true;
+    return tgDownload(id) != NULL;   // a fila de downloads nunca perde nada
+}
 
 static void tgCancelarPreparado() {
     if (!tgPreparadoArquivo) return;
@@ -3188,11 +3250,11 @@ static void tgCancelarPreparado() {
     tgPreparadoArquivo = 0;
 }
 
-// No último minuto baixa o começo do próximo vídeo, para ele abrir na hora da troca.
+// Nos últimos 2 minutos baixa o começo do próximo vídeo (16 MB), para ele abrir na hora da troca.
 void telegramPrepararProximo() {
     extern bool video_repetir;
     extern double video_time_current, video_time_total;
-    if (video_repetir || video_time_total <= 0 || video_time_total - video_time_current > 60.0) return;
+    if (video_repetir || video_time_total <= 0 || video_time_total - video_time_current > 120.0) return;
     pthread_mutex_lock(&tgTrava);
     if (tgVideoMensagem && tgPreparadoMensagem != tgVideoMensagem) {
         tgPreparadoMensagem = tgVideoMensagem;
@@ -3200,7 +3262,7 @@ void telegramPrepararProximo() {
         TgArquivo* a = m ? tgArquivo(m->grande) : NULL;
         if (a && !a->baixado && a->id != tgFluxo.arquivo) {
             tgPreparadoArquivo = a->id;
-            tgEnviar("{\"@type\":\"downloadFile\",\"file_id\":%d,\"priority\":8,\"offset\":0,\"limit\":4194304,\"synchronous\":false}", a->id);
+            tgEnviar("{\"@type\":\"downloadFile\",\"file_id\":%d,\"priority\":8,\"offset\":0,\"limit\":16777216,\"synchronous\":false}", a->id);
         }
     }
     pthread_mutex_unlock(&tgTrava);
@@ -3664,7 +3726,34 @@ static void tgJsonEscapar(const char* entrada, char* saida, size_t tamanho) {
     saida[n] = '\0';
 }
 
+// Envia um arquivo do PS4. Confere o tamanho antes: o Telegram aceita até 2 GB por arquivo
+// (4 GB com Premium); os .rar do God of War (4,19 e 2,41 GB) falhavam sem dizer o motivo.
+static void tgEnviarArquivoLocal(const char* caminho, const char* nome, bool comoFoto) {
+    struct stat st;
+    long long tamanho = stat(caminho, &st) == 0 ? (long long)st.st_size : -1;
+    if (tamanho > 4194304000LL) {
+        snprintf(tgAviso, sizeof(tgAviso), "%.50s tem %.2f GB: passa do limite do Telegram (4 GB com Premium). Divida em partes.", nome, tamanho / 1073741824.0);
+        return;
+    }
+    // Foto do Telegram aceita até 10 MB; maior que isso vai como arquivo.
+    if (comoFoto && tamanho > 10LL * 1024 * 1024) comoFoto = false;
+    char escapado[840];
+    tgJsonEscapar(caminho, escapado, sizeof(escapado));
+    if (comoFoto) tgEnviar("{\"@type\":\"sendMessage\",\"chat_id\":%lld,\"input_message_content\":{\"@type\":\"inputMessagePhoto\",\"photo\":{\"@type\":\"inputFileLocal\",\"path\":\"%s\"},\"width\":0,\"height\":0}}", tgAberta, escapado);
+    else tgEnviar("{\"@type\":\"sendMessage\",\"chat_id\":%lld,\"input_message_content\":{\"@type\":\"inputMessageDocument\",\"document\":{\"@type\":\"inputFileLocal\",\"path\":\"%s\"}}}", tgAberta, escapado);
+    tgSelId = 0;
+    tgSeletorAberto = false;
+    if (tamanho > 2097152000LL) snprintf(tgAviso, sizeof(tgAviso), "Enviando %.50s (%.2f GB: só vai se a conta for Premium)...", nome, tamanho / 1073741824.0);
+    else snprintf(tgAviso, sizeof(tgAviso), "Enviando %.80s%s...", nome, comoFoto ? " como foto" : "");
+}
+
 static void tgControlesSeletor(int passo, bool xis, bool bolinha, bool triangulo) {
+    if (tgEnvioPergunta) {
+        if (bolinha || triangulo) tgEnvioPergunta = false;
+        else if (passo) tgEnvioSel = 1 - tgEnvioSel;
+        else if (xis) { tgEnvioPergunta = false; tgEnviarArquivoLocal(tgEnvioCaminho, tgEnvioNome, tgEnvioSel == 0); }
+        return;
+    }
     if (triangulo) { tgSeletorAberto = false; return; }
     if (bolinha) {
         char* barra = strrchr(tgSeletorPasta, '/');
@@ -3684,12 +3773,15 @@ static void tgControlesSeletor(int passo, bool xis, bool bolinha, bool triangulo
         tgSeletorListar();
         return;
     }
-    char escapado[840];
-    tgJsonEscapar(caminho, escapado, sizeof(escapado));
-    tgEnviar("{\"@type\":\"sendMessage\",\"chat_id\":%lld,\"input_message_content\":{\"@type\":\"inputMessageDocument\",\"document\":{\"@type\":\"inputFileLocal\",\"path\":\"%s\"}}}", tgAberta, escapado);
-    tgSelId = 0;
-    tgSeletorAberto = false;
-    snprintf(tgAviso, sizeof(tgAviso), "Enviando %.80s...", e->nome);
+    const char* ponto = strrchr(e->nome, '.');
+    bool imagem = ponto && (!strcasecmp(ponto, ".jpg") || !strcasecmp(ponto, ".jpeg") || !strcasecmp(ponto, ".png") || !strcasecmp(ponto, ".webp") || !strcasecmp(ponto, ".bmp"));
+    if (imagem) {
+        snprintf(tgEnvioCaminho, sizeof(tgEnvioCaminho), "%s", caminho);
+        snprintf(tgEnvioNome, sizeof(tgEnvioNome), "%s", e->nome);
+        tgEnvioSel = 0; tgEnvioPergunta = true;
+        return;
+    }
+    tgEnviarArquivoLocal(caminho, e->nome, false);
 }
 
 // ---------- Gravar áudio: microfone a 16 kHz, Opus em OGG, enviado como mensagem de voz ----------
@@ -4044,6 +4136,17 @@ bool telegramControles(uint32_t botoes, uint32_t antigos, int32_t usuario) {
     if (tgFilaAberta) {
         if (bolinha || opcoes || aba) tgFilaAberta = false;
         else if (passo && tgTotalDownloads > 0) tgFilaSel = (tgFilaSel + passo + tgTotalDownloads) % tgTotalDownloads;
+        else if ((quadrado || triangulo) && tgTotalDownloads > 1) {
+            // Quadrado sobe, Triângulo desce: a fila começa o próximo download pela ordem da lista.
+            int outro = quadrado ? tgFilaSel - 1 : tgFilaSel + 1;
+            if (outro >= 0 && outro < tgTotalDownloads) {
+                TgDownload troca = tgDownloads[tgFilaSel];
+                tgDownloads[tgFilaSel] = tgDownloads[outro];
+                tgDownloads[outro] = troca;
+                tgFilaSel = outro;
+                tgSalvarFila();
+            }
+        }
         else if (xis && tgTotalDownloads > 0) {
             TgDownload* d = &tgDownloads[tgFilaSel];
             if (d->estado == TG_D_BAIXANDO) {
@@ -4304,6 +4407,7 @@ static void iniciarTelegram() {
         hnInstalarRegistradorCrashApp();
         tgLerPosicoes();
         pthread_mutex_init(&tgTrava, NULL);
+        tgTravaPronta = true;
         pthread_t t, imagens;
         if (pthread_create(&t, NULL, threadTelegram, NULL) != 0 || pthread_create(&imagens, NULL, threadImagens, NULL) != 0) { strcpy(msgStatus, "TELEGRAM: FALHA AO INICIAR"); msgTimer = 300; return; }
         pthread_detach(t);
@@ -4342,6 +4446,7 @@ void acaoCross_Extra() {
     else if (sel == 8) { extern void meetAbrirTela(); meetAbrirTela(); }
     else if (sel == 9) ferramentasAbrir();
     else if (sel == 10) { extern void iptvAbrirTela(); iptvAbrirTela(); }
+    else if (sel == 11) { extern bool editorVideoAbrir(); editorVideoAbrir(); }
 }
 
 // =======================================================
