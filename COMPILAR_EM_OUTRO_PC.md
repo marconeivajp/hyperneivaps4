@@ -22,7 +22,7 @@ Baixe e extraia (`tar -xzf arquivo.tar.gz`) mantendo estes lugares:
 | `nucleos_ps4.tar.gz` | idem | Núcleos de emulador em `.prx` e os scripts de montagem |
 | `nucleos_fonte.tar.gz` | idem | Fontes dos núcleos (libretro) |
 | `vulkan_ps4.tar.gz` | idem | Testes do Vulkan para o PS4 |
-| `ffmpeg_ps4.tar.gz` | idem | FFmpeg 5.0 recompilado para o PS4 com os codificadores do editor de vídeo (MPEG-4, AAC, MP4). Receita em `ferramentas/ffmpeg_ps4` |
+| `ffmpeg_ps4.tar.gz` | idem | FFmpeg 5.0 recompilado para o PS4 com os codificadores do editor de vídeo (MPEG-4, AAC, MP4). Fica na release [`v4.21`](https://github.com/marconeivajp/hyperneivaps4/releases/tag/v4.21), não na `dependencias-ps4`. Receita em `ferramentas/ffmpeg_ps4` |
 
 Este repositório fica em `...\teste3\HyperNeiva-Telegram`.
 
